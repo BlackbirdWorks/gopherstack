@@ -17,6 +17,7 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
 	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := rdsdata.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &rdsdatasdk.Client{}, h.GetSupportedOperations(), []string{})
 }

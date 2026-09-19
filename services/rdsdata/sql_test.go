@@ -94,6 +94,7 @@ func TestHandler_ExecuteSQL_TracksStatement(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rdsdata.NewHandler(b)
 
 	rec := doRDSDataRequest(t, h, "/ExecuteSql", map[string]any{

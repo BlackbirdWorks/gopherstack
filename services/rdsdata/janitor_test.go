@@ -43,6 +43,7 @@ func TestJanitor_SweepExpiredTransactions(t *testing.T) {
 			t.Parallel()
 
 			b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 
 			txID, err := b.BeginTransaction(t.Context(), "arn:aws:rds:us-east-1:000000000000:cluster:janitor")
 			require.NoError(t, err)
@@ -75,6 +76,7 @@ func TestJanitor_ExecuteStatement_ResetsIdleClock(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	arn := "arn:aws:rds:us-east-1:000000000000:cluster:janitor-touch"
 
@@ -101,6 +103,7 @@ func TestJanitor_NewJanitor_Defaults(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	janitor := rdsdata.NewJanitor(b, 0, 0, 0)
 
 	assert.Equal(t, time.Minute, janitor.Interval)

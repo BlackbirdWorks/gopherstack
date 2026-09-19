@@ -59,6 +59,7 @@ type sqlEngine struct {
 	baseCancel context.CancelFunc
 	nonce      string
 	mu         sync.Mutex
+	closed     bool
 }
 
 // engineSeq is a process-wide counter folded into every engine's nonce
@@ -260,6 +261,35 @@ func (e *sqlEngine) reset() {
 
 	e.baseCancel()
 	e.baseCtx, e.baseCancel = context.WithCancel(context.Background())
+}
+
+// close permanently shuts down the engine: every open resource *sql.DB and
+// its keep-alive connection are closed, and baseCtx is cancelled for the
+// last time so no in-flight transaction outlives it. Unlike reset, baseCtx
+// is not re-armed -- the engine is not usable afterward. Idempotent.
+func (e *sqlEngine) close() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.closed {
+		return
+	}
+
+	e.closed = true
+
+	for id, et := range e.txs {
+		_ = et.tx.Rollback()
+		et.cancel()
+		delete(e.txs, id)
+	}
+
+	for key, rdb := range e.dbs {
+		_ = rdb.keepAlive.Close()
+		_ = rdb.db.Close()
+		delete(e.dbs, key)
+	}
+
+	e.baseCancel()
 }
 
 // isDeadTransactionError reports whether err reflects a transaction id that

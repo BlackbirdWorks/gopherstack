@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rdsdata
 sdk_module: aws-sdk-go-v2/service/rdsdata@v1.35.4   # version audited against
-last_audit_commit: deb6c42f                          # HEAD when this pass started (working tree, uncommitted)
-last_audit_date: 2026-09-04
+last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_date: 2026-09-19
 overall: A            # every op/family field-diffed against the real SDK source this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -766,3 +766,11 @@ Gates: `go build ./...`, `go vet ./services/rdsdata/...`, `go test -race
 -count=1 ./services/rdsdata/...` (pass), `golangci-lint run
 --new-from-rev=HEAD ./services/rdsdata/...` (0 issues). No persisted
 struct fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-19 sqlEngine Close, goleak TestMain (gopherstack-1x2u0 Part 2)
+
+`sqlEngine` never closed its per-resource `*sql.DB`s outside `Reset`, leaking
+database/sql's connectionOpener per backend. Added `sqlEngine.close()` and
+`InMemoryBackend.Close()` (idempotent), wired via `Handler.Shutdown` (new
+`service.Shutdowner`), `t.Cleanup`'d across all ~62 test constructor sites,
+added `leak_main_test.go`. `go test -race -count=2` clean.

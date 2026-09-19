@@ -62,6 +62,7 @@ func setupRDSDATAEnforcementServer(t *testing.T, iamBackend *mockRDSDATAIAMBacke
 	t.Helper()
 
 	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	handler := rdsdata.NewHandler(backend)
 
 	e := echo.New()

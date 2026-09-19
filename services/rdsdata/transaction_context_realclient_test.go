@@ -80,6 +80,7 @@ func TestTransactionContext_RealClient(t *testing.T) {
 			t.Parallel()
 
 			backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(backend.Close)
 			client := newRoundTripClient(t, rdsdata.NewHandler(backend))
 
 			tt.run(t, client, backend)

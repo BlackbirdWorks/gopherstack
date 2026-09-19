@@ -19,6 +19,7 @@ func TestRDSDataRegionIsolation(t *testing.T) {
 	t.Parallel()
 
 	backend := NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 
 	ctxEast := rdsdataCtxRegion("us-east-1")
 	ctxWest := rdsdataCtxRegion("us-west-2")
@@ -102,6 +103,7 @@ func TestRDSDataDefaultRegionFallback(t *testing.T) {
 	t.Parallel()
 
 	backend := NewInMemoryBackend("000000000000", "eu-central-1")
+	t.Cleanup(backend.Close)
 
 	// No region in context → default region.
 	txID, err := backend.BeginTransaction(context.Background(), "arn")

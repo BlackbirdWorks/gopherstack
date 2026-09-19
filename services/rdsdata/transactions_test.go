@@ -274,6 +274,7 @@ func TestHandler_TransactionLifecycle(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rdsdata.NewHandler(b)
 
 	// Begin
@@ -637,6 +638,7 @@ func TestBackend_ListTransactions(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	txID, err := b.BeginTransaction(context.Background(), "arn:aws:rds:us-east-1:000000000000:cluster:test")
 	require.NoError(t, err)
@@ -650,6 +652,7 @@ func TestBackend_ListTransactions_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	txns := b.ListTransactions(context.Background())
 	assert.NotNil(t, txns)
 	assert.Empty(t, txns)
@@ -660,6 +663,7 @@ func TestBackend_CommitTransaction_StatusConstant(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	txID, err := b.BeginTransaction(context.Background(), "arn")
 	require.NoError(t, err)
@@ -674,6 +678,7 @@ func TestBackend_RollbackTransaction_StatusConstant(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	txID, err := b.BeginTransaction(context.Background(), "arn")
 	require.NoError(t, err)

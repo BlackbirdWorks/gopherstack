@@ -124,6 +124,7 @@ func TestHandler_ExecuteStatement_TracksStatement(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rdsdata.NewHandler(b)
 
 	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
@@ -711,6 +712,7 @@ func TestHandler_BatchExecuteStatement_TracksStatement(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rdsdata.NewHandler(b)
 
 	rec := doRDSDataRequest(t, h, "/BatchExecute", map[string]any{
@@ -807,6 +809,7 @@ func TestBackend_ListExecutedStatements(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	_, _, _, _, err := b.ExecuteStatement(
 		context.Background(),
@@ -826,6 +829,7 @@ func TestBackend_ListExecutedStatements_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	stmts := b.ListExecutedStatements(context.Background())
 	assert.NotNil(t, stmts)
 	assert.Empty(t, stmts)

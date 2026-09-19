@@ -103,6 +103,20 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
+// closer is satisfied by *InMemoryBackend's Close method.
+type closer interface{ Close() }
+
+// Shutdown closes the backend's SQL engine so database/sql's
+// connectionOpener goroutine does not outlive the service. Satisfies
+// service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(closer); ok {
+		c.Close()
+	}
+}
+
+var _ service.Shutdowner = (*Handler)(nil)
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "RDSData" }
 

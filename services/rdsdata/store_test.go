@@ -14,6 +14,7 @@ func TestBackend_Region(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "eu-west-1")
+	t.Cleanup(b.Close)
 	assert.Equal(t, "eu-west-1", b.Region())
 }
 
@@ -22,6 +23,7 @@ func TestBackend_AccountID(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("123456789012", "eu-west-1")
+	t.Cleanup(b.Close)
 	assert.Equal(t, "123456789012", b.AccountID())
 }
 
@@ -30,6 +32,7 @@ func TestBackend_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	_, err := b.BeginTransaction(
 		context.Background(),
@@ -56,6 +59,7 @@ func TestHandler_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rdsdata.NewHandler(b)
 
 	_, err := b.BeginTransaction(
@@ -74,6 +78,7 @@ func TestBackend_AddTransactionInternal(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddTransactionInternal("txn-seeded")
 
 	txns := b.ListTransactions(context.Background())
@@ -85,6 +90,7 @@ func TestBackend_ExecutedStatementCount(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	assert.Equal(t, 0, rdsdata.ExecutedStatementCount(b))
 
 	_, _, _, _, err := b.ExecuteStatement(context.Background(), "arn", "SELECT 1", "")
@@ -97,6 +103,7 @@ func TestBackend_TransactionCount(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	assert.Equal(t, 0, rdsdata.TransactionCount(b))
 
 	_, err := b.BeginTransaction(context.Background(), "arn")
@@ -109,6 +116,7 @@ func TestBackend_MultipleTransactions(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	tx1, err := b.BeginTransaction(context.Background(), "arn1")
 	require.NoError(t, err)
@@ -131,7 +139,10 @@ func TestBackend_MultipleTransactions(t *testing.T) {
 func TestBackend_StorageBackendInterface(t *testing.T) {
 	t.Parallel()
 
-	var b rdsdata.StorageBackend = rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
+
+	var b rdsdata.StorageBackend = backend
 	h := rdsdata.NewHandler(b)
 	assert.NotNil(t, h)
 }
@@ -141,6 +152,7 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	_, err := b.BeginTransaction(
 		context.Background(),
@@ -160,6 +172,7 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, rdsdata.TransactionCount(b2))
@@ -175,6 +188,7 @@ func TestBackend_RestoreInvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	err := b.Restore(t.Context(), []byte("not-json"))
 	require.Error(t, err)
 }
@@ -184,10 +198,12 @@ func TestBackend_SnapshotEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 0, rdsdata.TransactionCount(b2))
@@ -199,6 +215,7 @@ func TestBackend_SnapshotPreservesCounter(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	// Create 3 transactions so counter is at 3.
 	for range 3 {
@@ -210,6 +227,7 @@ func TestBackend_SnapshotPreservesCounter(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// After restore, the next transaction ID should continue from 4.
@@ -223,10 +241,12 @@ func TestBackend_SnapshotRegionAccountID(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("111111111111", "ap-southeast-1")
+	t.Cleanup(b.Close)
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, "111111111111", b2.AccountID())

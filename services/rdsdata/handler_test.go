@@ -17,8 +17,10 @@ import (
 
 func newTestHandler(t *testing.T) *rdsdata.Handler {
 	t.Helper()
+	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 
-	return rdsdata.NewHandler(rdsdata.NewInMemoryBackend("000000000000", "us-east-1"))
+	return rdsdata.NewHandler(backend)
 }
 
 func doRDSDataRequest(t *testing.T, h *rdsdata.Handler, path string, body any) *httptest.ResponseRecorder {
@@ -318,7 +320,10 @@ func TestHandler_DispatchInvalidJSON_Returns400(t *testing.T) {
 func TestHandler_StorageBackendInterface(t *testing.T) {
 	t.Parallel()
 
-	var b rdsdata.StorageBackend = rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
+
+	var b rdsdata.StorageBackend = backend
 	h := rdsdata.NewHandler(b)
 	assert.NotNil(t, h)
 }
@@ -328,6 +333,7 @@ func TestHandler_ConcurrentRequests_Race(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rdsdata.NewHandler(b)
 
 	const n = 20

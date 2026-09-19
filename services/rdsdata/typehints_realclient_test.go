@@ -49,6 +49,7 @@ func TestExecuteStatement_TypeHint_ValidAndMalformed(t *testing.T) {
 			t.Parallel()
 
 			backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(backend.Close)
 			client := newRoundTripClient(t, rdsdata.NewHandler(backend))
 
 			_, err := client.ExecuteStatement(t.Context(), &rdsdatasdk.ExecuteStatementInput{
@@ -86,6 +87,7 @@ func TestBatchExecuteStatement_TypeHint_MalformedRejected(t *testing.T) {
 	t.Parallel()
 
 	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newRoundTripClient(t, rdsdata.NewHandler(backend))
 
 	_, err := client.BatchExecuteStatement(t.Context(), &rdsdatasdk.BatchExecuteStatementInput{
@@ -118,6 +120,7 @@ func TestExecuteStatement_TypeHint_NonStringValueIsNoOp(t *testing.T) {
 	t.Parallel()
 
 	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newRoundTripClient(t, rdsdata.NewHandler(backend))
 
 	_, err := client.ExecuteStatement(t.Context(), &rdsdatasdk.ExecuteStatementInput{
