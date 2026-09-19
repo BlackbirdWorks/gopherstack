@@ -302,19 +302,19 @@ func evaluateHTTPStatusFilter(expr string, http *TraceSummaryHTTP) bool {
 	return http.HTTPStatus == n
 }
 
-// compareResponseTime applies a comparison operator to response time.
-func compareResponseTime(op string, rt, n float64) bool {
+// compareFloatOp applies a comparison operator to two floats.
+func compareFloatOp(op string, a, b float64) bool {
 	switch op {
 	case ">":
-		return rt > n
+		return a > b
 	case ">=":
-		return rt >= n
+		return a >= b
 	case "<":
-		return rt < n
+		return a < b
 	case "<=":
-		return rt <= n
+		return a <= b
 	case "=":
-		return rt == n
+		return a == b
 	}
 
 	return false
@@ -332,7 +332,44 @@ func evaluateResponseTimeFilter(expr string, rt float64) bool {
 		return false
 	}
 
-	return compareResponseTime(parts[1], rt, n)
+	return compareFloatOp(parts[1], rt, n)
+}
+
+// evaluateDurationFilter matches `duration OP N.N` expressions.
+func evaluateDurationFilter(expr string, duration float64) bool {
+	parts := strings.Fields(expr)
+	if len(parts) != filterParts3 {
+		return false
+	}
+
+	n, err := strconv.ParseFloat(parts[2], 64)
+	if err != nil {
+		return false
+	}
+
+	return compareFloatOp(parts[1], duration, n)
+}
+
+// evaluateServiceFilter matches `service("name")` expressions against the
+// trace's participating services (TraceSummary.ServiceIds, real API field
+// populated from every segment's own "name").
+func evaluateServiceFilter(expr string, serviceIDs []TraceSummaryServiceID) bool {
+	start := strings.Index(expr, "(")
+	end := strings.LastIndex(expr, ")")
+
+	if start < 0 || end <= start {
+		return false
+	}
+
+	name := strings.Trim(strings.TrimSpace(expr[start+1:end]), `"`)
+
+	for _, sid := range serviceIDs {
+		if sid.Name == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // evaluateAnnotationFilter matches `annotation.KEY = "VALUE"` expressions.
@@ -362,7 +399,12 @@ func evaluateAnnotationFilter(expr string, annotations map[string][]AnnotationOc
 //   - `error`                      — trace has error
 //   - `http.status = N`            — HTTP status equals N
 //   - `responsetime > N.N`         — response time comparison (also >=, <, <=, =)
+//   - `duration > N.N`             — total trace duration comparison (also >=, <, <=, =)
+//   - `service("NAME")`            — a participating service's name equals NAME
 //   - `annotation.KEY = "VALUE"`   — annotation match
+//
+// No AND/OR/NOT combinators: each clause is evaluated standalone, matching
+// the single-clause scope this evaluator has always had.
 //
 // Empty expression always returns true.
 func evaluateFilter(expr string, summary TraceSummaryData) bool {
@@ -386,8 +428,16 @@ func evaluateFilter(expr string, summary TraceSummaryData) bool {
 		return evaluateHTTPStatusFilter(expr, summary.HTTP)
 	}
 
+	if strings.HasPrefix(lower, "duration") {
+		return evaluateDurationFilter(expr, summary.Duration)
+	}
+
 	if strings.HasPrefix(lower, "responsetime") {
 		return evaluateResponseTimeFilter(expr, summary.ResponseTime)
+	}
+
+	if strings.HasPrefix(lower, "service(") {
+		return evaluateServiceFilter(expr, summary.ServiceIDs)
 	}
 
 	if strings.HasPrefix(lower, "annotation.") {
