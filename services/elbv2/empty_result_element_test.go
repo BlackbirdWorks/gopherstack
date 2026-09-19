@@ -69,6 +69,7 @@ func TestEmptyResultElement_RealClient(t *testing.T) {
 			t.Parallel()
 
 			backend := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(backend.Close)
 			h := elbv2.NewHandler(backend)
 			client := newTestELBv2Client(t, h)
 			ctx := t.Context()

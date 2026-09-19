@@ -15,6 +15,7 @@ func newSentinelTestHandler(t *testing.T) *cloudfront.Handler {
 	t.Helper()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 
 	return cloudfront.NewHandler(backend)
 }

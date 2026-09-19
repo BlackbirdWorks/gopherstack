@@ -14,7 +14,7 @@ import (
 func TestELBv2_DescribeAccountLimits(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeAccountLimits"},
@@ -39,7 +39,7 @@ func TestELBv2_DescribeAccountLimits(t *testing.T) {
 func TestDescribeAccountLimits(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeAccountLimits"},
 		"Version": {"2015-12-01"},

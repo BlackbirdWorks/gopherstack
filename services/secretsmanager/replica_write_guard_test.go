@@ -31,7 +31,7 @@ const replicaRegion = "us-west-2"
 func setupPrimaryWithReplica(t *testing.T, secretName string) *secretsmanager.Handler {
 	t.Helper()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	create := doSMRequestInRegion(t, h, secretsmanager.MockRegion, "secretsmanager.CreateSecret",
 		`{"Name":"`+secretName+`","SecretString":"v1"}`)
@@ -191,6 +191,7 @@ func TestReplicaWriteGuard_BackendErrorIs(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := secretsmanager.CtxWithRegion(context.Background(), replicaRegion)
 
 	primaryCtx := secretsmanager.CtxWithRegion(context.Background(), secretsmanager.MockRegion)

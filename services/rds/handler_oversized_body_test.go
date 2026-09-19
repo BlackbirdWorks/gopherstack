@@ -29,7 +29,7 @@ import (
 func TestHandler_OversizedBodySurfacesInternalFailure(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	huge := aws.String(string(bytes.Repeat([]byte("x"), int(httputils.MaxRequestBodyBytes+1))))
@@ -51,7 +51,7 @@ func TestHandler_OversizedBodySurfacesInternalFailure(t *testing.T) {
 func TestHandler_NormalSizedBodyStillRoutes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	out, err := client.DescribeDBInstances(t.Context(), &rdssdk.DescribeDBInstancesInput{})

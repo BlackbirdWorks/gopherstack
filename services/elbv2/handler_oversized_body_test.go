@@ -30,7 +30,9 @@ import (
 func TestHandler_OversizedBodySurfacesInternalFailure(t *testing.T) {
 	t.Parallel()
 
-	h := elbv2.NewHandler(elbv2.NewInMemoryBackend("000000000000", "us-east-1"))
+	b := elbv2.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+	h := elbv2.NewHandler(b)
 	client := newTestELBv2Client(t, h)
 
 	huge := aws.String(string(bytes.Repeat([]byte("x"), int(httputils.MaxRequestBodyBytes+1))))
@@ -52,7 +54,9 @@ func TestHandler_OversizedBodySurfacesInternalFailure(t *testing.T) {
 func TestHandler_NormalSizedBodyStillRoutes(t *testing.T) {
 	t.Parallel()
 
-	h := elbv2.NewHandler(elbv2.NewInMemoryBackend("000000000000", "us-east-1"))
+	b := elbv2.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+	h := elbv2.NewHandler(b)
 	client := newTestELBv2Client(t, h)
 
 	out, err := client.DescribeLoadBalancers(t.Context(), &elbv2sdk.DescribeLoadBalancersInput{})

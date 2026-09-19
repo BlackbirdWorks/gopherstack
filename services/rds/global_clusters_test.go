@@ -17,6 +17,7 @@ func TestGlobalClusterPrimaryRegionAndMembers(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateGlobalCluster("test-global", "aurora-postgresql", "15.4", "", false, false)
 	require.NoError(t, err)
@@ -31,7 +32,7 @@ func TestGlobalClusterPrimaryRegionAndMembers(t *testing.T) {
 func TestGlobalCluster_Failover(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.9", "", false, false)
 	require.NoError(t, err)
 
@@ -55,7 +56,7 @@ func TestGlobalCluster_Failover(t *testing.T) {
 func TestGlobalCluster_Switchover(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateGlobalCluster("gc2", "aurora-mysql", "3.04.0", "", false, false)
 	require.NoError(t, err)
 
@@ -79,7 +80,7 @@ func TestGlobalCluster_Switchover(t *testing.T) {
 func TestGlobalCluster_RemoveMember(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateGlobalCluster("gc3", "aurora-postgresql", "14.9", "", false, false)
 	require.NoError(t, err)
 
@@ -92,7 +93,7 @@ func TestGlobalCluster_RemoveMember(t *testing.T) {
 func TestGlobalCluster_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	_, err := b.FailoverGlobalCluster("noexist", "target")
 	require.ErrorIs(t, err, rds.ErrGlobalClusterNotFound)
@@ -104,7 +105,7 @@ func TestGlobalCluster_NotFound(t *testing.T) {
 func TestGlobalCluster_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                  {"CreateGlobalCluster"},
@@ -269,6 +270,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			err := tt.run(b)

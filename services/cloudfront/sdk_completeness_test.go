@@ -23,6 +23,7 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 
 	sdkcheck.CheckCompleteness(t, &cloudfrontsdk.Client{}, h.GetSupportedOperations(), []string{})

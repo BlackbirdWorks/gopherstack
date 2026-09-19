@@ -37,7 +37,7 @@ func TestProtocolValidationPerLBType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 
 			rec := doELBv2(t, h, url.Values{
 				"Action":  {"CreateLoadBalancer"},
@@ -112,7 +112,7 @@ func TestLBTypeValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := url.Values{
 				"Action":  {"CreateLoadBalancer"},
 				"Version": {"2015-12-01"},
@@ -133,7 +133,7 @@ func TestLBTypeValidation(t *testing.T) {
 func TestNLBDNSFormat(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
@@ -183,7 +183,7 @@ func TestResourceNameValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doELBv2(t, h, url.Values{
 				"Action":  {"CreateLoadBalancer"},
 				"Version": {"2015-12-01"},
@@ -198,7 +198,7 @@ func TestResourceNameValidation(t *testing.T) {
 func TestModifyListenerProtocolValidated(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	// Create an NLB.
 	nlbRec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
@@ -259,7 +259,7 @@ func TestModifyListenerProtocolValidated(t *testing.T) {
 func TestNameTooLong(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	longName := strings.Repeat("a", 33)
 
 	t.Run("lb_name_too_long", func(t *testing.T) {
@@ -290,7 +290,7 @@ func TestNameTooLong(t *testing.T) {
 	t.Run("exactly_32_chars_ok", func(t *testing.T) {
 		t.Parallel()
 
-		h2 := newTestHandler()
+		h2 := newTestHandler(t)
 		rec := doELBv2(t, h2, url.Values{
 			"Action":  {"CreateLoadBalancer"},
 			"Version": {"2015-12-01"},
@@ -303,7 +303,7 @@ func TestNameTooLong(t *testing.T) {
 func TestCreateLB_InvalidType(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
@@ -316,7 +316,7 @@ func TestCreateLB_InvalidType(t *testing.T) {
 func TestCreateLB_DuplicateName(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	b1CreateLB(t, h, "dup-lb-batch1")
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
@@ -329,7 +329,7 @@ func TestCreateLB_DuplicateName(t *testing.T) {
 func TestNLB_DNS_Format(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
@@ -356,7 +356,7 @@ func TestNLB_DNS_Format(t *testing.T) {
 func TestCreateLB_NameTooLong(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
@@ -406,7 +406,7 @@ func TestLBName_Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newParityBHandler()
+			h := newParityBHandler(t)
 			rec := doELBv2(t, h, url.Values{
 				"Action":  {"CreateLoadBalancer"},
 				"Version": {"2015-12-01"},

@@ -19,6 +19,7 @@ func TestFullStateSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	original := NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(original.StopRotationScheduler)
 
 	ctxEast := smCtxRegion("us-east-1")
 	ctxWest := smCtxRegion("us-west-2")
@@ -82,6 +83,7 @@ func TestFullStateSnapshotRestore(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(fresh.StopRotationScheduler)
 	require.NoError(t, fresh.Restore(context.Background(), snap))
 
 	// East secret: current string material, description, rotation, and

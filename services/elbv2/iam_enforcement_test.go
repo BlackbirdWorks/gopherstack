@@ -62,6 +62,7 @@ func setupELBV2EnforcementServer(t *testing.T, iamBackend *mockELBV2IAMBackend) 
 	t.Helper()
 
 	backend := elbv2.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	handler := elbv2.NewHandler(backend)
 
 	e := echo.New()

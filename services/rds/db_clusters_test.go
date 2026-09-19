@@ -15,7 +15,7 @@ import (
 func TestDBCluster_ModifyFields(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"mod-cluster",
 		"aurora-postgresql",
@@ -46,7 +46,7 @@ func TestDBCluster_ModifyFields(t *testing.T) {
 func TestDBCluster_FailoverUpdatesState(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"failover-cluster",
 		"aurora-mysql",
@@ -67,7 +67,7 @@ func TestDBCluster_FailoverUpdatesState(t *testing.T) {
 func TestDBCluster_RebootTransitions(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"reboot-cluster",
 		"aurora-postgresql",
@@ -88,7 +88,7 @@ func TestDBCluster_RebootTransitions(t *testing.T) {
 func TestCreateDBCluster_RejectsInvalidStorageType(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"bad-storage-cluster",
 		"aurora-postgresql",
@@ -108,7 +108,7 @@ func TestCreateDBCluster_RejectsInvalidStorageType(t *testing.T) {
 func TestDBCluster_HTTP_Modify(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -174,6 +174,7 @@ func Test_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			_, err := b.CreateDBCluster(
 				"del-cluster", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{},
 			)
@@ -219,7 +220,7 @@ func Test_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
 func Test_DeleteDBCluster_NotFoundBeforeParamValidation(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	rec := postRDSForm(t, h, "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=missing-cluster")
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -233,6 +234,7 @@ func TestDeleteDBClusterCascadeClusterRoles(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("my-cluster", "aurora-mysql")
 
 	err := b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000:role/R1", "")
@@ -250,6 +252,7 @@ func TestBacktrackDBCluster_UniqueIDs(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("aurora-cluster", "aurora-mysql")
 
 	bt1, err := b.BacktrackDBCluster("aurora-cluster", "2024-01-01T00:00:00Z")
@@ -268,6 +271,7 @@ func TestBacktrackDBCluster_EmptyBacktrackTo(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("aurora-cluster", "aurora-mysql")
 
 	_, err := b.BacktrackDBCluster("aurora-cluster", "")
@@ -280,6 +284,7 @@ func TestHTTP_BacktrackDBCluster_EmptyBacktrackTo(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("aurora-cluster", "aurora-mysql")
 	h := rds.NewHandler(b)
 
@@ -331,6 +336,7 @@ func TestRDSBackend_BacktrackDBCluster(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			bt, err := b.BacktrackDBCluster(tt.clusterID, tt.backtrackTo)
@@ -423,6 +429,7 @@ func TestRDSBackend_DeletionProtection(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 
 			if tt.setup != nil {
 				tt.setup(b)
@@ -485,7 +492,7 @@ func TestCreateDBCluster_BackupRetentionPeriodBounds(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			body := "Action=CreateDBCluster" +
 				"&DBClusterIdentifier=test-cluster-" + tt.name +
 				"&Engine=aurora-mysql" +
@@ -509,7 +516,7 @@ func TestCreateDBCluster_BackupRetentionPeriodBounds(t *testing.T) {
 func TestCreateDBCluster_BackupRetentionPeriodDefault(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	body := "Action=CreateDBCluster" +
 		"&DBClusterIdentifier=default-retention-cluster" +
 		"&Engine=aurora-postgresql"
@@ -525,7 +532,7 @@ func TestCreateDBCluster_BackupRetentionPeriodDefault(t *testing.T) {
 func TestCreateDBCluster_BackupRetentionPeriodPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	createBody := "Action=CreateDBCluster" +
 		"&DBClusterIdentifier=ret-cluster" +

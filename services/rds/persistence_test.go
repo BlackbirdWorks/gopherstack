@@ -14,7 +14,7 @@ import (
 func TestPersistence_SnapshotJSON_ContainsExtendedKeys(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, _ = b.CreateDBShardGroup("sg-x", "cl-x", 16, 2, 0, false)
 	_, _ = b.CreateIntegration("intg-x", "arn:src", "arn:dst", "", "", "")
 
@@ -58,6 +58,7 @@ func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateDBCluster("pg-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
@@ -84,6 +85,7 @@ func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("", "")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify cluster role persisted.
@@ -115,6 +117,7 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b1 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b1.Close)
 
 	// Create instances with new fields.
 	_, err := b1.CreateDBInstance("db1", "postgres", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{
@@ -155,6 +158,7 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 
 	// Restore into b2.
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), data))
 
 	// Verify instances.
@@ -335,12 +339,14 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			t.Parallel()
 
 			original := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(original.Close)
 			id := tt.setup(original)
 
 			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(fresh.Close)
 			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
@@ -352,6 +358,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
@@ -367,6 +374,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	ctx := t.Context()
 
 	// instances / subnetGroups / parameterGroups / optionGroups
@@ -438,6 +446,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(fresh.Close)
 	require.NoError(t, fresh.Restore(ctx, snap))
 
 	instances, err := fresh.DescribeDBInstances("")
@@ -548,6 +557,7 @@ func TestRestore_ReconcilesPendingInstanceTransition(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.CreateDBInstance(
 		"pending-restore", "postgres", "db.t3.micro", "", "", "", 20, rds.DBInstanceOptions{},
 	)
@@ -561,6 +571,7 @@ func TestRestore_ReconcilesPendingInstanceTransition(t *testing.T) {
 	require.NotNil(t, snap)
 
 	restored := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(restored.Close)
 	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	instances, err := restored.DescribeDBInstances("pending-restore")

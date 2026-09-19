@@ -17,7 +17,7 @@ import (
 func TestClusterSnapshot_CRUD(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	_, err := b.CreateDBCluster(
 		"cluster-a",
@@ -51,7 +51,7 @@ func TestClusterSnapshot_CRUD(t *testing.T) {
 func TestClusterSnapshot_Copy(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"cluster-b",
 		"aurora-mysql",
@@ -140,7 +140,7 @@ func TestClusterSnapshot_Duplicate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBatch2Backend()
+			b := newBatch2Backend(t)
 			_, err := b.CreateDBCluster(
 				"cluster-c-"+tt.name,
 				"aurora-postgresql",
@@ -190,7 +190,7 @@ func TestClusterSnapshot_Duplicate(t *testing.T) {
 func TestClusterSnapshot_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.DeleteDBClusterSnapshot("noexist")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, rds.ErrClusterSnapshotNotFound)
@@ -199,7 +199,7 @@ func TestClusterSnapshot_DeleteNotFound(t *testing.T) {
 func TestClusterSnapshot_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -245,7 +245,7 @@ func TestClusterSnapshot_HTTP(t *testing.T) {
 func TestConcurrent_ClusterSnapshot(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"conc-cluster",
 		"aurora-postgresql",

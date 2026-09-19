@@ -15,7 +15,7 @@ import (
 func TestClusterPG_CRUD(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	pg, err := b.CreateDBClusterParameterGroup("cpg1", "aurora-postgresql14", "test")
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestClusterPG_CaseInsensitiveIdentifier(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBatch2Backend()
+			b := newBatch2Backend(t)
 			_, err := b.CreateDBClusterParameterGroup(tt.setupID, "aurora-postgresql14", "test")
 			require.NoError(t, err)
 
@@ -129,7 +129,7 @@ func TestClusterPG_CaseInsensitiveIdentifier(t *testing.T) {
 func TestClusterPG_ModifyAndDescribe(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBClusterParameterGroup("cpg2", "aurora-mysql8.0", "test")
 	require.NoError(t, err)
 
@@ -149,7 +149,7 @@ func TestClusterPG_ModifyAndDescribe(t *testing.T) {
 func TestClusterPG_Reset(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBClusterParameterGroup("cpg3", "aurora-postgresql14", "test")
 	require.NoError(t, err)
 
@@ -171,7 +171,7 @@ func TestClusterPG_Reset(t *testing.T) {
 func TestClusterPG_Copy(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBClusterParameterGroup("src-cpg", "aurora-postgresql14", "source")
 	require.NoError(t, err)
 
@@ -192,7 +192,7 @@ func TestClusterPG_Copy(t *testing.T) {
 func TestClusterPG_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                      {"CreateDBClusterParameterGroup"},
@@ -248,7 +248,7 @@ func TestClusterPG_HTTP(t *testing.T) {
 func TestCreateDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                      {"CreateDBClusterParameterGroup"},
@@ -271,7 +271,7 @@ func TestCreateDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
 func TestDescribeDBClusterParameterGroups_UsesClusterFieldName(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 
 	postRDSForm(t, h, url.Values{
 		"Action":                      {"CreateDBClusterParameterGroup"},
@@ -304,7 +304,7 @@ func TestDescribeDBClusterParameterGroups_UsesClusterFieldName(t *testing.T) {
 func TestCopyDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 
 	postRDSForm(t, h, url.Values{
 		"Action":                      {"CreateDBClusterParameterGroup"},
@@ -335,7 +335,7 @@ func TestCopyDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
 func TestDBClusterPG_NonClusterPG_FieldNamesDistinct(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 
 	postRDSForm(t, h, url.Values{
 		"Action":                 {"CreateDBParameterGroup"},
@@ -450,6 +450,7 @@ func TestRDSBackend_CopyDBClusterParameterGroup(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			pg, err := b.CopyDBClusterParameterGroup(tt.source, tt.target, tt.description)

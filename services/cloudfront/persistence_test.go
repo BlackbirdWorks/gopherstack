@@ -106,7 +106,7 @@ func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-
+	t.Cleanup(b.Close)
 	fle, err := b.CreateFieldLevelEncryption("persist-fle", "comment", nil)
 	require.NoError(t, err)
 
@@ -133,6 +133,7 @@ func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -163,7 +164,7 @@ func TestPersistenceRoundTrip_StringFields(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-
+	t.Cleanup(b.Close)
 	pk, err := b.CreatePublicKey("str-ref", "str-pk", "pk-comment", testRSA2048PublicKeyPEM)
 	require.NoError(t, err)
 
@@ -172,6 +173,7 @@ func TestPersistenceRoundTrip_StringFields(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -186,6 +188,7 @@ func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	d, err := b.CreateDistribution("ref1", "my dist", true, nil)
 	require.NoError(t, err)
 
@@ -200,6 +203,7 @@ func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -223,7 +227,7 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-
+	t.Cleanup(b.Close)
 	// Create a distribution and associate an alias + web ACL.
 	d, err := b.CreateDistribution("ref-persist-1", "persist-dist", true, nil)
 	require.NoError(t, err)
@@ -262,6 +266,7 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -276,7 +281,7 @@ func TestPersistenceRoundTrip_IndexesRebuilt(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
-
+	t.Cleanup(b.Close)
 	// Create resources with known CallerReferences.
 	d, err := b.CreateDistribution("persist-ref-001", "persist-dist", true, nil)
 	require.NoError(t, err)
@@ -292,6 +297,7 @@ func TestPersistenceRoundTrip_IndexesRebuilt(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	t.Cleanup(b2.Close)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -318,7 +324,7 @@ func TestPersistenceRoundTrip_FieldLevelEncryptionSharedCallerReference(t *testi
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
-
+	t.Cleanup(b.Close)
 	owner, err := b.CreateFieldLevelEncryption("shared-ref", "owner", nil)
 	require.NoError(t, err)
 	other, err := b.CreateFieldLevelEncryption("other-ref", "other", nil)
@@ -332,6 +338,7 @@ func TestPersistenceRoundTrip_FieldLevelEncryptionSharedCallerReference(t *testi
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	t.Cleanup(b2.Close)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 

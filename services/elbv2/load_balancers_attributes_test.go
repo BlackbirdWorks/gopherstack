@@ -14,7 +14,7 @@ import (
 func TestDescribeLoadBalancerAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "attrs-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -29,7 +29,7 @@ func TestDescribeLoadBalancerAttributes(t *testing.T) {
 func TestModifyLoadBalancerAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "mod-attrs-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -44,7 +44,7 @@ func TestModifyLoadBalancerAttributes(t *testing.T) {
 func TestSetSecurityGroups(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "sg-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -60,7 +60,7 @@ func TestSetSecurityGroups(t *testing.T) {
 func TestSetSubnets(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "subnet-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -83,7 +83,7 @@ func TestSetSubnets(t *testing.T) {
 func TestSetIpAddressType(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "iptype-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -106,7 +106,7 @@ func TestSetIpAddressType(t *testing.T) {
 func TestSetSecurityGroupsMissingARN(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"SetSecurityGroups"},
@@ -119,7 +119,7 @@ func TestSetSecurityGroupsMissingARN(t *testing.T) {
 func TestModifyLoadBalancerAttributesMissing(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"ModifyLoadBalancerAttributes"},
@@ -132,7 +132,7 @@ func TestModifyLoadBalancerAttributesMissing(t *testing.T) {
 func TestDescribeLoadBalancerAttributesMissing(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeLoadBalancerAttributes"},
@@ -145,7 +145,7 @@ func TestDescribeLoadBalancerAttributesMissing(t *testing.T) {
 func TestDescribeLoadBalancerAttributesPersists(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "lb-attrs-persist")
 
 	// Verify defaults are set on creation.
@@ -205,7 +205,7 @@ func TestDescribeLoadBalancerAttributesPersists(t *testing.T) {
 func TestSetSecurityGroupsPersist(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "sg-persist-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -236,7 +236,7 @@ func TestSetSecurityGroupsPersist(t *testing.T) {
 func TestSetSecurityGroupsNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"SetSecurityGroups"},
 		"Version": {"2015-12-01"},
@@ -252,7 +252,7 @@ func TestSetSecurityGroupsNotFound(t *testing.T) {
 func TestSetSubnetsPersist(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "subnets-persist-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -281,7 +281,7 @@ func TestSetSubnetsPersist(t *testing.T) {
 func TestSetIpAddressTypePersist(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "iptype-persist-lb")
 
 	// Valid type.
@@ -315,7 +315,7 @@ func TestSetIpAddressTypePersist(t *testing.T) {
 func TestNLBDefaultAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateNLB(t, h, "nlb-attrs-test")
 
 	rec := doELBv2(t, h, url.Values{
@@ -352,7 +352,7 @@ func TestNLBDefaultAttributes(t *testing.T) {
 func TestALBResponseHeaderAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "alb-resp-hdr-test")
 
 	rec := doELBv2(t, h, url.Values{
@@ -389,7 +389,7 @@ func TestALBResponseHeaderAttributes(t *testing.T) {
 func TestSetSecurityGroupsNLBRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateNLB(t, h, "nlb-sg-reject")
 
 	rec := doELBv2(t, h, url.Values{
@@ -405,7 +405,7 @@ func TestSetSecurityGroupsNLBRejected(t *testing.T) {
 func TestGWLBDefaultAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
@@ -459,7 +459,7 @@ func TestGWLBDefaultAttributes(t *testing.T) {
 func TestNLBAttributeDefaults(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateNLB(t, h, "nlb-attr-defaults")
 
 	rec := doELBv2(t, h, url.Values{
@@ -501,7 +501,7 @@ func TestNLBAttributeDefaults(t *testing.T) {
 func TestSetSecurityGroups_ALB(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "sg-alb-batch1")
 
 	rec := doELBv2(t, h, url.Values{
@@ -518,7 +518,7 @@ func TestSetSecurityGroups_ALB(t *testing.T) {
 func TestSetSecurityGroups_NLBRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "sg-nlb-reject", url.Values{"Type": {"network"}})
 
 	rec := doELBv2(t, h, url.Values{
@@ -533,7 +533,7 @@ func TestSetSecurityGroups_NLBRejected(t *testing.T) {
 func TestSetSubnets_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "set-subnets-map")
 
 	rec := doELBv2(t, h, url.Values{
@@ -566,7 +566,7 @@ func TestSetSubnets_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 func TestSetSubnets_PlainSubnets(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "set-subnets-plain")
 
 	rec := doELBv2(t, h, url.Values{
@@ -595,7 +595,7 @@ func TestSetSubnets_PlainSubnets(t *testing.T) {
 func TestSetIpAddressType_Dualstack(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "iptype-dualstack")
 
 	rec := doELBv2(t, h, url.Values{
@@ -611,7 +611,7 @@ func TestSetIpAddressType_Dualstack(t *testing.T) {
 func TestModifyIpPools(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "ippool-lb")
 
 	rec := doELBv2(t, h, url.Values{

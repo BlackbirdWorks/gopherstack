@@ -14,7 +14,7 @@ import (
 func TestELBv2_DescribeSSLPolicies(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeSSLPolicies"},
@@ -46,7 +46,7 @@ func TestELBv2_DescribeSSLPolicies(t *testing.T) {
 func TestDescribeSSLPoliciesFiltering(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":         {"DescribeSSLPolicies"},
@@ -73,7 +73,7 @@ func TestDescribeSSLPoliciesFiltering(t *testing.T) {
 func TestDescribeSSLPoliciesAll(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeSSLPolicies"},
@@ -107,7 +107,7 @@ func TestDescribeSSLPoliciesAll(t *testing.T) {
 func TestDescribeSSLPolicies_All(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeSSLPolicies"},
 		"Version": {"2015-12-01"},
@@ -119,7 +119,7 @@ func TestDescribeSSLPolicies_All(t *testing.T) {
 func TestDescribeSSLPolicies_Filter(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":         {"DescribeSSLPolicies"},
 		"Version":        {"2015-12-01"},

@@ -25,6 +25,7 @@ func TestRotateSecret_CreatesNewVersion(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "rot-new-ver",
 		SecretString:       "original",
@@ -45,6 +46,7 @@ func TestRotateSecret_AWSCURRENTPromotedToAWSPREVIOUS(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "rot-stages",
 		SecretString:       "v1",
@@ -83,6 +85,7 @@ func TestRotateSecret_LastRotatedDateUpdated(t *testing.T) {
 
 	before := time.Now()
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rot-date", SecretString: "v"},
@@ -108,6 +111,7 @@ func TestRotateSecret_RotationEnabledAfterRotate(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rot-enabled", SecretString: "v"},
@@ -129,6 +133,7 @@ func TestRotateSecret_RotateImmediatelyFalse(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "rot-no-imm",
 		SecretString:       "v1",
@@ -158,6 +163,7 @@ func TestRotateSecret_LambdaARNStored(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rot-lambda", SecretString: "v"},
@@ -179,6 +185,7 @@ func TestRotateSecret_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "missing"})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
@@ -187,6 +194,7 @@ func TestRotateSecret_DeletedFails(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rot-del", SecretString: "v"},
@@ -212,6 +220,7 @@ func TestRotateSecret_NoRotationStrategyConfigured_Rejected(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "no-strategy",
 		SecretString: "v1",
@@ -253,6 +262,7 @@ func TestRotateSecret_Backend(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
@@ -293,6 +303,7 @@ func TestRotateSecret_WithLambda(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	mock := &mockLambdaInvoker{}
@@ -341,6 +352,7 @@ func TestRotateSecret_OmittedARNUsesStoredLambda(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	mock := &mockLambdaInvoker{}
@@ -406,6 +418,7 @@ func TestRotateSecret_RotateImmediatelyFalseWithLambdaRunsTestSecretProbe(t *tes
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	mock := &mockLambdaInvoker{}
@@ -470,6 +483,7 @@ func TestRotateSecret_RotateImmediatelyFalseWithLambdaProbeFails(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	mock := &mockLambdaInvoker{invokeErr: assert.AnError}
@@ -508,6 +522,7 @@ func TestRotateSecret_NoLambdaInvoker(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 	// No lambda invoker set
 
@@ -539,6 +554,7 @@ func TestRotateSecret_RotationEnabledFlag(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "rot-flag-test",
@@ -573,6 +589,7 @@ func TestRotateSecret_RotationLambdaARNStored(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rla-test", SecretString: "v"},
@@ -595,6 +612,7 @@ func TestRotateSecret_LastRotatedDate(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "lrd-test", SecretString: "v"},
@@ -627,6 +645,7 @@ func TestRotateSecret_InvalidDays(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -665,6 +684,7 @@ func TestRotateSecret_CronScheduleTriggersRotation(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "cron-sched-secret",
 		SecretString: "initial",
@@ -715,6 +735,7 @@ func TestRotateSecret_ScheduleExpressionPersisted(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "cron-persist",
 		SecretString: "v",
@@ -820,6 +841,7 @@ func TestRotateSecret_RulesAndScheduler(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "sched-secret",
 				SecretString: "initial",

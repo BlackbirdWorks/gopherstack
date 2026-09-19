@@ -14,7 +14,7 @@ import (
 func TestDeleteTargetGroupMissingARN(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DeleteTargetGroup"},
@@ -29,7 +29,7 @@ func TestDeleteTargetGroupMissingARN(t *testing.T) {
 func TestDeleteTargetGroupNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":         {"DeleteTargetGroup"},
@@ -59,7 +59,7 @@ func TestPortValidationCreateTargetGroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doELBv2(t, h, url.Values{
 				"Action":   {"CreateTargetGroup"},
 				"Version":  {"2015-12-01"},
@@ -77,7 +77,7 @@ func TestPortValidationCreateTargetGroup(t *testing.T) {
 func TestDeleteTargetGroupInUse(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "tg-inuse-lb")
 	tgArn := mustCreateTG(t, h, "tg-inuse-tg")
 	_ = mustCreateListener(t, h, lbArn, tgArn)
@@ -103,7 +103,7 @@ func TestDeleteTargetGroupInUse(t *testing.T) {
 func TestDeleteTargetGroupNotInUse(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "tg-notinuse")
 
 	rec := doELBv2(t, h, url.Values{
@@ -118,7 +118,7 @@ func TestDeleteTargetGroupNotInUse(t *testing.T) {
 func TestCreateTargetGroupInvalidTargetType(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":     {"CreateTargetGroup"},
 		"Version":    {"2015-12-01"},
@@ -135,7 +135,7 @@ func TestCreateTargetGroupInvalidTargetType(t *testing.T) {
 func TestCreateTargetGroupLambdaNoPort(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":     {"CreateTargetGroup"},
 		"Version":    {"2015-12-01"},
@@ -182,7 +182,7 @@ func TestDescribeTargetGroupsByNameNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			if tc.name == "one_valid_one_missing_name" {
 				mustCreateTG(t, h, "desc-tg-name-exists")
 			}
@@ -196,7 +196,7 @@ func TestDescribeTargetGroupsByNameNotFound(t *testing.T) {
 func TestCreateTG_NameTooLong(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":   {"CreateTargetGroup"},
 		"Version":  {"2015-12-01"},
@@ -211,7 +211,7 @@ func TestCreateTG_NameTooLong(t *testing.T) {
 func TestCreateTG_InvalidTargetType(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":     {"CreateTargetGroup"},
 		"Version":    {"2015-12-01"},
@@ -227,7 +227,7 @@ func TestCreateTG_InvalidTargetType(t *testing.T) {
 func TestDeleteTG_InUseRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "tg-inuse-lb")
 	tgArn := b1CreateTG(t, h, "tg-inuse")
 	b1CreateListener(t, h, lbArn, tgArn) // forward to tgArn
@@ -265,7 +265,7 @@ func TestDescribeTargetGroups_UnknownArnReturnsNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newBatch2Handler()
+			h := newBatch2Handler(t)
 
 			arns := tc.arns
 			if tc.name == "mix_of_known_and_unknown" {
@@ -295,7 +295,7 @@ func TestDescribeTargetGroups_UnknownArnReturnsNotFound(t *testing.T) {
 func TestDescribeTargetGroups_AllKnownArnsSucceeds(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 	arn1 := mustCreateTG(t, h, "known-tg-1")
 	arn2 := mustCreateTG(t, h, "known-tg-2")
 
@@ -349,7 +349,7 @@ func TestDeleteTargetGroup_ErrorCode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newParityBHandler()
+			h := newParityBHandler(t)
 			lbArn := pbCreateLB(t, h, "dtg-lb")
 			tgArn := pbCreateTG(t, h, "dtg-tg")
 			lArn := pbCreateListener(t, h, lbArn, tgArn)

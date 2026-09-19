@@ -21,7 +21,9 @@ import (
 func TestSetSecurityGroups_EnforcementField_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1"))
+	b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
+	h := elbv2.NewHandler(b)
 	client := newTestELBv2Client(t, h)
 
 	lb, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{
@@ -50,7 +52,9 @@ func TestSetSecurityGroups_EnforcementField_RealClient(t *testing.T) {
 func TestSetSubnets_IPAddressTypeAndNAT_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1"))
+	b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
+	h := elbv2.NewHandler(b)
 	client := newTestELBv2Client(t, h)
 
 	lb, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{

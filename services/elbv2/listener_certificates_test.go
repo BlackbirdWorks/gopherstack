@@ -102,7 +102,7 @@ func TestELBv2_ListenerCertificates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 
 			rec := doELBv2(t, h, vals)
@@ -119,7 +119,7 @@ func TestELBv2_ListenerCertificates(t *testing.T) {
 func TestELBv2_ListenerCertificatesFullLifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "cert-lb")
 	tgArn := mustCreateTG(t, h, "cert-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -231,7 +231,7 @@ func TestELBv2_ListenerCertificatesFullLifecycle(t *testing.T) {
 func TestRemoveLastCertHTTPAllowed(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "http-cert-lb")
 	tgArn := mustCreateTG(t, h, "http-cert-tg")
 
@@ -261,7 +261,7 @@ func TestRemoveLastCertHTTPAllowed(t *testing.T) {
 func TestListenerCertificates_AddAndDescribe(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "cert-lb")
 	tgArn := b1CreateTG(t, h, "cert-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn) // HTTP, no cert needed
@@ -286,7 +286,7 @@ func TestListenerCertificates_AddAndDescribe(t *testing.T) {
 func TestListenerCertificates_Remove(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rm-cert-lb")
 	tgArn := b1CreateTG(t, h, "rm-cert-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)

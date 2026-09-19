@@ -20,6 +20,7 @@ import (
 func newTestHandler(t *testing.T) *cloudfront.Handler {
 	t.Helper()
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	t.Cleanup(backend.Close)
 
 	return cloudfront.NewHandler(backend)
 }
@@ -95,6 +96,7 @@ func minimalOAIConfig(callerRef, comment string) []byte {
 func newCFHandler(t *testing.T) *cloudfront.Handler {
 	t.Helper()
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 
 	return cloudfront.NewHandler(b)
 }
@@ -200,22 +202,28 @@ func doReq(
 // newAuditBackend creates a fresh backend for testing.
 func newAuditBackend(t *testing.T) *cloudfront.InMemoryBackend {
 	t.Helper()
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 
-	return cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	return b
 }
 
 // newTestBackend creates a fresh in-memory backend for testing.
 func newTestBackend(t *testing.T) *cloudfront.InMemoryBackend {
 	t.Helper()
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
-	return cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	return b
 }
 
 // newB creates a fresh in-memory backend for testing.
 func newB(t *testing.T) *cloudfront.InMemoryBackend {
 	t.Helper()
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 
-	return cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	return b
 }
 
 // cfRequestWithBodyHeaders issues an HTTP request with a body and headers and

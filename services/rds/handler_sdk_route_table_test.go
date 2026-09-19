@@ -218,7 +218,7 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 		t.Run(strings.ToLower(op), func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action="+op))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

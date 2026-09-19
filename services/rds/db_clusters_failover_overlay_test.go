@@ -32,7 +32,7 @@ func TestRDS_DescribeDBClusters_FailoverStatusOverlay(t *testing.T) {
 	t.Run("active_fault_overlays_status", func(t *testing.T) {
 		t.Parallel()
 
-		h := newFISRDSHandler()
+		h := newFISRDSHandler(t)
 		const clusterID = "overlay-active-cluster"
 		newOverlayTestCluster(t, h, clusterID)
 
@@ -52,7 +52,7 @@ func TestRDS_DescribeDBClusters_FailoverStatusOverlay(t *testing.T) {
 	t.Run("no_fault_reports_normal_status", func(t *testing.T) {
 		t.Parallel()
 
-		h := newFISRDSHandler()
+		h := newFISRDSHandler(t)
 		const clusterID = "overlay-none-cluster"
 		newOverlayTestCluster(t, h, clusterID)
 
@@ -65,7 +65,7 @@ func TestRDS_DescribeDBClusters_FailoverStatusOverlay(t *testing.T) {
 	t.Run("expired_fault_does_not_overlay", func(t *testing.T) {
 		t.Parallel()
 
-		h := newFISRDSHandler()
+		h := newFISRDSHandler(t)
 		const clusterID = "overlay-expired-cluster"
 		newOverlayTestCluster(t, h, clusterID)
 
@@ -80,7 +80,7 @@ func TestRDS_DescribeDBClusters_FailoverStatusOverlay(t *testing.T) {
 	t.Run("overlay_applies_when_listing_all_clusters", func(t *testing.T) {
 		t.Parallel()
 
-		h := newFISRDSHandler()
+		h := newFISRDSHandler(t)
 		const clusterID = "overlay-list-cluster"
 		newOverlayTestCluster(t, h, clusterID)
 
@@ -109,6 +109,7 @@ func TestRDS_FailoverDBCluster_FinalStatusUnchanged(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.CreateDBCluster(
 		"failover-final-cluster",
 		"aurora-postgresql",

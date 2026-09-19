@@ -34,6 +34,7 @@ func TestTagResource_AddTags(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "tag-add", SecretString: "v"},
@@ -58,6 +59,7 @@ func TestTagResource_UpdateExistingTag(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "tag-upd",
 		SecretString: "v",
@@ -81,6 +83,7 @@ func TestTagResource_LimitEnforced(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	// Create with 48 tags
 	initial := make([]secretsmanager.Tag, 48)
 	for i := range initial {
@@ -103,6 +106,7 @@ func TestUntagResource_RemoveTag(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "tag-rm",
 		SecretString: "v",
@@ -129,6 +133,7 @@ func TestTagResource_DeletedSecret(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "tag-del", SecretString: "v"},
@@ -148,6 +153,7 @@ func TestTagResource_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	err := b.TagResource(context.Background(), &secretsmanager.TagResourceInput{
 		SecretID: "missing",
 		Tags:     []secretsmanager.Tag{{Key: "k", Value: "v"}},
@@ -165,6 +171,7 @@ func TestTagResource_UpdateExistingKeyDoesNotCountAsNew(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	// Create a secret with 48 tags.
@@ -235,6 +242,7 @@ func TestTagSecretByARN(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 
 			if tt.setupName != "" {
 				_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: tt.setupName})
@@ -266,6 +274,7 @@ func TestTagResource_Backend(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
@@ -319,6 +328,7 @@ func TestTaggedSecrets(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 
 	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name: "tagged-arn",
@@ -370,6 +380,7 @@ func TestUntagSecretByARN(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 
 			if tt.setupName != "" {
 				_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{

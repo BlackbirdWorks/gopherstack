@@ -2,8 +2,8 @@
 service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) now live in services/cloudfrontkeyvaluestore (gopherstack-4ara, 2026-08-13) -- see that service's own PARITY.md
-last_audit_commit: 841743e85                      # gopherstack-dv4s over-wide-response census
-last_audit_date: 2026-09-18  # gopherstack-7185: response shapes of Create/Delete/Modify ops
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
+last_audit_date: 2026-09-19  # prior: 2026-09-18  # gopherstack-7185: response shapes of Create/Delete/Modify ops
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation
                               # wrong output key). See DeleteVpcOrigin/UpdateDomainAssociation op rows.
@@ -247,6 +247,15 @@ leaks: {status: clean, note: "runInvalidationReconciler goroutine has a proper s
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+`go b.runInvalidationReconciler()` (store.go) is a method-value launch the
+earlier "go func" grep missed. `Close()` already existed but ~111 test call
+sites never called it; retrofitted them with `t.Cleanup(backend.Close)` plus
+`Provider.Init`'s own leaked handler in `provider_test.go`. Added
+`leak_main_test.go`. `go test -race -count=1 ./services/cloudfront/...`
+passes clean.
 
 ### 2026-09-18 (gopherstack-dv4s over-wide-response census)
 

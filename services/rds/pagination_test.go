@@ -93,7 +93,7 @@ func TestRDSHandler_DescribePagination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			for _, setupBody := range tt.setupBodies {
 				rec := postRDSForm(t, h, setupBody)
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -146,7 +146,7 @@ func TestRDSHandler_DescribePagination_InvalidMaxRecords(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			rec := postRDSForm(
 				t,
 				h,
@@ -166,7 +166,7 @@ func TestRDSHandler_DescribePagination_InvalidMaxRecords(t *testing.T) {
 func TestRDSHandler_DescribeEventsPagination(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	for _, id := range []string{"evt-db-1", "evt-db-2", "evt-db-3"} {
 		rec := postRDSForm(t, h,
 			"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier="+id+"&Engine=postgres")

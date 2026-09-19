@@ -19,7 +19,7 @@ import (
 func TestCreateCustomDBEngineVersionCRUD(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	// Create.
 	rec := doAccuracyRDS(t, h, url.Values{
@@ -95,7 +95,7 @@ func TestCreateCustomDBEngineVersionCRUD(t *testing.T) {
 func TestCreateCustomDBEngineVersionDuplicateRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	doAccuracyRDS(t, h, url.Values{
 		"Action":        {"CreateCustomDBEngineVersion"},
@@ -117,7 +117,7 @@ func TestCreateCustomDBEngineVersionDuplicateRejected(t *testing.T) {
 func TestCustomDBEV_CRUD(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	cev, err := b.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c", "")
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestCustomDBEV_CRUD(t *testing.T) {
 func TestCustomDBEV_ModifyStatus(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee-cdb", "19.0.1.0", "Oracle 19c CDB", "")
 	require.NoError(t, err)
 
@@ -154,7 +154,7 @@ func TestCustomDBEV_ModifyStatus(t *testing.T) {
 func TestCustomDBEV_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee-se2", "19.0.2.0", "test", "")
 	require.NoError(t, err)
 
@@ -165,7 +165,7 @@ func TestCustomDBEV_Duplicate(t *testing.T) {
 func TestCustomDBEV_Concurrent(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	n := 20
 	var wg sync.WaitGroup
 	errs := make([]error, n)
@@ -193,7 +193,7 @@ func TestCustomDBEV_Concurrent(t *testing.T) {
 func TestCustomDBEV_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":        {"CreateCustomDBEngineVersion"},
@@ -225,7 +225,7 @@ func TestCustomDBEV_HTTP(t *testing.T) {
 func TestOrderableOptions_AllEngines(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	opts := b.DescribeOrderableDBInstanceOptions("", "")
 	assert.NotEmpty(t, opts)
 }
@@ -233,7 +233,7 @@ func TestOrderableOptions_AllEngines(t *testing.T) {
 func TestOrderableOptions_FilterByEngine(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	opts := b.DescribeOrderableDBInstanceOptions("postgres", "")
 	require.NotEmpty(t, opts)
 	for _, o := range opts {
@@ -244,7 +244,7 @@ func TestOrderableOptions_FilterByEngine(t *testing.T) {
 func TestOrderableOptions_ContainsExpectedClasses(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	opts := b.DescribeOrderableDBInstanceOptions("mysql", "")
 
 	classSet := make(map[string]bool)
@@ -258,7 +258,7 @@ func TestOrderableOptions_ContainsExpectedClasses(t *testing.T) {
 func TestOrderableOptions_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":  {"DescribeOrderableDBInstanceOptions"},
@@ -272,7 +272,7 @@ func TestOrderableOptions_HTTP(t *testing.T) {
 func TestPersistence_CustomEngineVersions(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c", "")
 	require.NoError(t, err)
@@ -283,6 +283,7 @@ func TestPersistence_CustomEngineVersions(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
@@ -298,7 +299,7 @@ func TestPersistence_CustomEngineVersions(t *testing.T) {
 func TestDescribeCustomDBEngineVersions_Empty(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	versions := b.DescribeCustomDBEngineVersions("", "")
 	assert.Empty(t, versions)
@@ -307,7 +308,7 @@ func TestDescribeCustomDBEngineVersions_Empty(t *testing.T) {
 func TestDescribeCustomDBEngineVersions_AfterCreate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.0.0.0.ru-2024-04.rur-2024-04.r1", "test cev", "")
 	require.NoError(t, err)
@@ -326,7 +327,7 @@ func TestDescribeCustomDBEngineVersions_AfterCreate(t *testing.T) {
 func TestDescribeCustomDBEngineVersions_EngineFilter(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.v1", "oracle", "")
 	require.NoError(t, err)
@@ -342,7 +343,7 @@ func TestDescribeCustomDBEngineVersions_EngineFilter(t *testing.T) {
 func TestDescribeCustomDBEngineVersions_SortedResults(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.v2", "v2", "")
 	require.NoError(t, err)
@@ -366,7 +367,7 @@ func TestDescribeCustomDBEngineVersions_SortedResults(t *testing.T) {
 func TestDescribeCustomDBEngineVersions_ViaHandler(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	h := rds.NewHandler(b)
 
 	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.test.v1", "test cev", "")
@@ -387,7 +388,7 @@ func TestDescribeCustomDBEngineVersions_ViaHandler(t *testing.T) {
 func TestDescribeCustomDBEngineVersions_NotAdvertised(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 	ops := h.GetSupportedOperations()
 
 	assert.False(
@@ -405,7 +406,7 @@ func TestDescribeCustomDBEngineVersions_NotAdvertised(t *testing.T) {
 func TestDBInstance_EngineLifecycleSupport(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	inst, err := b.CreateDBInstance("els-inst", "postgres", "db.t3.micro", "", "admin", "", 20,
 		rds.DBInstanceOptions{
@@ -445,7 +446,7 @@ func TestValidateEngineLifecycleSupport(t *testing.T) {
 func TestDescribeCustomDBEngineVersions_ConcurrentSafe(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	const goroutines = 10
 	done := make(chan struct{}, goroutines)
@@ -476,7 +477,7 @@ func TestCreateDBCluster_And_CreateDBInstance_RejectInvalidEngineLifecycleSuppor
 	t.Run("cluster", func(t *testing.T) {
 		t.Parallel()
 
-		b := newBatch2Backend()
+		b := newBatch2Backend(t)
 		_, err := b.CreateDBCluster(
 			"bad-els-cluster", "aurora-postgresql", "admin", "", "", 5432, nil,
 			rds.DBClusterOptions{EngineLifecycleSupport: "bogus-lifecycle"},
@@ -490,7 +491,7 @@ func TestCreateDBCluster_And_CreateDBInstance_RejectInvalidEngineLifecycleSuppor
 	t.Run("instance", func(t *testing.T) {
 		t.Parallel()
 
-		b := newBatch3Backend()
+		b := newBatch3Backend(t)
 		_, err := b.CreateDBInstance("bad-els-inst", "postgres", "db.t3.micro", "", "admin", "", 20,
 			rds.DBInstanceOptions{EngineLifecycleSupport: "bogus-lifecycle"})
 		require.ErrorIs(t, err, rds.ErrInvalidParameter)

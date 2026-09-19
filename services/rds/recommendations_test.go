@@ -13,7 +13,7 @@ import (
 func TestDBRecommendation_PauseActive(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	b.AddDBRecommendation(rds.DBRecommendation{
 		RecommendationID: "rec-1",
@@ -41,7 +41,7 @@ func TestDBRecommendation_PauseActive(t *testing.T) {
 func TestDBRecommendation_InactiveStatus(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	b.AddDBRecommendation(rds.DBRecommendation{
 		RecommendationID: "rec-inactive",
@@ -60,7 +60,7 @@ func TestDBRecommendation_InactiveStatus(t *testing.T) {
 func TestDBRecommendation_MultipleStatusTransitions(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	b.AddDBRecommendation(rds.DBRecommendation{RecommendationID: "r1", Status: "active"})
 	b.AddDBRecommendation(rds.DBRecommendation{RecommendationID: "r2", Status: "active"})
@@ -80,7 +80,7 @@ func TestDBRecommendation_MultipleStatusTransitions(t *testing.T) {
 func TestDBRecommendation_AddAndDescribe(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	assert.Equal(t, 0, rds.RecommendationCount(b))
 
 	b.AddDBRecommendation(rds.DBRecommendation{
@@ -103,7 +103,7 @@ func TestDBRecommendation_AddAndDescribe(t *testing.T) {
 func TestDBRecommendation_ModifyNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.ModifyDBRecommendation("nonexistent", "active")
 	require.Error(t, err)
@@ -113,7 +113,7 @@ func TestDBRecommendation_ModifyNotFound(t *testing.T) {
 func TestDBRecommendation_ModifyViaHandler(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	h := rds.NewHandler(b)
 
 	b.AddDBRecommendation(rds.DBRecommendation{
@@ -135,7 +135,7 @@ func TestDBRecommendation_ModifyViaHandler(t *testing.T) {
 func TestDBRecommendation_DescribeViaHandler(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	h := rds.NewHandler(b)
 
 	b.AddDBRecommendation(rds.DBRecommendation{

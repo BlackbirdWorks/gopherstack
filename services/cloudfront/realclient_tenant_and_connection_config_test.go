@@ -54,6 +54,7 @@ func newRealClient(t *testing.T) *cfsdk.Client {
 	t.Helper()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 
 	return newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 }

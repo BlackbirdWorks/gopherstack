@@ -93,6 +93,7 @@ func TestHandler_ShutdownStopsHealthReconciler_NoGoroutineLeak(t *testing.T) {
 
 	for range iterations {
 		b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+		t.Cleanup(b.Close)
 		h := elbv2.NewHandler(b)
 
 		shutdowner, ok := any(h).(service.Shutdowner)

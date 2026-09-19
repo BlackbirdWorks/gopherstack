@@ -17,6 +17,7 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
 	backend := elbv2.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := elbv2.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &elbv2sdk.Client{}, h.GetSupportedOperations(), []string{})
 }

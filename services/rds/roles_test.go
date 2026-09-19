@@ -81,6 +81,7 @@ func TestRemoveRoleFromDBCluster(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			err := b.RemoveRoleFromDBCluster(tt.clusterID, tt.roleARN, tt.featureName)
@@ -104,6 +105,7 @@ func TestRemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("c1", "aurora")
 	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1", "")
 	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2", "")
@@ -192,6 +194,7 @@ func TestRemoveRoleFromDBInstance(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			err := b.RemoveRoleFromDBInstance(tt.instanceID, tt.roleARN, tt.featureName)
@@ -215,6 +218,7 @@ func TestHTTP_RemoveRoleFromDBCluster(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("my-cluster", "aurora-mysql")
 	_ = b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000:role/R1", "")
 	h := rds.NewHandler(b)
@@ -259,6 +263,7 @@ func TestHTTP_RemoveRoleFromDBInstance(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddInstanceInternal("my-inst", "mysql")
 	_ = b.AddRoleToDBInstance("my-inst", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
 	h := rds.NewHandler(b)
@@ -303,6 +308,7 @@ func TestClusterRoleCountAndInstanceRoleCount(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("c1", "aurora")
 	b.AddInstanceInternal("i1", "postgres")
 
@@ -322,6 +328,7 @@ func TestHTTP_RemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddClusterInternal("c1", "aurora")
 	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1", "")
 	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2", "")
@@ -419,6 +426,7 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			err := b.AddRoleToDBCluster(tt.clusterID, tt.roleARN, tt.featureName)
@@ -501,6 +509,7 @@ func TestRDSBackend_AddRoleToDBInstance(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			err := b.AddRoleToDBInstance(tt.instanceID, tt.roleARN, tt.featureName)
@@ -525,6 +534,7 @@ func TestAddRoleToDBInstance_FeatureNameKeepsRolesSeparate(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddInstanceInternal("multi-feature-inst", "mysql")
 	h := rds.NewHandler(b)
 

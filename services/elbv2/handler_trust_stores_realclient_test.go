@@ -54,7 +54,9 @@ func newTestELBv2Client(t *testing.T, h *elbv2.Handler) *elbv2sdk.Client {
 func TestDescribeTrustStores_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1"))
+	b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
+	h := elbv2.NewHandler(b)
 	client := newTestELBv2Client(t, h)
 
 	_, err := client.CreateTrustStore(t.Context(), &elbv2sdk.CreateTrustStoreInput{

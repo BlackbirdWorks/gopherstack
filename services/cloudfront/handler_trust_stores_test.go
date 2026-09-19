@@ -315,6 +315,7 @@ func TestTrustStore_Persistence(t *testing.T) {
 	}
 
 	restored := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(restored.Close)
 	if err := restored.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}

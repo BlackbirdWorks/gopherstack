@@ -207,7 +207,7 @@ func TestDescribeDBSnapshotTenantDatabases(t *testing.T) {
 
 func TestHandler_TenantDatabaseCRUD(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// Create
 	rec := postRDSForm(t, h,
@@ -257,7 +257,7 @@ func TestHandler_TenantDatabaseCRUD(t *testing.T) {
 
 func TestHandler_DBSnapshotTenantDatabases(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// Describe empty
 	rec := postRDSForm(t, h, "Action=DescribeDBSnapshotTenantDatabases&Version=2014-10-31")
@@ -271,7 +271,7 @@ func TestHandler_DBSnapshotTenantDatabases(t *testing.T) {
 
 func TestHandler_TenantDatabase_DuplicateError(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateTenantDatabase&Version=2014-10-31"+
@@ -318,7 +318,7 @@ func TestTenantDatabase_ConcurrentReadWrite(t *testing.T) {
 
 func TestHandler_DescribeTenantDatabases_Pagination(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	for i := range 5 {
 		rec := postRDSForm(t, h, fmt.Sprintf(
@@ -347,7 +347,7 @@ func TestCreateTenantDatabase_ARNFormat(t *testing.T) {
 func TestPersistence_TenantAndAutomatedBackups(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	_, err := b.CreateTenantDatabase("inst-1", "tenantdb", "admin")
 	require.NoError(t, err)
@@ -361,6 +361,7 @@ func TestPersistence_TenantAndAutomatedBackups(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tenants, err := b2.DescribeTenantDatabases("inst-1", "")
@@ -378,7 +379,7 @@ func TestPersistence_TenantAndAutomatedBackups(t *testing.T) {
 func TestPersistence_SnapshotTenantDatabases(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	b.AddDBSnapshotTenantDatabase("snap-1", "inst-1", "tenantA", "postgres")
 	b.AddDBSnapshotTenantDatabase("snap-1", "inst-1", "tenantB", "postgres")
@@ -387,6 +388,7 @@ func TestPersistence_SnapshotTenantDatabases(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tenants := b2.DescribeDBSnapshotTenantDatabases("snap-1", "")

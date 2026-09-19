@@ -21,7 +21,7 @@ import (
 func TestRestoreDBInstanceFromS3_RealSDKClient(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	out, err := client.RestoreDBInstanceFromS3(t.Context(), &rdssdk.RestoreDBInstanceFromS3Input{
@@ -50,7 +50,7 @@ func TestRestoreDBInstanceFromS3_RealSDKClient(t *testing.T) {
 func TestRestoreDBClusterFromS3_RealSDKClient(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	out, err := client.RestoreDBClusterFromS3(t.Context(), &rdssdk.RestoreDBClusterFromS3Input{

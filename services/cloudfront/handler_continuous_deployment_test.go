@@ -21,7 +21,7 @@ func TestContinuousDeploymentPolicy_TrafficConfig(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-
+	t.Cleanup(b.Close)
 	weightTraffic := cloudfront.ContinuousDeploymentTrafficConfig{
 		Type: "SingleWeight",
 		SingleWeightConfig: &cloudfront.ContinuousDeploymentSingleWeightConfig{
@@ -461,6 +461,7 @@ func TestInMemoryBackend_ContinuousDeploymentPolicy(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}

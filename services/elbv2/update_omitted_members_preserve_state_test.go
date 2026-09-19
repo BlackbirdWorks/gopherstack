@@ -24,7 +24,9 @@ import (
 func TestModifyListener_PreservesOmittedMembers(t *testing.T) {
 	t.Parallel()
 
-	client := newTestELBv2Client(t, elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1")))
+	b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
+	client := newTestELBv2Client(t, elbv2.NewHandler(b))
 	ctx := t.Context()
 
 	lbOut, err := client.CreateLoadBalancer(ctx, &elbv2sdk.CreateLoadBalancerInput{
@@ -88,7 +90,9 @@ func TestModifyListener_PreservesOmittedMembers(t *testing.T) {
 func TestModifyTargetGroup_PreservesOmittedMembers(t *testing.T) {
 	t.Parallel()
 
-	client := newTestELBv2Client(t, elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1")))
+	b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
+	client := newTestELBv2Client(t, elbv2.NewHandler(b))
 	ctx := t.Context()
 
 	tgOut, err := client.CreateTargetGroup(ctx, &elbv2sdk.CreateTargetGroupInput{

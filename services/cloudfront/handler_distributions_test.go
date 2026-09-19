@@ -1009,6 +1009,7 @@ func TestListConflictingAliases_AccountID_RealClient(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "555566667777", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	first, err := backend.CreateDistribution("ca-acct-owner", "", true, nil)

@@ -20,7 +20,7 @@ import (
 // the full set exactly once with no overlap.
 func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	const total = 5
 	for i := range total {
@@ -83,7 +83,7 @@ func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
 func TestDBParameterGroup_ResetAll(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBParameterGroup("pg1", "postgres14", "test group")
 	require.NoError(t, err)
 
@@ -117,7 +117,7 @@ func TestDBParameterGroup_ResetAll(t *testing.T) {
 func TestDBParameterGroup_ResetSpecific(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBParameterGroup("pg2", "postgres14", "test group")
 	require.NoError(t, err)
 
@@ -145,7 +145,7 @@ func TestDBParameterGroup_ResetSpecific(t *testing.T) {
 func TestDBParameterGroup_NotFoundErrors(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	_, err := b.DescribeDBParameterGroups("noexist")
 	require.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
@@ -225,7 +225,7 @@ func TestDBParameterGroup_Duplicate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBatch2Backend()
+			b := newBatch2Backend(t)
 			_, err := b.CreateDBParameterGroup(tt.setupID, "mysql8.0", "first")
 			require.NoError(t, err)
 
@@ -263,7 +263,7 @@ func TestDBParameterGroup_Duplicate(t *testing.T) {
 func TestDBParameterGroup_CopyPreservesParams(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBParameterGroup("src-pg", "postgres14", "src")
 	require.NoError(t, err)
 
@@ -286,7 +286,7 @@ func TestDBParameterGroup_CopyPreservesParams(t *testing.T) {
 func TestDBParameterGroup_HTTP_CRUD(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                 {"CreateDBParameterGroup"},
@@ -343,7 +343,7 @@ func TestDBParameterGroup_HTTP_CRUD(t *testing.T) {
 func TestConcurrent_DBParameterGroup(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	for i := range 5 {
 		_, err := b.CreateDBParameterGroup(fmt.Sprintf("pg%d", i), "postgres14", "test")
 		require.NoError(t, err)
@@ -498,6 +498,7 @@ func TestRDSBackend_CopyDBParameterGroup(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			pg, err := b.CopyDBParameterGroup(tt.source, tt.target, tt.description)

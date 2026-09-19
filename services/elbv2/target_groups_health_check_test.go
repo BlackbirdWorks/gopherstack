@@ -14,7 +14,7 @@ import (
 func TestModifyTargetGroupAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "attrs-tg")
 
 	tests := []struct {
@@ -63,7 +63,7 @@ func TestModifyTargetGroupAttributes(t *testing.T) {
 func TestTargetGroupMatcherPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":           {"CreateTargetGroup"},
@@ -97,7 +97,7 @@ func TestTargetGroupMatcherPersisted(t *testing.T) {
 func TestTargetGroupGrpcMatcherPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":           {"CreateTargetGroup"},
@@ -139,7 +139,7 @@ func TestTargetGroupGrpcMatcherPersisted(t *testing.T) {
 func TestCrossZoneLoadBalancingDefault(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "cz-tg")
 
 	rec := doELBv2(t, h, url.Values{
@@ -175,7 +175,7 @@ func TestCrossZoneLoadBalancingDefault(t *testing.T) {
 func TestModifyTargetGroupAttributesPersists(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "tg-attrs-persist")
 
 	rec := doELBv2(t, h, url.Values{
@@ -218,7 +218,7 @@ func TestModifyTargetGroupAttributesPersists(t *testing.T) {
 func TestTargetGroupDefaultAttributesOnCreate(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "default-attrs-tg")
 
 	rec := doELBv2(t, h, url.Values{
@@ -253,7 +253,7 @@ func TestTargetGroupDefaultAttributesOnCreate(t *testing.T) {
 func TestHealthCheckDefaults(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	// Create TG without specifying health check values.
 	rec := doELBv2(t, h, url.Values{
@@ -296,7 +296,7 @@ func TestHealthCheckDefaults(t *testing.T) {
 func TestHealthCheckDefaultsCustomValues(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":                     {"CreateTargetGroup"},
@@ -343,7 +343,7 @@ func TestHealthCheckDefaultsCustomValues(t *testing.T) {
 func TestProtocolVersion(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":          {"CreateTargetGroup"},
@@ -375,7 +375,7 @@ func TestProtocolVersion(t *testing.T) {
 func TestModifyTargetGroupHealthCheckEnabledOptional(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "hce-optional-tg")
 
 	// Enable health checks explicitly on creation.
@@ -422,7 +422,7 @@ func TestModifyTargetGroupHealthCheckEnabledOptional(t *testing.T) {
 func TestHealthCheckInvalidNumericParams(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "hc-num-tg")
 
 	tests := []struct {
@@ -454,7 +454,7 @@ func TestHealthCheckInvalidNumericParams(t *testing.T) {
 func TestHealthCheckPathValidation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	t.Run("missing_leading_slash_rejected", func(t *testing.T) {
 		t.Parallel()
@@ -474,7 +474,7 @@ func TestHealthCheckPathValidation(t *testing.T) {
 	t.Run("leading_slash_ok", func(t *testing.T) {
 		t.Parallel()
 
-		h2 := newTestHandler()
+		h2 := newTestHandler(t)
 		rec := doELBv2(t, h2, url.Values{
 			"Action":          {"CreateTargetGroup"},
 			"Version":         {"2015-12-01"},
@@ -490,7 +490,7 @@ func TestHealthCheckPathValidation(t *testing.T) {
 	t.Run("modify_missing_slash_rejected", func(t *testing.T) {
 		t.Parallel()
 
-		h3 := newTestHandler()
+		h3 := newTestHandler(t)
 		tgArn := mustCreateTG(t, h3, "hc-path-modify")
 		rec := doELBv2(t, h3, url.Values{
 			"Action":          {"ModifyTargetGroup"},
@@ -505,7 +505,7 @@ func TestHealthCheckPathValidation(t *testing.T) {
 func TestCreateTG_DefaultHealthCheck(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":   {"CreateTargetGroup"},
 		"Version":  {"2015-12-01"},
@@ -543,7 +543,7 @@ func TestCreateTG_DefaultHealthCheck(t *testing.T) {
 func TestCreateTG_CustomHealthCheck(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":                     {"CreateTargetGroup"},
 		"Version":                    {"2015-12-01"},
@@ -566,7 +566,7 @@ func TestCreateTG_CustomHealthCheck(t *testing.T) {
 func TestModifyTG_HealthCheck(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "modify-tg-hc")
 
 	rec := doELBv2(t, h, url.Values{
@@ -586,7 +586,7 @@ func TestModifyTG_HealthCheck(t *testing.T) {
 func TestTGAttributes_DefaultStickiness(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "tg-sticky-default")
 
 	rec := doELBv2(t, h, url.Values{
@@ -603,7 +603,7 @@ func TestTGAttributes_DefaultStickiness(t *testing.T) {
 func TestTGAttributes_EnableStickiness(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "tg-sticky-enable")
 
 	rec := doELBv2(t, h, url.Values{
@@ -630,7 +630,7 @@ func TestTGAttributes_EnableStickiness(t *testing.T) {
 func TestCreateTG_ProtocolVersionHTTP2(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":          {"CreateTargetGroup"},
 		"Version":         {"2015-12-01"},
@@ -647,7 +647,7 @@ func TestCreateTG_ProtocolVersionHTTP2(t *testing.T) {
 func TestCreateTG_ProtocolVersionGRPC(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":          {"CreateTargetGroup"},
 		"Version":         {"2015-12-01"},
@@ -706,7 +706,7 @@ func TestLambdaTG_HealthCheckEnabled_Default(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newParityBHandler()
+			h := newParityBHandler(t)
 			vals := url.Values{
 				"Action":     {"CreateTargetGroup"},
 				"Version":    {"2015-12-01"},

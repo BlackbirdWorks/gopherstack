@@ -244,7 +244,7 @@ func TestHandler_DescribeServerlessV2PlatformVersions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			rec := doAccuracyRDS(t, h, tt.vals)
 			assert.Equal(t, tt.wantStatus, rec.Code, "body: %s", rec.Body.String())
 

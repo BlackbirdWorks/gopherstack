@@ -50,7 +50,7 @@ func setUpClusterEndpointFilterFixture(t *testing.T, client *rdssdk.Client) {
 func TestDescribeDBClusterEndpoints_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 	setUpClusterEndpointFilterFixture(t, client)
 
@@ -115,7 +115,7 @@ func setUpClusterParameterFilterFixture(t *testing.T, client *rdssdk.Client) {
 func TestDescribeDBClusterParameters_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 	setUpClusterParameterFilterFixture(t, client)
 
@@ -167,7 +167,7 @@ func setUpParameterFilterFixture(t *testing.T, client *rdssdk.Client) {
 func TestDescribeDBParameters_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 	setUpParameterFilterFixture(t, client)
 
@@ -199,7 +199,7 @@ func TestDescribeDBParameters_Filters(t *testing.T) {
 func TestDescribeDBEngineVersions_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	t.Run("engine filter narrows out other engines", func(t *testing.T) {
@@ -256,7 +256,7 @@ func TestDescribeDBEngineVersions_Filters(t *testing.T) {
 func TestDescribeGlobalClusters_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateGlobalCluster(t.Context(), &rdssdk.CreateGlobalClusterInput{
@@ -319,7 +319,7 @@ func setUpExportTaskFilterFixture(t *testing.T, client *rdssdk.Client) {
 func TestDescribeExportTasks_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 	setUpExportTaskFilterFixture(t, client)
 
@@ -381,7 +381,7 @@ func TestDescribeExportTasks_Filters(t *testing.T) {
 func TestDescribePendingMaintenanceActions_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	for _, id := range []string{"flt-pma-a", "flt-pma-b"} {
@@ -462,7 +462,7 @@ func TestDescribePendingMaintenanceActions_Filters(t *testing.T) {
 func TestApplyPendingMaintenanceAction_Immediate(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{

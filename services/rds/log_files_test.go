@@ -30,7 +30,7 @@ func TestDescribeDBLogFiles_FileSizeFilterIsStrictlyGreaterThan(t *testing.T) {
 		} `xml:"DescribeDBLogFilesResult"`
 	}
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	postRDSForm(t, h,
 		"Action=CreateDBInstance&Version=2014-10-31"+
 			"&DBInstanceIdentifier=log-size-db&Engine=postgres")

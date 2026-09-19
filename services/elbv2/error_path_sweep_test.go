@@ -22,6 +22,7 @@ func Test_SDKRoundTrip_DeleteTargetGroup_UnknownArn_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 	h := elbv2.NewHandler(b)
 	client := newTestELBv2Client(t, h)
 
@@ -43,6 +44,7 @@ func Test_SDKRoundTrip_Tags_UnknownResourceArn_NotFound(t *testing.T) {
 		t.Parallel()
 
 		b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+		t.Cleanup(b.Close)
 		h := elbv2.NewHandler(b)
 		client := newTestELBv2Client(t, h)
 
@@ -60,6 +62,7 @@ func Test_SDKRoundTrip_Tags_UnknownResourceArn_NotFound(t *testing.T) {
 		t.Parallel()
 
 		b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+		t.Cleanup(b.Close)
 		h := elbv2.NewHandler(b)
 		client := newTestELBv2Client(t, h)
 
@@ -77,6 +80,7 @@ func Test_SDKRoundTrip_Tags_UnknownResourceArn_NotFound(t *testing.T) {
 		t.Parallel()
 
 		b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+		t.Cleanup(b.Close)
 		h := elbv2.NewHandler(b)
 		client := newTestELBv2Client(t, h)
 
@@ -103,6 +107,7 @@ func Test_SDKRoundTrip_ForwardAction_UnknownTargetGroup_NotFound(t *testing.T) {
 		t.Parallel()
 
 		b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+		t.Cleanup(b.Close)
 		h := elbv2.NewHandler(b)
 		client := newTestELBv2Client(t, h)
 		lbArn := mustCreateLB(t, h, "cl-fwd-tg-lb")
@@ -125,7 +130,7 @@ func Test_SDKRoundTrip_ForwardAction_UnknownTargetGroup_NotFound(t *testing.T) {
 	t.Run("ModifyListener", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestHandler()
+		h := newTestHandler(t)
 		client := newTestELBv2Client(t, h)
 		lbArn := mustCreateLB(t, h, "ml-fwd-tg-lb")
 		tgArn := mustCreateTG(t, h, "ml-fwd-tg")
@@ -147,7 +152,7 @@ func Test_SDKRoundTrip_ForwardAction_UnknownTargetGroup_NotFound(t *testing.T) {
 	t.Run("CreateRule", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestHandler()
+		h := newTestHandler(t)
 		client := newTestELBv2Client(t, h)
 		lbArn := mustCreateLB(t, h, "cr-fwd-tg-lb")
 		tgArn := mustCreateTG(t, h, "cr-fwd-tg")
@@ -174,7 +179,7 @@ func Test_SDKRoundTrip_ForwardAction_UnknownTargetGroup_NotFound(t *testing.T) {
 	t.Run("ModifyRule", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestHandler()
+		h := newTestHandler(t)
 		lbArn := mustCreateLB(t, h, "mr-fwd-tg-lb")
 		tgArn := mustCreateTG(t, h, "mr-fwd-tg")
 		listenerArn := mustCreateListener(t, h, lbArn, tgArn)

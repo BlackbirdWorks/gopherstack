@@ -56,6 +56,7 @@ func TestCreateSecret_TagsRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	client := newTestSecretsManagerClient(t, secretsmanager.NewHandler(backend))
 
 	out, err := client.CreateSecret(t.Context(), &secretsmanagersdk.CreateSecretInput{

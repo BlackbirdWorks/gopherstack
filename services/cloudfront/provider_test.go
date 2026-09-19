@@ -1,10 +1,12 @@
 package cloudfront_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
@@ -16,4 +18,8 @@ func TestProviderInitNilCtx(t *testing.T) {
 	handler, err := p.Init(nil)
 	require.NoError(t, err)
 	require.NotNil(t, handler)
+
+	if shutdowner, ok := handler.(service.Shutdowner); ok {
+		t.Cleanup(func() { shutdowner.Shutdown(context.Background()) })
+	}
 }

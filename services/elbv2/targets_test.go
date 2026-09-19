@@ -17,7 +17,7 @@ import (
 func TestRegisterAndDeregisterTargets(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "targets-tg")
 
 	// Register targets
@@ -66,7 +66,7 @@ func TestRegisterAndDeregisterTargets(t *testing.T) {
 func TestRegisterTargetsMissingARN(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"RegisterTargets"},
@@ -79,7 +79,7 @@ func TestRegisterTargetsMissingARN(t *testing.T) {
 func TestDeregisterTargetsMissingARN(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DeregisterTargets"},
@@ -92,7 +92,7 @@ func TestDeregisterTargetsMissingARN(t *testing.T) {
 func TestDescribeTargetHealthMissingARN(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeTargetHealth"},
@@ -105,7 +105,7 @@ func TestDescribeTargetHealthMissingARN(t *testing.T) {
 func TestRegisterTargetsDedupByPort(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "dedup-port-tg")
 
 	// Register target on port 8080.
@@ -167,7 +167,7 @@ func TestRegisterTargetsDedupByPort(t *testing.T) {
 func TestDeregisterTargetsPortAware(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "port-aware-tg")
 
 	// Register same instance on two ports.
@@ -228,7 +228,7 @@ func TestDeregisterTargetsPortAware(t *testing.T) {
 func TestDescribeTargetHealthFilter(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "health-filter-tg")
 
 	// Register three targets.
@@ -337,7 +337,7 @@ func TestDescribeTargetHealthUnregisteredTargets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			tgArn := mustCreateTG(t, h, "unreg-tg")
 
 			// Register only "i-registered" for the mixed test case.
@@ -389,7 +389,7 @@ func TestDescribeTargetHealthUnregisteredTargets(t *testing.T) {
 func TestRegisterTargets_InitialHealthState(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "hc-initial-tg")
 
 	rec := doELBv2(t, h, url.Values{
@@ -434,7 +434,7 @@ func TestRegisterTargets_InitialHealthState(t *testing.T) {
 func TestTargetHealth_SetHealthy(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch1Backend()
+	b := newBatch1Backend(t)
 	h := elbv2.NewHandler(b)
 
 	tgArn := b1CreateTG(t, h, "hc-set-healthy")
@@ -478,7 +478,7 @@ func TestTargetHealth_SetHealthy(t *testing.T) {
 func TestTargetHealth_SetUnhealthy(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch1Backend()
+	b := newBatch1Backend(t)
 	h := elbv2.NewHandler(b)
 
 	tgArn := b1CreateTG(t, h, "hc-set-unhealthy")
@@ -521,7 +521,7 @@ func TestTargetHealth_SetUnhealthy(t *testing.T) {
 func TestTargetHealth_MultipleDifferentStates(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch1Backend()
+	b := newBatch1Backend(t)
 	h := elbv2.NewHandler(b)
 
 	tgArn := b1CreateTG(t, h, "hc-multi-state")
@@ -573,7 +573,7 @@ func TestTargetHealth_MultipleDifferentStates(t *testing.T) {
 func TestRegisterTargets_Dedup(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "register-dedup")
 
 	doELBv2(t, h, url.Values{
@@ -610,7 +610,7 @@ func TestRegisterTargets_Dedup(t *testing.T) {
 func TestDeregisterTargets_Success(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "dereg-tg")
 
 	doELBv2(t, h, url.Values{
@@ -659,7 +659,7 @@ func TestDeregisterTargets_Success(t *testing.T) {
 func TestDescribeTargetHealth_FilterByTarget(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "hc-filter")
 
 	doELBv2(t, h, url.Values{
@@ -729,7 +729,7 @@ func TestDescribeTargetHealth_WireShape(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			tgArn := mustCreateTG(t, h, tt.tgName)
 
 			registerRec := doELBv2(t, h, url.Values{

@@ -23,7 +23,7 @@ func TestListItemElementNames_RealSDKClient(t *testing.T) {
 	t.Run("blue green deployments", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateBlueGreenDeployment(t.Context(), &rdssdk.CreateBlueGreenDeploymentInput{
@@ -40,7 +40,7 @@ func TestListItemElementNames_RealSDKClient(t *testing.T) {
 	t.Run("global clusters", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateGlobalCluster(t.Context(), &rdssdk.CreateGlobalClusterInput{
@@ -56,7 +56,7 @@ func TestListItemElementNames_RealSDKClient(t *testing.T) {
 	t.Run("db recommendations", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		h.Backend.AddDBRecommendation(rds.DBRecommendation{
@@ -72,7 +72,7 @@ func TestListItemElementNames_RealSDKClient(t *testing.T) {
 	t.Run("event subscription source ids", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateEventSubscription(t.Context(), &rdssdk.CreateEventSubscriptionInput{
@@ -91,7 +91,7 @@ func TestListItemElementNames_RealSDKClient(t *testing.T) {
 	t.Run("db proxy auth", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBProxy(t.Context(), &rdssdk.CreateDBProxyInput{

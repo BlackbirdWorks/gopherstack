@@ -35,6 +35,7 @@ func TestUpdateSecretVersionStage_RemoveFromVersionIDRequiredWhenLabelElsewhere(
 		t.Helper()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name: "usvs-move-guard", SecretString: "v1",
 		})
@@ -128,6 +129,7 @@ func TestUpdateSecretVersionStage_MoveCustomLabel(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "usvs-move",
 		SecretString:       "v1",
@@ -160,6 +162,7 @@ func TestUpdateSecretVersionStage_RemoveLabel(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "usvs-rm",
 		SecretString:       "v1",
@@ -193,6 +196,7 @@ func TestUpdateSecretVersionStage_TargetNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "usvs-miss", SecretString: "v"},
@@ -211,6 +215,7 @@ func TestUpdateSecretVersionStage_SecretNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
 		SecretID:        "missing",
 		VersionStage:    "AWSPENDING",
@@ -227,6 +232,7 @@ func TestUpdateSecretVersionStage_CannotRemoveAWSCURRENTWithoutMove(t *testing.T
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -250,6 +256,7 @@ func TestUpdateSecretVersionStage_MoveAWSCURRENT(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -294,6 +301,7 @@ func TestUpdateSecretVersionStage_MoveAWSCURRENTToOlderVersion(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "vs-curr", SecretString: "v1"},
@@ -429,6 +437,7 @@ func TestUpdateSecretVersionStage_CannotRemoveAWSCURRENT(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			versionID := tt.setup(t, b)
 
 			var input *secretsmanager.UpdateSecretVersionStageInput
@@ -493,6 +502,7 @@ func TestUpdateSecretVersionStage_CannotRemoveAWSCURRENT_HTTP(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			versionID := tt.setup(t, b)
 
 			h := secretsmanager.NewHandler(b)
@@ -617,6 +627,7 @@ func TestUpdateSecretVersionStage_HTTP(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			var versionID string
 
 			if tt.setup != nil {
@@ -648,6 +659,7 @@ func TestUpdateSecretVersionStage_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "stage-ver-nf", SecretString: "v"},
@@ -666,6 +678,7 @@ func TestUpdateSecretVersionStage_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "stage-mov-nf", SecretString: "v"},

@@ -9,8 +9,6 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
 // sdkRouteCases is the authoritative X-Amz-Target for every real Secrets
@@ -74,7 +72,7 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 		t.Run(strings.ToLower(tc.op), func(t *testing.T) {
 			t.Parallel()
 
-			h := secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend())
+			h := newSMHandler(t)
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
 			req.Header.Set("X-Amz-Target", tc.target)

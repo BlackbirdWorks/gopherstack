@@ -14,7 +14,7 @@ import (
 func TestDuplicateListenerPortRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "dup-port-lb")
 	tgArn := mustCreateTG(t, h, "dup-port-tg")
 	mustCreateListener(t, h, lbArn, tgArn)
@@ -54,7 +54,7 @@ func TestPortValidationCreateListener(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doELBv2(t, h, url.Values{
 				"Action":  {"CreateListener"},
 				"Version": {"2015-12-01"},
@@ -75,7 +75,7 @@ func TestPortValidationCreateListener(t *testing.T) {
 func TestCreateListenerNoDefaultActions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "no-actions-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -92,7 +92,7 @@ func TestCreateListenerNoDefaultActions(t *testing.T) {
 func TestModifyListenerDuplicatePortRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "dup-port-lb")
 	tgArn := mustCreateTG(t, h, "dup-port-tg")
 
@@ -126,7 +126,7 @@ func TestModifyListenerDuplicatePortRejected(t *testing.T) {
 func TestInvalidActionTypeRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "bad-action-lb")
 	tgArn := mustCreateTG(t, h, "bad-action-tg")
 
@@ -146,7 +146,7 @@ func TestInvalidActionTypeRejected(t *testing.T) {
 func TestDescribeListenersNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	fakeArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/fake/0000000000000000/00000001"
 
 	rec := doELBv2(t, h, url.Values{
@@ -160,7 +160,7 @@ func TestDescribeListenersNotFound(t *testing.T) {
 func TestCreateListener_DuplicatePortRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "dup-port-lb")
 	tgArn := b1CreateTG(t, h, "dup-port-tg")
 
@@ -181,7 +181,7 @@ func TestCreateListener_DuplicatePortRejected(t *testing.T) {
 func TestCreateListener_InvalidPort(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "invalid-port-lb")
 	tgArn := b1CreateTG(t, h, "invalid-port-tg")
 
@@ -225,7 +225,7 @@ func TestDescribeListeners_UnknownLB(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newParityBHandler()
+			h := newParityBHandler(t)
 			vals := url.Values{
 				"Action":  {"DescribeListeners"},
 				"Version": {"2015-12-01"},

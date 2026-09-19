@@ -57,7 +57,7 @@ func TestStartExportTask_RequiredWireFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			vals := url.Values{
 				"Action":               {"StartExportTask"},
 				"Version":              {"2014-10-31"},
@@ -85,6 +85,7 @@ func TestRDSBackend_CancelExportTask_RemovesFromMap(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.StartExportTask("my-task", "arn:aws:rds:us-east-1:000000000000:snapshot:s1", "my-bucket",
 		"arn:aws:iam::000000000000:role/export-role", "arn:aws:kms:us-east-1:000000000000:key/test-key")
 	require.NoError(t, err)

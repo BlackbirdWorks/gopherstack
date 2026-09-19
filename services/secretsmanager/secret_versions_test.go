@@ -52,6 +52,7 @@ func TestVersionPruning(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 
 			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "prune-test",
@@ -82,6 +83,7 @@ func TestVersionPruning_LabeledVersionsPreserved(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 
 	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "prune-labeled",
@@ -240,6 +242,7 @@ func TestSecretSizeValidation(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			err := tt.op(b)
 
 			if tt.wantErr {
@@ -258,6 +261,7 @@ func TestSecretSizeValidation_Handler(t *testing.T) {
 
 	e := echo.New()
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	bigValue := strings.Repeat("x", 65537)
@@ -284,6 +288,7 @@ func TestVersionByID(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 
 	_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "versioned",
@@ -317,6 +322,7 @@ func TestGetSecretValueVersionLabel(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "labeled-secret",
 		SecretString: "v1",
@@ -342,6 +348,7 @@ func TestPutSecretValueLabelRotation(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	// Create initial secret
@@ -379,6 +386,7 @@ func TestBinarySecret(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 
 	binaryData := []byte{0x01, 0x02, 0x03, 0xFF}
 
@@ -438,6 +446,7 @@ func TestLastChangedDate(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 
 			_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "lcd-test",

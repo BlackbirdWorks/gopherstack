@@ -77,9 +77,9 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createfunction", func(t *testing.T) {
 		t.Parallel()
 
-		h := cloudfront.NewHandler(
-			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
-		)
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
+		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 
 		out, err := client.CreateFunction(t.Context(), &cfsdk.CreateFunctionInput{
@@ -98,9 +98,9 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createkeyvaluestore", func(t *testing.T) {
 		t.Parallel()
 
-		h := cloudfront.NewHandler(
-			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
-		)
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
+		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 
 		out, err := client.CreateKeyValueStore(t.Context(), &cfsdk.CreateKeyValueStoreInput{
@@ -115,9 +115,9 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createvpcorigin", func(t *testing.T) {
 		t.Parallel()
 
-		h := cloudfront.NewHandler(
-			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
-		)
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
+		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 
 		out, err := client.CreateVpcOrigin(t.Context(), &cfsdk.CreateVpcOriginInput{
@@ -145,9 +145,9 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createtruststore", func(t *testing.T) {
 		t.Parallel()
 
-		h := cloudfront.NewHandler(
-			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
-		)
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
+		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 
 		out, err := client.CreateTrustStore(t.Context(), &cfsdk.CreateTrustStoreInput{
@@ -168,9 +168,9 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createanycastiplist", func(t *testing.T) {
 		t.Parallel()
 
-		h := cloudfront.NewHandler(
-			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
-		)
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
+		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 
 		out, err := client.CreateAnycastIpList(t.Context(), &cfsdk.CreateAnycastIpListInput{
@@ -185,9 +185,9 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createconnectiongroup", func(t *testing.T) {
 		t.Parallel()
 
-		h := cloudfront.NewHandler(
-			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
-		)
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
+		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 
 		out, err := client.CreateConnectionGroup(t.Context(), &cfsdk.CreateConnectionGroupInput{
@@ -201,9 +201,9 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createconnectionfunction", func(t *testing.T) {
 		t.Parallel()
 
-		h := cloudfront.NewHandler(
-			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
-		)
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
+		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 
 		out, err := client.CreateConnectionFunction(t.Context(), &cfsdk.CreateConnectionFunctionInput{

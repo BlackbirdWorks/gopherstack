@@ -20,6 +20,7 @@ func TestListFunctions_SDKRoundTrip_StageFilter(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -67,6 +68,7 @@ func TestListConnectionFunctions_SDKRoundTrip_StageFilter(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -99,6 +101,7 @@ func TestListConnectionGroups_SDKRoundTrip_AssociationFilter(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -133,6 +136,7 @@ func TestListKeyValueStores_SDKRoundTrip_StatusFilter(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -161,6 +165,7 @@ func TestListDistributionTenants_SDKRoundTrip_AssociationFilter(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 

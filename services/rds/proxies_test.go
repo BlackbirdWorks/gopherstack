@@ -14,7 +14,7 @@ import (
 func TestProxyTargetGroup_DefaultCreated(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBProxy("proxy1", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
@@ -27,7 +27,7 @@ func TestProxyTargetGroup_DefaultCreated(t *testing.T) {
 func TestProxyTargetGroup_Modify(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBProxy("proxy2", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
@@ -41,7 +41,7 @@ func TestProxyTargetGroup_Modify(t *testing.T) {
 func TestProxyTargets_RegisterByInstance(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBProxy("proxy3", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
@@ -69,7 +69,7 @@ func TestProxyTargets_RegisterByInstance(t *testing.T) {
 func TestProxyTargets_Deregister(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBProxy("proxy4", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
@@ -87,7 +87,7 @@ func TestProxyTargets_Deregister(t *testing.T) {
 func TestProxyTargets_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                   {"CreateDBProxy"},
@@ -137,7 +137,7 @@ func TestProxyTargets_HTTP(t *testing.T) {
 func TestProxyEndpoint_CRUD(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBProxy("ep-proxy", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
@@ -167,7 +167,7 @@ func TestProxyEndpoint_CRUD(t *testing.T) {
 func TestProxyEndpoint_Modify(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBProxy("ep-proxy2", "MYSQL", "arn:aws:iam::123:role/r", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
@@ -189,7 +189,7 @@ func TestProxyEndpoint_Modify(t *testing.T) {
 func TestProxyEndpoint_ListFiltered(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBProxy("ep-proxy3", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
@@ -211,7 +211,7 @@ func TestProxyEndpoint_ListFiltered(t *testing.T) {
 func TestProxyEndpoint_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                   {"CreateDBProxy"},

@@ -1,10 +1,8 @@
 ---
 service: secretsmanager
 sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.48.0
-last_audit_commit: 302aa4e3c  # 2026-09-18 zeroguard omitted-vs-zero sweep; corrects the prior
-                              # STALE/WRONG value (1a7ddc64b resolved to an unrelated build/CI
-                              # commit, not a secretsmanager audit).
-last_audit_date: 2026-09-18
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-30 pass: two real filter bugs found and fixed, both in the shared
                        # anyMatchPrefix/secretMatchesFilter path ListSecrets and BatchGetSecretValue
                        # both use. (1) types.Filter.Values' documented "!"-negation prefix ("You can
@@ -107,6 +105,13 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 ---
 
 ## Notes
+
+- **2026-09-19 (gopherstack-1x2u0 leak-audit follow-up)**: retrofitted the ~340 test
+  call sites constructing `InMemoryBackend` to register
+  `t.Cleanup(b.StopRotationScheduler)` (safe/idempotent even when the scheduler was
+  never started), added `leak_main_test.go` (`testleak.VerifyTestMain`). Production
+  `StopRotationScheduler`/`Shutdown` were already correct; this closed the test-side
+  gap only. `go test -race -count=1 ./services/secretsmanager/...` passes clean.
 
 - **2026-09-18 (zeroguard omitted-vs-zero sweep)**: `cmd/zeroguard` flagged 18 rows across 4
   Update/Put ops. 2 fields were real bugs, pointer-ified: UpdateSecret.Description and

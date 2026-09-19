@@ -21,7 +21,7 @@ import (
 func TestCreateIntegration_WireShapeIsFlat(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":          {"CreateIntegration"},
@@ -56,7 +56,7 @@ func TestCreateIntegration_WireShapeIsFlat(t *testing.T) {
 func TestIntegration_WireFieldsPresentOnAllOps(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	createRec := postRDSForm(t, h,
 		"Action=CreateIntegration&Version=2014-10-31"+
@@ -256,7 +256,7 @@ func TestModifyIntegration(t *testing.T) {
 
 func TestHandler_IntegrationCRUD(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// Create
 	rec := postRDSForm(t, h,
@@ -299,7 +299,7 @@ func TestHandler_IntegrationCRUD(t *testing.T) {
 
 func TestHandler_Integration_DuplicateError(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateIntegration&Version=2014-10-31"+
@@ -346,7 +346,7 @@ func TestIntegration_ConcurrentReadWrite(t *testing.T) {
 
 func TestHandler_DescribeIntegrations_Pagination(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	for i := range 5 {
 		rec := postRDSForm(t, h, fmt.Sprintf(
@@ -375,7 +375,7 @@ func TestCreateIntegration_ARNFormat(t *testing.T) {
 func TestIntegration_DataFilterPersisted(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	intg, err := b.CreateIntegration(
 		"my-intg",
@@ -394,7 +394,7 @@ func TestIntegration_DataFilterPersisted(t *testing.T) {
 func TestIntegration_ModifyDataFilter(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateIntegration("intg-mod", "src", "tgt", "", "", "original desc")
 	require.NoError(t, err)
@@ -409,7 +409,7 @@ func TestIntegration_ModifyDataFilter(t *testing.T) {
 func TestIntegration_DataFilterViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateIntegration&Version=2014-10-31"+
@@ -428,7 +428,7 @@ func TestIntegration_DataFilterViaHandler(t *testing.T) {
 func TestIntegration_ModifyViaHandler(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	h := rds.NewHandler(b)
 
 	_, err := b.CreateIntegration("mod-intg", "src", "tgt", "", "", "")
@@ -449,7 +449,7 @@ func TestIntegration_ModifyViaHandler(t *testing.T) {
 func TestPersistence_IntegrationDataFilter(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateIntegration(
 		"intg-snap",
@@ -465,6 +465,7 @@ func TestPersistence_IntegrationDataFilter(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	integrations, err := b2.DescribeIntegrations("")
@@ -484,6 +485,7 @@ func TestIntegration_ARNContainsRegionAndAccount(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("111122223333", "eu-west-1")
+	t.Cleanup(b.Close)
 
 	intg, err := b.CreateIntegration("my-intg", "src", "tgt", "", "", "")
 	require.NoError(t, err)

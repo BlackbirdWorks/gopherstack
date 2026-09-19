@@ -18,7 +18,7 @@ import (
 func TestModifyDBInstanceNewFields(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "modify-new-fields")
 
 	rec := doAccuracyRDS(t, h, url.Values{
@@ -55,7 +55,7 @@ func TestModifyDBInstanceNewFields(t *testing.T) {
 func TestReadReplicaIdentifiersTrackedOnSource(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "replica-src")
 
 	// Create two read replicas.
@@ -71,6 +71,7 @@ func TestReadReplicaIdentifiersTrackedOnSource(t *testing.T) {
 
 	// DescribeDBInstances should show the source has ReadReplicaIdentifiers.
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 	_, err := b.CreateDBInstance(
 		"replica-src-b",
 		"postgres",
@@ -98,7 +99,7 @@ func TestReadReplicaIdentifiersTrackedOnSource(t *testing.T) {
 func TestVpcSecurityGroupsViaModify(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "sg-modify-inst")
 
 	rec := doAccuracyRDS(t, h, url.Values{
@@ -129,7 +130,7 @@ func TestVpcSecurityGroupsViaModify(t *testing.T) {
 func TestReadReplicaIdentifiersInXML(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "source-inst")
 
 	// Create a read replica.
@@ -170,7 +171,7 @@ func TestReadReplicaIdentifiersInXML(t *testing.T) {
 func TestDeleteReplicaClearsSourceReadReplicaIdentifiers(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "src-del")
 
 	doAccuracyRDS(t, h, url.Values{
@@ -218,7 +219,7 @@ func TestDeleteReplicaClearsSourceReadReplicaIdentifiers(t *testing.T) {
 func TestPromoteReadReplicaClearsSourceList(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "src-promote")
 
 	doAccuracyRDS(t, h, url.Values{
@@ -263,7 +264,7 @@ func TestPromoteReadReplicaClearsSourceList(t *testing.T) {
 func TestEnabledCloudwatchLogsExportsInInstanceXML(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                               {"CreateDBInstance"},
@@ -338,7 +339,7 @@ func TestInstanceFieldRangeValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			id := tt.id
 
 			if tt.action == "ModifyDBInstance" {
@@ -373,7 +374,7 @@ func TestInstanceFieldRangeValidation(t *testing.T) {
 func TestEngineVersionPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -402,7 +403,7 @@ func TestEngineVersionPersisted(t *testing.T) {
 func TestModifyDBInstanceUpdatesEngineVersion(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -439,7 +440,7 @@ func TestModifyDBInstanceUpdatesEngineVersion(t *testing.T) {
 func TestReadReplicaInheritsEngineVersion(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -475,7 +476,7 @@ func TestReadReplicaInheritsEngineVersion(t *testing.T) {
 func TestPubliclyAccessiblePersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -504,7 +505,7 @@ func TestPubliclyAccessiblePersisted(t *testing.T) {
 func TestPendingModifiedValuesEmittedWhenModifying(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "pmv-inst")
 
 	rec := doAccuracyRDS(t, h, url.Values{
@@ -524,7 +525,7 @@ func TestPendingModifiedValuesEmittedWhenModifying(t *testing.T) {
 func TestCloudwatchLogsExportsModifyInstance(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "cwl-modify")
 
 	rec := doAccuracyRDS(t, h, url.Values{

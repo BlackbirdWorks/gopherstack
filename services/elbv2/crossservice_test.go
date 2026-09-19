@@ -62,8 +62,12 @@ func (f *fakeCertResolver) isInUseBy(certARN, resourceARN string) bool {
 	return f.inUse[certARN][resourceARN]
 }
 
-func newCrossServiceHandler() *elbv2.InMemoryBackend {
-	return elbv2.NewInMemoryBackend("123456789012", config.DefaultRegion)
+func newCrossServiceHandler(t *testing.T) *elbv2.InMemoryBackend {
+	t.Helper()
+	b := elbv2.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
+
+	return b
 }
 
 func requireAPIErrorCode(t *testing.T, err error, code string) {
@@ -130,7 +134,7 @@ func TestCreateLoadBalancer_EC2Resolver(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := newCrossServiceHandler()
+			backend := newCrossServiceHandler(t)
 			if tt.resolver != nil {
 				backend.SetEC2Resolver(tt.resolver)
 			}
@@ -207,7 +211,7 @@ func TestCreateListener_CertificateResolver(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := newCrossServiceHandler()
+			backend := newCrossServiceHandler(t)
 			if tt.resolver != nil {
 				backend.SetCertificateResolver(tt.resolver)
 			}
@@ -259,7 +263,7 @@ func TestModifyListener_CertificateResolver(t *testing.T) {
 	)
 
 	resolver := newFakeCertResolver(certA, certB)
-	backend := newCrossServiceHandler()
+	backend := newCrossServiceHandler(t)
 	backend.SetCertificateResolver(resolver)
 	h := elbv2.NewHandler(backend)
 	client := newTestELBv2Client(t, h)
@@ -310,7 +314,7 @@ func TestAddRemoveListenerCertificates_CertificateResolver(t *testing.T) {
 	)
 
 	resolver := newFakeCertResolver(certA, certB)
-	backend := newCrossServiceHandler()
+	backend := newCrossServiceHandler(t)
 	backend.SetCertificateResolver(resolver)
 	h := elbv2.NewHandler(backend)
 	client := newTestELBv2Client(t, h)
@@ -363,7 +367,7 @@ func TestDeleteListener_UnmarksCertificatesInUse(t *testing.T) {
 	const certA = "arn:aws:acm:us-east-1:123456789012:certificate/a"
 
 	resolver := newFakeCertResolver(certA)
-	backend := newCrossServiceHandler()
+	backend := newCrossServiceHandler(t)
 	backend.SetCertificateResolver(resolver)
 	h := elbv2.NewHandler(backend)
 	client := newTestELBv2Client(t, h)

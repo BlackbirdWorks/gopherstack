@@ -81,6 +81,7 @@ func newRealClientBackendAndClient(t *testing.T) (*rds.InMemoryBackend, *rdssdk.
 	t.Helper()
 
 	backend := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(backend.Close)
 	client := newTestRDSClient(t, rds.NewHandler(backend))
 
 	return backend, client

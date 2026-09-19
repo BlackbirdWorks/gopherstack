@@ -8,8 +8,10 @@ import (
 
 func newAuditBackend(t *testing.T) *rds.InMemoryBackend {
 	t.Helper()
+	b := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 
-	return rds.NewInMemoryBackend("123456789012", "us-east-1")
+	return b
 }
 
 func createAuditInstance(t *testing.T, b *rds.InMemoryBackend) *rds.DBInstance {

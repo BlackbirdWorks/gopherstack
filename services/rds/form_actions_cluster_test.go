@@ -675,7 +675,7 @@ func TestRDSHandler_FormActions_Clusters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 
 			for _, setup := range tt.setupBodies {
 				postRDSForm(t, h, setup)

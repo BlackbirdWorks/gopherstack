@@ -27,6 +27,7 @@ func TestCreateSecret_NameEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: ""})
 	require.Error(t, err)
 	require.ErrorIs(t, err, secretsmanager.ErrInvalidSecretName)
@@ -36,6 +37,7 @@ func TestCreateSecret_NameTooLong(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: strings.Repeat("a", 513)})
 	require.ErrorIs(t, err, secretsmanager.ErrInvalidSecretName)
 }
@@ -44,6 +46,7 @@ func TestCreateSecret_NameExactMaxLength(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: strings.Repeat("a", 512)})
 	require.NoError(t, err)
 }
@@ -52,6 +55,7 @@ func TestCreateSecret_NameInvalidChars(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 
 	for _, name := range []string{"has space", "has\ttab", "has\nnewline", "has$dollar"} {
 		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: name})
@@ -63,6 +67,7 @@ func TestCreateSecret_NameValidSpecialChars(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	// All allowed special characters: /_+=.@-
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "valid/_+=.@-name",
@@ -75,6 +80,7 @@ func TestCreateSecret_NameAWSPrefixRejected(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "aws/my-secret",
 		SecretString: "v",
@@ -86,6 +92,7 @@ func TestCreateSecret_NameAWSPrefixHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -101,6 +108,7 @@ func TestCreateSecret_NameSlashInMiddleAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "prod/db/password",
 		SecretString: "v",
@@ -116,6 +124,7 @@ func TestCreateSecret_WithKmsKeyID(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "kms-secret",
 		SecretString: "v",
@@ -132,6 +141,7 @@ func TestCreateSecret_WithBinary(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "binary-secret",
 		SecretBinary: []byte{0x01, 0x02, 0x03},
@@ -148,6 +158,7 @@ func TestCreateSecret_ClientRequestTokenBecomesVersionID(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "token-version",
 		SecretString:       "v",
@@ -168,6 +179,7 @@ func TestCreateSecret_WithoutValue_NoVersionID(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "no-value"})
 	require.NoError(t, err)
 	assert.Empty(t, out.VersionID, "no version is created when no value is provided")
@@ -177,6 +189,7 @@ func TestCreateSecret_ARNFormat(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "arn-check",
 		SecretString: "v",
@@ -190,6 +203,7 @@ func TestCreateSecret_DuplicateNameReturnsResourceExistsException(t *testing.T) 
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "dup", SecretString: "v"})
 	require.NoError(t, err)
 
@@ -201,6 +215,7 @@ func TestCreateSecret_DuplicateHTTPStatus(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -220,6 +235,7 @@ func TestCreateSecret_TagCountLimit(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	tags := make([]secretsmanager.Tag, 51)
 	for i := range tags {
 		tags[i] = secretsmanager.Tag{Key: fmt.Sprintf("key%d", i), Value: "v"}
@@ -237,6 +253,7 @@ func TestCreateSecret_Exactly50TagsAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	tags := make([]secretsmanager.Tag, 50)
 	for i := range tags {
 		tags[i] = secretsmanager.Tag{Key: fmt.Sprintf("key%d", i), Value: "v"}
@@ -255,6 +272,7 @@ func TestCreateSecret_CreatedDateSet(t *testing.T) {
 
 	before := time.Now()
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "ts-check", SecretString: "v"},
@@ -321,6 +339,7 @@ func TestCreateSecret_ClientRequestTokenIdempotency(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			secretName := "idempotent-" + tc.name
 
 			first, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
@@ -369,6 +388,7 @@ func TestCreateSecret_ReplicaRegionsAddedCreatesReplication(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "create-with-replicas",
 		SecretString: "value",
@@ -404,6 +424,7 @@ func TestCreateSecret_ReplicaRegionsAddedWithValueSyncsInSync(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "replica-insync",
 		SecretString: "secret-value",
@@ -426,7 +447,7 @@ func TestCreateSecret_ReplicaRegionsAddedWithValueSyncsInSync(t *testing.T) {
 func TestCreateSecret_ReplicaRegionsAddedIsReadableInReplicaRegion(t *testing.T) {
 	t.Parallel()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	createRec := doSMRequest(t, h, "secretsmanager.CreateSecret",
 		`{"Name":"replica-created-readable","SecretString":"secret-value",`+
@@ -448,6 +469,7 @@ func TestCreateSecret_ReplicaRegionsAddedNoValue(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name: "replica-no-value",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{
@@ -466,6 +488,7 @@ func TestCreateSecret_NoReplicaRegionsAddedReturnsEmptyStatus(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "no-replicas",
 		SecretString: "v",
@@ -481,6 +504,7 @@ func TestCreateSecret_ReplicaRegionsAddedHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	body, _ := json.Marshal(map[string]any{
@@ -505,6 +529,7 @@ func TestCreateSecret_ReplicaRegionsAddedMultipleHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	body, _ := json.Marshal(map[string]any{
@@ -533,6 +558,7 @@ func TestCreateSecret_ReplicaRegionsAddedThenMoreReplicas(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:              "grow-replicas",
 		SecretString:      "v",
@@ -569,6 +595,7 @@ func TestCreateSecret_KmsKeyStoredAndReturned(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "kms-rep", SecretString: "v"},
@@ -596,6 +623,7 @@ func TestCreateSecret_CreateWithKmsKeyPreserved(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	createOut, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "create-kms-rep",
 		SecretString: "v",
@@ -700,6 +728,7 @@ func TestCreateSecret_DeletedNameCollision(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			tt.setup(t, b)
 
 			_, err := b.CreateSecret(
@@ -763,6 +792,7 @@ func TestCreateSecret_DeletedNameCollision_HTTP(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			tt.setup(t, b)
 
 			h := secretsmanager.NewHandler(b)
@@ -797,6 +827,7 @@ func TestCreateSecret_BinaryValueCreateAndGet(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			ctx := context.Background()
 
 			_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -821,6 +852,7 @@ func TestCreateSecret_StringAndBinaryMutuallyExclusive(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -836,7 +868,7 @@ func TestCreateSecret_StringAndBinaryMutuallyExclusive(t *testing.T) {
 func TestCreateSecret_BothSecretStringAndBinaryRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	rec := doSMRequest(t, h, "secretsmanager.CreateSecret",
 		`{"Name":"both-at-create","SecretString":"str","SecretBinary":"YmluYXJ5"}`)
@@ -855,6 +887,7 @@ func TestCreateSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 
 		out, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         "my-secret",
@@ -872,6 +905,7 @@ func TestCreateSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 
 		out, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name: "empty-secret",
@@ -886,6 +920,7 @@ func TestCreateSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "dup-secret"})
 
 		_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "dup-secret"})
@@ -896,6 +931,7 @@ func TestCreateSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 
 		out, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name: "tagged-secret",
@@ -968,6 +1004,7 @@ func TestCreateSecret_NameValidation(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			h := secretsmanager.NewHandler(b)
 
 			body, _ := json.Marshal(map[string]string{"Name": tt.secretName, "SecretString": "v"})
@@ -983,6 +1020,7 @@ func TestCreateSecret_CreateDescribeRoundtrip(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	createBody := map[string]any{
@@ -1023,6 +1061,7 @@ func TestCreateSecret_TypeAcceptedAndEchoed(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "mes-secret",
 		SecretString: "v",
@@ -1048,6 +1087,7 @@ func TestUpdateSecret_TypeAcceptedAndEchoed(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "mes-update",
 		SecretString: "v",
@@ -1075,6 +1115,7 @@ func TestRotateSecret_ExternalSecretRotationFieldsAcceptedAndEchoed(t *testing.T
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "mes-rotate",
 		SecretString: "v",

@@ -70,6 +70,7 @@ func TestKMSEncryptor_NoEncryptor_StoresPlaintextUnchanged(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &sm.CreateSecretInput{
@@ -96,6 +97,7 @@ func TestKMSEncryptor_CreateGetRoundTrip_String(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	fake := &fakeKMSEncryptor{}
 	b.SetKMSEncryptor(fake)
 	ctx := context.Background()
@@ -133,6 +135,7 @@ func TestKMSEncryptor_CreateGetRoundTrip_Binary(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	fake := &fakeKMSEncryptor{}
 	b.SetKMSEncryptor(fake)
 	ctx := context.Background()
@@ -170,6 +173,7 @@ func TestKMSEncryptor_PutSecretValue_NewVersionEncrypted(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	fake := &fakeKMSEncryptor{}
 	b.SetKMSEncryptor(fake)
 	ctx := context.Background()
@@ -204,6 +208,7 @@ func TestKMSEncryptor_RotateSecret_NoLambda_RejectsAndLeavesValueUnchanged(t *te
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	fake := &fakeKMSEncryptor{}
 	b.SetKMSEncryptor(fake)
 	ctx := context.Background()
@@ -230,6 +235,7 @@ func TestKMSEncryptor_BatchGetSecretValue_Decrypts(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	fake := &fakeKMSEncryptor{}
 	b.SetKMSEncryptor(fake)
 	ctx := context.Background()

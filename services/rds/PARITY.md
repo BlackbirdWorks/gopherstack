@@ -5,7 +5,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
 sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
-last_audit_commit: 49cff86c4
+last_audit_commit: d522d763f
 last_audit_date: 2026-09-19
 overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):
                        # both defects behind the 2026-07-31 A->A- downgrade (recorded verbatim
@@ -381,6 +381,12 @@ deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 
 ## Notes
+
+- **2026-09-19 (gopherstack-1x2u0 leak-audit follow-up)**: retrofitted all ~110 test
+  call sites that constructed `InMemoryBackend` directly to register
+  `t.Cleanup(b.Close)` (via the existing `newTestBackend(t)` helper or a per-file
+  cleanup line), and added `leak_main_test.go` (`testleak.VerifyTestMain`). No real
+  reconciler leaks found; `go test -race -count=1 ./services/rds/...` passes clean.
 
 - **2026-08-13 pass (gopherstack-afi1): RestoreDBInstanceFromS3/RestoreDBClusterFromS3
   dropped 3 of 7 required members each.** From the "five ops drop the fields that define

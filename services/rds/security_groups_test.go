@@ -14,7 +14,7 @@ import (
 func TestDBSecurityGroup_CRUD(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	sg, err := b.CreateDBSecurityGroup("my-sg", "legacy security group")
 	require.NoError(t, err)
@@ -35,7 +35,7 @@ func TestDBSecurityGroup_CRUD(t *testing.T) {
 func TestDBSecurityGroup_AuthorizeRevoke(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBSecurityGroup("auth-sg", "test")
 	require.NoError(t, err)
 
@@ -52,7 +52,7 @@ func TestDBSecurityGroup_AuthorizeRevoke(t *testing.T) {
 func TestDBSecurityGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBSecurityGroup("dup-sg", "first")
 	require.NoError(t, err)
 
@@ -64,7 +64,7 @@ func TestDBSecurityGroup_Duplicate(t *testing.T) {
 func TestDBSecurityGroup_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	// AuthorizeDBSecurityGroupIngress auto-creates the group (EC2-Classic behaviour)
 	sg, err := b.AuthorizeDBSecurityGroupIngress("auto-created-sg", "0.0.0.0/0")
@@ -79,7 +79,7 @@ func TestDBSecurityGroup_NotFound(t *testing.T) {
 func TestDBSecurityGroup_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                     {"CreateDBSecurityGroup"},
@@ -182,6 +182,7 @@ func TestRDSBackend_AuthorizeDBSecurityGroupIngress(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			sg, err := b.AuthorizeDBSecurityGroupIngress(tt.groupName, tt.cidrIP)

@@ -192,7 +192,7 @@ func TestRDSErrorCodes_FaultSuffix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -301,7 +301,7 @@ func TestRDSErrorCodes_ClassASweep(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}

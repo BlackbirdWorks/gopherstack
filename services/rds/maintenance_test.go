@@ -98,6 +98,7 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			result, err := b.ApplyPendingMaintenanceAction(tt.resourceID, tt.applyAction, tt.optInType)

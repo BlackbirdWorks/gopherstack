@@ -16,6 +16,7 @@ func TestSecretsManagerRegionIsolation(t *testing.T) {
 	t.Parallel()
 
 	backend := NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(backend.StopRotationScheduler)
 
 	ctxEast := smCtxRegion("us-east-1")
 	ctxWest := smCtxRegion("us-west-2")
@@ -70,6 +71,7 @@ func TestSecretsManagerResourcePolicyRegionIsolation(t *testing.T) {
 	t.Parallel()
 
 	backend := NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(backend.StopRotationScheduler)
 
 	ctxEast := smCtxRegion("us-east-1")
 	ctxWest := smCtxRegion("us-west-2")

@@ -25,6 +25,7 @@ func TestDescribeSecret_AllMetadataFields(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackendWithConfig("123456789012", "us-west-2")
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "full-desc",
 		Description:  "my description",
@@ -49,6 +50,7 @@ func TestDescribeSecret_DeletedSecretStillReturnsMetadata(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "desc-del", SecretString: "v"},
@@ -67,6 +69,7 @@ func TestDescribeSecret_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "missing"})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
@@ -75,6 +78,7 @@ func TestDescribeSecret_VersionIDsToStages(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "versions-check",
 		SecretString:       "v1",
@@ -101,6 +105,7 @@ func TestDescribeSecret_ARN(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	created, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "arn-desc", SecretString: "v"},
@@ -120,6 +125,7 @@ func TestDescribeSecret_AllFields(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -155,6 +161,7 @@ func TestDescribeSecret_NextRotationDateFromCron(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "cron-next-date",
 		SecretString: "v",
@@ -187,6 +194,7 @@ func TestDescribeSecret_PrimaryRegion(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackendWithConfig("000000000001", "eu-west-2")
+	t.Cleanup(b.StopRotationScheduler)
 
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "owned", SecretString: "v"})
 	require.NoError(t, err)
@@ -205,6 +213,7 @@ func TestDescribeSecret_ReplicationStatus(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rep-desc", SecretString: "v"},
@@ -228,6 +237,7 @@ func TestDescribeSecret_HTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "http-kms",
 		SecretString: "v",
@@ -255,6 +265,7 @@ func TestDescribeSecret_HasAllFields(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	// Create secret with KMS key.
@@ -283,6 +294,7 @@ func TestDescribeSecret_HasCreatedDate(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -310,6 +322,7 @@ func TestDescribeSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         "described",
 			Description:  "my description",
@@ -333,6 +346,7 @@ func TestDescribeSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, err := backend.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "missing"})
 		require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 	})

@@ -61,6 +61,7 @@ func TestListSecrets_PrimaryRegion_RealClient(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	client := newTestSMClientWithRegion(t, secretsmanager.NewHandler(backend), wireFixesRegion)
 	ctx := t.Context()
 
@@ -92,6 +93,7 @@ func TestUpdateSecret_KmsKeyIDCanBeCleared(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	client := newTestSMClientWithRegion(t, secretsmanager.NewHandler(backend), wireFixesRegion)
 	ctx := t.Context()
 

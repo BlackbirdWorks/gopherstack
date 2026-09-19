@@ -20,7 +20,7 @@ import (
 func TestDescribeDBClusters_ServerlessCapacity_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	clusterID := "capacity-cluster"
@@ -57,7 +57,7 @@ func TestDescribeDBClusters_ServerlessCapacity_RealClient(t *testing.T) {
 func TestDescribeDBClusters_MemberParamGroupStatus_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	clusterID := "member-status-cluster"
@@ -96,7 +96,7 @@ func TestDescribeDBClusters_MemberParamGroupStatus_RealClient(t *testing.T) {
 func TestDescribeTenantDatabases_TenantDBName_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateTenantDatabase(ctx, &rdssdk.CreateTenantDatabaseInput{
@@ -123,7 +123,7 @@ func TestDescribeTenantDatabases_TenantDBName_RealClient(t *testing.T) {
 func TestDescribeDBSnapshotTenantDatabases_TenantDBName_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 	ctx := t.Context()
 
@@ -160,7 +160,7 @@ func TestDescribeGlobalClusters_GlobalWriteForwardingStatus_RealClient(t *testin
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestRDSHandler()
+			h := newTestRDSHandler(t)
 			client := newTestRDSClient(t, h)
 			ctx := t.Context()
 
@@ -199,7 +199,7 @@ func TestDescribeGlobalClusters_GlobalWriteForwardingStatus_RealClient(t *testin
 func TestDescribeDBInstances_Filters_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 	ctx := t.Context()
 

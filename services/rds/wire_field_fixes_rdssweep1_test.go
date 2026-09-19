@@ -19,7 +19,7 @@ import (
 func TestModifyCurrentDBClusterCapacity_ReturnsFullResult_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	clusterID := "sweep1-cluster"

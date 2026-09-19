@@ -21,6 +21,7 @@ func TestGetSecretValue_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.GetSecretValue(context.Background(), &secretsmanager.GetSecretValueInput{SecretID: "missing"})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
@@ -29,6 +30,7 @@ func TestGetSecretValue_NotFoundHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.GetSecretValue",
@@ -44,6 +46,7 @@ func TestGetSecretValue_DeletedReturnsInvalidRequest(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "to-delete", SecretString: "v"},
@@ -61,6 +64,7 @@ func TestGetSecretValue_DeletedHTTPStatus(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"del-http","SecretString":"v"}`)
@@ -78,6 +82,7 @@ func TestGetSecretValue_AWSCURRENTDefault(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "curr-default",
 		SecretString:       "hello",
@@ -95,6 +100,7 @@ func TestGetSecretValue_AWSPREVIOUSAfterPut(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "prev-test",
 		SecretString:       "v1",
@@ -123,6 +129,7 @@ func TestGetSecretValue_VersionIDNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "ver-missing", SecretString: "v"},
@@ -140,6 +147,7 @@ func TestGetSecretValue_SetsLastAccessedDate(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "access-date", SecretString: "v"},
@@ -162,6 +170,7 @@ func TestGetSecretValue_ARNLookup(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	out, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "arn-lookup", SecretString: "secret"},
@@ -185,6 +194,7 @@ func TestGetSecretValue_VersionMismatchReturnsResourceNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "mismatch-error-type",
 		SecretString:       "value",
@@ -209,6 +219,7 @@ func TestGetSecretValue_VersionMismatchHTTPErrorType(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -235,6 +246,7 @@ func TestGetSecretValue_VersionIDAndStageBothSuppliedAndMatch(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "match-both",
 		SecretString:       "value",
@@ -257,6 +269,7 @@ func TestGetSecretValue_ByVersionIDOnlySucceeds(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "ver-only",
 		SecretString:       "secret",
@@ -279,6 +292,7 @@ func TestGetSecretValue_ByVersionStageOnlySucceeds(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "stage-only",
 		SecretString: "value",
@@ -299,6 +313,7 @@ func TestGetSecretValue_VersionMismatchAfterRotation(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "rot-mismatch",
 		SecretString:       "v1",
@@ -344,6 +359,7 @@ func TestGetSecretValue_LastAccessedDateTracking(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	// Create secret.
@@ -383,6 +399,7 @@ func TestGetSecretValue_LastAccessedDateReturned(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -430,7 +447,7 @@ func TestGetSecretValue_RequiresSecretId(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newSMHandler()
+			h := newSMHandler(t)
 			rec := doSMRequest(t, h, "secretsmanager.GetSecretValue", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code,
 				"GetSecretValue status for case %q", tt.name)
@@ -450,6 +467,7 @@ func TestGetSecretValue_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         "db-password",
 			SecretString: "secretpassword",
@@ -468,6 +486,7 @@ func TestGetSecretValue_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 
 		_, err := backend.GetSecretValue(context.Background(), &secretsmanager.GetSecretValueInput{SecretID: "missing"})
 		require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
@@ -477,6 +496,7 @@ func TestGetSecretValue_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         "deleted-secret",
 			SecretString: "value",

@@ -17,8 +17,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/elbv2"
 )
 
-func newTestHandler() *elbv2.Handler {
+func newTestHandler(t *testing.T) *elbv2.Handler {
+	t.Helper()
 	backend := elbv2.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(backend.Close)
 
 	return elbv2.NewHandler(backend)
 }
@@ -166,14 +168,18 @@ func mustCreateNLB(t *testing.T, h *elbv2.Handler, name string) string {
 	return resp.Result.LoadBalancers.Members[0].LoadBalancerArn
 }
 
-func newBatch1Handler() *elbv2.Handler {
-	b := elbv2.NewInMemoryBackend("000000000000", config.DefaultRegion)
+func newBatch1Handler(t *testing.T) *elbv2.Handler {
+	t.Helper()
 
-	return elbv2.NewHandler(b)
+	return elbv2.NewHandler(newBatch1Backend(t))
 }
 
-func newBatch1Backend() *elbv2.InMemoryBackend {
-	return elbv2.NewInMemoryBackend("000000000000", config.DefaultRegion)
+func newBatch1Backend(t *testing.T) *elbv2.InMemoryBackend {
+	t.Helper()
+	b := elbv2.NewInMemoryBackend("000000000000", config.DefaultRegion)
+	t.Cleanup(b.Close)
+
+	return b
 }
 
 func b1CreateLB(t *testing.T, h *elbv2.Handler, name string, extra ...url.Values) string {
@@ -257,8 +263,10 @@ func b1CreateListener(t *testing.T, h *elbv2.Handler, lbArn, tgArn string) strin
 	return resp.Result.Listeners.Members[0].ListenerArn
 }
 
-func newBatch2Handler() *elbv2.Handler {
+func newBatch2Handler(t *testing.T) *elbv2.Handler {
+	t.Helper()
 	b := elbv2.NewInMemoryBackend("000000000000", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	return elbv2.NewHandler(b)
 }
@@ -309,8 +317,10 @@ func itoa(n int) string {
 	return string(b)
 }
 
-func newParityBHandler() *elbv2.Handler {
+func newParityBHandler(t *testing.T) *elbv2.Handler {
+	t.Helper()
 	b := elbv2.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	return elbv2.NewHandler(b)
 }
@@ -432,7 +442,7 @@ func pbCreateRule(t *testing.T, h *elbv2.Handler, listenerArn, tgArn, priority s
 func TestUnknownAction(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"UnknownActionFoo"},
@@ -445,7 +455,7 @@ func TestUnknownAction(t *testing.T) {
 func TestMissingAction(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Version": {"2015-12-01"},
@@ -457,7 +467,7 @@ func TestMissingAction(t *testing.T) {
 func TestHandlerName(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	assert.Equal(t, "ELBv2", h.Name())
 }
 
@@ -465,7 +475,7 @@ func TestHandlerName(t *testing.T) {
 func TestHandlerSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	ops := h.GetSupportedOperations()
 	assert.NotEmpty(t, ops)
 	assert.Contains(t, ops, "CreateLoadBalancer")
@@ -477,7 +487,7 @@ func TestHandlerSupportedOperations(t *testing.T) {
 func TestChaosHandlerMethods(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	assert.Equal(t, "elasticloadbalancingv2", h.ChaosServiceName())
 	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
 	assert.NotEmpty(t, h.ChaosRegions())
@@ -487,7 +497,7 @@ func TestChaosHandlerMethods(t *testing.T) {
 func TestRouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	matcher := h.RouteMatcher()
 
 	tests := []struct {
@@ -560,7 +570,7 @@ func TestRouteMatcher(t *testing.T) {
 func TestExtractOperation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=CreateLoadBalancer&Version=2015-12-01"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -576,7 +586,7 @@ func TestExtractOperation(t *testing.T) {
 func TestExtractResource(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Name=my-alb&Version=2015-12-01"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -593,7 +603,7 @@ func TestCachedDispatchTable(t *testing.T) {
 	t.Parallel()
 
 	// Call two operations to verify dispatch table is functional.
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "dispatch-lb")
 	assert.NotEmpty(t, lbArn)
 

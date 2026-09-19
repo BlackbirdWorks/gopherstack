@@ -127,7 +127,7 @@ func TestDeleteDistributionCleansUp(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
-
+	t.Cleanup(b.Close)
 	d, err := b.CreateDistribution("ref-del-cleanup", "del-dist", false, nil)
 	require.NoError(t, err)
 
@@ -160,7 +160,7 @@ func TestListDistributions_SortedOutput(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
-
+	t.Cleanup(b.Close)
 	// Create multiple distributions.
 	refs := []string{"s-ref-001", "s-ref-002", "s-ref-003"}
 	for _, ref := range refs {
@@ -196,6 +196,7 @@ func TestAliasCountInListDistributions(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 	h := cloudfront.NewHandler(b)
 
 	d, err := b.CreateDistribution("ref-alias-list", "alias-list-dist", true, nil)

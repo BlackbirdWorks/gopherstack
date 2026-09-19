@@ -780,6 +780,7 @@ func TestInMemoryBackend_PublicKey(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}
@@ -854,6 +855,7 @@ func TestInMemoryBackend_KeyGroup(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}

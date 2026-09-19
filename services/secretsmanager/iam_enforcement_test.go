@@ -62,6 +62,7 @@ func setupSecretsManagerEnforcementServer(t *testing.T, iamBackend *mockSecretsM
 	t.Helper()
 
 	smBackend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(smBackend.StopRotationScheduler)
 	smHandler := secretsmanager.NewHandler(smBackend)
 
 	e := echo.New()

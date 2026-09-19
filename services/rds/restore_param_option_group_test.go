@@ -19,7 +19,7 @@ import (
 func TestCreateDBInstanceReadReplica_ParameterAndOptionGroups(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 
 	_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String("replica-groups-src"),
@@ -57,7 +57,7 @@ func TestRestoreDBInstanceFromDBSnapshot_ParameterAndOptionGroups(t *testing.T) 
 	setup := func(t *testing.T) *rdssdk.Client {
 		t.Helper()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
 			DBInstanceIdentifier: aws.String("snap-groups-src"),
@@ -123,7 +123,7 @@ func TestRestoreDBInstanceToPointInTime_ParameterAndOptionGroups(t *testing.T) {
 	setup := func(t *testing.T) *rdssdk.Client {
 		t.Helper()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
 			DBInstanceIdentifier: aws.String("pit-groups-src"),
@@ -195,7 +195,7 @@ func TestRestoreDBInstanceFromS3_ParameterAndOptionGroups(t *testing.T) {
 	t.Run("explicit values honored", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		in := baseInput("s3-restore-explicit")
 		in.DBParameterGroupName = aws.String("custom-s3-pg")
@@ -213,7 +213,7 @@ func TestRestoreDBInstanceFromS3_ParameterAndOptionGroups(t *testing.T) {
 	t.Run("omitted DBParameterGroupName defaults to engine default", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.RestoreDBInstanceFromS3(t.Context(), baseInput("s3-restore-default"))
 		require.NoError(t, err)

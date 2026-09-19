@@ -602,6 +602,7 @@ func TestRebootDBClusterDelayedTransition(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(b.Close)
 
 			_, err := b.CreateDBCluster(
 				"my-cluster",
@@ -659,6 +660,7 @@ func TestDBClusterMembersEmitted(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateDBCluster("test-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{
 		EngineVersion:              "15.4",
@@ -687,6 +689,7 @@ func TestModifyDBClusterPersistsNewFields(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateDBCluster("mod-cluster", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
@@ -714,7 +717,7 @@ func TestModifyDBClusterPersistsNewFields(t *testing.T) {
 func TestCreateDBClusterViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                     {"CreateDBCluster"},
@@ -787,7 +790,7 @@ func TestCreateDBCluster_EngineValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			rec := doAccuracyRDS(t, h, url.Values{
 				"Action":              {"CreateDBCluster"},
 				"Version":             {"2014-10-31"},
@@ -807,7 +810,7 @@ func TestCreateDBCluster_EngineValidation(t *testing.T) {
 func TestModifyDBClusterViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	// Create cluster first.
 	createRec := doAccuracyRDS(t, h, url.Values{
@@ -861,6 +864,7 @@ func TestDeleteDBInstance_RemovesClusterMembership(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateDBCluster(
 		"member-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{},

@@ -25,7 +25,7 @@ import (
 func TestActivityStream_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	postRDSForm(t, h,
 		"Action=CreateDBCluster&Version=2014-10-31"+
 			"&DBClusterIdentifier=as-cluster&Engine=aurora-postgresql"+
@@ -165,7 +165,7 @@ func TestActivityStream_ClusterNotFound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			rec := postRDSForm(t, h, tt.query)
 			assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
 			assert.Contains(t, rec.Body.String(), tt.wantCode)
@@ -230,7 +230,7 @@ func TestActivityStream_StateConflict(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			postRDSForm(t, h, fmt.Sprintf(
 				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=%s"+
 					"&Engine=aurora-postgresql&MasterUsername=admin&MasterUserPassword=password123",

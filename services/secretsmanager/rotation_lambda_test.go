@@ -43,6 +43,7 @@ func TestRotation_StagingLabels_PendingBeforeFinish(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			h := secretsmanager.NewHandler(backend)
 
 			// Track which steps were called.
@@ -120,6 +121,7 @@ func TestRotation_LambdaFailure_AbortsRotation(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			h := secretsmanager.NewHandler(backend)
 
 			callCount := 0
@@ -188,6 +190,7 @@ func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			h := secretsmanager.NewHandler(backend)
 
 			var calledSteps []string
