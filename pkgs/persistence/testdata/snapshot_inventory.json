@@ -23407,6 +23407,7 @@
       "StoredBucket.ReplicationConfig string `json:\"replicationConfig,omitempty\"`",
       "StoredBucket.RequestPaymentPayer string `json:\"requestPaymentPayer,omitempty\"`",
       "StoredBucket.Tags []types.Tag `json:\"tags,omitempty\"`",
+      "StoredBucket.TransitionDefaultMinObjectSize string `json:\"transitionDefaultMinObjectSize,omitempty\"`",
       "StoredBucket.Versioning types.BucketVersioningStatus `json:\"versioning,omitempty\"`",
       "StoredBucket.WebsiteConfig string `json:\"websiteConfig,omitempty\"`",
       "StoredBucket.mu *lockmetrics.RWMutex",

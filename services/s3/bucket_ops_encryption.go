@@ -1,8 +1,4 @@
-package s3 //nolint:dupl // put/get/delete HTTP handlers are structurally identical
-// thin wrappers around distinct XML sub-resources (encryption here, website in the
-// sibling file); each family lives in its own file per project convention, which
-// makes the whole-file clone visible to dupl even though the code always looked
-// like this.
+package s3
 
 import (
 	"context"
@@ -32,6 +28,12 @@ func (h *S3Handler) putBucketEncryption(
 			Code:    errMalformedXML,
 			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if err = verifyRequestBodyChecksum(r, body); err != nil {
+		WriteError(ctx, w, r, err)
 
 		return
 	}

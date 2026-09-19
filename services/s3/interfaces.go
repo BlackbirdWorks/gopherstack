@@ -81,8 +81,12 @@ type StorageBackend interface {
 	DeleteBucketCORS(ctx context.Context, bucket string) error
 
 	// Lifecycle
-	PutBucketLifecycleConfiguration(ctx context.Context, bucket, lifecycleXML string) error
+	PutBucketLifecycleConfiguration(
+		ctx context.Context,
+		bucket, lifecycleXML, transitionDefaultMinObjectSize string,
+	) error
 	GetBucketLifecycleConfiguration(ctx context.Context, bucket string) (string, error)
+	GetBucketLifecycleTransitionDefaultMinObjectSize(ctx context.Context, bucket string) (string, error)
 	DeleteBucketLifecycleConfiguration(ctx context.Context, bucket string) error
 
 	// Website

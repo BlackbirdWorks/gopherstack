@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"testing"
@@ -31,7 +32,9 @@ func setupStorageClassTransitionRace(
 	keys := make([]string, numObjects)
 	for i := range numObjects {
 		keys[i] = fmt.Sprintf("obj-%03d.txt", i)
-		mustPutObject(t, b, bucket, keys[i], []byte("v1"))
+		// >128KB: TransitionDefaultMinimumObjectSize's all_storage_classes_128K
+		// default (unset here) blocks transitions of smaller objects.
+		mustPutObject(t, b, bucket, keys[i], bytes.Repeat([]byte("v"), 129*1024))
 		s3.BackdateObjectForTest(b, bucket, keys[i], time.Now().Add(-48*time.Hour))
 	}
 
@@ -46,7 +49,7 @@ func setupStorageClassTransitionRace(
   </Transition>
 </Rule>
 </LifecycleConfiguration>`
-	require.NoError(t, b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML))
+	require.NoError(t, b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML, ""))
 
 	return b, keys, s3.NewJanitor(b, s3.Settings{})
 }

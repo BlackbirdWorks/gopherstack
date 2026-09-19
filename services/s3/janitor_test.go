@@ -380,7 +380,7 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 			b := s3.NewInMemoryBackend(nil)
 			tt.setup(t, b)
 
-			err := b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lifecycleXML)
+			err := b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lifecycleXML, "")
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithCancel(t.Context())
@@ -442,7 +442,7 @@ func TestS3Janitor_NoncurrentVersionExpiration(t *testing.T) {
 			mustPutObject(t, backend, tt.bucket, "obj.txt", []byte("v1"))
 			mustPutObject(t, backend, tt.bucket, "obj.txt", []byte("v2"))
 
-			err = backend.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML)
+			err = backend.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
 			j := newFastJanitor(backend)
@@ -561,7 +561,7 @@ func TestLifecycle_TagFilter(t *testing.T) {
 			require.NoError(t, err)
 
 			// Install lifecycle config.
-			err = backend.PutBucketLifecycleConfiguration(t.Context(), bucket, tt.lcXML)
+			err = backend.PutBucketLifecycleConfiguration(t.Context(), bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
 			j := newFastJanitor(backend)

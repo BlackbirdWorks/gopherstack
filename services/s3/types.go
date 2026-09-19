@@ -18,33 +18,34 @@ const NullVersion = "null"
 // all regions, mirroring real S3's global bucket-namespace). Region never changes
 // after creation (S3 has no "move bucket to another region" operation).
 type StoredBucket struct {
-	CreationDate                  time.Time                `json:"creationDate"`
-	Objects                       map[string]*StoredObject `json:"objects,omitempty"`
-	mu                            *lockmetrics.RWMutex
-	Region                        string                       `json:"region,omitempty"`
-	WebsiteConfig                 string                       `json:"websiteConfig,omitempty"`
-	PublicAccessBlockConfig       string                       `json:"publicAccessBlockConfig,omitempty"`
-	LifecycleConfig               string                       `json:"lifecycleConfig,omitempty"`
-	NotificationConfig            string                       `json:"notificationConfig,omitempty"`
-	ObjectLockConfig              string                       `json:"objectLockConfig,omitempty"`
-	Policy                        string                       `json:"policy,omitempty"`
-	EncryptionConfig              string                       `json:"encryptionConfig,omitempty"`
-	CORSConfig                    string                       `json:"corsConfig,omitempty"`
-	OwnershipControlsConfig       string                       `json:"ownershipControlsConfig,omitempty"`
-	LoggingConfig                 string                       `json:"loggingConfig,omitempty"`
-	ReplicationConfig             string                       `json:"replicationConfig,omitempty"`
-	ObjectLambdaConfig            string                       `json:"objectLambdaConfig,omitempty"`
-	AnalyticsConfigs              map[string]string            `json:"analyticsConfigs,omitempty"`
-	IntelligentTieringConfigs     map[string]string            `json:"intelligentTieringConfigs,omitempty"`
-	InventoryConfigs              map[string]string            `json:"inventoryConfigs,omitempty"`
-	MetadataConfig                string                       `json:"metadataConfig,omitempty"`
-	MetadataTableConfig           string                       `json:"metadataTableConfig,omitempty"`
-	AbacConfig                    string                       `json:"abacConfig,omitempty"`
-	MetadataInventoryTableConfig  string                       `json:"metadataInventoryTableConfig,omitempty"`
-	MetadataJournalTableConfig    string                       `json:"metadataJournalTableConfig,omitempty"`
-	MetadataAnnotationTableConfig string                       `json:"metadataAnnotationTableConfig,omitempty"`
-	MetricsConfigs                map[string]string            `json:"metricsConfigs,omitempty"`
-	Versioning                    types.BucketVersioningStatus `json:"versioning,omitempty"`
+	CreationDate                   time.Time                `json:"creationDate"`
+	Objects                        map[string]*StoredObject `json:"objects,omitempty"`
+	mu                             *lockmetrics.RWMutex
+	Region                         string                       `json:"region,omitempty"`
+	WebsiteConfig                  string                       `json:"websiteConfig,omitempty"`
+	PublicAccessBlockConfig        string                       `json:"publicAccessBlockConfig,omitempty"`
+	LifecycleConfig                string                       `json:"lifecycleConfig,omitempty"`
+	TransitionDefaultMinObjectSize string                       `json:"transitionDefaultMinObjectSize,omitempty"`
+	NotificationConfig             string                       `json:"notificationConfig,omitempty"`
+	ObjectLockConfig               string                       `json:"objectLockConfig,omitempty"`
+	Policy                         string                       `json:"policy,omitempty"`
+	EncryptionConfig               string                       `json:"encryptionConfig,omitempty"`
+	CORSConfig                     string                       `json:"corsConfig,omitempty"`
+	OwnershipControlsConfig        string                       `json:"ownershipControlsConfig,omitempty"`
+	LoggingConfig                  string                       `json:"loggingConfig,omitempty"`
+	ReplicationConfig              string                       `json:"replicationConfig,omitempty"`
+	ObjectLambdaConfig             string                       `json:"objectLambdaConfig,omitempty"`
+	AnalyticsConfigs               map[string]string            `json:"analyticsConfigs,omitempty"`
+	IntelligentTieringConfigs      map[string]string            `json:"intelligentTieringConfigs,omitempty"`
+	InventoryConfigs               map[string]string            `json:"inventoryConfigs,omitempty"`
+	MetadataConfig                 string                       `json:"metadataConfig,omitempty"`
+	MetadataTableConfig            string                       `json:"metadataTableConfig,omitempty"`
+	AbacConfig                     string                       `json:"abacConfig,omitempty"`
+	MetadataInventoryTableConfig   string                       `json:"metadataInventoryTableConfig,omitempty"`
+	MetadataJournalTableConfig     string                       `json:"metadataJournalTableConfig,omitempty"`
+	MetadataAnnotationTableConfig  string                       `json:"metadataAnnotationTableConfig,omitempty"`
+	MetricsConfigs                 map[string]string            `json:"metricsConfigs,omitempty"`
+	Versioning                     types.BucketVersioningStatus `json:"versioning,omitempty"`
 	// MFADelete is stored as a plain string, not a typed SDK enum, because the
 	// real request and response shapes use two DIFFERENT Go types for the same
 	// concept (VersioningConfiguration.MFADelete is types.MFADelete;

@@ -46,13 +46,26 @@ func (h *S3Handler) createMultipartUpload(
 	}
 	ctx = context.WithValue(ctx, sseKey, sse)
 
+	// x-amz-grant-* headers (s3@v1.111.0 serializers.go:1037-1053:
+	// GrantFullControl/GrantRead/GrantReadACP/GrantWriteACP -- no GrantWrite,
+	// unlike PutBucketAcl/PutObjectAcl) synthesize the ACL applied to the
+	// completed object, same as a canned x-amz-acl header would; stored via
+	// the same "ACL is a raw canned-name-or-XML string" convention
+	// putObjectACL/commitMultipartObject already use.
+	acl := types.ObjectCannedACL(r.Header.Get("X-Amz-Acl"))
+	if acl == "" {
+		if grantXML := aclXMLFromGrantHeaders(r.Header, objectACLOwnerID, gopherstackName, false); grantXML != "" {
+			acl = types.ObjectCannedACL(grantXML)
+		}
+	}
+
 	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket:                  aws.String(bucketName),
 		Key:                     aws.String(key),
 		Tagging:                 aws.String(tagging),
 		Expires:                 parseExpiresHeader(r),
 		StorageClass:            types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
-		ACL:                     types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
+		ACL:                     acl,
 		ServerSideEncryption:    types.ServerSideEncryption(sse.Algorithm),
 		SSEKMSKeyId:             ptrconv.NilIfEmpty(sse.KMSKeyID),
 		SSEKMSEncryptionContext: ptrconv.NilIfEmpty(sse.EncryptionContext),

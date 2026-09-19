@@ -42,7 +42,9 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "tr-days")
-				mustPutObject(t, b, "tr-days", "old-obj.txt", []byte("data"))
+				// >128KB: TransitionDefaultMinimumObjectSize's all_storage_classes_128K
+				// default (unset here) blocks transitions of smaller objects.
+				mustPutObject(t, b, "tr-days", "old-obj.txt", bytes.Repeat([]byte("d"), 200*1024))
 				// Backdate to 31 days ago so the 30-day rule fires.
 				s3.BackdateObjectForTest(
 					b,
@@ -78,7 +80,7 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "tr-hist")
-				mustPutObject(t, b, "tr-hist", "doc.txt", []byte("data"))
+				mustPutObject(t, b, "tr-hist", "doc.txt", bytes.Repeat([]byte("d"), 200*1024))
 				s3.BackdateObjectForTest(b, "tr-hist", "doc.txt", time.Now().Add(-11*24*time.Hour))
 			},
 			wantClass: "STANDARD_IA",
@@ -113,7 +115,7 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "tr-date")
-				mustPutObject(t, b, "tr-date", "archive.bin", []byte("payload"))
+				mustPutObject(t, b, "tr-date", "archive.bin", bytes.Repeat([]byte("p"), 200*1024))
 			},
 			wantClass: "DEEP_ARCHIVE",
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -142,7 +144,7 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "tr-idem")
-				mustPutObject(t, b, "tr-idem", "obj.txt", []byte("data"))
+				mustPutObject(t, b, "tr-idem", "obj.txt", bytes.Repeat([]byte("d"), 200*1024))
 				s3.BackdateObjectForTest(b, "tr-idem", "obj.txt", time.Now().Add(-2*24*time.Hour))
 			},
 			wantClass: "GLACIER",
@@ -219,7 +221,7 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			b := s3.NewInMemoryBackend(nil)
 			tt.setup(t, b)
 
-			err := b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML)
+			err := b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithCancel(t.Context())
@@ -255,7 +257,7 @@ func TestLifecycle_ObjectSizeFilter(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	err := b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML)
+	err := b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML, "")
 	require.NoError(t, err)
 
 	newFastJanitor(b).SweepOnce(t.Context())
@@ -322,9 +324,11 @@ func TestS3Lifecycle_NoncurrentVersionTransitions(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// Write two versions: v1 becomes noncurrent, v2 is latest.
-			mustPutObject(t, b, tt.bucket, "obj.txt", []byte("v1"))
-			mustPutObject(t, b, tt.bucket, "obj.txt", []byte("v2"))
+			// Write two versions: v1 becomes noncurrent, v2 is latest. >128KB so
+			// TransitionDefaultMinimumObjectSize's all_storage_classes_128K default
+			// (unset here) doesn't block the transition under test.
+			mustPutObject(t, b, tt.bucket, "obj.txt", bytes.Repeat([]byte("1"), 200*1024))
+			mustPutObject(t, b, tt.bucket, "obj.txt", bytes.Repeat([]byte("2"), 200*1024))
 
 			// Backdate v1 (noncurrent) to be older than NoncurrentDays.
 			// We need to backdate the noncurrent version specifically.
@@ -332,7 +336,7 @@ func TestS3Lifecycle_NoncurrentVersionTransitions(t *testing.T) {
 			// the rule only acts on non-latest and we just need them old.
 			s3.BackdateObjectForTest(b, tt.bucket, "obj.txt", time.Now().Add(-2*24*time.Hour))
 
-			err = b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML)
+			err = b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithCancel(t.Context())
@@ -460,7 +464,7 @@ func TestLifecycle_NoncurrentVersionTagFilter(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	err = b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML)
+	err = b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML, "")
 	require.NoError(t, err)
 
 	newFastJanitor(b).SweepOnce(t.Context())

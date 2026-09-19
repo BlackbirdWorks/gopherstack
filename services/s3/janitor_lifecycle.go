@@ -209,10 +209,11 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 	// read-lock so we can evaluate tag-based lifecycle filters without holding
 	// b.mu during the (potentially slow) object scan.
 	type bucketSnapshot struct {
-		bucket    *StoredBucket
-		tagsByKey map[string][]types.Tag
-		name      string
-		lcXML     string
+		bucket                         *StoredBucket
+		tagsByKey                      map[string][]types.Tag
+		name                           string
+		lcXML                          string
+		transitionDefaultMinObjectSize string
 	}
 	var snapshots []bucketSnapshot
 
@@ -226,12 +227,13 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 				continue
 			}
 
-			var lcXML string
+			var lcXML, transitionDefaultMinObjectSize string
 			func() {
 				bucket.mu.RLock("S3Janitor.sweepLifecycleLCRead")
 				defer bucket.mu.RUnlock()
 
 				lcXML = bucket.LifecycleConfig
+				transitionDefaultMinObjectSize = bucket.TransitionDefaultMinObjectSize
 			}()
 			if lcXML == "" {
 				continue
@@ -247,10 +249,11 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 			}
 
 			snapshots = append(snapshots, bucketSnapshot{
-				name:      name,
-				bucket:    bucket,
-				lcXML:     lcXML,
-				tagsByKey: tagsByKey,
+				name:                           name,
+				bucket:                         bucket,
+				lcXML:                          lcXML,
+				tagsByKey:                      tagsByKey,
+				transitionDefaultMinObjectSize: transitionDefaultMinObjectSize,
 			})
 		}
 	}()
@@ -261,6 +264,7 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 			snap.bucket,
 			snap.name,
 			snap.lcXML,
+			snap.transitionDefaultMinObjectSize,
 			snap.tagsByKey,
 			now,
 		)
@@ -280,7 +284,7 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 func (j *Janitor) applyLifecycleRules(
 	ctx context.Context,
 	bucket *StoredBucket,
-	bucketName, lcXML string,
+	bucketName, lcXML, transitionDefaultMinObjectSize string,
 	tagsByKey map[string][]types.Tag,
 	now time.Time,
 ) int {
@@ -300,7 +304,7 @@ func (j *Janitor) applyLifecycleRules(
 			continue
 		}
 
-		evicted += j.applyLifecycleRule(bucket, bucketName, rule, tagsByKey, now)
+		evicted += j.applyLifecycleRule(bucket, bucketName, rule, transitionDefaultMinObjectSize, tagsByKey, now)
 	}
 
 	if hasEnabledAbortRule(&cfg) {
@@ -321,6 +325,7 @@ func (j *Janitor) applyLifecycleRule(
 	bucket *StoredBucket,
 	bucketName string,
 	rule *lifecycleRule,
+	transitionDefaultMinObjectSize string,
 	tagsByKey map[string][]types.Tag,
 	now time.Time,
 ) int {
@@ -366,13 +371,48 @@ func (j *Janitor) applyLifecycleRule(
 		)
 	}
 
-	j.applyTransitions(bucket, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, rule.ID, rule.Transitions, now)
+	j.applyTransitions(
+		bucket, prefix, tagFilters, sizeMin, sizeMax, transitionDefaultMinObjectSize,
+		tagsByKey, rule.ID, rule.Transitions, now,
+	)
 	j.applyNoncurrentTransitions(
-		bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, tagsByKey,
+		bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, transitionDefaultMinObjectSize, tagsByKey,
 		rule.ID, rule.NoncurrentVersionTransitions, now,
 	)
 
 	return evicted
+}
+
+// transitionDefaultMinObjectSizeThreshold is the exclusive size bound
+// (128 KiB - 1 byte) equivalent to real S3's ">= 128 KB transitions"
+// TransitionDefaultMinimumObjectSize default, expressed the same way
+// objectMatchesSize's exclusive ObjectSizeGreaterThan bound already is.
+const transitionDefaultMinObjectSizeThreshold int64 = 128*1024 - 1
+
+// effectiveTransitionSizeMin folds the bucket's TransitionDefaultMinimumObjectSize
+// setting (s3@v1.111.0 api_op_PutBucketLifecycleConfiguration.go doc comment)
+// into sizeMin for a transition to targetClass. A rule's own explicit
+// ObjectSizeGreaterThan/ObjectSizeLessThan filter always takes precedence over
+// the default ("Custom filters always take precedence over the default
+// transition behavior"), so this only applies when neither bound was set.
+// varies_by_storage_class exempts GLACIER/DEEP_ARCHIVE targets from the
+// minimum entirely; all other targets, and the all_storage_classes_128K
+// default, enforce it uniformly.
+func effectiveTransitionSizeMin(sizeMin, sizeMax *int64, defaultSetting, targetClass string) *int64 {
+	if sizeMin != nil || sizeMax != nil {
+		return sizeMin
+	}
+
+	if defaultSetting == string(types.TransitionDefaultMinimumObjectSizeVariesByStorageClass) {
+		switch targetClass {
+		case string(types.StorageClassGlacier), string(types.StorageClassDeepArchive):
+			return nil
+		}
+	}
+
+	threshold := transitionDefaultMinObjectSizeThreshold
+
+	return &threshold
 }
 
 // applyTransitions processes all Transition entries for a lifecycle rule, applying
@@ -382,6 +422,7 @@ func (j *Janitor) applyTransitions(
 	prefix string,
 	tagFilters []lifecycleTag,
 	sizeMin, sizeMax *int64,
+	transitionDefaultMinObjectSize string,
 	tagsByKey map[string][]types.Tag,
 	ruleID string,
 	transitions []lifecycleTransition,
@@ -389,7 +430,8 @@ func (j *Janitor) applyTransitions(
 ) {
 	for _, tr := range transitions {
 		if tr.Days > 0 && tr.StorageClass != "" {
-			j.applyStorageClassTransitions(bucket, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, ruleID,
+			effMin := effectiveTransitionSizeMin(sizeMin, sizeMax, transitionDefaultMinObjectSize, tr.StorageClass)
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, effMin, sizeMax, tagsByKey, ruleID,
 				tr.StorageClass, now, time.Duration(tr.Days)*24*time.Hour, "")
 		}
 	}
@@ -400,7 +442,8 @@ func (j *Janitor) applyTransitions(
 		}
 		transitionDate, parseErr := parseLifecycleDate(tr.Date)
 		if parseErr == nil && now.After(transitionDate) {
-			j.applyStorageClassTransitions(bucket, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, ruleID,
+			effMin := effectiveTransitionSizeMin(sizeMin, sizeMax, transitionDefaultMinObjectSize, tr.StorageClass)
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, effMin, sizeMax, tagsByKey, ruleID,
 				tr.StorageClass, now, 0, tr.Date)
 		}
 	}
@@ -412,6 +455,7 @@ func (j *Janitor) applyNoncurrentTransitions(
 	bucketName, prefix string,
 	tagFilters []lifecycleTag,
 	sizeMin, sizeMax *int64,
+	transitionDefaultMinObjectSize string,
 	tagsByKey map[string][]types.Tag,
 	ruleID string,
 	transitions []lifecycleNoncurrentTransition,
@@ -421,8 +465,9 @@ func (j *Janitor) applyNoncurrentTransitions(
 		if tr.NoncurrentDays <= 0 || tr.StorageClass == "" {
 			continue
 		}
+		effMin := effectiveTransitionSizeMin(sizeMin, sizeMax, transitionDefaultMinObjectSize, tr.StorageClass)
 		j.applyNoncurrentStorageClassTransitions(
-			bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, ruleID, tr.StorageClass, now,
+			bucket, bucketName, prefix, tagFilters, effMin, sizeMax, tagsByKey, ruleID, tr.StorageClass, now,
 			time.Duration(tr.NoncurrentDays)*24*time.Hour,
 		)
 	}

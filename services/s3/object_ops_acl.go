@@ -8,6 +8,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// objectACLOwnerID is the mock object owner used by both getObjectACL (to
+// synthesize a canned-ACL response) and putObjectACL (to synthesize an
+// AccessControlPolicy from x-amz-grant-* headers).
+const objectACLOwnerID = "gopherstack-mock-owner"
+
 // getObjectACL returns a minimal owner-full-control ACL for the requested object.
 // Object ACLs are not enforced in this mock implementation; all objects are owned
 // by the mock account and grant full control to the owner only.
@@ -43,7 +48,7 @@ func (h *S3Handler) getObjectACL(
 		return
 	}
 
-	const ownerID = "gopherstack-mock-owner"
+	ownerID := objectACLOwnerID
 
 	// stored holds the canned ACL name (e.g. "public-read") when
 	// PutObjectAcl was called with X-Amz-Acl rather than a full XML body.
@@ -81,12 +86,29 @@ func (h *S3Handler) putObjectACL(
 
 	body, _ := httputils.ReadBody(r)
 
-	acl := canned
-	if len(body) > 0 {
-		acl = string(body)
+	// x-amz-grant-* headers (s3@v1.111.0 api_op_PutObjectAcl.go: GrantFullControl,
+	// GrantRead, GrantReadACP, GrantWrite, GrantWriteACP) are a third,
+	// header-only way to specify grants alongside the canned header and the
+	// AccessControlPolicy body -- same convention as putBucketACL.
+	grantXML := ""
+	if len(body) == 0 && canned == "" {
+		grantXML = aclXMLFromGrantHeaders(r.Header, objectACLOwnerID, gopherstackName, true)
 	}
 
-	if err := h.enforceACLPolicy(ctx, bucketName, canned, string(body)); err != nil {
+	acl := canned
+	switch {
+	case len(body) > 0:
+		acl = string(body)
+	case grantXML != "":
+		acl = grantXML
+	}
+
+	xmlBodyACL := string(body)
+	if xmlBodyACL == "" {
+		xmlBodyACL = grantXML
+	}
+
+	if err := h.enforceACLPolicy(ctx, bucketName, canned, xmlBodyACL); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return

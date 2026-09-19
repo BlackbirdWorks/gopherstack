@@ -43,7 +43,7 @@ func TestLifecycle_NoExpirationElement(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	err := b.PutBucketLifecycleConfiguration(t.Context(), "no-expiry-bucket", lc)
+	err := b.PutBucketLifecycleConfiguration(t.Context(), "no-expiry-bucket", lc, "")
 	require.NoError(t, err)
 
 	j := newFastJanitor(b)
@@ -85,7 +85,7 @@ func TestLifecycle_SkipsLockedObjects(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	err = b.PutBucketLifecycleConfiguration(t.Context(), "locked-bucket", lc)
+	err = b.PutBucketLifecycleConfiguration(t.Context(), "locked-bucket", lc, "")
 	require.NoError(t, err)
 
 	j := newFastJanitor(b)
@@ -133,7 +133,7 @@ func TestLifecycle_SkipsLegalHoldObjects(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	err = b.PutBucketLifecycleConfiguration(t.Context(), "legal-hold-bucket", lc)
+	err = b.PutBucketLifecycleConfiguration(t.Context(), "legal-hold-bucket", lc, "")
 	require.NoError(t, err)
 
 	j := newFastJanitor(b)
@@ -221,7 +221,7 @@ func TestNoncurrentVersionEviction_SkipsLockedVersions(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-		err = b.PutBucketLifecycleConfiguration(t.Context(), "nc-lock-bucket", lc)
+		err = b.PutBucketLifecycleConfiguration(t.Context(), "nc-lock-bucket", lc, "")
 		require.NoError(t, err)
 
 		j := newFastJanitor(b)
@@ -404,7 +404,7 @@ func TestJanitor_AbortIncompleteMultipartUpload_HonoursPrefix(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`, tt.status, tt.filterPrefix, tt.days)
 
-			require.NoError(t, b.PutBucketLifecycleConfiguration(t.Context(), bucket, lc))
+			require.NoError(t, b.PutBucketLifecycleConfiguration(t.Context(), bucket, lc, ""))
 
 			j := newFastJanitor(b)
 			j.SweepOnce(t.Context())
