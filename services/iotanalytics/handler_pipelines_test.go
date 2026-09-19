@@ -478,8 +478,13 @@ func TestHandler_ReprocessingSummaries_Sorted(t *testing.T) {
 	}
 }
 
-// TestHandler_PipelineReprocessingSummary_StartTime verifies StartTime appears in reprocessing summaries.
-func TestHandler_PipelineReprocessingSummary_StartTime(t *testing.T) {
+// TestHandler_PipelineReprocessingSummary_NoStartEndTimeLeak verifies
+// reprocessing summaries carry exactly types.ReprocessingSummary's three
+// members (id/status/creationTime) -- startTime/endTime are accepted by
+// StartPipelineReprocessing but must never appear on the wire here (over-wide-
+// response sweep, 2026-09-19): no case in
+// awsRestjson1_deserializeDocumentReprocessingSummary recognizes either key.
+func TestHandler_PipelineReprocessingSummary_NoStartEndTimeLeak(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -510,7 +515,11 @@ func TestHandler_PipelineReprocessingSummary_StartTime(t *testing.T) {
 	summaries, _ := pl["reprocessingSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	summary, _ := summaries[0].(map[string]any)
-	assert.NotZero(t, summary["startTime"], "startTime must appear in reprocessing summary")
+	assert.NotEmpty(t, summary["id"])
+	assert.NotEmpty(t, summary["status"])
+	assert.NotZero(t, summary["creationTime"])
+	assert.NotContains(t, summary, "startTime")
+	assert.NotContains(t, summary, "endTime")
 }
 
 // TestHandler_RunPipelineActivity_PayloadLimit verifies RunPipelineActivity rejects more than 10 payloads.

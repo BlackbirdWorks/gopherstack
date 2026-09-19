@@ -1,7 +1,7 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
-last_audit_commit: d9715a7fd
+last_audit_commit: 49cff86c4
 last_audit_date: 2026-09-19
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
@@ -28,7 +28,7 @@ overall: A            # Full sweep of the 5 gaps/2 deferred items this file prev
 ops:
   CreateKey: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "invalid KeySpec now classifies as ValidationException (400), not InternalServiceError (500); tags now validated before the key is created (was: orphan-leak on bad tag). 2026-09-07 (gopherstack-e76y): CreateKeyInput/KeyMetadata gained CustomKeyStoreId (real SDK: kms@v1.55.4 api_op_CreateKey.go:228, types/types.go:439) -- see the gaps entry below for the validation implemented. 2026-09-08 (gopherstack-ufvn): XksKeyId conditional-required/pattern validation was attempted and reverted -- see the gaps entry below for why."}
   DescribeKey: {wire: ok, errors: fixed, state: ok, persist: ok, note: "2026-09-07 (gopherstack-k3ww): the 2026-07-12 entry below claiming DescribeKey declares InvalidGrantTokenException was wrong, not SDK drift -- v1.54.0 was re-checked directly (module cache had only v1.55.4; downloaded v1.54.0 via `go mod download`) and its deserializeOpErrorDescribeKey is byte-identical to v1.55.4's: DependencyTimeoutException/InvalidArnException/KMSInternalException/NotFoundException only, no InvalidGrantTokenException in either version, confirmed a third way against the vendored aws-sdk-go@v1.55.8 botocore model (api-2.json). DescribeKey's sibling grant ops (Sign/Verify/GetPublicKey/GenerateMac/VerifyMac/DeriveSharedSecret) DO declare it -- DescribeKey was the one caller of validateGrantTokenPresence that didn't belong. Reverted the validateGrantTokenPresence call (keys.go); GrantTokens stays on the wire (field is real, confirmed present in both versions) but is no longer validated. describe_key_grant_tokens_test.go's rejection subtest replaced with TestDescribeKey_GrantTokens_NotValidated asserting a bogus token is now accepted."}
-  ListKeys: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListKeys: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (over-wide-response sweep): KeyListEntry carried a fabricated Description member -- real types.KeyListEntry (kms@v1.59.0) has only KeyId/KeyArn; awsAwsjson11_deserializeDocumentKeyListEntry has no \"Description\" case. Removed. See TestListSummaryShapes/keys_description_was_leaking (list_summary_shapes_test.go)."}
   Encrypt: {wire: ok, errors: fixed, state: ok, persist: ok, note: "real AES-256-GCM / RSA-OAEP-SHA-256, AAD-bound encryption context, grant-token constraint check already present; expired imported material now classifies as ExpiredImportTokenException (400), not 500"}
   Decrypt: {wire: ok, errors: fixed, state: ok, persist: ok, note: "key ID embedded in blob prefix; mismatched context fails AES-GCM auth -> InvalidCiphertextException; history fallback for post-rotation ciphertexts; expired imported material now classifies as ExpiredImportTokenException (400), not 500"}
   ReEncrypt: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -46,21 +46,21 @@ ops:
   CreateAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAlias: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAliases: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAliases: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified this pass (over-wide-response sweep): Alias's five members match types.AliasListEntry exactly -- no leaks, no gaps."}
   EnableKeyRotation: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableKeyRotation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetKeyRotationStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   RotateKeyOnDemand: {wire: ok, errors: ok, state: ok, persist: ok, note: "10-per-24h on-demand rate limit enforced"}
-  ListKeyRotations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListKeyRotations: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified this pass (over-wide-response sweep) against types.RotationsListEntry: KeyId/RotationDate/RotationType match; ExpirationModel/ImportState/KeyMaterialDescription/KeyMaterialId/KeyMaterialState/ValidTo are unsourced -- already disclosed (gopherstack-xhu2t, items_still_open): this backend has no multi-key-material-generation tracking, and gopherstack's RotationType is only AUTOMATIC/ON_DEMAND (kms@v1.59.0 has no imported-material RotationType value), so those six members would have nothing honest to report for any entry this backend produces. Not a leak."}
   DisableKey: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ScheduleKeyDeletion: {wire: ok, errors: ok, state: ok, persist: ok, note: "7-30 day window enforced; janitor purges past DeletionDate"}
   CancelKeyDeletion: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateGrant: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "region-resolution fix (see below) PLUS this pass's 3 gap closures: (1) GrantConstraints gained SourceArn (real SDK field; stored/round-tripped through ListGrants/ListRetirableGrants, NOT enforced -- no cross-service request-context plumbing exists anywhere in this mock to carry a caller/resource ARN through crypto calls, same documented scope boundary as grant-token authorization); (2) CreateGrantInput gained GrantTokens (real SDK field; accepted as a no-op, same precedent as CreateKeyInput/ReplicateKeyInput's BypassPolicyLockoutSafetyCheck -- no IAM layer exists to authorize the CreateGrant call itself); (3) CreateGrantInput/Grant gained GranteeServicePrincipal + RetiringServicePrincipal (real SDK fields), WITH real validation: exactly one of GranteePrincipal/GranteeServicePrincipal required, RetiringPrincipal/RetiringServicePrincipal mutually exclusive, and a service grantee requires a SourceArn constraint + a retiring principal of either kind, matching the real CreateGrantInput doc comments exactly. Also added Grant.IssuingAccount (real GrantListEntry field, was entirely absent -- populated from the backend's account ID). See TestCreateGrant_ServicePrincipals, TestGrantConstraint_SourceArn_RoundTrips, TestCreateGrant_IssuingAccount_Populated, TestCreateGrant_GrantTokens_AcceptedAsNoOp in grants_test.go, plus persistence coverage in TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip."}
-  ListGrants: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant"}
+  ListGrants: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant. Re-verified this pass (over-wide-response sweep): GrantListEntry's eleven members match types.GrantListEntry exactly -- no leaks, no gaps."}
   RevokeGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant"}
   RetireGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "GrantId+KeyId path now uses the key's own region; GrantId-only (no KeyId, no region hint) now searches all regions instead of only the request region"}
-  ListRetirableGrants: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-28 write-only-state sweep: ListRetirableGrantsInput had no RetiringServicePrincipal field (real SDK: aws-sdk-go-v2/service/kms@v1.55.4 api_op_ListRetirableGrants.go, ListRetirableGrantsInput carries both RetiringPrincipal and RetiringServicePrincipal -- 'You must specify either ... but not both'), and the backend filtered solely on g.RetiringPrincipal == input.RetiringPrincipal. CreateGrant has always accepted and stored GranteeServicePrincipal/RetiringServicePrincipal on the Grant (see the CreateGrant op row above), so a grant whose only retiring principal was a service principal could be created but never discovered through ListRetirableGrants -- KMS's only real read path for 'which grants can I retire' (RetireGrant itself requires a GrantId/GrantToken you'd otherwise have no way to find). Worth noting for the next auditor: a naive round-trip test here can pass by accident, because both the (dropped) request field and the unset Grant.RetiringPrincipal default to the empty string, so an empty-string == empty-string match looks like a hit; the real test needs a decoy grant with neither retiring-principal field set and an exact-count assertion. Fixed: added RetiringServicePrincipal to ListRetirableGrantsInput and OR'd it into the filter (each side only matches when its own input field is non-empty). See TestListRetirableGrants_RetiringServicePrincipal_RealClient in wire_field_fixes_test.go."}
+  ListRetirableGrants: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-28 write-only-state sweep: ListRetirableGrantsInput had no RetiringServicePrincipal field (real SDK: aws-sdk-go-v2/service/kms@v1.55.4 api_op_ListRetirableGrants.go, ListRetirableGrantsInput carries both RetiringPrincipal and RetiringServicePrincipal -- 'You must specify either ... but not both'), and the backend filtered solely on g.RetiringPrincipal == input.RetiringPrincipal. CreateGrant has always accepted and stored GranteeServicePrincipal/RetiringServicePrincipal on the Grant (see the CreateGrant op row above), so a grant whose only retiring principal was a service principal could be created but never discovered through ListRetirableGrants -- KMS's only real read path for 'which grants can I retire' (RetireGrant itself requires a GrantId/GrantToken you'd otherwise have no way to find). Worth noting for the next auditor: a naive round-trip test here can pass by accident, because both the (dropped) request field and the unset Grant.RetiringPrincipal default to the empty string, so an empty-string == empty-string match looks like a hit; the real test needs a decoy grant with neither retiring-principal field set and an exact-count assertion. Fixed: added RetiringServicePrincipal to ListRetirableGrantsInput and OR'd it into the filter (each side only matches when its own input field is non-empty). See TestListRetirableGrants_RetiringServicePrincipal_RealClient in wire_field_fixes_test.go. Re-verified this pass (over-wide-response sweep): shares GrantListEntry with ListGrants, already confirmed exact above."}
   PutKeyPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant -- policy now stored in the key's own region so a cross-region ARN round-trips through GetKeyPolicy"}
   GetKeyPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant -- reads the policy from the key's own region (ARN-embedded region for an ARN input)"}
   ListKeyPolicies: {wire: ok, errors: ok, state: ok, persist: n/a, note: "already region-aware (routes through lookupKey); confirmed no change needed"}
@@ -96,6 +96,14 @@ leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by Ke
 ---
 
 ## Notes
+
+### 2026-09-19 over-wide-response sweep
+
+cmd/overwidecandidates flagged all 5 List ops. ListAliases/ListGrants/
+ListRetirableGrants already matched their Summary type exactly.
+ListKeyRotations' gaps were already disclosed (gopherstack-xhu2t). ListKeys
+had a real leak: KeyListEntry.Description, which real types.KeyListEntry
+doesn't have -- removed. See list_summary_shapes_test.go.
 
 - **2026-09-18 zeroguard: UpdateCustomKeyStore.NewCustomKeyStoreName**:
   was a plain string guarded by `!= ""`, so an explicit empty rename was

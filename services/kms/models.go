@@ -174,14 +174,15 @@ type DescribeKeyOutput struct {
 	KeyMetadata KeyMetadata `json:"KeyMetadata"`
 }
 
-// KeyListEntry is a brief key reference used in ListKeys.
+// KeyListEntry is a brief key reference used in ListKeys, matching real
+// AWS's types.KeyListEntry exactly -- KeyId and KeyArn only. It has no
+// Description member (kms@v1.59.0 deserializers.go's
+// awsAwsjson11_deserializeDocumentKeyListEntry has no "Description" case).
 type KeyListEntry struct {
 	// KeyId is the UUID of the key.
 	KeyID string `json:"KeyId"`
 	// KeyArn is the full ARN of the key.
 	KeyArn string `json:"KeyArn"`
-	// Description is the optional human-readable description of the key.
-	Description string `json:"Description,omitempty"`
 }
 
 // ListKeysInput is the request payload for ListKeys.

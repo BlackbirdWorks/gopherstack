@@ -300,7 +300,7 @@ func (b *InMemoryBackend) ListKeys(
 	for _, k := range b.keysStore(region).All() {
 		entries = append(
 			entries,
-			KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn, Description: k.Description},
+			KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn},
 		)
 	}
 

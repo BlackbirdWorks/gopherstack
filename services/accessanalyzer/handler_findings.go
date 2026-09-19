@@ -25,6 +25,7 @@ const (
 	keyResource          = "resource"
 	keyResourceOwnerAcct = "resourceOwnerAccount"
 	keyFindingType       = "findingType"
+	keyCondition         = "condition"
 
 	// findingTypeExternalAccess is the only types.FindingType value
 	// InMemoryBackend ever produces: every finding created via AddFinding
@@ -128,7 +129,7 @@ func (h *Handler) handleListFindings(body []byte) (any, int, error) {
 	list := make([]any, 0, len(findings))
 
 	for _, f := range findings {
-		list = append(list, findingToJSON(f, accountID))
+		list = append(list, findingSummaryToJSON(f, accountID))
 	}
 
 	resp := map[string]any{keyFindings: list}
@@ -427,7 +428,39 @@ func findingToJSON(f *Finding, accountID string) map[string]any {
 		keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
 		keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
 		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
-		"condition":          conditionOrEmpty(f.Condition),
+		keyCondition:         conditionOrEmpty(f.Condition),
+	}
+
+	if len(f.Action) > 0 {
+		m["action"] = f.Action
+	}
+
+	if len(f.Principal) > 0 {
+		m["principal"] = f.Principal
+	}
+
+	if f.IsPublic != nil {
+		m["isPublic"] = *f.IsPublic
+	}
+
+	return m
+}
+
+// findingSummaryToJSON builds the wire shape of types.FindingSummary, used by
+// ListFindings. Unlike types.Finding (GetFinding), FindingSummary has no
+// analyzerArn member at all -- findingToJSON's "analyzerArn" key would leak
+// on the wire here.
+func findingSummaryToJSON(f *Finding, accountID string) map[string]any {
+	m := map[string]any{
+		"id":                 f.ID,
+		keyStatus:            string(f.Status),
+		keyResourceType:      f.ResourceType,
+		keyResource:          f.ResourceArn,
+		keyResourceOwnerAcct: accountID,
+		keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
+		keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
+		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
+		keyCondition:         conditionOrEmpty(f.Condition),
 	}
 
 	if len(f.Action) > 0 {
@@ -461,7 +494,7 @@ func conditionOrEmpty(c map[string]string) map[string]string {
 // "condition" is a required member; "action"/"principal"/"isPublic" are
 // optional and only included when set.
 func externalAccessDetailsJSON(f *Finding) map[string]any {
-	d := map[string]any{"condition": conditionOrEmpty(f.Condition)}
+	d := map[string]any{keyCondition: conditionOrEmpty(f.Condition)}
 
 	if len(f.Action) > 0 {
 		d["action"] = f.Action
