@@ -523,13 +523,17 @@ func TestIntegration_NetworkManager_ValidationErrors(t *testing.T) {
 			name: "describe_non_existent_global_network",
 			run: func(t *testing.T) error {
 				t.Helper()
-				_, err := client.DescribeGlobalNetworks(ctx, &networkmanagersdk.DescribeGlobalNetworksInput{
+				out, err := client.DescribeGlobalNetworks(ctx, &networkmanagersdk.DescribeGlobalNetworksInput{
 					GlobalNetworkIds: []string{"global-network-nonexistent123"},
 				})
+				if err != nil {
+					return err
+				}
+				// Unknown ids are omitted, not rejected; the provider relies on this.
+				require.Empty(t, out.GlobalNetworks)
 
-				return err
+				return nil
 			},
-			wantErr: true,
 		},
 		{
 			name: "get_non_existent_site",
