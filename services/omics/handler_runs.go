@@ -63,7 +63,15 @@ func (h *Handler) handleListRunGroups(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyItems: groups, keyNextToken: next})
+	// Real ListRunGroupsOutput's element (RunGroupListItem) has no tags
+	// member -- narrower than GetRunGroupOutput, so this doesn't marshal
+	// RunGroup directly (see RunGroupSummary).
+	summaries := make([]RunGroupSummary, 0, len(groups))
+	for _, rg := range groups {
+		summaries = append(summaries, newRunGroupSummary(rg))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyItems: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateRunGroup(c *echo.Context, id string) error {
@@ -200,7 +208,20 @@ func (h *Handler) handleListRuns(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyItems: runs, keyNextToken: next})
+	// Real ListRunsOutput's element (RunListItem) is far narrower than
+	// GetRunOutput -- see RunSummary's doc comment. workflowName is resolved
+	// here (RunListItem's only member with no GetRunOutput counterpart);
+	// left empty when the run's workflow was since deleted.
+	summaries := make([]RunSummary, 0, len(runs))
+	for _, r := range runs {
+		var workflowName string
+		if wf, wfErr := h.Backend.GetWorkflow(r.WorkflowID); wfErr == nil {
+			workflowName = wf.Name
+		}
+		summaries = append(summaries, newRunSummary(r, workflowName))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyItems: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleGetRunTask(c *echo.Context, runID, taskID string) error {
@@ -221,7 +242,15 @@ func (h *Handler) handleListRunTasks(c *echo.Context, runID string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyItems: tasks, keyNextToken: next})
+	// Real ListRunTasksOutput's element (TaskListItem) has no runId member --
+	// narrower than GetRunTaskOutput -- so this doesn't marshal RunTask
+	// directly (see RunTaskSummary).
+	summaries := make([]RunTaskSummary, 0, len(tasks))
+	for _, t := range tasks {
+		summaries = append(summaries, newRunTaskSummary(t))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyItems: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCreateRunCache(c *echo.Context) error {
@@ -269,7 +298,15 @@ func (h *Handler) handleListRunCaches(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyItems: caches, keyNextToken: next})
+	// Real ListRunCachesOutput's element (RunCacheListItem) has no
+	// description or tags member -- narrower than GetRunCacheOutput, so this
+	// doesn't marshal RunCache directly (see RunCacheSummary).
+	summaries := make([]RunCacheSummary, 0, len(caches))
+	for _, rc := range caches {
+		summaries = append(summaries, newRunCacheSummary(rc))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyItems: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateRunCache(c *echo.Context, id string) error {
@@ -560,5 +597,13 @@ func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runs": runs, keyNextToken: next})
+	// Real ListRunsInBatchOutput's element (RunBatchListItem) is an entirely
+	// different, much narrower shape than Run/GetRunOutput -- see
+	// RunInBatchSummary's doc comment.
+	summaries := make([]RunInBatchSummary, 0, len(runs))
+	for _, r := range runs {
+		summaries = append(summaries, newRunInBatchSummary(r))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"runs": summaries, keyNextToken: next})
 }

@@ -237,7 +237,10 @@ func TestReadSetMetadata_FileTypeField(t *testing.T) {
 // TestReadSetMetadata_FilesField_ImportJob verifies StartReadSetImportJob
 // populates the optional Files sub-object (real AWS
 // GetReadSetMetadataOutput.Files) for each accepted source, instead of
-// leaving it entirely unmodeled.
+// leaving it entirely unmodeled. Checked via GetReadSetMetadata, not
+// ListReadSets: real ReadSetListItem has no files member at all
+// (deserializers.go's awsRestjson1_deserializeDocumentReadSetListItem lacks
+// a "files" case) -- see ReadSetSummary.
 func TestReadSetMetadata_FilesField_ImportJob(t *testing.T) {
 	t.Parallel()
 
@@ -296,7 +299,18 @@ func TestReadSetMetadata_FilesField_ImportJob(t *testing.T) {
 			require.Len(t, readSets, 1)
 
 			rs := readSets[0].(map[string]any)
-			files, ok := rs["files"].(map[string]any)
+			require.NotContains(t, rs, "files", "ReadSetListItem has no files member")
+
+			readSetID := rs["id"].(string)
+			metaRec := doRequest(
+				t, h, http.MethodGet,
+				"/sequencestore/"+storeID+"/readset/"+readSetID+"/metadata", nil,
+			)
+			require.Equal(t, http.StatusOK, metaRec.Code)
+
+			var meta map[string]any
+			require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta))
+			files, ok := meta["files"].(map[string]any)
 			require.True(t, ok, "files sub-object must be present")
 			assert.Contains(t, files, "source1")
 

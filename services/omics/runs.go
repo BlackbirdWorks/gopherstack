@@ -103,6 +103,22 @@ func (b *InMemoryBackend) ListRunGroups(
 	return result, outToken, nil
 }
 
+// newRunGroupSummary converts a persisted run group record into the real
+// ListRunGroupsOutput element shape (see RunGroupSummary's doc comment for
+// why List and Get differ).
+func newRunGroupSummary(rg *RunGroup) RunGroupSummary {
+	return RunGroupSummary{
+		CreationTime: rg.CreationTime,
+		Arn:          rg.Arn,
+		ID:           rg.ID,
+		Name:         rg.Name,
+		MaxCPUs:      rg.MaxCPUs,
+		MaxRuns:      rg.MaxRuns,
+		MaxDuration:  rg.MaxDuration,
+		MaxGPUs:      rg.MaxGPUs,
+	}
+}
+
 // UpdateRunGroup updates a run group.
 func (b *InMemoryBackend) UpdateRunGroup(
 	id, name string,
@@ -244,6 +260,7 @@ func (b *InMemoryBackend) startRunLocked(input StartRunInput) *Run {
 		RunID:        id,
 		Name:         "task-1",
 		Status:       statusPending,
+		UUID:         newUUID(),
 		CPUs:         stubTaskCPUs,
 		Memory:       stubTaskMemory,
 		CreationTime: now,
@@ -374,6 +391,29 @@ func (b *InMemoryBackend) ListRuns(filter *RunFilter, maxResults int, nextToken 
 	return result, outToken, nil
 }
 
+// newRunSummary converts a persisted run record into the real ListRunsOutput
+// element shape (see RunSummary's doc comment for why List and Get differ).
+// workflowName is resolved by the caller from r.WorkflowID (RunListItem's
+// only member with no GetRunOutput counterpart) since this backend's
+// ListRuns holds only the runs map's lock, not the workflows map's.
+func newRunSummary(r *Run, workflowName string) RunSummary {
+	return RunSummary{
+		StartTime:           r.StartTime,
+		StopTime:            r.StopTime,
+		StorageCapacity:     r.StorageCapacity,
+		CreationTime:        r.CreationTime,
+		Arn:                 r.Arn,
+		ID:                  r.ID,
+		Name:                r.Name,
+		WorkflowID:          r.WorkflowID,
+		WorkflowName:        workflowName,
+		WorkflowVersionName: r.WorkflowVersionName,
+		RunBatchID:          r.RunBatchID,
+		StorageType:         r.StorageType,
+		Status:              r.Status,
+	}
+}
+
 // runMatchesFilter reports whether r satisfies every non-empty field of filter.
 func runMatchesFilter(r *Run, filter *RunFilter) bool {
 	if filter == nil {
@@ -451,6 +491,23 @@ func (b *InMemoryBackend) ListRunTasks(
 	)
 
 	return result, outToken, nil
+}
+
+// newRunTaskSummary converts a persisted task record into the real
+// ListRunTasksOutput element shape (see RunTaskSummary's doc comment for why
+// List and Get differ).
+func newRunTaskSummary(t *RunTask) RunTaskSummary {
+	return RunTaskSummary{
+		StartTime:    t.StartTime,
+		StopTime:     t.StopTime,
+		CreationTime: t.CreationTime,
+		TaskID:       t.TaskID,
+		Name:         t.Name,
+		Status:       t.Status,
+		UUID:         t.UUID,
+		CPUs:         t.CPUs,
+		Memory:       t.Memory,
+	}
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -543,6 +600,21 @@ func (b *InMemoryBackend) ListRunCaches(
 	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runCaches.Get)
 
 	return result, outToken, nil
+}
+
+// newRunCacheSummary converts a persisted run cache record into the real
+// ListRunCachesOutput element shape (see RunCacheSummary's doc comment for
+// why List and Get differ).
+func newRunCacheSummary(rc *RunCache) RunCacheSummary {
+	return RunCacheSummary{
+		CreationTime:    rc.CreationTime,
+		Arn:             rc.Arn,
+		ID:              rc.ID,
+		Name:            rc.Name,
+		CacheS3Location: rc.CacheS3Location,
+		Status:          rc.Status,
+		CacheBehavior:   rc.CacheBehavior,
+	}
 }
 
 // UpdateRunCache updates a run cache. cacheBehavior, like name and
@@ -903,4 +975,17 @@ func (b *InMemoryBackend) ListRunsInBatch(
 	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runs.Get)
 
 	return result, outToken, nil
+}
+
+// newRunInBatchSummary converts a persisted run record into the real
+// ListRunsInBatchOutput element shape (see RunInBatchSummary's doc comment
+// for why this is unrelated to GetRunOutput/Run).
+func newRunInBatchSummary(r *Run) RunInBatchSummary {
+	return RunInBatchSummary{
+		RunArn:           r.Arn,
+		RunID:            r.ID,
+		RunUUID:          r.UUID,
+		RunSettingID:     r.RunSettingID,
+		SubmissionStatus: "SUCCESS",
+	}
 }

@@ -106,8 +106,16 @@ func (h *Handler) handleListReferences(c *echo.Context, storeID string) error {
 		return h.mapError(c, err)
 	}
 
+	// Real ListReferencesOutput's element (ReferenceListItem) has no files or
+	// tags member -- narrower than GetReferenceMetadataOutput, so this
+	// doesn't marshal ReferenceMetadata directly (see ReferenceSummary).
+	summaries := make([]ReferenceSummary, 0, len(refs))
+	for _, ref := range refs {
+		summaries = append(summaries, newReferenceSummary(ref))
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"references": refs,
+		"references": summaries,
 		keyNextToken: next,
 	})
 }
@@ -155,8 +163,16 @@ func (h *Handler) handleListReferenceImportJobs(c *echo.Context, storeID string)
 		return h.mapError(c, err)
 	}
 
+	// Real ListReferenceImportJobsOutput's element (ImportReferenceJobItem)
+	// has no sources member -- narrower than GetReferenceImportJobOutput, so
+	// this doesn't marshal ReferenceImportJob directly.
+	summaries := make([]ReferenceImportJobSummary, 0, len(jobs))
+	for _, job := range jobs {
+		summaries = append(summaries, newReferenceImportJobSummary(job))
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		keyImportJobs: jobs,
+		keyImportJobs: summaries,
 		keyNextToken:  next,
 	})
 }

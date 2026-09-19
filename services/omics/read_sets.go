@@ -106,6 +106,26 @@ func (b *InMemoryBackend) ListReadSets(
 	return result, outToken, nil
 }
 
+// newReadSetSummary converts a persisted read set record into the real
+// ListReadSetsOutput element shape (see ReadSetSummary's doc comment for why
+// List and Get differ).
+func newReadSetSummary(rs *ReadSetMetadata) ReadSetSummary {
+	return ReadSetSummary{
+		CreationTime:    rs.CreationTime,
+		Arn:             rs.Arn,
+		ID:              rs.ID,
+		SequenceStoreID: rs.SequenceStoreID,
+		Name:            rs.Name,
+		Description:     rs.Description,
+		FileType:        rs.FileType,
+		Status:          rs.Status,
+		StatusMessage:   rs.StatusMessage,
+		SubjectID:       rs.SubjectID,
+		SampleID:        rs.SampleID,
+		ReferenceARN:    rs.ReferenceARN,
+	}
+}
+
 // StartReadSetActivationJob creates a read set activation job.
 func (b *InMemoryBackend) StartReadSetActivationJob(
 	sequenceStoreID string,
@@ -180,6 +200,19 @@ func (b *InMemoryBackend) ListReadSetActivationJobs(
 	})
 
 	return result, outToken, nil
+}
+
+// newReadSetActivationJobSummary converts a persisted activation job record
+// into the real ListReadSetActivationJobsOutput element shape (see
+// ReadSetActivationJobSummary's doc comment for why List and Get differ).
+func newReadSetActivationJobSummary(j *ReadSetActivationJob) ReadSetActivationJobSummary {
+	return ReadSetActivationJobSummary{
+		CreationTime:    j.CreationTime,
+		CompletionTime:  j.CompletionTime,
+		ID:              j.ID,
+		SequenceStoreID: j.SequenceStoreID,
+		Status:          j.Status,
+	}
 }
 
 // StartReadSetExportJob creates a read set export job.
@@ -368,6 +401,20 @@ func (b *InMemoryBackend) ListReadSetImportJobs(
 	})
 
 	return result, outToken, nil
+}
+
+// newReadSetImportJobSummary converts a persisted import job record into the
+// real ListReadSetImportJobsOutput element shape (see
+// ReadSetImportJobSummary's doc comment for why List and Get differ).
+func newReadSetImportJobSummary(j *ReadSetImportJob) ReadSetImportJobSummary {
+	return ReadSetImportJobSummary{
+		CreationTime:    j.CreationTime,
+		CompletionTime:  j.CompletionTime,
+		ID:              j.ID,
+		SequenceStoreID: j.SequenceStoreID,
+		RoleARN:         j.RoleARN,
+		Status:          j.Status,
+	}
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -597,6 +644,21 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 	return result, outToken, nil
 }
 
+// newReadSetUploadPartSummary converts a persisted upload part record into
+// the real ListReadSetUploadPartsOutput element shape (see
+// ReadSetUploadPartSummary's doc comment for why this backend can't marshal
+// ReadSetUploadPart directly).
+func newReadSetUploadPartSummary(p *ReadSetUploadPart) ReadSetUploadPartSummary {
+	return ReadSetUploadPartSummary{
+		CreationTime:    p.CreationTime,
+		LastUpdatedTime: p.LastUpdatedTime,
+		Checksum:        p.Checksum,
+		Source:          p.Source,
+		PartNumber:      p.PartNumber,
+		PartSize:        p.PartSize,
+	}
+}
+
 // UploadReadSetPart stores binary data for a single part and returns its SHA256 checksum.
 func (b *InMemoryBackend) UploadReadSetPart(
 	sequenceStoreID, uploadID string,
@@ -637,11 +699,13 @@ func (b *InMemoryBackend) UploadReadSetPart(
 	}
 
 	if !found {
+		now := time.Now().UTC()
 		parts = append(parts, &ReadSetUploadPart{
 			PartNumber:      partNumber,
 			Source:          partSource,
 			PartSize:        int64(len(data)),
-			LastUpdatedTime: time.Now().UTC(),
+			CreationTime:    now,
+			LastUpdatedTime: now,
 		})
 		b.uploadParts[sequenceStoreID][uploadID] = parts
 	}

@@ -214,6 +214,23 @@ func (b *InMemoryBackend) ListReferences(
 	return result, outToken, nil
 }
 
+// newReferenceSummary converts a persisted reference record into the real
+// ListReferencesOutput element shape (see ReferenceSummary's doc comment for
+// why List and Get differ).
+func newReferenceSummary(r *ReferenceMetadata) ReferenceSummary {
+	return ReferenceSummary{
+		CreationTime:     r.CreationTime,
+		UpdateTime:       r.UpdateTime,
+		Arn:              r.Arn,
+		ID:               r.ID,
+		ReferenceStoreID: r.ReferenceStoreID,
+		Name:             r.Name,
+		Description:      r.Description,
+		Status:           r.Status,
+		MD5:              r.MD5,
+	}
+}
+
 // StartReferenceImportJob creates a reference import job.
 func (b *InMemoryBackend) StartReferenceImportJob(
 	referenceStoreID, roleARN string,
@@ -330,6 +347,20 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 	)
 
 	return result, outToken, nil
+}
+
+// newReferenceImportJobSummary converts a persisted import job record into
+// the real ListReferenceImportJobsOutput element shape (see
+// ReferenceImportJobSummary's doc comment for why List and Get differ).
+func newReferenceImportJobSummary(j *ReferenceImportJob) ReferenceImportJobSummary {
+	return ReferenceImportJobSummary{
+		CreationTime:     j.CreationTime,
+		CompletionTime:   j.CompletionTime,
+		ID:               j.ID,
+		ReferenceStoreID: j.ReferenceStoreID,
+		RoleARN:          j.RoleARN,
+		Status:           j.Status,
+	}
 }
 
 // GetReferenceBytes returns the stored binary body for a reference.

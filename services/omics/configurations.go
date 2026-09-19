@@ -106,6 +106,19 @@ func (b *InMemoryBackend) ListConfigurations(
 	return result, outToken, nil
 }
 
+// newConfigurationSummary converts a persisted configuration record into the
+// real ListConfigurationsOutput element shape (see ConfigurationSummary's
+// doc comment for why List and Get differ).
+func newConfigurationSummary(cfg *Configuration) ConfigurationSummary {
+	return ConfigurationSummary{
+		CreationTime: cfg.CreationTime,
+		Arn:          cfg.ARN,
+		Name:         cfg.Name,
+		Description:  cfg.Description,
+		Status:       cfg.Status,
+	}
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // S3 Access Policy
 // ────────────────────────────────────────────────────────────────────────────
