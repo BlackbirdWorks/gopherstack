@@ -76,6 +76,7 @@ func TestMFASetupSession_CompletesSignInWithoutAccessToken(t *testing.T) {
 	require.Equal(t, types.ChallengeNameTypeMfaSetup, initResp.ChallengeName)
 	require.NotNil(t, initResp.Session)
 	require.Nil(t, initResp.AuthenticationResult, "sign-in must not complete before MFA setup")
+	assert.Equal(t, `["SOFTWARE_TOKEN_MFA"]`, initResp.ChallengeParameters["MFAS_CAN_SETUP"])
 
 	assocResp, err := client.AssociateSoftwareToken(ctx, &cognitoidpsdk.AssociateSoftwareTokenInput{
 		Session: initResp.Session,
