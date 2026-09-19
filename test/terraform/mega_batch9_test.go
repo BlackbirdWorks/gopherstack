@@ -54,7 +54,10 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 
-				gwOut, err := dxClient.DescribeDirectConnectGateways(ctx, &directconnectsvc.DescribeDirectConnectGatewaysInput{})
+				gwOut, err := dxClient.DescribeDirectConnectGateways(
+					ctx,
+					&directconnectsvc.DescribeDirectConnectGatewaysInput{},
+				)
 				require.NoError(t, err, "DescribeDirectConnectGateways should succeed")
 
 				var dxGatewayID string
@@ -68,13 +71,13 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				require.NotEmpty(t, dxGatewayID, "direct connect gateway should be listed")
 
 				require.Eventually(t, func() bool {
-					assocOut, err := dxClient.DescribeDirectConnectGatewayAssociations(
+					assocOut, assocErr := dxClient.DescribeDirectConnectGatewayAssociations(
 						ctx,
 						&directconnectsvc.DescribeDirectConnectGatewayAssociationsInput{
 							DirectConnectGatewayId: aws.String(dxGatewayID),
 						},
 					)
-					if err != nil || len(assocOut.DirectConnectGatewayAssociations) != 1 {
+					if assocErr != nil || len(assocOut.DirectConnectGatewayAssociations) != 1 {
 						return false
 					}
 
@@ -113,13 +116,19 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 
 				require.NotEmpty(t, stackID, "opsworks stack should be listed")
 
-				layersOut, err := opsClient.DescribeLayers(ctx, &opsworkssvc.DescribeLayersInput{StackId: aws.String(stackID)})
+				layersOut, err := opsClient.DescribeLayers(
+					ctx,
+					&opsworkssvc.DescribeLayersInput{StackId: aws.String(stackID)},
+				)
 				require.NoError(t, err, "DescribeLayers should succeed")
 				require.Len(t, layersOut.Layers, 1)
 				assert.Equal(t, "mega-batch-9-layer", aws.ToString(layersOut.Layers[0].Name))
 				assert.Equal(t, "mb9layer", aws.ToString(layersOut.Layers[0].Shortname))
 
-				appsOut, err := opsClient.DescribeApps(ctx, &opsworkssvc.DescribeAppsInput{StackId: aws.String(stackID)})
+				appsOut, err := opsClient.DescribeApps(
+					ctx,
+					&opsworkssvc.DescribeAppsInput{StackId: aws.String(stackID)},
+				)
 				require.NoError(t, err, "DescribeApps should succeed")
 				require.Len(t, appsOut.Apps, 1)
 				assert.Equal(t, "mega-batch-9-app", aws.ToString(appsOut.Apps[0].Name))
@@ -133,7 +142,10 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				require.Len(t, profilesOut.UserProfiles, 1)
 				assert.Equal(t, "mega-batch-9-user", aws.ToString(profilesOut.UserProfiles[0].SshUsername))
 
-				permsOut, err := opsClient.DescribePermissions(ctx, &opsworkssvc.DescribePermissionsInput{StackId: aws.String(stackID)})
+				permsOut, err := opsClient.DescribePermissions(
+					ctx,
+					&opsworkssvc.DescribePermissionsInput{StackId: aws.String(stackID)},
+				)
 				require.NoError(t, err, "DescribePermissions should succeed")
 
 				var foundPermission bool
