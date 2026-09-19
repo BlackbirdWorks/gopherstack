@@ -139,7 +139,12 @@ func TestClassificationJobs(t *testing.T) {
 				items, _ := listResp["items"].([]any)
 				require.Len(t, items, 1)
 				item0 := items[0].(map[string]any)
-				assert.NotEmpty(t, item0["lastRunTime"])
+				assert.Equal(t, jobID, item0["jobId"])
+				assert.NotEmpty(t, item0["createdAt"])
+				// JobSummary (types.JobSummary) has no lastRunTime member -- that's
+				// only on the full ClassificationJob/DescribeClassificationJobOutput
+				// shape.
+				assert.NotContains(t, item0, "lastRunTime")
 
 				// UpdateClassificationJob
 				rec = doRequest(t, h, http.MethodPatch, "/jobs/"+jobID, map[string]any{

@@ -51,7 +51,6 @@ func (b *InMemoryBackend) CreateAllowList(
 		ID:          al.ID,
 		Name:        al.Name,
 		UpdatedAt:   al.UpdatedAt,
-		Tags:        al.Tags,
 	}, nil
 }
 
@@ -99,7 +98,6 @@ func (b *InMemoryBackend) UpdateAllowList(
 		ID:          al.ID,
 		Name:        al.Name,
 		UpdatedAt:   al.UpdatedAt,
-		Tags:        maps.Clone(al.Tags),
 	}, nil
 }
 
@@ -152,8 +150,6 @@ func (b *InMemoryBackend) DeleteAllowList(id string, ignoreJobChecks bool) error
 }
 
 // ListAllowLists returns summaries of all allow lists.
-//
-//nolint:dupl // structurally identical to ListFindingsFilters but operates on a different type
 func (b *InMemoryBackend) ListAllowLists(limit int, token string) ([]*AllowListSummary, string, error) {
 	return listPaginated(
 		b, "ListAllowLists", b.allowLists.All(),
@@ -165,7 +161,6 @@ func (b *InMemoryBackend) ListAllowLists(limit int, token string) ([]*AllowListS
 				ID:          al.ID,
 				Name:        al.Name,
 				UpdatedAt:   al.UpdatedAt,
-				Tags:        maps.Clone(al.Tags),
 			}, true
 		},
 		func(result []*AllowListSummary) {

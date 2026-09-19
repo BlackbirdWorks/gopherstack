@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
 sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
-last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (DeleteAllowList.IgnoreJobChecks)
-last_audit_date: 2026-09-18
+last_audit_commit: 7480cad08                    # HEAD after the 2026-09-19 list-summary-shapes sweep
+last_audit_date: 2026-09-19
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
                           # CORRECTED 2026-08-30 (gopherstack-3qg6): SearchResources' own row was `wire:
                           # gap` at the time this A was recorded (BucketCriteria/SortCriteria/pagination
@@ -32,7 +32,7 @@ ops:
   GetAllowList: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAllowList: {wire: fixed, errors: ok, state: ok, persist: ok, note: "route method was PATCH; real SDK sends PUT /allow-lists/{id} -- unreachable via real client before fix"}
   DeleteAllowList: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (reqfielddiff tier-1): IgnoreJobChecks query param was parsed nowhere -- a delete always succeeded even while a non-terminal (not COMPLETE/CANCELLED) classification job still referenced the allow list via AllowListIds. Now rejected with ConflictException unless ignoreJobChecks=true."}
-  ListAllowLists: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAllowLists: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-19 (list-summary-shapes sweep): AllowListSummary leaked a tags map -- the real types.AllowListSummary (6/6 members per its deserializer) has no tags member at all (only GetAllowListOutput/AllowListDetail does). Removed."}
   CreateCustomDataIdentifier: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now accepts severityLevels (real CreateCustomDataIdentifierInput field) and threads it through to storage/Get/BatchGet"}
   GetCustomDataIdentifier: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added 'deleted' and 'severityLevels' fields (real GetCustomDataIdentifierOutput has both). Also fixed a real-behavior bug: Get on a soft-deleted identifier previously 404'd -- real AWS soft-deletes (DeleteCustomDataIdentifier never hard-deletes), so Get must keep succeeding with deleted:true; only a never-existed ID 404s now."}
   DeleteCustomDataIdentifier: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -43,7 +43,7 @@ ops:
   GetFindingsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFindingsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFindingsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFindingsFilters: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFindingsFilters: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-19 (list-summary-shapes sweep): the list item leaked description/position -- real types.FindingsFilterListItem (5/5 members per its deserializer) has neither. Added a dedicated FindingsFilterListItem wire type; the internal FindingsFilterSummary domain type (still used by Create/Update's return value and the Position-based sort) is no longer marshaled directly."}
   GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Finding was missing count/partition/sample/schemaVersion/classificationDetails/resourcesAffected (real Finding shape); Severity.score was a float defaulting to 5.0 -- real types.Severity.Score is an int64 1-3, so 5.0 was out-of-range/not wire-compatible with real client expectations. All added; see also CreateSampleFindings note on the 'SENSITIVE_DATA' category bug."}
   ListFindings: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "criteria matching supports eq/neq on a handful of fields only -- acceptable reduced-scope emulation, not a stub. FIXED (constraint sweep): SortCriteria was parsed by the handler but never passed to the backend (always sorted by finding ID) -- now applies count/createdAt/updatedAt/type/severity.score (types.SortCriteria's doc-listed AttributeName values backed by this model); resourcesAffected and policyDetails.action.apiCallDetails.firstSeen/lastSeen are also documented values but have no comparable scalar on this model, left as no-ops rather than invented."}
   CreateSampleFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Category was hardcoded to the INVENTED value 'SENSITIVE_DATA', which is not a valid FindingCategory (real enum is CLASSIFICATION/POLICY) -- deleted and replaced with prefix-derived CLASSIFICATION/POLICY. Findings now also populate count/partition/sample/schemaVersion and, for CLASSIFICATION findings, classificationDetails+resourcesAffected with realistic sample S3 bucket/object data, matching real Macie's sample-finding behavior of using non-empty example data."}
@@ -53,7 +53,7 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateClassificationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response was missing jobArn entirely (real CreateClassificationJobOutput has only JobArn+JobId); ClassificationJob had no Arn field at all. Added Arn (json:jobArn), computed via arn.Build, threaded through Create+Describe. This pass: also added allowListIds/customDataIdentifierIds/managedDataIdentifierIds/managedDataIdentifierSelector (real CreateClassificationJobInput fields, previously dropped), and now writes create-time tags into the shared tags map (was only echoed on the job struct, so TagResource-added tags worked but Create-time tags never showed up via ListTagsForResource)."}
   DescribeClassificationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now includes jobArn (see CreateClassificationJob note). This pass, full field audit vs DescribeClassificationJobOutput closed the deferred item: added allowListIds/customDataIdentifierIds/managedDataIdentifierIds/managedDataIdentifierSelector/lastRunErrorStatus/statistics/userPausedDetails. lastRunErrorStatus is always {code:NONE} (no error-injection exists in this emulator); statistics is a static {numberOfRuns:1, approximateNumberOfObjectsToProcess:0} (no execution engine simulates real run progress); userPausedDetails is populated (jobPausedAt/jobExpiresAt, 30-day window) only while jobStatus is USER_PAUSED, matching the real conditional-presence contract, and cleared on any other transition."}
-  ListClassificationJobs: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "filterCriteria (includes/excludes, EQ/NE comparators on jobType/jobStatus/name/createdAt -- same reduced-scope emulation as ListFindings' criteria matching) and maxResults/nextToken now actually filter and page instead of always returning every job in one page. JobSummary also gained bucketCriteria/bucketDefinitions (extracted from the stored s3JobDefinition), lastRunErrorStatus, and userPausedDetails to match the real JobSummary shape."}
+  ListClassificationJobs: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "filterCriteria (includes/excludes, EQ/NE comparators on jobType/jobStatus/name/createdAt -- same reduced-scope emulation as ListFindings' criteria matching) and maxResults/nextToken now actually filter and page instead of always returning every job in one page. JobSummary also gained bucketCriteria/bucketDefinitions (extracted from the stored s3JobDefinition), lastRunErrorStatus, and userPausedDetails to match the real JobSummary shape. FIXED 2026-09-19 (list-summary-shapes sweep): JobSummary also leaked tags/description/lastRunTime -- real types.JobSummary (9/9 members) has none of the three (those belong only to the full ClassificationJob/DescribeClassificationJobOutput shape). Removed."}
   UpdateClassificationJob: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "transitioning jobStatus to USER_PAUSED now populates userPausedDetails; transitioning away from it clears userPausedDetails again (see DescribeClassificationJob note). Also: the op previously accepted any jobStatus transition unconditionally; UpdateClassificationJobInput.JobStatus's own doc comment (api_op_UpdateClassificationJob.go:37-58) states CANCELLED is valid only from IDLE/PAUSED/RUNNING/USER_PAUSED, RUNNING only from USER_PAUSED, and USER_PAUSED only from IDLE/PAUSED/RUNNING -- now enforced, returning ConflictException (409) on a disallowed transition and ValidationException (400) on an unrecognized target status."}
   CreateMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Member had no Arn field (real GetMemberOutput always has 'arn'); added Arn, computed via arn.Build"}
   GetMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "json tag for MasteredBy was 'masteredBy'; real wire key is 'masterAccountId' -- fixed"}
@@ -122,6 +122,18 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+**2026-09-19 (list-summary-shapes sweep):** member-by-member diffed the 7
+census-flagged List ops (ListAllowLists, ListClassificationJobs,
+ListClassificationScopes, ListCustomDataIdentifiers, ListFindingsFilters,
+ListManagedDataIdentifiers, ListSensitivityInspectionTemplates) against real
+SDK item types via `cmd/structfielddiff`. 3 leaks found and fixed:
+ListAllowLists' tags map, ListClassificationJobs' tags/description/
+lastRunTime, ListFindingsFilters' description/position (all real fields on
+this service's richer Create/Update/Get domain shapes, none on the real List
+item type). ListClassificationScopes/ListCustomDataIdentifiers/
+ListManagedDataIdentifiers/ListSensitivityInspectionTemplates were already
+exact. See list_summary_shapes_test.go.
 
 - macie2 is restjson1. Verified every op's (method, path) pair against
   aws-sdk-go-v2/service/macie2@v1.51.4's `serializers.go` (grepped every

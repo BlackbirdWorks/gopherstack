@@ -174,14 +174,11 @@ func jobToSummary(job *ClassificationJob) *ClassificationJobSummary {
 	summary := &ClassificationJobSummary{
 		JobID:              job.JobID,
 		Name:               job.Name,
-		Description:        job.Description,
 		JobType:            job.JobType,
 		JobStatus:          job.JobStatus,
 		CreatedAt:          job.CreatedAt,
-		LastRunTime:        job.LastRunTime,
 		LastRunErrorStatus: job.LastRunErrorStatus,
 		UserPausedDetails:  job.UserPausedDetails,
-		Tags:               maps.Clone(job.Tags),
 	}
 
 	if job.S3JobDefinition != nil {
