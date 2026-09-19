@@ -1,4 +1,11 @@
 ---
+# 2026-09-19 (mega-batch-8 terraform proof): DescribeGlobalNetworks errored
+# ResourceNotFoundException for an unmatched GlobalNetworkIds filter entry
+# instead of omitting it from the result; real AWS/terraform-provider-aws's
+# findGlobalNetworks never checks for that exception and relies on an empty
+# result to mean "not found" -- this broke every delete-wait and refresh
+# after a real `tofu destroy`/`tofu plan`. Fixed in globalnetworks.go's
+# DescribeGlobalNetworks (skip non-matching IDs instead of erroring).
 # 2026-09-06 (gopherstack-3fkj, title-only issue -- re-derived from scratch): audited
 # "DeregisterTransitGateway does not remove customer gateway associations as documented;
 # CustomerGatewayAssociation carries no link back to the transit gateway". Claim 1 confirmed:
@@ -92,8 +99,8 @@ service: networkmanager
 sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.4   # go.mod's pinned version as of this pass
 # (the 2026-08-01 pre-implementation audit resolved v1.44.3 against @latest in a throwaway scratch
 # module; go.mod has since moved to v1.44.4, re-confirmed this pass by direct grep).
-last_audit_commit: 3b90d4523
-last_audit_date: 2026-08-06
+last_audit_commit: b36537ddc
+last_audit_date: 2026-09-19
 overall: A   # Raised from gap by this pass: the integration suite (the parity proof
 # .claude/memories/parity-principles.md rule 3 requires) passes, every buildable gap the 2026-08-05
 # pass flagged is now real (cross-service ARN validation against services/ec2/services/directconnect,

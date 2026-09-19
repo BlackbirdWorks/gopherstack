@@ -121,12 +121,16 @@ func (b *InMemoryBackend) DescribeGlobalNetworks(
 	out := make([]*GlobalNetwork, 0, len(ids))
 
 	for _, id := range ids {
-		g, ok := b.globalNetworks.Get(id)
-		if !ok {
-			return page.Page[*GlobalNetwork]{}, notFoundError(resourceGlobalNetwork, id)
+		// A non-matching ID is silently omitted, not an error: real
+		// DescribeGlobalNetworks doesn't reject unknown filter IDs, and
+		// terraform-provider-aws's findGlobalNetworks relies on this --
+		// it never checks for ResourceNotFoundException and instead
+		// treats an empty result as "not found" (global_network.go's
+		// tfresource.AssertSingleValueResult on the (possibly empty)
+		// list from findGlobalNetworks).
+		if g, ok := b.globalNetworks.Get(id); ok {
+			out = append(out, g.clone())
 		}
-
-		out = append(out, g.clone())
 	}
 
 	return page.New(out, token, limit, defaultPageLimit), nil
