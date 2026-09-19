@@ -1,8 +1,8 @@
 ---
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.47.0
-last_audit_commit: c9523cebb
-last_audit_date: 2026-09-18
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: c9523cebb
+last_audit_date: 2026-09-19  # prior: 2026-09-18
 overall: A            # 2026-08-29 write-only-state sweep: App.ComputeRoleArn/JobConfig,
                        # Branch.Backend/ComputeRoleArn/EnableSkewProtection, and
                        # DomainAssociation.AutoSubDomainCreationPatterns/
@@ -92,6 +92,10 @@ leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worke
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-18 (reqfielddiff tier-1): StartDeployment.SourceUrlType -- missing feature
 

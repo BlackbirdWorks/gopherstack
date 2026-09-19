@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: xray
 sdk_module: aws-sdk-go-v2/service/xray@v1.39.4   # version audited against (go.mod pin; was stale at v1.36.20)
-last_audit_commit: b4c2391e7                       # HEAD when this manifest was last rewritten
-last_audit_date: 2026-09-18
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: b4c2391e7                       # HEAD when this manifest was last rewritten
+last_audit_date: 2026-09-19  # prior: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -107,6 +107,10 @@ run ./cmd/paritylint` 0 FAIL, before and after this file's edits. No
 version bump.
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 - **2026-09-18** (acceptguard invented-field census): GetGroups, GetIndexingRules,
   ListRetrievedTraces, GetTraceSummaries each read a "MaxResults" field their real Input

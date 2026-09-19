@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshiftdata
 sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
-last_audit_commit: c9523cebb                              # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-09-18
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: c9523cebb                              # HEAD when this audit began (working tree, uncommitted)
+last_audit_date: 2026-09-19  # prior: 2026-09-18
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -207,6 +207,10 @@ leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bo
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-18 pass (reqfielddiff tier-1): BatchExecuteStatement.ExecutionMode was undeclared
 

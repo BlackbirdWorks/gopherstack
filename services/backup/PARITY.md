@@ -1,8 +1,8 @@
 ---
 service: backup
 sdk_module: aws-sdk-go-v2/service/backup@v1.64.0
-last_audit_commit: ed6ef1a53
-last_audit_date: 2026-09-19
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: ed6ef1a53
+last_audit_date: 2026-09-19  # prior: 2026-09-19
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes) + gopherstack-21my (per-item field sweep: copy-job-summary AccountId, recovery-point StorageClass leak, backup-vault list lock/creator fields, protected-resource last-vault/recovery-point ARNs)
                       # 2026-09-19 (parity-sweep, notImplemented closure): implemented the 6 backup
                       # access point ops (BackupAccessPoint family added in backup@v1.64.0), previously
@@ -208,6 +208,10 @@ leaks: {status: clean, note: "Janitor's advanceCreatedJobs takes the backend RLo
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-19 (gopherstack-op3e census): resourcegroups "/resources/" shadow -- false positive
 

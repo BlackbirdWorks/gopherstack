@@ -1,8 +1,8 @@
 ---
 service: cognitoidp
 sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4
-last_audit_commit: 5ba338ed2
-last_audit_date: 2026-09-18
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 5ba338ed2
+last_audit_date: 2026-09-19  # prior: 2026-09-18
 # 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
 # NextToken/PaginationToken actually SET one before the collection can exceed a page?). Enumerated
 # all 16 SDK ops whose Input/Output declare a continuation token. This service's dispatch table
@@ -157,6 +157,10 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-18 (ledger burn-down)
 

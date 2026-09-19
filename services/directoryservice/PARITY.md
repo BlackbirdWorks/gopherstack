@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: directoryservice
 sdk_module: aws-sdk-go-v2/service/directoryservice@v1.41.4   # version audited against
-last_audit_commit: 1c6af314f4ed210dbc03be80042c6af2aa07448f   # stale -- git usage disallowed this and the 6flj pass; see last_audit_date
-last_audit_date: 2026-08-15
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 1c6af314f4ed210dbc03be80042c6af2aa07448f   # stale -- git usage disallowed this and the 6flj pass; see last_audit_date
+last_audit_date: 2026-09-19  # prior: 2026-08-15
 overall: A            # 2026-08-29 (cursor-population sweep): every List/Describe op declaring a real
                       # NextToken (17 of 23, from the pinned SDK Output structs directly, not by grep)
                       # already reads NextToken/MaxResults from its request and populates NextToken on
@@ -146,6 +146,10 @@ leaks: {status: clean, note: "transitionDirectoryToActive and RestoreFromSnapsho
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-08-29 (list-filter-params sweep: parameters declared and never honoured)
 

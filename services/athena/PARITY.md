@@ -1,8 +1,8 @@
 ---
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
-last_audit_commit: da8db2cd3
-last_audit_date: 2026-09-18
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: da8db2cd3
+last_audit_date: 2026-09-19  # prior: 2026-09-18
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
                        # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
                        # dropped Configuration.EngineConfiguration/MonitoringConfiguration entirely (no
@@ -57,6 +57,10 @@ leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Don
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-18: list-summary-shapes sweep (overwidecandidates re-audit)
 

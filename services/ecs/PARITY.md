@@ -1,8 +1,8 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.96.0
-last_audit_commit: b4c2391e7                      # 2026-09-18 ledger burn-down sweep
-last_audit_date: 2026-09-18
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: b4c2391e7                      # 2026-09-18 ledger burn-down sweep
+last_audit_date: 2026-09-19  # prior: 2026-09-18
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
@@ -89,6 +89,10 @@ leaks: {status: clean, note: "Prior 'found' status was stale documentation -- th
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-18 (ledger burn-down sweep)
 

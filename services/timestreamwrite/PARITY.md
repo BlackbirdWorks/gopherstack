@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: timestreamwrite
 sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
-last_audit_commit: 4ad94a2e4
-last_audit_date: 2026-08-29
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 4ad94a2e4
+last_audit_date: 2026-09-19  # prior: 2026-08-29
 overall: A            # wrapper-key/nested-shape sweep found and fixed one real gap (DataModelConfiguration/RecordVersion never modelled on CreateBatchLoadTask); rest of the surface re-verified clean
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -114,6 +114,10 @@ reaudit_2026-07-23: >
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 Freeform: AWS-behavior specifics worth remembering, and any "looks-wrong-but-correct" traps
 so the next auditor doesn't re-flag them.

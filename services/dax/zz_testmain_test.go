@@ -3,6 +3,8 @@ package dax_test
 import (
 	"os"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testleak"
 )
 
 // TestMain forces synchronous DAX state transitions for the whole package's
@@ -11,10 +13,12 @@ import (
 // honours DAX_TEST_SYNC=1 to apply them immediately so tests are deterministic
 // without sleeping or polling. CI runs plain `go test`, so the tests must set
 // this themselves rather than rely on the environment.
+//
+// It also asserts no goroutines leak (testleak.VerifyTestMain).
 func TestMain(m *testing.M) {
 	if err := os.Setenv("DAX_TEST_SYNC", "1"); err != nil {
 		panic(err)
 	}
 
-	os.Exit(m.Run())
+	testleak.VerifyTestMain(m)
 }

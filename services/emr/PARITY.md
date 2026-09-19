@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
-last_audit_commit: a5efc2c05
-last_audit_date: 2026-09-19
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: a5efc2c05
+last_audit_date: 2026-09-19  # prior: 2026-09-19
 overall: A                # 2026-09-04 (gopherstack-s1m six-bug-pattern sweep): checked all nine named delete/
                            # cancel/remove ops (TerminateJobFlows, RemoveTags, RemoveAutoScalingPolicy,
                            # RemoveManagedScalingPolicy, DeleteSecurityConfiguration, DeleteStudio,
@@ -235,6 +235,10 @@ session-termination-cascade: {status: ok, note: "2026-07-25: terminateSingle (cl
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-18 (reqfielddiff tier-1): CancelSteps.StepCancellationOption -- missing feature
 
