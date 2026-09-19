@@ -3,6 +3,8 @@ package service_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -160,6 +162,120 @@ func TestRouter_Table(t *testing.T) {
 			assert.Equal(t, tt.expectedBody, rec.Body.String())
 		})
 	}
+}
+
+// mockGuardedTagsService mimics the real /tags/{arn} services (FIS,
+// bedrockagent, amplify, ...): it claims the shared "/tags/" prefix but
+// only for requests whose trailing ARN segment contains its own marker
+// substring, matching how ~30 services disambiguate the same path.
+type mockGuardedTagsService struct {
+	name      string
+	arnMarker string
+	priority  int
+}
+
+func (m *mockGuardedTagsService) Name() string { return m.name }
+
+func (m *mockGuardedTagsService) Handler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		return c.String(http.StatusOK, "handled_by_"+m.name)
+	}
+}
+
+func (m *mockGuardedTagsService) RouteMatcher() service.Matcher {
+	return func(c *echo.Context) bool {
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(path, "/tags/") && strings.Contains(path, m.arnMarker)
+	}
+}
+
+func (m *mockGuardedTagsService) GetSupportedOperations() []string { return nil }
+
+func (m *mockGuardedTagsService) ExtractOperation(_ *echo.Context) string { return "TagResource" }
+
+func (m *mockGuardedTagsService) ExtractResource(_ *echo.Context) string { return "" }
+
+func (m *mockGuardedTagsService) MatchPriority() int { return m.priority }
+
+// TestRouter_GuardedPrefixCollision reproduces gopherstack-0y8bi: two
+// services sharing the "/tags/" prefix, disambiguated only by an
+// ARN-content guard (no shared cache key touches path-based routing —
+// see router.go's targetCache, which only engages for non-empty
+// X-Amz-Target requests). Sequential and goroutine-interleaved requests
+// under -race must each reach their own handler; a false match here would
+// mean the router's per-request Matcher loop leaks state across requests,
+// not just a single service's guard being wrong.
+func TestRouter_GuardedPrefixCollision(t *testing.T) {
+	t.Parallel()
+
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(&mockGuardedTagsService{
+		name:      "A",
+		arnMarker: ":svc-a:",
+		priority:  87,
+	}))
+	require.NoError(t, registry.Register(&mockGuardedTagsService{
+		name:      "B",
+		arnMarker: ":svc-b:",
+		priority:  85,
+	}))
+
+	router := service.NewServiceRouter(registry)
+	handler := router.RouteHandler()(func(c *echo.Context) error {
+		return c.String(http.StatusOK, "fallback_handler")
+	})
+
+	e := echo.New()
+
+	request := func(t *testing.T, path string) string {
+		t.Helper()
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		require.NoError(t, handler(c))
+
+		return rec.Body.String()
+	}
+
+	arnA := "/tags/arn:aws:svc-a:us-east-1:000000000000:thing/abc"
+	arnB := "/tags/arn:aws:svc-b:us-east-1:000000000000:thing/abc"
+
+	t.Run("sequential", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, "handled_by_A", request(t, arnA))
+		assert.Equal(t, "handled_by_B", request(t, arnB))
+	})
+
+	t.Run("interleaved", func(t *testing.T) {
+		t.Parallel()
+
+		const iterations = 200
+
+		var wg sync.WaitGroup
+
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+
+			for range iterations {
+				assert.Equal(t, "handled_by_A", request(t, arnA))
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			for range iterations {
+				assert.Equal(t, "handled_by_B", request(t, arnB))
+			}
+		}()
+
+		wg.Wait()
+	})
 }
 
 type mockBenchService struct {
