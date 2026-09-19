@@ -39,6 +39,7 @@ func (b *InMemoryBackend) ListJobRunAttempts(
 		StateDetails:  jr.StateDetails,
 		Name:          jr.Name,
 		Mode:          jr.Mode,
+		Type:          jobRunTypeFromDriver(jr.JobDriver),
 		// Attempt index starts at 0; the backend does not track retries.
 		Attempt: 0,
 	}

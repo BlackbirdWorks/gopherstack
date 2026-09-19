@@ -609,6 +609,27 @@ func jobRunToMap(jr *JobRun) map[string]any {
 	return m
 }
 
+// jobRunTypeFromDriver derives JobRunSummary/JobRunAttemptSummary's optional
+// "type" member (SPARK/HIVE) from the job's own JobDriver union -- the same
+// concept the real API reports, not adjacent data. Returns "" when JobDriver
+// is nil or has neither key (StartJobRunInput.JobDriver is optional on this
+// backend; see jobRunToMap).
+func jobRunTypeFromDriver(driver any) string {
+	m, ok := driver.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	switch {
+	case m["sparkSubmit"] != nil:
+		return "SPARK"
+	case m["hive"] != nil:
+		return "HIVE"
+	default:
+		return ""
+	}
+}
+
 // jobRunSummaryToMap builds the types.JobRunSummary shape
 // (types/types.go:661) -- no jobRunId (Summary uses "id" only, unlike the
 // full JobRun type), tags, executionTimeoutMinutes, jobDriver,
@@ -632,9 +653,18 @@ func jobRunSummaryToMap(jr *JobRun) map[string]any {
 		keyCreatedAt:     epochSeconds(jr.CreatedAt),
 		keyUpdatedAt:     epochSeconds(jr.UpdatedAt),
 		keyAttempt:       0,
+		// This backend never models retries, so the single (attempt 0)
+		// attempt's own created/updated timestamps are the job run's own --
+		// same convention ListJobRunAttempts already uses.
+		"attemptCreatedAt": epochSeconds(jr.CreatedAt),
+		"attemptUpdatedAt": epochSeconds(jr.UpdatedAt),
 		// ReleaseLabel is required by types.JobRunSummary; see the matching
 		// comment in jobRunToMap for why it must never be conditional.
 		keyReleaseLabel: jr.ReleaseLabel,
+	}
+
+	if t := jobRunTypeFromDriver(jr.JobDriver); t != "" {
+		m[keyType] = t
 	}
 
 	return m
@@ -1014,7 +1044,7 @@ func (h *Handler) handleGetDashboardForJobRun(c *echo.Context, applicationID, jo
 
 // jobRunAttemptToMap converts a JobRunAttemptSummary to a map with float64 timestamps.
 func jobRunAttemptToMap(a *JobRunAttemptSummary) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyApplicationID: a.ApplicationID,
 		keyArn:           a.Arn,
 		keyCreatedAt:     epochSeconds(a.CreatedAt),
@@ -1027,10 +1057,15 @@ func jobRunAttemptToMap(a *JobRunAttemptSummary) map[string]any {
 		keyState:         a.State,
 		"stateDetails":   a.StateDetails,
 		keyName:          a.Name,
-		keyType:          a.Type,
 		keyMode:          a.Mode,
 		keyAttempt:       a.Attempt,
 	}
+
+	if a.Type != "" {
+		m[keyType] = a.Type
+	}
+
+	return m
 }
 
 func (h *Handler) handleListJobRunAttempts(c *echo.Context, applicationID, jobRunID string) error {
