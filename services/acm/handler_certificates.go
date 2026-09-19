@@ -142,6 +142,7 @@ type certificateSummary struct {
 	Type                                 string   `json:"Type,omitempty"`
 	ExportOption                         string   `json:"ExportOption,omitempty"`
 	ManagedBy                            string   `json:"ManagedBy,omitempty"`
+	CertificateKeyPairOrigin             string   `json:"CertificateKeyPairOrigin,omitempty"`
 	SubjectAlternativeNameSummaries      []string `json:"SubjectAlternativeNameSummaries,omitempty"`
 	KeyUsages                            []string `json:"KeyUsages,omitempty"`
 	ExtendedKeyUsages                    []string `json:"ExtendedKeyUsages,omitempty"`
@@ -522,6 +523,7 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 		Type:                                 c.Type,
 		ExportOption:                         c.ExportPref,
 		ManagedBy:                            c.ManagedBy,
+		CertificateKeyPairOrigin:             certKeyPairOrigin(c),
 		CreatedAt:                            certTimeUnix(&c.CreatedAt),
 		IssuedAt:                             certTimeUnix(c.IssuedAt),
 		ImportedAt:                           certTimeUnix(c.ImportedAt),
@@ -546,6 +548,114 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 	}
 
 	return summary
+}
+
+// dnsValidationChallengeWire is the DNS member of the ValidationChallenge
+// union (types.ValidationChallengeMemberDnsValidationChallenge).
+type dnsValidationChallengeWire struct {
+	ResourceRecord *resourceRecord `json:"ResourceRecord,omitempty"`
+}
+
+// emailValidationChallengeWire is the EMAIL member of the ValidationChallenge
+// union (types.ValidationChallengeMemberEmailValidationChallenge).
+type emailValidationChallengeWire struct {
+	ValidationDomain string   `json:"ValidationDomain,omitempty"`
+	ValidationEmails []string `json:"ValidationEmails,omitempty"`
+}
+
+// validationChallengeWire is the wire shape of the ValidationChallenge union.
+// The real type defines exactly these two members; HTTP validation has no
+// challenge member at all (types.go: ValidationChallengeMemberDnsValidationChallenge/
+// ValidationChallengeMemberEmailValidationChallenge only).
+type validationChallengeWire struct {
+	DNSValidationChallenge   *dnsValidationChallengeWire   `json:"DnsValidationChallenge,omitempty"`
+	EmailValidationChallenge *emailValidationChallengeWire `json:"EmailValidationChallenge,omitempty"`
+}
+
+type validationConfigurationWire struct {
+	ValidationChallenge *validationChallengeWire `json:"ValidationChallenge,omitempty"`
+	ValidationMethod    string                   `json:"ValidationMethod,omitempty"`
+	ValidationStatus    string                   `json:"ValidationStatus,omitempty"`
+}
+
+type domainValidationSummaryWire struct {
+	ActiveValidationConfiguration    *validationConfigurationWire `json:"ActiveValidationConfiguration,omitempty"`
+	RequestedValidationConfiguration *validationConfigurationWire `json:"RequestedValidationConfiguration,omitempty"`
+	DomainName                       string                       `json:"DomainName"`
+}
+
+// validationConfigurationFromDVO builds the ActiveValidationConfiguration for
+// dvo. gopherstack has no email-to-DNS validation-method migration feature
+// (UpdateCertificateOptions only ever changes CertificateTransparencyLoggingPreference),
+// so RequestedValidationConfiguration is never populated -- correct-by-absence
+// per the real API's own doc comment ("present only when a migration is in
+// progress"), not a stub.
+func validationConfigurationFromDVO(dvo *DomainValidationOption) *validationConfigurationWire {
+	cfg := &validationConfigurationWire{
+		ValidationMethod: dvo.ValidationMethod,
+		ValidationStatus: dvo.ValidationStatus,
+	}
+
+	switch dvo.ValidationMethod {
+	case "DNS":
+		if dvo.ResourceRecord != nil {
+			cfg.ValidationChallenge = &validationChallengeWire{
+				DNSValidationChallenge: &dnsValidationChallengeWire{
+					ResourceRecord: &resourceRecord{
+						Name:  dvo.ResourceRecord.Name,
+						Type:  dvo.ResourceRecord.Type,
+						Value: dvo.ResourceRecord.Value,
+					},
+				},
+			}
+		}
+	case "EMAIL":
+		cfg.ValidationChallenge = &validationChallengeWire{
+			EmailValidationChallenge: &emailValidationChallengeWire{
+				ValidationDomain: dvo.ValidationDomain,
+				ValidationEmails: dvo.ValidationEmails,
+			},
+		}
+	}
+
+	return cfg
+}
+
+type listCertificateDomainValidationsInput struct {
+	CertificateArn string `json:"CertificateArn"`
+	NextToken      string `json:"NextToken"`
+	MaxItems       int32  `json:"MaxItems"`
+}
+
+type listCertificateDomainValidationsOutput struct {
+	NextToken                   string                        `json:"NextToken,omitempty"`
+	DomainValidationSummaryList []domainValidationSummaryWire `json:"DomainValidationSummaryList"`
+}
+
+// jsonListCertificateDomainValidations handles the ListCertificateDomainValidations operation.
+func (h *Handler) jsonListCertificateDomainValidations(ctx context.Context, body []byte) (any, error) {
+	var input listCertificateDomainValidationsInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	p, err := h.Backend.ListCertificateDomainValidations(
+		ctx, input.CertificateArn, input.NextToken, int(input.MaxItems),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]domainValidationSummaryWire, 0, len(p.Data))
+
+	for i := range p.Data {
+		summaries = append(summaries, domainValidationSummaryWire{
+			DomainName:                    p.Data[i].DomainName,
+			ActiveValidationConfiguration: validationConfigurationFromDVO(&p.Data[i]),
+		})
+	}
+
+	return &listCertificateDomainValidationsOutput{DomainValidationSummaryList: summaries, NextToken: p.Next}, nil
 }
 
 func (h *Handler) jsonDeleteCertificate(ctx context.Context, body []byte) (any, error) {

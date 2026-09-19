@@ -663,6 +663,35 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, arn string) (
 	return &cp, nil
 }
 
+// ListCertificateDomainValidations returns a paginated per-domain validation
+// summary for a certificate, projecting the same DomainValidationOptions
+// DescribeCertificate already tracks.
+func (b *InMemoryBackend) ListCertificateDomainValidations(
+	ctx context.Context, arn, nextToken string, maxItems int,
+) (page.Page[DomainValidationOption], error) {
+	if err := validateCertArn(arn); err != nil {
+		return page.Page[DomainValidationOption]{}, err
+	}
+
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[DomainValidationOption]{}, fmt.Errorf("%w: invalid NextToken", ErrInvalidParameter)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListCertificateDomainValidations")
+	defer b.mu.RUnlock()
+
+	cert, exists := b.certs.Get(regionKey(region, arn))
+	if !exists {
+		return page.Page[DomainValidationOption]{}, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
+	}
+
+	dvos := copyDomainValidationOptions(cert.DomainValidationOptions)
+
+	return page.New(dvos, nextToken, maxItems, acmDefaultMaxItems), nil
+}
+
 // ListCertificatesParams holds all filter and sorting options for ListCertificates.
 type ListCertificatesParams struct {
 	NextToken                 string
