@@ -71,3 +71,44 @@ func TestDeleteUserEndpoints_EndpointsResponse_RealClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, afterOut.EndpointsResponse.Item)
 }
+
+// TestCreateCampaign_MissingSegmentID_RealClient covers the 2026-09-19
+// required-output-member re-sweep. CampaignResponse.SegmentId and
+// .SegmentVersion are both required (pinpoint@v1.42.4 types/types.go:1547-1555),
+// but WriteCampaignRequest.SegmentId is optional on the request side (*string,
+// no "This member is required" trait) and gopherstack copied it straight
+// through with no validation. Both response fields are JSON-tagged
+// `omitempty`, so a campaign created without SegmentId would decode with
+// both fields silently omitted from the wire instead of present-but-empty --
+// a real client reading CampaignResponse.SegmentId always expects a non-nil
+// pointer. There is no sensible default segment to fabricate, so the fix
+// rejects the request the same way AWS does: a campaign always targets a
+// segment. Locked here (missing case) and by every other CreateCampaign
+// test in this package continuing to pass with an explicit SegmentId
+// (present case).
+func TestCreateCampaign_MissingSegmentID_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := pinpoint.NewInMemoryBackend("us-east-1", "000000000000")
+	h := pinpoint.NewHandler(backend)
+	client := newTestPinpointClient(t, h)
+
+	appOut, err := client.CreateApp(t.Context(), &pinpointsdk.CreateAppInput{
+		CreateApplicationRequest: &types.CreateApplicationRequest{
+			Name: aws.String("r80d-resweep-app"),
+		},
+	})
+	require.NoError(t, err)
+	appID := aws.ToString(appOut.ApplicationResponse.Id)
+
+	_, err = client.CreateCampaign(t.Context(), &pinpointsdk.CreateCampaignInput{
+		ApplicationId: aws.String(appID),
+		WriteCampaignRequest: &types.WriteCampaignRequest{
+			Name: aws.String("no-segment-campaign"),
+		},
+	})
+	require.Error(t, err)
+
+	var badReq *types.BadRequestException
+	require.ErrorAs(t, err, &badReq)
+}

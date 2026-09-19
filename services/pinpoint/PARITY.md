@@ -6,9 +6,11 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: pinpoint
 sdk_module: aws-sdk-go-v2/service/pinpoint@v1.42.4
-last_audit_commit: c9523cebb
-last_audit_date: 2026-09-18
-overall: A            # genuine field-diff bugs found and fixed this pass across the template family
+last_audit_commit: 5330e30da
+last_audit_date: 2026-09-19
+overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up): all
+                      # 120 required members across 122 ops cross-checked against the pinned SDK's
+                      # required-output-member census; found and fixed one real gap (CreateCampaign)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -34,6 +36,7 @@ ops:
   GetSegmentVersion: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same fallback bug and fix as GetCampaignVersion. Locked by TestGetSegmentVersion_UnknownVersionNotFound"}
   CreateSegment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-wksweep-pp-1 (2026-08-28, acceptguard): WriteSegmentRequest has no ImportDefinition member (pinpoint@v1.42.4 types/types.go:7240) -- it's derived only from CreateImportJob, which already materializes an IMPORT-type segment correctly (export_import_jobs.go). A prior version accepted ImportDefinition directly on CreateSegment/UpdateSegment and let a client set an IMPORT-typed segment a real client never could. Fixed by removing it from both request structs; the CreateImportJob derivation path is unchanged. Real client can't send the field, so proof is raw-body (TestCreateSegment_RawImportDefinitionFieldIgnored, wire_field_fixes_test.go) plus rewritten TestSegment_ImportType/TestSegment_UpdatePreservesType (segments_test.go) driving CreateImportJob instead."}
   UpdateSegment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same ImportDefinition fix as CreateSegment -- see that note."}
+  CreateCampaign: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-09-19 required-output-member re-sweep: CampaignResponse.SegmentId/SegmentVersion are both required (pinpoint@v1.42.4 types/types.go:1547-1555), but WriteCampaignRequest.SegmentId is optional on the request side and gopherstack copied it through with no validation; both response fields are JSON `omitempty`, so an omitted SegmentId silently dropped both keys from the wire instead of a typed client ever seeing them. No sensible default segment exists, so fixed by rejecting the request (400 BadRequestException) the same way real AWS requires a campaign to always target a segment. Locked by TestCreateCampaign_MissingSegmentID_RealClient (wire_output_required_r80d_test.go); UpdateCampaign already preserves a set SegmentId via leave-unchanged-when-empty merge semantics, so no change needed there."}
   DeleteUserEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-r80d batch 5: DeleteUserEndpointsOutput.EndpointsResponse is required (pinpoint@v1.42.4 api_op_DeleteUserEndpoints.go:44-51) and the wire is the entire body deserialized directly into it (deserializers.go:5482), not a wrapper key. The handler wrote a bare 204 No Content; the real client's decoder treats the empty body as EOF (tolerated, deserializers.go:5472) so the call succeeded with EndpointsResponse left nil — same empty-body class as batch one's lambda DeleteCapacityProvider. Fixed to return the deleted endpoints as EndpointsResponse.Item with a 200 body, matching the sibling DeleteEndpoint (singular)'s existing pattern. Locked by TestDeleteUserEndpoints_EndpointsResponse_RealClient"}
   # ops carried forward unchanged from the 2026-07-12 pass (files not touched this pass, still trusted):
   CreateJourney: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-wksweep-pp-2 (2026-08-28, acceptguard): neither WriteJourneyRequest nor JourneyResponse has a Tags member at all (pinpoint@v1.42.4 types/types.go:7118, 4227) -- journeys are taggable only through the generic TagResource/ListTagsForResource ARN-based API (tags.go), same as every other Pinpoint resource. A prior version accepted a tags field on CreateJourney/UpdateJourney and echoed it back in journeyResponse -- fabricated on BOTH the request and response sides, matching this sweep's appstream Email precedent. Fixed by removing tags/Tags from createJourneyRequest, updateJourneyRequest, and journeyResponse; the real TagResource path (already correct, storage-only via the tagHolder interface) is untouched. Real client can't send/read the field, so proof is raw-body (TestCreateJourney_RawTagsFieldIgnored, wire_field_fixes_test.go), which also exercises the real TagResource/ListTagsForResource round trip on the same journey to prove tagging still works the real way."}
@@ -95,6 +98,14 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service; purg
 ---
 
 ## Notes
+
+### 2026-09-19: required-output-member re-sweep (gopherstack-r80d follow-up)
+
+Cross-checked all 120 required members across 122 ops (cmd/requiredoutputfields census)
+by direct code reading, including every op not already covered by a prior field-diff
+pass (channels, jobs, templates listing, endpoints, application settings). One real gap
+found and fixed: CreateCampaign — see the ops table entry. Everything else confirmed
+already always-populated. Gates: gofmt/build/vet/race-test/golangci-lint all clean.
 
 ### 2026-09-18 (reqfielddiff tier-1): UpdateApplicationSettings.WriteApplicationSettingsRequest -- false positive
 
