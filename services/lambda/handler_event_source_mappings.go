@@ -156,21 +156,21 @@ func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
 
 // handleUpdateESMInput is the request body for UpdateEventSourceMapping.
 type handleUpdateESMInput struct {
-	Enabled                        *bool                       `json:"Enabled"`
-	FilterCriteria                 *FilterCriteria             `json:"FilterCriteria"`
+	BatchSize                      *int32                      `json:"BatchSize"`
+	MaximumBatchingWindowInSeconds *int32                      `json:"MaximumBatchingWindowInSeconds"`
 	DestinationConfig              *ESMDestinationConfig       `json:"DestinationConfig"`
 	BisectBatchOnFunctionError     *bool                       `json:"BisectBatchOnFunctionError"`
 	KMSKeyArn                      *string                     `json:"KMSKeyArn"`
-	SourceAccessConfigurations     []SourceAccessConfiguration `json:"SourceAccessConfigurations"`
-	Topics                         []string                    `json:"Topics"`
+	ParallelizationFactor          *int32                      `json:"ParallelizationFactor"`
+	FilterCriteria                 *FilterCriteria             `json:"FilterCriteria"`
+	MaximumRetryAttempts           *int32                      `json:"MaximumRetryAttempts"`
+	MaximumRecordAgeInSeconds      *int32                      `json:"MaximumRecordAgeInSeconds"`
+	Enabled                        *bool                       `json:"Enabled"`
+	TumblingWindowInSeconds        *int32                      `json:"TumblingWindowInSeconds"`
 	Queues                         []string                    `json:"Queues"`
+	Topics                         []string                    `json:"Topics"`
 	FunctionResponseTypes          []string                    `json:"FunctionResponseTypes"`
-	BatchSize                      int                         `json:"BatchSize"`
-	MaximumBatchingWindowInSeconds int                         `json:"MaximumBatchingWindowInSeconds"`
-	TumblingWindowInSeconds        int                         `json:"TumblingWindowInSeconds"`
-	MaximumRecordAgeInSeconds      int                         `json:"MaximumRecordAgeInSeconds"`
-	MaximumRetryAttempts           int                         `json:"MaximumRetryAttempts"`
-	ParallelizationFactor          int                         `json:"ParallelizationFactor"`
+	SourceAccessConfigurations     []SourceAccessConfiguration `json:"SourceAccessConfigurations"`
 }
 
 // handleUpdateESM handles PUT /2015-03-31/event-source-mappings/{UUID}.

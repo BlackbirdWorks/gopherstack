@@ -1,8 +1,8 @@
 ---
 service: lambda
 sdk_module: aws-sdk-go-v2/service/lambda@v1.107.0
-last_audit_commit: 302aa4e3c
-last_audit_date: 2026-09-18
+last_audit_commit: 614f6b44b
+last_audit_date: 2026-09-19
 overall: A   # durable_execution wire-shape rewrite closed the last open gap; all gates green
 protocol: REST-JSON
 families:
@@ -62,6 +62,16 @@ Role,Handler}, UpdateAlias.{FunctionVersion,Description} — each proven in
 positives: identifiers used only for lookup (UUID, RevisionId precondition
 fields), or Put/replace-required fields (UpdateFunctionCode's
 ImageUri/S3Bucket/S3Key, PutRuntimeManagementConfig.RuntimeVersionArn).
+
+## Notes (2026-09-19 pass — zeroguard int/int32 kind widening)
+
+zeroguard's exact-type matching missed `int` vs `*int32`; widened to match by
+kind (int32/int64/int; float32/float64). Fixed the 8 newly-flagged fields:
+UpdateFunctionConfiguration.{MemorySize,Timeout} and
+UpdateEventSourceMapping.{BatchSize,MaximumBatchingWindowInSeconds,
+TumblingWindowInSeconds,MaximumRecordAgeInSeconds,MaximumRetryAttempts,
+ParallelizationFactor} — all pointer-ified, proven in
+`update_omitted_members_preserve_state_test.go`.
 
 ## Notes
 - InvocationType is a type alias (type InvocationType = string) so lambda backend satisfies sns.LambdaInvoker directly.

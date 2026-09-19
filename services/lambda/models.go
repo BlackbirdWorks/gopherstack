@@ -264,22 +264,22 @@ type UpdateFunctionCodeInput struct {
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.
 type UpdateFunctionConfigurationInput struct {
-	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
-	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
+	Description       *string                 `json:"Description,omitempty"`
+	Handler           *string                 `json:"Handler,omitempty"`
 	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
 	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
 	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
-	Runtime           string                  `json:"Runtime,omitempty"`
-	Description       *string                 `json:"Description,omitempty"`
-	Handler           *string                 `json:"Handler,omitempty"`
+	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
+	Timeout           *int32                  `json:"Timeout,omitempty"`
 	Role              *string                 `json:"Role,omitempty"`
+	MemorySize        *int32                  `json:"MemorySize,omitempty"`
 	RevisionID        string                  `json:"RevisionId,omitempty"`
+	Runtime           string                  `json:"Runtime,omitempty"`
 	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	Layers            []string                `json:"Layers,omitempty"`
-	MemorySize        int                     `json:"MemorySize,omitempty"`
-	Timeout           int                     `json:"Timeout,omitempty"`
 }
 
 // GetFunctionOutput is the response for GetFunction.

@@ -138,22 +138,22 @@ type CreateEventSourceMappingInput struct {
 
 // UpdateEventSourceMappingInput is the input for UpdateEventSourceMapping.
 type UpdateEventSourceMappingInput struct {
-	Enabled                        *bool
+	MaximumBatchingWindowInSeconds *int32
 	FilterCriteria                 *FilterCriteria
 	DestinationConfig              *ESMDestinationConfig
 	BisectBatchOnFunctionError     *bool
-	UUID                           string
+	Enabled                        *bool
 	KMSKeyArn                      *string
-	SourceAccessConfigurations     []SourceAccessConfiguration
-	Topics                         []string
-	Queues                         []string
+	ParallelizationFactor          *int32
+	MaximumRetryAttempts           *int32
+	MaximumRecordAgeInSeconds      *int32
+	TumblingWindowInSeconds        *int32
+	BatchSize                      *int32
+	UUID                           string
 	FunctionResponseTypes          []string
-	BatchSize                      int
-	MaximumBatchingWindowInSeconds int
-	TumblingWindowInSeconds        int
-	MaximumRecordAgeInSeconds      int
-	MaximumRetryAttempts           int
-	ParallelizationFactor          int
+	Queues                         []string
+	Topics                         []string
+	SourceAccessConfigurations     []SourceAccessConfiguration
 }
 
 // jsonESMResponse is the JSON representation of an event source mapping.
@@ -419,8 +419,8 @@ func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInpu
 		}
 	}
 
-	if input.BatchSize > 0 {
-		esm.BatchSize = input.BatchSize
+	if input.BatchSize != nil {
+		esm.BatchSize = int(*input.BatchSize)
 	}
 
 	if input.FilterCriteria != nil {
@@ -449,24 +449,24 @@ func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInpu
 
 // applyESMWindowFields applies the windowing / retry fields from input.
 func applyESMWindowFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
-	if input.MaximumBatchingWindowInSeconds > 0 {
-		esm.MaximumBatchingWindowInSeconds = input.MaximumBatchingWindowInSeconds
+	if input.MaximumBatchingWindowInSeconds != nil {
+		esm.MaximumBatchingWindowInSeconds = int(*input.MaximumBatchingWindowInSeconds)
 	}
 
-	if input.TumblingWindowInSeconds > 0 {
-		esm.TumblingWindowInSeconds = input.TumblingWindowInSeconds
+	if input.TumblingWindowInSeconds != nil {
+		esm.TumblingWindowInSeconds = int(*input.TumblingWindowInSeconds)
 	}
 
-	if input.MaximumRecordAgeInSeconds > 0 {
-		esm.MaximumRecordAgeInSeconds = input.MaximumRecordAgeInSeconds
+	if input.MaximumRecordAgeInSeconds != nil {
+		esm.MaximumRecordAgeInSeconds = int(*input.MaximumRecordAgeInSeconds)
 	}
 
-	if input.MaximumRetryAttempts > 0 {
-		esm.MaximumRetryAttempts = input.MaximumRetryAttempts
+	if input.MaximumRetryAttempts != nil {
+		esm.MaximumRetryAttempts = int(*input.MaximumRetryAttempts)
 	}
 
-	if input.ParallelizationFactor > 0 {
-		esm.ParallelizationFactor = input.ParallelizationFactor
+	if input.ParallelizationFactor != nil {
+		esm.ParallelizationFactor = int(*input.ParallelizationFactor)
 	}
 }
 

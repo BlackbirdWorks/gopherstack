@@ -640,8 +640,7 @@ func TestLambda_UpdateESM_UpdatesLastModified(t *testing.T) {
 				time.Sleep(time.Millisecond)
 
 				updated, updateErr := backend.UpdateEventSourceMapping(m.UUID, &lambda.UpdateEventSourceMappingInput{
-					Enabled:   new(false),
-					BatchSize: 0,
+					Enabled: new(false),
 				})
 				require.NoError(t, updateErr)
 
