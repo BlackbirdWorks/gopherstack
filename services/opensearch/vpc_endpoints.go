@@ -271,21 +271,21 @@ func (b *InMemoryBackend) RevokeVpcEndpointAccess(domainName, account string) er
 	return nil
 }
 
-// serverlessVpcEndpointError is a not-found entry for AOSS's
+// ServerlessVpcEndpointError is a not-found entry for AOSS's
 // BatchGetVpcEndpoint (VpcEndpointErrorDetail, opensearchserverless@v1.34.4
 // types/types.go:1072-1085).
-type serverlessVpcEndpointError struct {
+type ServerlessVpcEndpointError struct {
 	ID, ErrorCode, ErrorMessage string
 }
 
-// serverlessVpcEndpointResult wraps whichever store resolved one
+// ServerlessVpcEndpointResult wraps whichever store resolved one
 // BatchGetVpcEndpoint ID: the AOSS-native store (serverless_vpc_endpoints.go,
 // added for the Create/List/Update/DeleteVpcEndpoint family) or, when the ID
 // doesn't resolve there, the classic-domain VpcEndpoint store below. Exactly
 // one of the two is set. The two stores use disjoint ID prefixes
 // ("vpce-aoss-N" vs "vpce-N"), so this is precedence by construction, not
 // just by intent.
-type serverlessVpcEndpointResult struct {
+type ServerlessVpcEndpointResult struct {
 	Native  *ServerlessVpcEndpoint
 	Classic *VpcEndpoint
 }
@@ -299,20 +299,20 @@ type serverlessVpcEndpointResult struct {
 // types.VpcEndpointStatus).
 func (b *InMemoryBackend) BatchGetServerlessVpcEndpoints(
 	ids []string,
-) ([]serverlessVpcEndpointResult, []serverlessVpcEndpointError) {
+) ([]ServerlessVpcEndpointResult, []ServerlessVpcEndpointError) {
 	b.mu.RLock("BatchGetServerlessVpcEndpoints")
 	defer b.mu.RUnlock()
 
 	now := b.clock()
 
-	var found []serverlessVpcEndpointResult
+	var found []ServerlessVpcEndpointResult
 
-	var errs []serverlessVpcEndpointError
+	var errs []ServerlessVpcEndpointError
 
 	for _, id := range ids {
 		if native, exists := b.slVpcEndpoints.Get(id); exists {
 			cp := *native
-			found = append(found, serverlessVpcEndpointResult{Native: &cp})
+			found = append(found, ServerlessVpcEndpointResult{Native: &cp})
 
 			continue
 		}
@@ -320,12 +320,12 @@ func (b *InMemoryBackend) BatchGetServerlessVpcEndpoints(
 		if classic, exists := b.vpcEndpoints.Get(id); exists &&
 			!statusWindowElapsed(classic.Status, classic.StatusUntil, now) {
 			cp := *classic
-			found = append(found, serverlessVpcEndpointResult{Classic: &cp})
+			found = append(found, ServerlessVpcEndpointResult{Classic: &cp})
 
 			continue
 		}
 
-		errs = append(errs, serverlessVpcEndpointError{
+		errs = append(errs, ServerlessVpcEndpointError{
 			ID:           id,
 			ErrorCode:    slErrorCodeNotFound,
 			ErrorMessage: fmt.Sprintf("VPC endpoint %s not found", id),

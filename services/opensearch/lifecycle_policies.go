@@ -243,8 +243,8 @@ type serverlessLifecyclePolicyIdentifier struct {
 	Type string
 }
 
-// serverlessLifecyclePolicyError is a not-found entry for BatchGetLifecyclePolicy.
-type serverlessLifecyclePolicyError struct {
+// ServerlessLifecyclePolicyError is a not-found entry for BatchGetLifecyclePolicy.
+type ServerlessLifecyclePolicyError struct {
 	Name, Type, ErrorCode, ErrorMessage string
 }
 
@@ -253,18 +253,18 @@ type serverlessLifecyclePolicyError struct {
 // DescribeVpcEndpoints/BatchGetServerlessVpcEndpoints do.
 func (b *InMemoryBackend) BatchGetServerlessLifecyclePolicies(
 	identifiers []serverlessLifecyclePolicyIdentifier,
-) ([]*ServerlessLifecyclePolicy, []serverlessLifecyclePolicyError) {
+) ([]*ServerlessLifecyclePolicy, []ServerlessLifecyclePolicyError) {
 	b.mu.RLock("BatchGetServerlessLifecyclePolicies")
 	defer b.mu.RUnlock()
 
 	var found []*ServerlessLifecyclePolicy
 
-	var errs []serverlessLifecyclePolicyError
+	var errs []ServerlessLifecyclePolicyError
 
 	for _, id := range identifiers {
 		lp, ok := b.slLifecyclePolicies.Get(serverlessLifecyclePolicyKey(id.Type, id.Name))
 		if !ok {
-			errs = append(errs, serverlessLifecyclePolicyError{
+			errs = append(errs, ServerlessLifecyclePolicyError{
 				Name:      id.Name,
 				Type:      id.Type,
 				ErrorCode: slErrorCodeNotFound,
@@ -284,9 +284,9 @@ func (b *InMemoryBackend) BatchGetServerlessLifecyclePolicies(
 	return found, errs
 }
 
-// serverlessEffectiveLifecyclePolicyResult is one resolved entry for
+// ServerlessEffectiveLifecyclePolicyResult is one resolved entry for
 // BatchGetEffectiveLifecyclePolicy.
-type serverlessEffectiveLifecyclePolicyResult struct {
+type ServerlessEffectiveLifecyclePolicyResult struct {
 	PolicyName           string
 	Resource             string
 	ResourceType         string
@@ -295,9 +295,9 @@ type serverlessEffectiveLifecyclePolicyResult struct {
 	NoMinRetentionPeriod bool
 }
 
-// serverlessEffectiveLifecyclePolicyErr is a resolution-failure entry for
+// ServerlessEffectiveLifecyclePolicyErr is a resolution-failure entry for
 // BatchGetEffectiveLifecyclePolicy.
-type serverlessEffectiveLifecyclePolicyErr struct {
+type ServerlessEffectiveLifecyclePolicyErr struct {
 	Resource, Type, ErrorCode, ErrorMessage string
 }
 
@@ -309,21 +309,21 @@ type serverlessEffectiveLifecyclePolicyErr struct {
 // determinism, since store iteration order is not stable.
 func (b *InMemoryBackend) BatchGetServerlessEffectiveLifecyclePolicies(
 	identifiers []serverlessLifecyclePolicyIdentifier,
-) ([]serverlessEffectiveLifecyclePolicyResult, []serverlessEffectiveLifecyclePolicyErr) {
+) ([]ServerlessEffectiveLifecyclePolicyResult, []ServerlessEffectiveLifecyclePolicyErr) {
 	b.mu.RLock("BatchGetServerlessEffectiveLifecyclePolicies")
 	defer b.mu.RUnlock()
 
 	policies := make([]*ServerlessLifecyclePolicy, 0, b.slLifecyclePolicies.Len())
 	policies = append(policies, b.slLifecyclePolicies.All()...)
 
-	var found []serverlessEffectiveLifecyclePolicyResult
+	var found []ServerlessEffectiveLifecyclePolicyResult
 
-	var errs []serverlessEffectiveLifecyclePolicyErr
+	var errs []ServerlessEffectiveLifecyclePolicyErr
 
 	for _, id := range identifiers {
 		result, ok := resolveEffectiveLifecyclePolicy(policies, id.Type, id.Name)
 		if !ok {
-			errs = append(errs, serverlessEffectiveLifecyclePolicyErr{
+			errs = append(errs, ServerlessEffectiveLifecyclePolicyErr{
 				Resource:     id.Name,
 				Type:         id.Type,
 				ErrorCode:    slErrorCodeNotFound,
@@ -342,7 +342,7 @@ func (b *InMemoryBackend) BatchGetServerlessEffectiveLifecyclePolicies(
 // effectiveLifecycleCandidate pairs a resolved match with the literal prefix
 // length it matched on, so callers can compare specificity across policies.
 type effectiveLifecycleCandidate struct {
-	result    serverlessEffectiveLifecyclePolicyResult
+	result    ServerlessEffectiveLifecyclePolicyResult
 	prefixLen int
 }
 
@@ -354,7 +354,7 @@ func bestRuleMatch(
 ) (effectiveLifecycleCandidate, bool) {
 	best := -1
 
-	var out serverlessEffectiveLifecyclePolicyResult
+	var out ServerlessEffectiveLifecyclePolicyResult
 
 	for _, rule := range parseLifecycleRules(lp.Policy) {
 		for _, pattern := range rule.Resource {
@@ -364,7 +364,7 @@ func bestRuleMatch(
 			}
 
 			best = len(prefix)
-			out = serverlessEffectiveLifecyclePolicyResult{
+			out = ServerlessEffectiveLifecyclePolicyResult{
 				PolicyName:           lp.Name,
 				Resource:             resource,
 				ResourceType:         slLifecyclePolicyResourceTypeIndex,
@@ -384,7 +384,7 @@ func bestRuleMatch(
 
 func resolveEffectiveLifecyclePolicy(
 	policies []*ServerlessLifecyclePolicy, policyType, resource string,
-) (serverlessEffectiveLifecyclePolicyResult, bool) {
+) (ServerlessEffectiveLifecyclePolicyResult, bool) {
 	var best effectiveLifecycleCandidate
 
 	found := false

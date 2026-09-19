@@ -273,10 +273,10 @@ type StorageBackend interface {
 	ListServerlessLifecyclePolicies(policyType string, resources []string) []*ServerlessLifecyclePolicy
 	BatchGetServerlessLifecyclePolicies(
 		identifiers []serverlessLifecyclePolicyIdentifier,
-	) ([]*ServerlessLifecyclePolicy, []serverlessLifecyclePolicyError)
+	) ([]*ServerlessLifecyclePolicy, []ServerlessLifecyclePolicyError)
 	BatchGetServerlessEffectiveLifecyclePolicies(
 		identifiers []serverlessLifecyclePolicyIdentifier,
-	) ([]serverlessEffectiveLifecyclePolicyResult, []serverlessEffectiveLifecyclePolicyErr)
+	) ([]ServerlessEffectiveLifecyclePolicyResult, []ServerlessEffectiveLifecyclePolicyErr)
 
 	// Serverless collection group operations
 	CreateServerlessCollectionGroup(
@@ -291,11 +291,11 @@ type StorageBackend interface {
 	ListServerlessCollectionGroups() []*ServerlessCollectionGroup
 	BatchGetServerlessCollectionGroups(
 		ids, names []string,
-	) ([]*ServerlessCollectionGroup, []serverlessCollectionGroupError)
+	) ([]*ServerlessCollectionGroup, []ServerlessCollectionGroupError)
 
 	// Serverless VPC endpoint batch-read (resolved against the AOSS-native
 	// store first, then the classic-domain one, vpc_endpoints.go)
-	BatchGetServerlessVpcEndpoints(ids []string) ([]serverlessVpcEndpointResult, []serverlessVpcEndpointError)
+	BatchGetServerlessVpcEndpoints(ids []string) ([]ServerlessVpcEndpointResult, []ServerlessVpcEndpointError)
 
 	// Serverless VPC endpoint operations (AOSS-native)
 	CreateServerlessVpcEndpoint(

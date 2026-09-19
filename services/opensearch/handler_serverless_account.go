@@ -131,8 +131,8 @@ func nativeVpcEndpointDetailJR(ep *ServerlessVpcEndpoint) map[string]any {
 }
 
 // mergedVpcEndpointDetailJR dispatches to whichever store resolved the ID
-// (see serverlessVpcEndpointResult's doc comment).
-func mergedVpcEndpointDetailJR(r serverlessVpcEndpointResult) map[string]any {
+// (see ServerlessVpcEndpointResult's doc comment).
+func mergedVpcEndpointDetailJR(r ServerlessVpcEndpointResult) map[string]any {
 	if r.Native != nil {
 		return nativeVpcEndpointDetailJR(r.Native)
 	}

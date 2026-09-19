@@ -199,9 +199,9 @@ func (b *InMemoryBackend) ListServerlessCollectionGroups() []*ServerlessCollecti
 	return out
 }
 
-// serverlessCollectionGroupError is a not-found entry for
+// ServerlessCollectionGroupError is a not-found entry for
 // BatchGetCollectionGroup (CollectionGroupErrorDetail, types.go:274-293).
-type serverlessCollectionGroupError struct {
+type ServerlessCollectionGroupError struct {
 	ID, Name, ErrorCode, ErrorMessage string
 }
 
@@ -212,13 +212,13 @@ type serverlessCollectionGroupError struct {
 // no-filter convention.
 func (b *InMemoryBackend) BatchGetServerlessCollectionGroups(
 	ids, names []string,
-) ([]*ServerlessCollectionGroup, []serverlessCollectionGroupError) {
+) ([]*ServerlessCollectionGroup, []ServerlessCollectionGroupError) {
 	b.mu.RLock("BatchGetServerlessCollectionGroups")
 	defer b.mu.RUnlock()
 
 	var found []*ServerlessCollectionGroup
 
-	var errs []serverlessCollectionGroupError
+	var errs []ServerlessCollectionGroupError
 
 	if len(ids) == 0 && len(names) == 0 {
 		for _, cg := range b.slCollectionGroups.All() {
@@ -245,7 +245,7 @@ func (b *InMemoryBackend) BatchGetServerlessCollectionGroups(
 			continue
 		}
 
-		errs = append(errs, serverlessCollectionGroupError{
+		errs = append(errs, ServerlessCollectionGroupError{
 			ID:           id,
 			ErrorCode:    slErrorCodeNotFound,
 			ErrorMessage: fmt.Sprintf("The specified Collection Group %s is not found", id),
@@ -260,7 +260,7 @@ func (b *InMemoryBackend) BatchGetServerlessCollectionGroups(
 			continue
 		}
 
-		errs = append(errs, serverlessCollectionGroupError{
+		errs = append(errs, ServerlessCollectionGroupError{
 			Name:         name,
 			ErrorCode:    slErrorCodeNotFound,
 			ErrorMessage: fmt.Sprintf("The specified Collection Group %s is not found", name),

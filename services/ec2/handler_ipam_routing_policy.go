@@ -64,12 +64,12 @@ func parseInt32Field(vals url.Values, key string) (int32, error) {
 		return 0, nil
 	}
 
-	n, err := strconv.Atoi(raw)
+	n, err := strconv.ParseInt(raw, 10, 32)
 	if err != nil {
 		return 0, fmt.Errorf("%w: invalid %s %q", ErrInvalidParameter, key, raw)
 	}
 
-	return int32(n), nil //nolint:gosec // G109: caller-controlled small int, no overflow risk in this context
+	return int32(n), nil
 }
 
 type createIpamRoutingPolicyRegistrationResponse struct {

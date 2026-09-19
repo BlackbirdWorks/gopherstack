@@ -264,6 +264,8 @@ func (b *InMemoryBackend) subnetCidrReservationExistsLocked(id string) bool {
 
 // resourceExistsGatewayLocked checks VPN/customer gateways, capacity
 // reservations/hosts, fleets, and reserved instances.
+//
+//nolint:dupl // structurally similar table-has checks for different resource families
 func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
 	ok := b.vpnGateways.Has(id)
 	ok = ok || b.customerGateways.Has(id)
@@ -311,6 +313,8 @@ func (b *InMemoryBackend) resourceExistsLGWLocked(id string) bool {
 }
 
 // resourceExistsIpamLocked checks the IPAM resource family.
+//
+//nolint:dupl // structurally similar table-has checks for different resource families
 func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
 	ok := b.ipams.Has(id)
 	ok = ok || b.ipamPools.Has(id)
