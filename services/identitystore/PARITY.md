@@ -1,8 +1,8 @@
 ---
 service: identitystore
 sdk_module: aws-sdk-go-v2/service/identitystore@v1.39.4   # version audited against
-last_audit_commit: a872ba9b                       # HEAD when the previous manifest was written (git not run this pass)
-last_audit_date: 2026-07-25
+last_audit_commit: 24813b443 # HEAD as of the 2026-09-19 required-output-member sweep (this pass)
+last_audit_date: 2026-09-19
 overall: A            # all 5 previously-dismissed gaps re-investigated: 1 real bug fixed, 3 implemented with concrete evidence, 1 kept as documented (justified) superset; a 6th, previously-unflagged wire bug found and fixed (CreateUser accepted an invented ExternalIds field)
                        # (2026-09-08, gopherstack-n7nk, P1) requireIdentityStoreID's writeError-returns-nil
                        # fall-through fixed (same class as elasticache gopherstack-8haq / pinpoint
@@ -109,6 +109,19 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-09-19 required-output-member sweep (gopherstack-r80d follow-up)
+
+Cross-checked all 25 required output members across the 14 census ops
+(`cmd/requiredoutputfields`) by direct code reading against
+`identitystore@v1.39.4`: `GroupId`/`UserId`/`MembershipId`/`IdentityStoreId`
+(plain `string`, no `omitempty`, always set from `b.generateID()`/the
+validated request `IdentityStoreId` on every Create/Describe/GetXId path);
+`Groups`/`Users`/`GroupMemberships`/`Results` (plain slices assembled via
+`applyGroupFilters`/`applyUserFilters`/`paginateSlice`/direct slice literal,
+no `omitempty`). 0 fixed, 0 false positives — every row already correctly
+populated. No code changed; gates all clean (gofmt/build/vet/race-test/
+golangci-lint).
 
 ## 2026-09-12 typed-client coverage (gopherstack-n3zi)
 

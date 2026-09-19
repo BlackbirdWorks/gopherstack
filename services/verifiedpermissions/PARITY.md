@@ -1,6 +1,6 @@
 service: verifiedpermissions
 sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.4
-last_audit_commit: 5330e30da
+last_audit_commit: 24813b443 # re-verified this pass; original required-output-member sweep landed at f474dc461
 last_audit_date: 2026-09-19
 overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):
                       # all 87 required members across 26 ops re-verified by direct code
@@ -58,6 +58,16 @@ deferred: []              # the one item deferred last pass (CreatePolicyStore C
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend uses a single lockmetrics.RWMutex. Prior pass fixed real ghost-row leaks: DeletePolicy/DeleteIdentitySource/DeletePolicyStore's cascade/DeletePolicyTemplate's cascade all clear resourceTags (previously only arnIndex was cleaned, so a tagged-then-deleted resource left its tag map entry behind forever); DeletePolicyStore also clears policySetCache/policySetDirty for the deleted store. This pass adds policyStoreAliases (a new store.Table registered on b.registry, keyed by AliasName) to that same cascade: DeletePolicyStore now also deletes every alias pointing at the store being deleted (see policy_stores.go's DeletePolicyStore -- the real API's docs are silent on this since DeletePolicyStore predates aliases entirely, so gopherstack picked cascade-delete per this campaign's documented-choice convention, proven by TestVPHandler_DeletePolicyStore_CascadesAliases/TestBackend_DeletePolicyStore_CascadesAliases). Aliases carry no arnIndex/resourceTags entries at all (not a taggable resource type in the real API -- TagResource's own doc says only policy stores can be tagged), so no ARN/tag cleanup was needed for them. clientTokens (ClientToken idempotency state) remains an ephemeral, never-persisted map; entries age out via the 8h idempotencyWindow check at lookup time (no janitor goroutine). Snapshot/Restore of the new policyStoreAliases table fully exercised by persistence_test.go's TestInMemoryBackend_SnapshotRestore_FullState (extended this pass) plus store_test.go's new alias tests."}
 
 ## Notes
+
+### 2026-09-19 (later same day): required-output-member re-verification, no new findings
+
+Independent re-read of the census (`cmd/requiredoutputfields`) against HEAD
+confirmed the sweep below (already committed at `f474dc461`) still holds:
+re-checked `toDeterminingPolicyItems`/`toEvaluationErrorItems`
+(`handler_authorization.go`) and `BatchGetPolicy`'s `Errors`
+(`handler_policies.go`) — all build via `make(..., 0, len(...))`, so
+`determiningPolicies`/`errors`/`results` are always non-nil slices, never
+omitted. 0 additional fixes needed this pass.
 
 ### 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up)
 

@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: pinpoint
 sdk_module: aws-sdk-go-v2/service/pinpoint@v1.42.4
-last_audit_commit: 5330e30da
+last_audit_commit: 24813b443 # re-verified this pass; original required-output-member sweep landed at 1b9f9d3d8
 last_audit_date: 2026-09-19
 overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up): all
                       # 120 required members across 122 ops cross-checked against the pinned SDK's
@@ -98,6 +98,15 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service; purg
 ---
 
 ## Notes
+
+### 2026-09-19 (later same day): required-output-member re-verification, no new findings
+
+Independent re-read of the census (`cmd/requiredoutputfields`) against HEAD
+confirmed the sweep below (already committed at `1b9f9d3d8`) still holds:
+`CreateCampaign`'s `SegmentId`/`SegmentVersion` fix is in place
+(`handler_campaigns.go`), and spot-checks of the wrapper-heavy response
+shapes (`CampaignResponse`, template `*Response` families, `EndpointsResponse`)
+found no regressions. 0 additional fixes needed this pass.
 
 ### 2026-09-19: required-output-member re-sweep (gopherstack-r80d follow-up)
 
