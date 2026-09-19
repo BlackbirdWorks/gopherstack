@@ -142,6 +142,100 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 			want: nil,
 		},
 		{
+			// lambda's real UpdateFunctionConfigurationInput.MemorySize is
+			// `int` where the pinned SDK declares `*int32` -- exact-type
+			// matching missed this because "int" != "int32" (gopherstack-2470,
+			// found in the lambda pass on #2470 and left unfixed by the
+			// pre-widening tool).
+			name:  "gopherstack int field matches sdk pointer int32 field widened kind",
+			sdkOp: "UpdateFunctionConfiguration",
+			sdkSrc: `package lambda
+
+type UpdateFunctionConfigurationInput struct {
+	MemorySize *int32
+}
+`,
+			src: `package lambda
+
+type UpdateFunctionConfigurationInput struct {
+	MemorySize int
+}
+
+func (b *InMemoryBackend) UpdateFunctionConfiguration(
+	name string, input UpdateFunctionConfigurationInput,
+) (*FunctionConfiguration, error) {
+	f := &FunctionConfiguration{}
+
+	if input.MemorySize != 0 {
+		f.MemorySize = input.MemorySize
+	}
+
+	return f, nil
+}
+`,
+			want: []wantFinding{
+				{op: "UpdateFunctionConfiguration", field: "MemorySize", kind: kindConfident, confident: true},
+			},
+		},
+		{
+			name:  "gopherstack float32 field matches sdk pointer float64 field widened kind",
+			sdkOp: "UpdateWidget",
+			sdkSrc: `package testsvc
+
+type UpdateWidgetInput struct {
+	Ratio *float64
+}
+`,
+			src: `package testsvc
+
+type UpdateWidgetInput struct {
+	Ratio float32
+}
+
+func (b *InMemoryBackend) UpdateWidget(id string, input UpdateWidgetInput) (*Widget, error) {
+	w := &Widget{}
+
+	if input.Ratio != 0 {
+		w.Ratio = input.Ratio
+	}
+
+	return w, nil
+}
+`,
+			want: []wantFinding{
+				{op: "UpdateWidget", field: "Ratio", kind: kindConfident, confident: true},
+			},
+		},
+		{
+			// bool and string each stay their own singleton class -- an int
+			// field must not be widened into matching a *bool SDK member.
+			name:  "gopherstack int field does not match sdk pointer bool field",
+			sdkOp: "UpdateWidget",
+			sdkSrc: `package testsvc
+
+type UpdateWidgetInput struct {
+	Enabled *bool
+}
+`,
+			src: `package testsvc
+
+type UpdateWidgetInput struct {
+	Enabled int
+}
+
+func (b *InMemoryBackend) UpdateWidget(id string, input UpdateWidgetInput) (*Widget, error) {
+	w := &Widget{}
+
+	if input.Enabled != 0 {
+		w.Enabled = input.Enabled
+	}
+
+	return w, nil
+}
+`,
+			want: nil,
+		},
+		{
 			name:  "plain field mismatch with no guard is needs review",
 			sdkOp: "UpdateWidget",
 			sdkSrc: `package testsvc

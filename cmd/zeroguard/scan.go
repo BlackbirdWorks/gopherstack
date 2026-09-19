@@ -284,7 +284,8 @@ func checkField(
 	}
 
 	sdkField, matched := matchSDKField(sdkFields, id.Name)
-	if !matched || !sdkField.isPointerScalar || sdkField.baseType != scalarIdentName(field.Type) {
+	if !matched || !sdkField.isPointerScalar ||
+		scalarKindGroup(sdkField.baseType) != scalarKindGroup(scalarIdentName(field.Type)) {
 		return finding{}, false
 	}
 
@@ -321,6 +322,25 @@ func plainScalarField(field *ast.Field) (*ast.Ident, bool) {
 	}
 
 	return field.Names[0], true
+}
+
+// scalarKindGroup buckets a predeclared scalar identifier into its
+// zeroguard equivalence class: gopherstack's choice of int vs int32 vs
+// int64 (or float32 vs float64) for a scalar field is an implementation
+// detail, not a distinct wire shape -- e.g. lambda's UpdateFunctionConfiguration
+// declares MemorySize/Timeout as plain `int` where the real SDK's member is
+// `*int32`, which exact-type matching missed entirely (gopherstack-2470).
+// bool and string each stay their own singleton class -- no cross-kind
+// widening there.
+func scalarKindGroup(name string) string {
+	switch name {
+	case identGoInt, "int32", "int64":
+		return identGoInt
+	case "float32", "float64":
+		return "float"
+	default:
+		return name
+	}
 }
 
 func scalarIdentName(t ast.Expr) string {
