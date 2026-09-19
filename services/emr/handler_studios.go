@@ -211,9 +211,32 @@ type listStudioSessionMappingsInput struct {
 	Marker       string `json:"Marker"`
 }
 
+// sessionMappingSummaryWire is the real types.SessionMappingSummary shape
+// (emr@v1.64.4 types.go) -- unlike types.SessionMappingDetail (Get), it has
+// no LastModifiedTime member.
+type sessionMappingSummaryWire struct {
+	StudioID         string  `json:"StudioId"`
+	IdentityType     string  `json:"IdentityType"`
+	IdentityID       string  `json:"IdentityId,omitempty"`
+	IdentityName     string  `json:"IdentityName,omitempty"`
+	SessionPolicyArn string  `json:"SessionPolicyArn"`
+	CreationTime     float64 `json:"CreationTime,omitempty"`
+}
+
+func newSessionMappingSummaryWire(m StudioSessionMapping) sessionMappingSummaryWire {
+	return sessionMappingSummaryWire{
+		StudioID:         m.StudioID,
+		IdentityType:     m.IdentityType,
+		IdentityID:       m.IdentityID,
+		IdentityName:     m.IdentityName,
+		SessionPolicyArn: m.SessionPolicyArn,
+		CreationTime:     m.CreationTime,
+	}
+}
+
 type listStudioSessionMappingsOutput struct {
-	Marker          string                 `json:"Marker,omitempty"`
-	SessionMappings []StudioSessionMapping `json:"SessionMappings"`
+	Marker          string                      `json:"Marker,omitempty"`
+	SessionMappings []sessionMappingSummaryWire `json:"SessionMappings"`
 }
 
 func (h *Handler) handleListStudioSessionMappings(
@@ -222,7 +245,12 @@ func (h *Handler) handleListStudioSessionMappings(
 ) (*listStudioSessionMappingsOutput, error) {
 	mappings, nextMarker := h.Backend.ListStudioSessionMappings(ctx, in.StudioID, in.IdentityType, in.Marker)
 
-	return &listStudioSessionMappingsOutput{SessionMappings: mappings, Marker: nextMarker}, nil
+	summaries := make([]sessionMappingSummaryWire, 0, len(mappings))
+	for _, m := range mappings {
+		summaries = append(summaries, newSessionMappingSummaryWire(m))
+	}
+
+	return &listStudioSessionMappingsOutput{SessionMappings: summaries, Marker: nextMarker}, nil
 }
 
 // --- UpdateStudioSessionMapping ---

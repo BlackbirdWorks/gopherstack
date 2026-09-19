@@ -20,7 +20,8 @@ type startNotebookExecutionInput struct {
 	ExecutionEngine struct {
 		ID string `json:"Id,omitempty"`
 	} `json:"ExecutionEngine"`
-	Tags []Tag `json:"Tags,omitempty"`
+	NotebookS3Location *NotebookS3LocationWire `json:"NotebookS3Location,omitempty"`
+	Tags               []Tag                   `json:"Tags,omitempty"`
 }
 
 type startNotebookExecutionOutput struct {
@@ -31,10 +32,16 @@ func (h *Handler) handleStartNotebookExecution(
 	ctx context.Context,
 	in *startNotebookExecutionInput,
 ) (*startNotebookExecutionOutput, error) {
+	var s3Bucket, s3Key string
+	if in.NotebookS3Location != nil {
+		s3Bucket, s3Key = in.NotebookS3Location.Bucket, in.NotebookS3Location.Key
+	}
+
 	ne, err := h.Backend.StartNotebookExecution(ctx, in.EditorID,
 		in.NotebookExecutionName,
 		in.NotebookParams,
 		in.ExecutionEngine.ID,
+		s3Bucket, s3Key,
 		in.Tags,
 	)
 	if err != nil {
@@ -88,6 +95,7 @@ type notebookExecutionDetailWire struct {
 	NotebookExecutionName string                       `json:"NotebookExecutionName,omitempty"`
 	NotebookParams        string                       `json:"NotebookParams,omitempty"`
 	ExecutionEngine       *notebookExecutionEngineWire `json:"ExecutionEngine,omitempty"`
+	NotebookS3Location    *NotebookS3LocationWire      `json:"NotebookS3Location,omitempty"`
 	Status                string                       `json:"Status"`
 	Tags                  []Tag                        `json:"Tags"`
 	StartTime             float64                      `json:"StartTime,omitempty"`
@@ -108,6 +116,7 @@ func newNotebookExecutionDetail(ne *NotebookExecution) *notebookExecutionDetailW
 		NotebookExecutionName: ne.NotebookExecutionName,
 		NotebookParams:        ne.NotebookParams,
 		ExecutionEngine:       engine,
+		NotebookS3Location:    notebookS3LocationWireOf(*ne),
 		Status:                ne.Status,
 		Tags:                  ne.Tags,
 		StartTime:             ne.StartTime,

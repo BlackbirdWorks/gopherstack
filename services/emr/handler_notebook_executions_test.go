@@ -179,7 +179,7 @@ func TestNotebookExecution_Persistence(t *testing.T) {
 	t.Parallel()
 
 	src := emr.NewInMemoryBackend(testAccountID, testRegion)
-	ne, err := src.StartNotebookExecution(context.Background(), "e-ED1", "persist-run", "{}", "j-1", nil)
+	ne, err := src.StartNotebookExecution(context.Background(), "e-ED1", "persist-run", "{}", "j-1", "", "", nil)
 	require.NoError(t, err)
 
 	snap := src.Snapshot(t.Context())

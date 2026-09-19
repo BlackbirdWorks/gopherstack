@@ -117,7 +117,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	ui, err := original.CreatePersistentAppUI(t.Context(), cluster.ARN)
 	require.NoError(t, err)
 
-	ne, err := original.StartNotebookExecution(t.Context(), "editor-1", "exec-1", "{}", "engine-1", nil)
+	ne, err := original.StartNotebookExecution(t.Context(), "editor-1", "exec-1", "{}", "engine-1", "", "", nil)
 	require.NoError(t, err)
 
 	session, err := original.StartSession(t.Context(), emr.StartSessionParams{ClusterID: cluster.ID, Name: "sess-1"})
