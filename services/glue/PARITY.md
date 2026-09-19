@@ -1,7 +1,7 @@
 ---
 service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.157.0
-last_audit_commit: b09a30f43
+last_audit_commit: da8db2cd3
 last_audit_date: 2026-09-18
 # 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
 # not total). Swept every sort.Slice/sort.Strings/slices.Sort* call site across
@@ -195,6 +195,21 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
 ---
 
 ## Notes
+
+### 2026-09-18: overwidecandidates re-audit (list-summary-shapes sweep)
+
+`cmd/overwidecandidates` flagged 10 List ops as over-wide-response
+candidates by name pattern (ListAssetTypes, ListConnectionTypes,
+ListDataQualityStatistics, ListFormTypes, ListGlossaries,
+ListGlossaryTerms, ListIterableForms, ListRegistries, ListSchemaVersions,
+ListSchemas). Member-by-member verification against
+`aws-sdk-go-v2/service/glue@v1.157.0` (`cmd/structfielddiff`) found all 10
+already narrowed to their real Summary/ListItem type by prior passes
+(gopherstack-uult/ustu/q4qt) — the tool flags by name, not by current
+shape, and doesn't reflect fixes. ListDataQualityStatistics is a genuine
+void-result op (`Statistics []any`, always empty — no automated
+data-quality monitoring runs in this backend); nothing to leak. 0 code
+changes this pass; see the per-op table in the audit report.
 
 ### 2026-09-18: enumcheck census
 
