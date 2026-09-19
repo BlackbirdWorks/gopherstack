@@ -1,7 +1,7 @@
 ---
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
-last_audit_commit: d4dc4a723
+last_audit_commit: b4c2391e7
 last_audit_date: 2026-09-18
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops
                        # (scripted key extraction against deserializers.go/serializers.go for all 18
@@ -594,3 +594,16 @@ Gates: `go build ./...` clean (whole module). `go vet ./services/memorydb/...` c
 `golangci-lint run --new-from-rev=HEAD ./services/memorydb/...` 0 issues (after `golines`
 formatting). No persisted struct fields added -- no `snapshot_inventory.json` change, no
 version bump.
+
+## 2026-09-18 ledger burn-down (gopherstack-yusn re-verified)
+
+Re-read all 6 items_still_open + 3 deferred entries against current HEAD
+(no drift affecting audited surface since d4dc4a723; f66686eee only
+removed an unread request member, unrelated to this ledger). All 3
+gopherstack-yusn items already resolved: ClusterName/ClusterNames
+scoping fixed (service_updates.go), Shards.Size/Slots and
+ServiceUpdate.NodesUpdated correctly kept (no honest per-shard/per-node
+state exists to report without fabrication, confirmed by grep: no
+`ShardDetail` type anywhere in the package). `staleclaims` flagged 0
+candidates for memorydb. Removed: 0. Fixed: 0. Kept: 6 + 3 deferred, all
+re-verified accurate. yusn is fully adjudicated.

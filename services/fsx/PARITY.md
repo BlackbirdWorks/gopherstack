@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: fsx
 sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
-last_audit_commit: ab7ac08a7
+last_audit_commit: b4c2391e7
 last_audit_date: 2026-09-18
 overall: A            # genuine wire-format + error-code bugs found and fixed
                       # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
@@ -74,6 +74,7 @@ items_still_open:
   - "2026-08-31 (value-semantics sweep, gopherstack-uox6): CreateDataRepositoryAssociationInput.BatchImportMetaDataOnCreate (bool, real field, api_op_CreateDataRepositoryAssociation.go, 'Default is false') and DeleteDataRepositoryAssociationInput.DeleteDataInFileSystem (bool, api_op_DeleteDataRepositoryAssociation.go) are not declared anywhere in gopherstack's request/backend structs at all -- the never-declared axis, not this pass's value-semantics axis, so recorded rather than fixed. Not at risk of the flattened-pointer-default shape found elsewhere this campaign: both real fields default to false, which is also Go's bool zero value, so there is no omitted-vs-explicit-false distinction to lose. Honouring BatchImportMetaDataOnCreate would mean auto-creating a real DataRepositoryTask as a side effect of CreateDataRepositoryAssociation, a feature addition rather than a value-semantics fix."
   - "UpdateStorageVirtualMachine's ActiveDirectoryConfiguration (real UpdateStorageVirtualMachineInput member, api_op_UpdateStorageVirtualMachine.go) is not modeled -- this backend does not track AD-joined SVMs at all (StorageVirtualMachine has no ActiveDirectoryConfiguration field). A real client sending it gets a 200 with no observable effect. Not fixed this pass (gopherstack-n3zi): modeling AD-join state is a feature addition, not a wire/state bug fix, matching this file's existing ActiveDirectoryError precedent above."
   - "CreateStorageVirtualMachine's Subtype field (createStorageVirtualMachineInput.Subtype, storage_virtual_machines.go) is client-settable, but real CreateStorageVirtualMachineInput has NO Subtype member at all (confirmed api_op_CreateStorageVirtualMachine.go, fsx@v1.68.4) -- Subtype is entirely server-derived (DEFAULT/SYNC_SOURCE/SYNC_DESTINATION/DP_DESTINATION based on internal cross-region replication state a real client never sets directly). Found while fixing the identical fabricated-field bug on UpdateStorageVirtualMachine (gopherstack-n3zi, see Notes below) but NOT fixed on the Create side this pass: Create is not one of this pass's assigned uncovered ops, and removing it risks breaking existing fixtures/tests that predate this finding. Flagged for a future pass."
+  - "2026-09-18 (ledger burn-down): DataRepositoryTask never reaches a terminal completed state. CreateDataRepositoryTask correctly leaves Lifecycle=\"EXECUTING\" (matches real AWS's own creation-time response) but no code path ever advances it to SUCCEEDED/FAILED, and CancelDataRepositoryTask leaves it at the real API's transient \"CANCELING\" value forever instead of settling on the terminal \"CANCELED\" (grep confirms zero references to SUCCEEDED/FAILED/CANCELED anywhere in this package outside tests). Real completion timing depends on actual data volume/throughput this backend has no engine to simulate; any fixed completion delay would be an invented SLA with no AWS specification behind it -- same standing objection this campaign already applied to SamplingRateBoost's BoostRate (xray) and ForecastStatistics (xray). DescribeDataRepositoryTasks' task-lifecycle=SUCCEEDED/FAILED/CANCELED filter values can therefore never match a stored task; disclosed, not fabricated."
 deferred: []              # consciously not audited this pass (scope) — next pass targets
 leaks: {status: clean, note: "Single InMemoryBackend with no goroutines, timers, or janitors; Reset()/Snapshot()/Restore() all go through the coarse lockmetrics.RWMutex and store.Registry -- no ephemeral state outside the registered tables/maps. FIXED THIS PASS (previously leaky): DeleteFileSystem only removed the file system + its own tags, leaving ghost StorageVirtualMachine/Volume/Snapshot/DataRepositoryAssociation rows (and a stale aliases[fileSystemID] map entry) referencing a FileSystemId that no longer existed. DeleteVolume and DeleteStorageVirtualMachine had the same gap one level down (a deleted volume's snapshots, and a deleted SVM's volumes, were never cleaned up). All four Delete ops now cascade correctly (deleteVolumeLocked / deleteStorageVirtualMachineLocked / cascadeDeleteFileSystemChildrenLocked in file_systems.go, volumes.go, storage_virtual_machines.go), while intentionally leaving Backups and DataRepositoryTasks alone (real AWS retains both independently of the file system they reference). Regression tests added in cascade_delete_test.go."}
 ---
@@ -105,6 +106,20 @@ Gates: `gofmt -l` (clean), `go build ./...`, `go vet ./services/fsx/...`,
 additive only, no version bump needed per the guard's own message),
 `golangci-lint run` both scoped and full (0 issues, after `--fix` reordered
 three structs `fieldalignment` flagged from the new fields).
+
+## 2026-09-18 ledger burn-down
+
+Re-read all 12 items_still_open entries against current HEAD; none stale
+(`staleclaims`' one flagged candidate, VolumeId, is a false positive --
+`CreateBackup` still has no VolumeId field, confirmed by reading
+backups.go). Removed: 0. Fixed: 0 (candidate list items -- backup/SVM/
+volume lifecycle, data-repository-task progress -- were re-checked and
+confirmed structurally synchronous/unobservable, no new mechanism added).
+Kept: 12, plus 1 newly disclosed (DataRepositoryTask never reaches a
+terminal SUCCEEDED/FAILED/CANCELED state; any fixed completion delay
+would be a fabricated SLA, same standing objection as xray's
+SamplingRateBoost). Ledger: 12 -> 13 items_still_open (honesty gain, not
+a regression).
 
 ## 2026-09-12 (gopherstack-n3zi)
 
