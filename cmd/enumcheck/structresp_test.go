@@ -9,6 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// structRespReg extends statusReg with gopherstack-cpztm's precise
+// per-field ground truth: for each fixture struct name below, the ONE real
+// SDK type its field maps to -- never a same-key candidate set. Deliberately
+// omits "MysteryOutput": a local struct with no real pinned-SDK counterpart
+// at all is exactly the unresolved-bucket shape.
+func structRespReg() *enumRegistry {
+	reg := statusReg()
+	reg.sdkFieldTypes = map[string]map[string]string{
+		"GetThingOutput": {"DomainPackageStatus": "DomainPackageStatus"},
+		"Thing":          {"DomainPackageStatus": "DomainPackageStatus"},
+		"Alpha":          {"DomainPackageStatus": "DomainPackageStatus"},
+		"Beta":           {"OtherKey": "DomainPackageStatus"},
+		"Inner":          {"DomainPackageStatus": "DomainPackageStatus"},
+		"ItemError":      {"Code": "string"},
+	}
+
+	return reg
+}
+
 func TestCheckStructResponsesInFunc(t *testing.T) {
 	t.Parallel()
 
@@ -47,6 +66,41 @@ func build() *GetThingOutput {
 	return &GetThingOutput{DomainPackageStatus: "ACTIVE"}
 }`,
 			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
+			// a wrong-case value fails membership just like a wrong value --
+			// the real enum's members are exact strings, not case-folded.
+			name: "wrong-case value on a resolved enum is confident",
+			src: `package svc
+type GetThingOutput struct {
+	DomainPackageStatus string ` + "`json:\"DomainPackageStatus\"`" + `
+}
+func build() *GetThingOutput {
+	return &GetThingOutput{DomainPackageStatus: "active"}
+}`,
+			wireKeys:      map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+			wantKind:      kindLiteral,
+			wantConfident: true,
+			wantValue:     "active",
+		},
+		{
+			// gopherstack-cpztm's own false-positive class: DISSOCIATING is a
+			// real member of the field's own resolved enum (DomainPackageStatus),
+			// even though a same-key sibling enum (OtherStatus, ACTIVE only)
+			// does not declare it -- resolution goes through the field's own
+			// real SDK type only, never every enum sharing the bare key, so
+			// the sibling's disagreement is irrelevant here.
+			name: "value valid for its own resolved enum is clean despite a same-key sibling enum",
+			src: `package svc
+type GetThingOutput struct {
+	DomainPackageStatus string ` + "`json:\"DomainPackageStatus\"`" + `
+}
+func build() *GetThingOutput {
+	return &GetThingOutput{DomainPackageStatus: "DISSOCIATING"}
+}`,
+			wireKeys: map[string]wireKeyFact{
+				"DomainPackageStatus": {Enums: []string{"DomainPackageStatus", "OtherStatus"}},
+			},
 		},
 		{
 			// real shape: services/lambda's StatementID field, tagged
@@ -180,21 +234,35 @@ func build() *GetThingOutput {
 			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
 		},
 		{
-			// ambiguous-key tier must fire through this path exactly like it
-			// does for the map[string]any path -- same evalKeyValue decision,
-			// reused rather than reimplemented.
-			name: "ambiguous key on a struct field is needs review",
+			// a plain *string real member (comprehend's ItemError.Code,
+			// sagemaker's DevEndpoint.Status, BatchDescribeModelPackageError
+			// .ErrorCode) is never checked, no matter what enum a bare
+			// key-name match elsewhere in the SDK would suggest.
+			name: "plain string member is never flagged",
 			src: `package svc
-type GetThingOutput struct {
+type ItemError struct {
+	Code string ` + "`json:\"Code\"`" + `
+}
+func build() *ItemError {
+	return &ItemError{Code: "AnythingAtAll"}
+}`,
+			wireKeys: map[string]wireKeyFact{"Code": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
+			// structTypeName has no real pinned-SDK counterpart at all --
+			// this scan genuinely doesn't know whether the field is an enum,
+			// so it lands in the unresolved bucket, never a confident or
+			// needs-review claim about a member it can't identify.
+			name: "struct with no real SDK counterpart is unresolved",
+			src: `package svc
+type MysteryOutput struct {
 	DomainPackageStatus string ` + "`json:\"DomainPackageStatus\"`" + `
 }
-func build() *GetThingOutput {
-	return &GetThingOutput{DomainPackageStatus: "DISSOCIATED"}
+func build() *MysteryOutput {
+	return &MysteryOutput{DomainPackageStatus: "DISSOCIATED"}
 }`,
-			wireKeys: map[string]wireKeyFact{
-				"DomainPackageStatus": {Enums: []string{"DomainPackageStatus", "OtherStatus"}},
-			},
-			wantKind:  kindAmbiguousKey,
+			wireKeys:  map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+			wantKind:  kindUnresolved,
 			wantValue: "DISSOCIATED",
 		},
 	}
@@ -206,7 +274,7 @@ func build() *GetThingOutput {
 			dir := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(tc.src), 0o600))
 
-			findings, err := scanPackage(dir, statusReg(), tc.wireKeys, dir)
+			findings, err := scanPackage(dir, structRespReg(), tc.wireKeys, dir)
 			require.NoError(t, err)
 
 			if tc.wantKind == "" {
@@ -230,7 +298,7 @@ func build() *GetThingOutput {
 // EventCategoryAggregation's unrelated enum) and sagemaker's
 // PipelineExecutionStep.StepType (same shape, matched enum was Inference
 // Recommender's). Mirrors that shape directly against
-// enumRegistry.wireFieldsByType.
+// enumRegistry.sdkFieldTypes.
 func TestCheckStructResponsesInFunc_PhantomField(t *testing.T) {
 	t.Parallel()
 
@@ -238,9 +306,9 @@ func TestCheckStructResponsesInFunc_PhantomField(t *testing.T) {
 
 	regWithRealType := func() *enumRegistry {
 		reg := statusReg()
-		reg.wireFieldsByType = map[string]map[string]bool{
+		reg.sdkFieldTypes = map[string]map[string]string{
 			// real types.Event's own field set -- no EventCategory at all.
-			"Event": {"EventId": true, "EventName": true, "EventSource": true},
+			"Event": {"EventId": "string", "EventName": "string", "EventSource": "string"},
 		}
 
 		return reg
@@ -301,7 +369,7 @@ func build() *Event {
 		)
 	})
 
-	t.Run("struct type with no real same-named type gets no phantom finding", func(t *testing.T) {
+	t.Run("struct type with no real same-named type is unresolved, not phantom or confident", func(t *testing.T) {
 		t.Parallel()
 
 		const src = `package svc
@@ -323,11 +391,12 @@ func build() *ImageReferenceEntry {
 			t,
 			findings,
 			1,
-			"no real-type ground truth for ImageReferenceEntry, so this falls through to the ordinary check",
+			"no real-type ground truth for ImageReferenceEntry at all -- unresolved, never a guessed finding",
 		)
 
 		got := findings[0]
-		assert.Equal(t, kindLiteral, got.Kind)
-		assert.True(t, got.Confident)
+		assert.Equal(t, kindUnresolved, got.Kind)
+		assert.False(t, got.Confident)
+		assert.Equal(t, "ImageReferenceEntry", got.Enum)
 	})
 }

@@ -206,10 +206,10 @@ func checkStructFieldElt(
 		return finding{}, false
 	}
 
-	// Gate phantom-field detection on wireKeys[wireKey] already being
-	// known, same as evalKeyValue's own precondition: without this, the
-	// check runs for EVERY field of every struct that merely shares a name
-	// with a real SDK type, most of which are gopherstack's own
+	// Gate on wireKeys[wireKey] already being known, same as evalKeyValue's
+	// own precondition for the map[string]any path: without this, the
+	// check below runs for EVERY field of every struct that merely shares a
+	// name with a real SDK type, most of which are gopherstack's own
 	// persistence-struct fields (e.g. dax's models.go Parameter, tagged
 	// json:"isModifiable" lowercase for its own snapshot, distinct from
 	// the real wire-response struct) that were never going to be checked
@@ -217,64 +217,71 @@ func checkStructFieldElt(
 	// check alone added over 300 needs-review findings, the overwhelming
 	// majority of them exactly this shape, not the phantom-field defect it
 	// exists to report. With the gate, this only ever runs for a field
-	// checkStructFieldElt was about to check anyway (matches the package
-	// doc's original claim).
+	// checkStructFieldElt was about to check anyway.
 	if _, keyKnown := wireKeys[wireKey]; !keyKnown {
 		return finding{}, false
 	}
 
-	if f, found := checkPhantomField(
-		structTypeName, wireKey, kv.Value, fset, reg, localConsts, pkgConsts, repoRoot,
-	); found {
-		return f, true
-	}
-
-	return evalKeyValue(wireKey, kv.Value, fset, reg, wireKeys, localConsts, pkgConsts, repoRoot)
+	return resolveStructField(structTypeName, wireKey, kv.Value, fset, reg, localConsts, pkgConsts, repoRoot)
 }
 
-// checkPhantomField is gopherstack-7fps's phantom-field NEEDS REVIEW check:
-// structTypeName names a gopherstack response struct declared in this same
-// package; when a real SDK type of that EXACT SAME NAME exists (known from
-// that module's own deserializeDocument<Type> ground truth,
-// enumRegistry.wireFieldsByType) but has NO field under wireKey at all, the
-// Go field being written here has no real wire counterpart whatsoever --
-// confirmed live at cloudtrail's Event.EventCategory (real types.Event has
-// no such field; a naive key-name match against "EventCategory" elsewhere
-// in the SDK found EventCategoryAggregation's unrelated enum) and
-// sagemaker's PipelineExecutionStep.StepType (real type has no such field;
-// the matched enum was Inference Recommender's). Either the field is dead
-// (never actually read back out) or it fabricates capability the real API
-// never had -- both worth a human's judgement, so this reports rather than
-// silently discarding, but as a DISTINCT kind: the "value not a member of
-// enum X" claim evalKeyValue would otherwise make is meaningless here, since
-// X was never this field's real enum in the first place.
+// resolveStructField is gopherstack-cpztm's precise struct-literal
+// resolution: structTypeName's own wireKey field is resolved through
+// enumRegistry.resolveRealField to the ONE real SDK member it maps to, never
+// a same-key candidate set spanning unrelated enums (the false-positive
+// class that fix replaces: services/eks/sagemaker/glue's shared "status"/
+// "type" wire keys had 100+ unrelated enum candidates apiece).
 //
-// Scope: only fires when structTypeName has known real-type ground truth at
-// all. Most gopherstack response structs don't share their exact name with
-// a real SDK type and get no finding here -- the same "no counterpart to
-// compare against, so no finding" discipline this whole scan already
-// applies everywhere else, not a new risk of flooding every internal-only
-// struct field that was never going to be checked in the first place: this
-// only runs for a field whose wire key ALSO resolves to a real cross-SDK
-// enum, i.e. only for fields checkStructFieldElt was about to check anyway.
-func checkPhantomField(
+//   - fieldUnknownType: structTypeName has no real pinned-SDK counterpart at
+//     all -- nothing to resolve against, reported in the UNRESOLVED bucket,
+//     never as a finding that could be a false accusation.
+//   - fieldAbsent: gopherstack-7fps's phantom-field shape -- a real
+//     same-named type exists, but has no field under this wire key at all
+//     (even one hop through a directly nested field's own type, amplify's
+//     Job -> JobSummary). Confirmed live at cloudtrail's Event.EventCategory
+//     and sagemaker's PipelineExecutionStep.StepType, both matched against
+//     an entirely unrelated real operation's enum before this fix.
+//   - fieldNotEnum: the field is real, but its own declared Go type isn't a
+//     named enum at all (a plain *string, e.g. ItemError.Code,
+//     DevEndpoint.Status, BatchDescribeModelPackageError.ErrorCode) --
+//     never checked, never flagged.
+//   - fieldIsEnum: the field's own declared type is exactly one real enum --
+//     sound, confident membership check.
+func resolveStructField(
 	structTypeName, wireKey string, valueExpr ast.Expr, fset *token.FileSet,
 	reg *enumRegistry, localConsts, pkgConsts map[string]string, repoRoot string,
 ) (finding, bool) {
-	realFields, known := reg.wireFieldsByType[structTypeName]
-	if !known || realFields[wireKey] {
-		return finding{}, false
-	}
-
 	val, ok := resolveConstString(valueExpr, localConsts, pkgConsts, reg)
 	if !ok || val == "" {
 		return finding{}, false
 	}
 
 	pos := fset.Position(valueExpr.Pos())
-
-	return finding{
+	base := finding{
 		File: relPath(repoRoot, pos.Filename), Line: pos.Line,
-		Kind: kindPhantomField, Key: wireKey, Value: val, Enum: structTypeName,
-	}, true
+		Key: wireKey, Value: val,
+	}
+
+	switch res, enumType := reg.resolveRealField(structTypeName, wireKey); res {
+	case fieldUnknownType:
+		base.Kind, base.Enum = kindUnresolved, structTypeName
+
+		return base, true
+	case fieldAbsent:
+		base.Kind, base.Enum = kindPhantomField, structTypeName
+
+		return base, true
+	case fieldNotEnum:
+		return finding{}, false
+	case fieldIsEnum:
+		if reg.membersByType[enumType][val] {
+			return finding{}, false
+		}
+
+		base.Kind, base.Enum, base.Confident = kindLiteral, enumType, true
+
+		return base, true
+	default:
+		return finding{}, false
+	}
 }
