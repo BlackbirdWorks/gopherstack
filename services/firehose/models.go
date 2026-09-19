@@ -53,6 +53,12 @@ type CloudWatchLoggingOptions struct {
 	Enabled       bool   `json:"Enabled"`
 }
 
+// DocumentIDOptions controls document-ID generation for an OpenSearch/Elasticsearch
+// destination (types.DocumentIdOptions, firehose@v1.46.4 types/types.go:1133).
+type DocumentIDOptions struct {
+	DefaultDocumentIDFormat string `json:"DefaultDocumentIdFormat,omitempty"`
+}
+
 // KMSEncryptionConfig holds a KMS key ARN for S3 encryption.
 type KMSEncryptionConfig struct {
 	AWSKMSKeyARN string `json:"AWSKMSKeyARN"`
@@ -292,6 +298,7 @@ type OpenSearchDestinationDescription struct {
 	// "S3BackupDescription", confirmed via
 	// awsAwsjson11_deserializeDocumentAmazonopensearchserviceDestinationDescription.
 	S3BackupDescription *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
+	DocumentIDOptions   *DocumentIDOptions   `json:"DocumentIdOptions,omitempty"`
 	DomainARN           string               `json:"DomainARN,omitempty"`
 	ClusterEndpoint     string               `json:"ClusterEndpoint,omitempty"`
 	IndexName           string               `json:"IndexName,omitempty"`
@@ -317,6 +324,7 @@ type ElasticsearchDestinationDescription struct {
 	// "S3BackupDescription", confirmed via
 	// awsAwsjson11_deserializeDocumentElasticsearchDestinationDescription.
 	S3BackupDescription *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
+	DocumentIDOptions   *DocumentIDOptions   `json:"DocumentIdOptions,omitempty"`
 	DomainARN           string               `json:"DomainARN,omitempty"`
 	ClusterEndpoint     string               `json:"ClusterEndpoint,omitempty"`
 	IndexName           string               `json:"IndexName,omitempty"`

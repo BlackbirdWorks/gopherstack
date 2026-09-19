@@ -188,6 +188,7 @@ type openSearchDestinationInput struct {
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
 	S3Configuration          *s3BackupInput            `json:"S3Configuration"`
 	S3Update                 *s3BackupInput            `json:"S3Update"`
+	DocumentIDOptions        *DocumentIDOptions        `json:"DocumentIdOptions"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -209,6 +210,7 @@ type elasticsearchDestinationInput struct {
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
 	S3Configuration          *s3DestinationInput       `json:"S3Configuration"`
 	S3Update                 *s3DestinationInput       `json:"S3Update"`
+	DocumentIDOptions        *DocumentIDOptions        `json:"DocumentIdOptions"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -451,6 +453,25 @@ func buildRedshiftDestination(rs *redshiftDestinationInput) *RedshiftDestination
 	return dest
 }
 
+// validateDocumentIDOptions rejects a DefaultDocumentIdFormat outside its only two real
+// enum values (firehose@v1.46.4 types/enums.go:153-158), the same "unknown enum value"
+// InvalidArgumentException class as other destination fields.
+func validateDocumentIDOptions(opts *DocumentIDOptions) error {
+	if opts == nil {
+		return nil
+	}
+
+	switch opts.DefaultDocumentIDFormat {
+	case "", "FIREHOSE_DEFAULT", "NO_DOCUMENT_ID":
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: DefaultDocumentIdFormat must be FIREHOSE_DEFAULT or NO_DOCUMENT_ID, got %q",
+			ErrValidation, opts.DefaultDocumentIDFormat,
+		)
+	}
+}
+
 // buildOpenSearchDestination converts openSearchDestinationInput to the backend type.
 func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDestinationDescription {
 	if os == nil {
@@ -469,6 +490,7 @@ func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDesti
 		BufferingHints:           os.BufferingHints,
 		RetryOptions:             os.RetryOptions,
 		CloudWatchLoggingOptions: os.CloudWatchLoggingOptions,
+		DocumentIDOptions:        os.DocumentIDOptions,
 	}
 
 	backup := os.S3Configuration
@@ -505,6 +527,7 @@ func buildElasticsearchDestination(
 		BufferingHints:           es.BufferingHints,
 		RetryOptions:             es.RetryOptions,
 		CloudWatchLoggingOptions: es.CloudWatchLoggingOptions,
+		DocumentIDOptions:        es.DocumentIDOptions,
 	}
 
 	// AWS models S3Configuration as the required backup destination for legacy
@@ -799,6 +822,28 @@ func validateSingleDestination(in *createDeliveryStreamInput) error {
 	return nil
 }
 
+// validateOpenSearchFamilyDocumentIDOptions checks DocumentIdOptions on whichever of the
+// two OpenSearch-family destination configs (new Amazonopensearchservice, legacy
+// Elasticsearch) is present -- factored out of handleCreateDeliveryStream to keep its
+// cyclomatic complexity down.
+func validateOpenSearchFamilyDocumentIDOptions(in *createDeliveryStreamInput) error {
+	if in.AmazonOpenSearchServiceDestinationConfiguration != nil {
+		if err := validateDocumentIDOptions(
+			in.AmazonOpenSearchServiceDestinationConfiguration.DocumentIDOptions,
+		); err != nil {
+			return err
+		}
+	}
+
+	if in.ElasticsearchDestinationConfiguration != nil {
+		if err := validateDocumentIDOptions(in.ElasticsearchDestinationConfiguration.DocumentIDOptions); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleCreateDeliveryStream(
 	ctx context.Context,
 	in *createDeliveryStreamInput,
@@ -824,6 +869,10 @@ func (h *Handler) handleCreateDeliveryStream(
 	}
 
 	if err := validateEncryptionConfigInput(in.DeliveryStreamEncryptionConfigurationInput); err != nil {
+		return nil, err
+	}
+
+	if err := validateOpenSearchFamilyDocumentIDOptions(in); err != nil {
 		return nil, err
 	}
 
