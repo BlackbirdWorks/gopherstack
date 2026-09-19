@@ -319,8 +319,9 @@ func TestSNS_FifoDedupExpiredEntryNotFalsePositive(t *testing.T) {
 }
 
 // TestSNS_FifoDedupMapNotGrowingOnExpiredCheck verifies that isDuplicate does NOT
-// evict expired entries (that is handled by the background sweep), so the map entry
-// count stays constant after multiple isDuplicate calls on an expired entry.
+// evict expired entries on every call — only the periodic lazy sweep does — so the
+// map entry count stays constant across repeated isDuplicate calls within one
+// sweep interval.
 func TestSNS_FifoDedupMapNotGrowingOnExpiredCheck(t *testing.T) {
 	t.Parallel()
 
@@ -339,7 +340,7 @@ func TestSNS_FifoDedupMapNotGrowingOnExpiredCheck(t *testing.T) {
 	}
 	countAfter := sns.FifoDedupEntryCountForTest(d)
 
-	// Entry stays in map (not swept by isDuplicate); background goroutine handles cleanup.
+	// Entry stays in map; the lazy sweep only runs once fifoDedupSweepInterval elapses.
 	assert.Equal(t, countBefore, countAfter, "isDuplicate must not evict expired entries")
 }
 

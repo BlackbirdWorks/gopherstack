@@ -1,8 +1,8 @@
 ---
 service: sns
 sdk_module: aws-sdk-go-v2/service/sns@v1.46.0
-last_audit_commit: b1905140e
-last_audit_date: 2026-09-18
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -763,3 +763,11 @@ still returns the placeholder too until `ConfirmSubscription` supplies the
 real ARN. Gates: `go build ./...` (whole module), `go vet`, `go test -race
 -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No
 persisted struct fields changed; no version bump.
+
+## 2026-09-19: goroutine-leak sweep (gopherstack parity-sweep)
+
+`fifoDeduplication.startPeriodicSweep` ran a background goroutine per
+`Handler` that never stopped in tests (only `Shutdown` stopped it, and most
+tests never call it), leaking one goroutine per test. Replaced with a lazy
+sweep triggered from `isDuplicate`/`record`; added `leak_main_test.go`
+(goleak TestMain), now clean.
