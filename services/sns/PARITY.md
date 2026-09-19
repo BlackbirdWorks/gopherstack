@@ -1,7 +1,7 @@
 ---
 service: sns
 sdk_module: aws-sdk-go-v2/service/sns@v1.46.0
-last_audit_commit: 49cff86c4
+last_audit_commit: 41d2135ec  # 2026-09-19 PGO perf sweep (no safe change found)
 last_audit_date: 2026-09-19
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
@@ -59,6 +59,16 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 ---
 
 ## Notes
+
+## 2026-09-19 PGO perf sweep (pgoload cpu.pprof)
+
+handlePublish's cost is ~96% RSA sign in buildPublishedEvent, already called
+once per Publish (not per subscription); per-subscription filter policies
+are already parsed once at Subscribe time. No safe change found; added
+benchmark + golden coverage as a baseline. Noted but not fixed (unexercised
+by pgoload, no HTTP subscriptions): `buildHTTPDeliveryPayload`
+(delivery.go) re-signs per HTTP subscriber with its own timestamp instead
+of reusing one signed envelope per publish.
 
 ## 2026-09-18 audit (gopherstack-xhu2t reqfielddiff tier-1 sweep)
 
