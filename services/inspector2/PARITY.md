@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: inspector2
 sdk_module: aws-sdk-go-v2/service/inspector2@v1.54.1   # version audited against
-last_audit_commit: fa93861fb                            # HEAD when this manifest was written
+last_audit_commit: a83673c4a                            # HEAD when this manifest was written
 last_audit_date: 2026-09-19
 overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name length+charset constraints now enforced (fetched live from AWS API Reference -- the Go SDK module has no length/pattern doc prose for these 4 fields), CoverageFilterCriteria's scanStatusCode/scanStatusReason/scanMode/lastScannedAt facets fixed from accepted-but-silently-ignored to genuinely narrowing (real bug, not just an omission), FindingDetail.Ttps added; authorizationUrl gap and the 7 remaining Cvss/Epss/Evidence-class nested struct types re-confirmed as genuine, deliberately-scoped-out gaps (not oversights) -- no prior family regressed
 # 2026-08-21 gopherstack-r80d batch 12 (required-output cut): last_audit_commit
@@ -186,6 +186,21 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all resour
 ---
 
 ## Notes
+
+**2026-09-19 (required-output-members reverification)**: re-read all 38 required
+output fields across the 29 census ops (`cmd/requiredoutputfields`) end to end
+against the current handlers. 37 already correctly populated on every
+Create/Get/List/Update/Delete path (no regressions since the r80d/g479
+sweeps). 1 fixed: `UpdateOrganizationConfiguration.AutoEnable` — the prior
+audit (see "AutoEnable's Ec2/Ecr are both real-client-guaranteed present"
+above) reasoned this was safe because the real SDK client validates
+`AutoEnable` client-side before sending, but gopherstack itself never
+validated it server-side, so a request that reached the handler without it
+persisted a nil map and echoed a null required field back — real AWS
+validates required input members server-side regardless of which client
+sent the request, and now so does this handler (`ValidationException` when
+`autoEnable` is absent). See `required_output_members_test.go`. 0 false
+positives found this pass. Files touched: `handler_organization.go`.
 
 **2026-09-19 (gopherstack-fndhb)**: mega-batch-6 terraform coverage found status responses
 omitted codeRepository/lambdaCode, crashing terraform-provider-aws's reader. Fixed; apply+destroy verified against real provider v5.100.0.

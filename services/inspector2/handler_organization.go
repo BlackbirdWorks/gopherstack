@@ -141,6 +141,14 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context) error {
 		}
 	}
 
+	// AutoEnable is required on UpdateOrganizationConfigurationInput
+	// (api_op_UpdateOrganizationConfiguration.go) and required on the
+	// response too -- rejecting its absence here, rather than persisting a
+	// nil map, keeps every successful response's autoEnable non-null.
+	if req.AutoEnable == nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "autoEnable is required"))
+	}
+
 	if updateErr := h.Backend.UpdateOrganizationConfiguration(
 		OrgConfiguration{AutoEnable: req.AutoEnable},
 	); updateErr != nil {
