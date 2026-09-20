@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.71.0
-last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
-last_audit_date: 2026-09-19
+last_audit_commit: cd027034c  # 2026-09-20 mega-batch-35 terraform sweep: metric stream State case fix
+last_audit_date: 2026-09-20
 overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams now actually deliver
                       # matched PutMetricData records to their configured Firehose delivery stream
                       # when OutputFormat=json, via a new FirehosePutter interface (SetFirehosePutter,
@@ -148,6 +148,14 @@ leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + 
 ---
 
 ## Notes
+
+### 2026-09-20 mega-batch-35 terraform sweep
+
+Metric stream `State` was wire-serialized uppercase ("RUNNING"/"STOPPED");
+real AWS's GetMetricStream/ListMetricStreams State is lowercase
+("running"/"stopped"), unlike most CloudWatch enums. Terraform's
+aws_cloudwatch_metric_stream create waiter does an exact-case match and
+failed against the uppercase value.
 
 CloudWatch here speaks **AWS Query (XML) protocol** for the classic SDK path (`Action=` form
 POST, `<Foo Response>` root, `ResponseMetadata>RequestId`) and **rpc-v2-cbor** for

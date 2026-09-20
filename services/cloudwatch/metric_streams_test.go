@@ -145,11 +145,11 @@ func TestBackend_MetricStream_StartStop(t *testing.T) {
 
 	require.NoError(t, b.StopMetricStreams([]string{"s"}))
 	s, _ := b.GetMetricStream("s")
-	assert.Equal(t, "STOPPED", s.State)
+	assert.Equal(t, "stopped", s.State)
 
 	require.NoError(t, b.StartMetricStreams([]string{"s"}))
 	s, _ = b.GetMetricStream("s")
-	assert.Equal(t, "RUNNING", s.State)
+	assert.Equal(t, "running", s.State)
 }
 
 func TestCloudWatchBackend_ListMetricStreams(t *testing.T) {
@@ -183,7 +183,7 @@ func TestCloudWatchBackend_MetricStream_IncludeFilter(t *testing.T) {
 	b.PutMetricStreamInternal(&cloudwatch.MetricStream{
 		Name:        "stream-include",
 		FirehoseArn: "arn:aws:firehose:us-east-1:123:deliverystream/s",
-		State:       "RUNNING",
+		State:       "running",
 		IncludeFilters: []cloudwatch.MetricStreamFilter{
 			{Namespace: "AWS/EC2", MetricNames: []string{"CPUUtilization"}},
 		},
@@ -210,7 +210,7 @@ func TestCloudWatchBackend_MetricStream_IncludeFilter(t *testing.T) {
 	// Non-matching namespace should NOT change LastUpdateDate.
 	b.PutMetricStreamInternal(&cloudwatch.MetricStream{
 		Name:  "stream-include2",
-		State: "RUNNING",
+		State: "running",
 		IncludeFilters: []cloudwatch.MetricStreamFilter{
 			{Namespace: "AWS/EC2"},
 		},
@@ -233,7 +233,7 @@ func TestCloudWatchBackend_MetricStream_ExcludeFilter(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	b.PutMetricStreamInternal(&cloudwatch.MetricStream{
 		Name:  "stream-exclude",
-		State: "RUNNING",
+		State: "running",
 		ExcludeFilters: []cloudwatch.MetricStreamFilter{
 			{Namespace: "AWS/EC2"},
 		},
