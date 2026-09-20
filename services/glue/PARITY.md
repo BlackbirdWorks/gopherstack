@@ -1,8 +1,8 @@
 ---
 service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.157.0
-last_audit_commit: da8db2cd3
-last_audit_date: 2026-09-18
+last_audit_commit: 2bc650bf9
+last_audit_date: 2026-09-19
 # 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
 # not total). Swept every sort.Slice/sort.Strings/slices.Sort* call site across
 # this service's ~48 paginated listings for whether the sort key is unique.
@@ -195,6 +195,18 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
 ---
 
 ## Notes
+
+### 2026-09-19: terraform mega-batch-20 coverage (registry/schema ARN identity + tags)
+
+Real terraform apply of registry, schema, ml_transform, table_optimizer,
+partition(+index), connection, dev_endpoint, and 8 more previously-uncovered
+resources found two identity bugs: GetRegistry/GetSchema/DeleteRegistry/
+DeleteSchema/CreateSchema/ListSchemas only ever consulted RegistryId.RegistryName
+/SchemaId.SchemaName, silently returning EntityNotFoundException for the ARN
+form real clients read resources back with (fixed via registryNameFromID/
+schemaIDNames, handler_schemas.go). Registry and Schema were also entirely
+absent from GetTags/TagResource/UntagResource's resource-kind chain (tags.go)
+so a tagged registry/schema could never be read back (fixed, tags.go).
 
 ### 2026-09-18: overwidecandidates re-audit (list-summary-shapes sweep)
 

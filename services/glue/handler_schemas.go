@@ -191,6 +191,29 @@ type registryIDInput struct {
 	RegistryArn  string `json:"RegistryArn"`
 }
 
+// registryNameFromID resolves a registry name from a RegistryId wrapper that
+// may carry either RegistryName or RegistryArn (real GetRegistry/DeleteRegistry/
+// UpdateRegistry/CreateSchema/ListSchemas accept either -- glue@v1.157.0
+// types.RegistryId). Falls back to the ARN's trailing "registry/<name>"
+// segment when only the ARN is supplied, as a client that reads a registry
+// back by the ARN it was created with (rather than the name) otherwise gets
+// a spurious not-found.
+func registryNameFromID(id *registryIDInput) string {
+	if id == nil {
+		return ""
+	}
+
+	if id.RegistryName != "" {
+		return id.RegistryName
+	}
+
+	if idx := strings.LastIndex(id.RegistryArn, "/"); idx != -1 {
+		return id.RegistryArn[idx+1:]
+	}
+
+	return ""
+}
+
 // createSchemaOutput holds the result for CreateSchema. LatestSchemaVersion,
 // NextSchemaVersion, SchemaCheckpoint, SchemaVersionId and SchemaVersionStatus
 // mirror the real CreateSchemaOutput (aws-sdk-go-v2/service/glue@v1.152.0
@@ -217,10 +240,7 @@ func (h *Handler) handleCreateSchema(
 	_ context.Context,
 	in *createSchemaInput,
 ) (*createSchemaOutput, error) {
-	registryName := ""
-	if in.RegistryID != nil {
-		registryName = in.RegistryID.RegistryName
-	}
+	registryName := registryNameFromID(in.RegistryID)
 
 	s, sv, err := h.Backend.CreateSchema(
 		registryName,
@@ -273,10 +293,7 @@ func (h *Handler) handleDeleteRegistry(
 	_ context.Context,
 	in *deleteRegistryInput,
 ) (*deleteRegistryOutput, error) {
-	name := ""
-	if in.RegistryID != nil {
-		name = in.RegistryID.RegistryName
-	}
+	name := registryNameFromID(in.RegistryID)
 
 	reg, err := h.Backend.DeleteRegistry(name)
 	if err != nil {
@@ -291,6 +308,27 @@ type schemaIDInput struct {
 	RegistryName string `json:"RegistryName"`
 	SchemaName   string `json:"SchemaName"`
 	SchemaArn    string `json:"SchemaArn"`
+}
+
+// schemaIDNames resolves (registryName, schemaName) from a SchemaId wrapper
+// that may carry either RegistryName+SchemaName or SchemaArn alone (real
+// GetSchema/DeleteSchema/etc. accept either -- glue@v1.157.0 types.SchemaId).
+// Falls back to parsing the ARN's "schema/<registryName>/<schemaName>"
+// segment when only the ARN is supplied, mirroring registryNameFromID.
+func schemaIDNames(id *schemaIDInput) (string, string) {
+	if id == nil {
+		return "", ""
+	}
+
+	if id.RegistryName != "" || id.SchemaName != "" {
+		return id.RegistryName, id.SchemaName
+	}
+
+	rest := glueResourceName(id.SchemaArn, "schema")
+
+	registryName, schemaName, _ := strings.Cut(rest, "/")
+
+	return registryName, schemaName
 }
 
 // deleteSchemaInput holds input for DeleteSchema.
@@ -311,8 +349,7 @@ func (h *Handler) handleDeleteSchema(
 ) (*deleteSchemaOutput, error) {
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	s, err := h.Backend.DeleteSchema(registryName, schemaName)
@@ -346,8 +383,7 @@ func (h *Handler) handleDeleteSchemaVersions(
 ) (*deleteSchemaVersionsOutput, error) {
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	versions, err := parseVersionRanges(in.Versions)
@@ -402,10 +438,7 @@ func (h *Handler) handleGetRegistry(
 	_ context.Context,
 	in *getRegistryInput,
 ) (*getRegistryOutput, error) {
-	name := ""
-	if in.RegistryID != nil {
-		name = in.RegistryID.RegistryName
-	}
+	name := registryNameFromID(in.RegistryID)
 
 	reg, err := h.Backend.DescribeRegistry(name)
 	if err != nil {
@@ -455,8 +488,7 @@ type getSchemaOutput struct {
 func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSchemaOutput, error) {
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	s, err := h.Backend.DescribeSchema(registryName, schemaName)
@@ -501,8 +533,7 @@ func (h *Handler) handleGetSchemaByDefinition(
 ) (*getSchemaByDefinitionOutput, error) {
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	sv, err := h.Backend.GetSchemaByDefinition(registryName, schemaName, in.SchemaDefinition)
@@ -569,8 +600,7 @@ func (h *Handler) handleGetSchemaVersion(
 
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	versionNumber := int64(1)
@@ -650,9 +680,11 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 		v2 = in.SecondSchemaVersionNumber.Number
 	}
 
+	registryName, schemaName := schemaIDNames(in.SchemaID)
+
 	diff, err := h.Backend.GetSchemaVersionsDiff(
-		in.SchemaID.RegistryName,
-		in.SchemaID.SchemaName,
+		registryName,
+		schemaName,
 		v1,
 		v2,
 	)
@@ -779,8 +811,7 @@ func (h *Handler) handleListSchemaVersions(
 ) (*listSchemaVersionsOutput, error) {
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	versions := h.Backend.ListSchemaVersions(registryName, schemaName)
@@ -848,10 +879,7 @@ func (h *Handler) handleListSchemas(
 	_ context.Context,
 	in *listSchemasInput,
 ) (*listSchemasOutput, error) {
-	registryName := ""
-	if in.RegistryID != nil {
-		registryName = in.RegistryID.RegistryName
-	}
+	registryName := registryNameFromID(in.RegistryID)
 
 	schemas := h.Backend.ListSchemas(registryName)
 
@@ -983,8 +1011,7 @@ func (h *Handler) handleRegisterSchemaVersion(
 ) (*registerSchemaVersionOutput, error) {
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	sv, err := h.Backend.RegisterSchemaVersion(registryName, schemaName, in.SchemaDefinition)
@@ -1072,10 +1099,7 @@ func (h *Handler) handleUpdateRegistry(
 	_ context.Context,
 	in *updateRegistryInput,
 ) (*updateRegistryOutput, error) {
-	name := ""
-	if in.RegistryID != nil {
-		name = in.RegistryID.RegistryName
-	}
+	name := registryNameFromID(in.RegistryID)
 
 	reg, err := h.Backend.UpdateRegistry(name, in.Description)
 	if err != nil {
@@ -1105,8 +1129,7 @@ func (h *Handler) handleUpdateSchema(
 ) (*updateSchemaOutput, error) {
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
 	s, err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description)

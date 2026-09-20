@@ -95,6 +95,18 @@ func (b *InMemoryBackend) tagResource(
 		return nil
 	}
 
+	if reg := b.findRegistryByARN(resourceARN); reg != nil {
+		mergeTags(&reg.Tags, tags)
+
+		return nil
+	}
+
+	if s := b.findSchemaByARN(resourceARN); s != nil {
+		mergeTags(&s.Tags, tags)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -178,6 +190,18 @@ func (b *InMemoryBackend) UntagResource(
 		return nil
 	}
 
+	if reg := b.findRegistryByARN(resourceARN); reg != nil {
+		deleteTags(reg.Tags, tagKeys)
+
+		return nil
+	}
+
+	if s := b.findSchemaByARN(resourceARN); s != nil {
+		deleteTags(s.Tags, tagKeys)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -228,6 +252,14 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 
 	if u := b.findUDFByARN(resourceARN); u != nil {
 		return maps.Clone(u.Tags), nil
+	}
+
+	if reg := b.findRegistryByARN(resourceARN); reg != nil {
+		return maps.Clone(reg.Tags), nil
+	}
+
+	if s := b.findSchemaByARN(resourceARN); s != nil {
+		return maps.Clone(s.Tags), nil
 	}
 
 	return nil, ErrNotFound
@@ -373,6 +405,14 @@ func (b *InMemoryBackend) resourceTagsSnapshot() map[string]map[string]string {
 		addTags(b.udfARN(u.DatabaseName, u.FunctionName), u.Tags)
 	}
 
+	for _, reg := range b.registries.All() {
+		addTags(reg.ARN, reg.Tags)
+	}
+
+	for _, s := range b.schemas.All() {
+		addTags(s.SchemaARN, s.Tags)
+	}
+
 	return out
 }
 
@@ -427,6 +467,14 @@ func (b *InMemoryBackend) restoreResourceTags(resourceTags map[string]map[string
 	for _, u := range b.udfs.All() {
 		u.Tags = resourceTags[b.udfARN(u.DatabaseName, u.FunctionName)]
 	}
+
+	for _, reg := range b.registries.All() {
+		reg.Tags = resourceTags[reg.ARN]
+	}
+
+	for _, s := range b.schemas.All() {
+		s.Tags = resourceTags[s.SchemaARN]
+	}
 }
 
 func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
@@ -441,6 +489,41 @@ func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
 	}
 
 	return db
+}
+
+func (b *InMemoryBackend) findRegistryByARN(resourceARN string) *Registry {
+	name := glueResourceName(resourceARN, "registry")
+	if name == "" {
+		return nil
+	}
+
+	reg, ok := b.registries.Get(name)
+	if !ok {
+		return nil
+	}
+
+	return reg
+}
+
+// findSchemaByARN looks up a schema by its ARN, whose resource segment has
+// the form "schema/<registryName>/<schemaName>" (schemaARN, above).
+func (b *InMemoryBackend) findSchemaByARN(resourceARN string) *Schema {
+	rest := glueResourceName(resourceARN, "schema")
+	if rest == "" {
+		return nil
+	}
+
+	registryName, schemaName, ok := strings.Cut(rest, "/")
+	if !ok {
+		return nil
+	}
+
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
+	if !ok {
+		return nil
+	}
+
+	return s
 }
 
 func (b *InMemoryBackend) findCrawlerByARN(resourceARN string) *Crawler {
