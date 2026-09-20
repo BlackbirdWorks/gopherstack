@@ -371,12 +371,18 @@ func TestCreateResolverRule_Validation(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name: "missing_name",
+			// Name is optional on CreateResolverRuleInput -- confirmed against
+			// route53resolver@v1.53.0 api_op_CreateResolverRule.go, which marks
+			// only RuleType and CreatorRequestId "This member is required".
+			// Found via an actual Terraform apply of aws_route53_resolver_rule
+			// (whose provider schema also has name as Optional), which never
+			// sends Name and got InvalidRequestException back.
+			name: "missing_name_ok",
 			body: map[string]any{
 				"DomainName": "example.com",
 				"RuleType":   "FORWARD",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
 		},
 		{
 			name: "missing_domain_name",

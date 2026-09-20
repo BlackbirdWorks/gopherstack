@@ -215,18 +215,18 @@ func (h *Handler) opsResolverConfigs() map[string]service.JSONOpFunc {
 
 // resolverDnssecConfigOutput is the JSON representation of a ResolverDnssecConfig.
 type resolverDnssecConfigOutput struct {
-	ID         string `json:"Id"`
-	OwnerID    string `json:"OwnerId"`
-	ResourceID string `json:"ResourceId"`
-	Validation string `json:"Validation"`
+	ID               string `json:"Id"`
+	OwnerID          string `json:"OwnerId"`
+	ResourceID       string `json:"ResourceId"`
+	ValidationStatus string `json:"ValidationStatus"`
 }
 
 func resolverDnssecConfigToOutput(c *ResolverDnssecConfig) resolverDnssecConfigOutput {
 	return resolverDnssecConfigOutput{
-		ID:         c.ID,
-		OwnerID:    c.OwnerID,
-		ResourceID: c.ResourceID,
-		Validation: c.ValidationStatus,
+		ID:               c.ID,
+		OwnerID:          c.OwnerID,
+		ResourceID:       c.ResourceID,
+		ValidationStatus: c.ValidationStatus,
 	}
 }
 

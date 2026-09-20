@@ -42,10 +42,6 @@ func (b *InMemoryBackend) CreateResolverRule(
 
 	region := getRegion(ctx, b.region)
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
 	if domainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrValidation)
 	}

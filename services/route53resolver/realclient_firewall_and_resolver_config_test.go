@@ -415,6 +415,18 @@ func TestRealClient_FirewallAndResolverConfig(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NotNil(t, updated.ResolverDNSSECConfig)
+				assert.Equal(t, types.ResolverDNSSECValidationStatusEnabling,
+					updated.ResolverDNSSECConfig.ValidationStatus)
+
+				gotAfterEnable, err := client.GetResolverDnssecConfig(
+					t.Context(),
+					&route53resolversdk.GetResolverDnssecConfigInput{
+						ResourceId: aws.String(vpcID),
+					},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, types.ResolverDNSSECValidationStatusEnabled,
+					gotAfterEnable.ResolverDNSSECConfig.ValidationStatus)
 
 				listed, err := client.ListResolverDnssecConfigs(
 					t.Context(),

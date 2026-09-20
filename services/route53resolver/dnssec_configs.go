@@ -8,13 +8,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// GetResolverDnssecConfig returns or lazily creates the DNSSEC config for a resource.
+// GetResolverDnssecConfig returns or lazily creates the DNSSEC config for a
+// resource, advancing any in-progress transition (ENABLING/DISABLING/
+// UPDATING_TO_USE_LOCAL_RESOURCE_SETTING) to its terminal status on read --
+// this in-memory emulator has no real async validation to wait on.
 func (b *InMemoryBackend) GetResolverDnssecConfig(ctx context.Context, resourceID string) *ResolverDnssecConfig {
 	b.mu.Lock("GetResolverDnssecConfig")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 	if cfg, ok := b.resolverDnssecConfigs.Get(regionalKey(region, resourceID)); ok {
+		advanceDnssecTransition(cfg)
 		cp := *cfg
 
 		return &cp
@@ -31,6 +35,19 @@ func (b *InMemoryBackend) GetResolverDnssecConfig(ctx context.Context, resourceI
 	cp := *cfg
 
 	return &cp
+}
+
+// advanceDnssecTransition moves a transitional ValidationStatus to its
+// terminal value, mutating cfg in place.
+func advanceDnssecTransition(cfg *ResolverDnssecConfig) {
+	switch cfg.ValidationStatus {
+	case validationStatusEnabling:
+		cfg.ValidationStatus = validationStatusEnabled
+	case validationStatusDisabling:
+		cfg.ValidationStatus = validationStatusDisabled
+	case validationStatusUpdatingToUseLocal:
+		cfg.ValidationStatus = validationStatusUseLocal
+	}
 }
 
 // UpdateResolverDnssecConfig updates DNSSEC validation for a resource.
@@ -80,15 +97,20 @@ func (b *InMemoryBackend) UpdateResolverDnssecConfig(
 	return &cp, nil
 }
 
-// ListResolverDnssecConfigs lists all DNSSEC configs.
+// ListResolverDnssecConfigs lists all DNSSEC configs, advancing any
+// in-progress transition to its terminal status on read (see
+// GetResolverDnssecConfig) -- the real aws_route53_resolver_dnssec_config
+// Terraform resource polls this op, not GetResolverDnssecConfig, to learn
+// when validation has finished.
 func (b *InMemoryBackend) ListResolverDnssecConfigs(ctx context.Context) []*ResolverDnssecConfig {
-	b.mu.RLock("ListResolverDnssecConfigs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListResolverDnssecConfigs")
+	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 	regionConfigs := b.resolverDnssecConfigsByRegion.Get(region)
 	list := make([]*ResolverDnssecConfig, 0, len(regionConfigs))
 	for _, cfg := range regionConfigs {
+		advanceDnssecTransition(cfg)
 		cp := *cfg
 		list = append(list, &cp)
 	}
