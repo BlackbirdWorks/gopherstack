@@ -532,6 +532,67 @@ func TestCreateDistributionWithTags_RealClient(t *testing.T) {
 	assert.Equal(t, "prod", aws.ToString(tags.Tags.Items[0].Value))
 }
 
+// TestCreateDistributionWithTags_DistributionConfigRoundTrips covers
+// gopherstack-101r's second bug: CreateDistributionWithTags used to rebuild
+// RawConfig by re-marshaling the shallow distributionConfigMinimal struct,
+// which drops Origins/DefaultCacheBehavior/etc and emits the wrong XML root
+// element, so the real client's own deserializer always saw a nil
+// DistributionConfig on both the create response and a later GetDistribution.
+// It also covers backfillOriginGroups: terraform-provider-aws v5.100.0's
+// resourceDistributionRead dereferences OriginGroups.Quantity with no nil
+// check, so real AWS (and this emulator) must always emit OriginGroups.
+func TestCreateDistributionWithTags_DistributionConfigRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateDistributionWithTags(t.Context(), &cfsdk.CreateDistributionWithTagsInput{
+		DistributionConfigWithTags: &types.DistributionConfigWithTags{
+			DistributionConfig: &types.DistributionConfig{
+				CallerReference: aws.String("real-client-dist-config-roundtrip"),
+				Comment:         aws.String("roundtrip"),
+				Enabled:         aws.Bool(true),
+				Origins: &types.Origins{
+					Quantity: aws.Int32(1),
+					Items: []types.Origin{
+						{Id: aws.String("origin1"), DomainName: aws.String("example.com")},
+					},
+				},
+				DefaultCacheBehavior: &types.DefaultCacheBehavior{
+					TargetOriginId:       aws.String("origin1"),
+					ViewerProtocolPolicy: types.ViewerProtocolPolicyAllowAll,
+				},
+			},
+			Tags: &types.Tags{Items: []types.Tag{}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.Distribution)
+	requireDistributionConfigRoundTrip(t, created.Distribution.DistributionConfig)
+
+	fetched, err := client.GetDistribution(t.Context(), &cfsdk.GetDistributionInput{
+		Id: created.Distribution.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fetched.Distribution)
+	requireDistributionConfigRoundTrip(t, fetched.Distribution.DistributionConfig)
+}
+
+func requireDistributionConfigRoundTrip(t *testing.T, cfg *types.DistributionConfig) {
+	t.Helper()
+
+	require.NotNil(t, cfg)
+	require.NotNil(t, cfg.Origins)
+	require.Len(t, cfg.Origins.Items, 1)
+	assert.Equal(t, "origin1", aws.ToString(cfg.Origins.Items[0].Id))
+	assert.Equal(t, "example.com", aws.ToString(cfg.Origins.Items[0].DomainName))
+	require.NotNil(t, cfg.DefaultCacheBehavior)
+	assert.Equal(t, "origin1", aws.ToString(cfg.DefaultCacheBehavior.TargetOriginId))
+	require.NotNil(t, cfg.OriginGroups)
+	assert.EqualValues(t, 0, aws.ToInt32(cfg.OriginGroups.Quantity))
+}
+
 // TestListDistributionsByKeyGroup tests ListDistributionsByKeyGroup.
 func TestListDistributionsByKeyGroup(t *testing.T) {
 	t.Parallel()

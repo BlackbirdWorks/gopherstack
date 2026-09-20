@@ -1,6 +1,7 @@
 package cloudfront
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -21,6 +22,31 @@ func (h *Handler) handleWebACLAssociationError(c *echo.Context, err error) error
 	}
 
 	return h.handleError(c, err)
+}
+
+// backfillOriginGroups inserts an empty <OriginGroups> container into a
+// <DistributionConfig> document if the client's request omitted it. Real AWS
+// always populates OriginGroups (Quantity 0, empty Items) in every
+// GetDistribution/CreateDistribution response even though the SDK models it
+// as optional (types.DistributionConfig.OriginGroups, no "required" doc
+// comment) -- unlike this repo, the request client (terraform-provider-aws
+// v5.100.0 distribution.go resourceDistributionRead) relies on that real-AWS
+// guarantee and nil-derefs distributionConfig.OriginGroups.Quantity with no
+// nil check, unlike every other optional DistributionConfig member it reads.
+// Storing the client's request bytes verbatim as RawConfig (matching real
+// AWS's request/response type reuse) otherwise omits OriginGroups whenever
+// the caller didn't configure one, crashing that client.
+func backfillOriginGroups(rawConfig []byte) []byte {
+	if bytes.Contains(rawConfig, []byte("<OriginGroups>")) || bytes.Contains(rawConfig, []byte("<OriginGroups/>")) {
+		return rawConfig
+	}
+
+	return bytes.Replace(
+		rawConfig,
+		[]byte("</DistributionConfig>"),
+		[]byte("<OriginGroups><Quantity>0</Quantity><Items></Items></OriginGroups></DistributionConfig>"),
+		1,
+	)
 }
 
 type distributionConfigMinimal struct {
@@ -182,7 +208,7 @@ func (h *Handler) handleCreateDistribution(c *echo.Context) error {
 		cfg.CallerReference,
 		cfg.Comment,
 		cfg.Enabled,
-		body,
+		backfillOriginGroups(body),
 	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
@@ -252,7 +278,7 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 		)
 	}
 
-	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, body)
+	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, backfillOriginGroups(body))
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -595,8 +621,20 @@ func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID s
 }
 
 type distributionConfigWithTagsXML struct {
-	XMLName            xml.Name                  `xml:"DistributionConfigWithTags"`
-	DistributionConfig distributionConfigMinimal `xml:"DistributionConfig"`
+	XMLName xml.Name `xml:"DistributionConfigWithTags"`
+	// DistributionConfig captures only the inner XML verbatim (encoding/xml
+	// rejects two fields bound to the same "DistributionConfig" path), which is
+	// then parsed a second time into distributionConfigMinimal below and
+	// reassembled as the real RawConfig -- NOT re-marshaled from
+	// distributionConfigMinimal, which drops nearly every field
+	// (Origins/DefaultCacheBehavior/CacheBehaviors/Restrictions/ViewerCertificate/
+	// Staging/etc.) and emits the wrong root element name (Go's zero-value
+	// XMLName default, "distributionConfigMinimal", not "DistributionConfig"),
+	// breaking every client that parses GetDistribution's DistributionConfig,
+	// including the real aws-sdk-go-v2 CloudFront client's own deserializer.
+	DistributionConfig struct {
+		Inner string `xml:",innerxml"`
+	} `xml:"DistributionConfig"`
 	// Tags is *types.Tags on the wire: Items wraps the Tag list (cloudfront@v1.67.4
 	// serializers.go awsRestxml_serializeDocumentTags), not a bare Tags>Tag path.
 	Tags []tagXML `xml:"Tags>Items>Tag"`
@@ -617,16 +655,22 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfigWithTags XML"))
 	}
 
-	// Marshal the inner DistributionConfig to pass as raw config.
-	rawConfig, marshalErr := xml.Marshal(req.DistributionConfig)
-	if marshalErr != nil {
-		rawConfig = body
+	// Reconstruct the original <DistributionConfig> element verbatim from its
+	// captured inner XML, then parse the shallow fields CreateDistribution needs
+	// out of that same reconstruction -- see the struct's doc comment above.
+	rawConfig := backfillOriginGroups(
+		[]byte("<DistributionConfig>" + req.DistributionConfig.Inner + "</DistributionConfig>"),
+	)
+
+	var cfg distributionConfigMinimal
+	if xmlErr := xml.Unmarshal(rawConfig, &cfg); xmlErr != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfig XML"))
 	}
 
 	d, createErr := h.Backend.CreateDistribution(
-		req.DistributionConfig.CallerReference,
-		req.DistributionConfig.Comment,
-		req.DistributionConfig.Enabled,
+		cfg.CallerReference,
+		cfg.Comment,
+		cfg.Enabled,
 		rawConfig,
 	)
 	if createErr != nil {
