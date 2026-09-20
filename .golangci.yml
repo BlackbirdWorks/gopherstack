@@ -641,6 +641,12 @@ linters:
       # expected and unavoidable.
       - path: 'guardduty/realclient_detector_findings_and_member_management_test.go'
         linters: [ staticcheck ]
+      # CustomerMasterKeySpec is KeySpec's deprecated predecessor, but
+      # aws_kms_key's customer_master_key_spec argument still sends it on the
+      # wire (gopherstack-101r) -- this file must set it through the real
+      # client to cover CreateKey's fallback for real terraform traffic.
+      - path: 'kms/customer_master_key_spec_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'

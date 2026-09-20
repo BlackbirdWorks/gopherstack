@@ -1,7 +1,7 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
-last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_commit: 70d96e12d  # 2026-09-19 mega-batch-14/15 terraform sweep
 last_audit_date: 2026-09-19
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
@@ -26,7 +26,7 @@ overall: A            # Full sweep of the 5 gaps/2 deferred items this file prev
                        # every other KeyId-taking op. Re-tagged from `deferred` to a normal
                        # `ops` row below.
 ops:
-  CreateKey: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "invalid KeySpec now classifies as ValidationException (400), not InternalServiceError (500); tags now validated before the key is created (was: orphan-leak on bad tag). 2026-09-07 (gopherstack-e76y): CreateKeyInput/KeyMetadata gained CustomKeyStoreId (real SDK: kms@v1.55.4 api_op_CreateKey.go:228, types/types.go:439) -- see the gaps entry below for the validation implemented. 2026-09-08 (gopherstack-ufvn): XksKeyId conditional-required/pattern validation was attempted and reverted -- see the gaps entry below for why."}
+  CreateKey: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "invalid KeySpec now classifies as ValidationException (400), not InternalServiceError (500); tags now validated before the key is created (was: orphan-leak on bad tag). 2026-09-07 (gopherstack-e76y): CreateKeyInput/KeyMetadata gained CustomKeyStoreId (real SDK: kms@v1.55.4 api_op_CreateKey.go:228, types/types.go:439) -- see the gaps entry below for the validation implemented. 2026-09-08 (gopherstack-ufvn): XksKeyId conditional-required/pattern validation was attempted and reverted -- see the gaps entry below for why. 2026-09-19 (gopherstack-101r): CreateKeyInput.CustomerMasterKeySpec (KeySpec's deprecated predecessor, still sent by aws_kms_key's customer_master_key_spec argument) now falls back into KeySpec when KeySpec is empty."}
   DescribeKey: {wire: ok, errors: fixed, state: ok, persist: ok, note: "2026-09-07 (gopherstack-k3ww): the 2026-07-12 entry below claiming DescribeKey declares InvalidGrantTokenException was wrong, not SDK drift -- v1.54.0 was re-checked directly (module cache had only v1.55.4; downloaded v1.54.0 via `go mod download`) and its deserializeOpErrorDescribeKey is byte-identical to v1.55.4's: DependencyTimeoutException/InvalidArnException/KMSInternalException/NotFoundException only, no InvalidGrantTokenException in either version, confirmed a third way against the vendored aws-sdk-go@v1.55.8 botocore model (api-2.json). DescribeKey's sibling grant ops (Sign/Verify/GetPublicKey/GenerateMac/VerifyMac/DeriveSharedSecret) DO declare it -- DescribeKey was the one caller of validateGrantTokenPresence that didn't belong. Reverted the validateGrantTokenPresence call (keys.go); GrantTokens stays on the wire (field is real, confirmed present in both versions) but is no longer validated. describe_key_grant_tokens_test.go's rejection subtest replaced with TestDescribeKey_GrantTokens_NotValidated asserting a bogus token is now accepted."}
   ListKeys: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (over-wide-response sweep): KeyListEntry carried a fabricated Description member -- real types.KeyListEntry (kms@v1.59.0) has only KeyId/KeyArn; awsAwsjson11_deserializeDocumentKeyListEntry has no \"Description\" case. Removed. See TestListSummaryShapes/keys_description_was_leaking (list_summary_shapes_test.go)."}
   Encrypt: {wire: ok, errors: fixed, state: ok, persist: ok, note: "real AES-256-GCM / RSA-OAEP-SHA-256, AAD-bound encryption context, grant-token constraint check already present; expired imported material now classifies as ExpiredImportTokenException (400), not 500"}
@@ -49,7 +49,7 @@ ops:
   ListAliases: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified this pass (over-wide-response sweep): Alias's five members match types.AliasListEntry exactly -- no leaks, no gaps."}
   EnableKeyRotation: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableKeyRotation: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetKeyRotationStatus: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetKeyRotationStatus: {wire: ok, errors: fixed, state: ok, persist: ok, note: "2026-09-19 (gopherstack-101r): no longer raises UnsupportedOperationException for asymmetric/HMAC/imported-material keys -- real AWS just reports KeyRotationEnabled: false; terraform's kms_key read calls this unconditionally, so the error broke every asymmetric aws_kms_key apply."}
   RotateKeyOnDemand: {wire: ok, errors: ok, state: ok, persist: ok, note: "10-per-24h on-demand rate limit enforced"}
   ListKeyRotations: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified this pass (over-wide-response sweep) against types.RotationsListEntry: KeyId/RotationDate/RotationType match; ExpirationModel/ImportState/KeyMaterialDescription/KeyMaterialId/KeyMaterialState/ValidTo are unsourced -- already disclosed (gopherstack-xhu2t, items_still_open): this backend has no multi-key-material-generation tracking, and gopherstack's RotationType is only AUTOMATIC/ON_DEMAND (kms@v1.59.0 has no imported-material RotationType value), so those six members would have nothing honest to report for any entry this backend produces. Not a leak."}
   DisableKey: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -96,6 +96,14 @@ leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by Ke
 ---
 
 ## Notes
+
+### 2026-09-19 mega-batch-14/15 terraform sweep (gopherstack-101r)
+
+CreateKey now honours the deprecated CustomerMasterKeySpec wire field
+(terraform's customer_master_key_spec); GetKeyRotationStatus no longer
+errors for asymmetric/HMAC/imported-material keys, matching real AWS.
+Both surfaced via `aws_kms_key` (ECC_NIST_P256, Route53 DNSSEC signing)
+in test/terraform/fixtures/mega-batch-14.tf.
 
 ### 2026-09-19 over-wide-response sweep
 

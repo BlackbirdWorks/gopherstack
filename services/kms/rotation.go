@@ -173,15 +173,15 @@ func (b *InMemoryBackend) GetKeyRotationStatus(
 		return nil, err
 	}
 
-	// AWS raises UnsupportedOperationException for asymmetric or HMAC keys.
+	// Real AWS never errors here: an asymmetric/HMAC key or one with imported
+	// key material just can't have rotation enabled (see EnableKeyRotation's
+	// own rejection above), so GetKeyRotationStatus reports it as false
+	// instead of raising UnsupportedOperationException. terraform-provider-aws's
+	// kms_key resourceKeyRead calls this unconditionally for every key
+	// (asymmetric SIGN_VERIFY keys included, e.g. Route53 DNSSEC signing
+	// keys), so erroring here broke every asymmetric aws_kms_key apply.
 	if key.KeySpec != keySpecSymmetric || key.Origin == KeyOriginExternal {
-		return nil, fmt.Errorf(
-			"%w: GetKeyRotationStatus is only supported for symmetric keys with AWS_KMS origin; key %q has spec %s origin %s",
-			ErrUnsupportedOrigin,
-			key.KeyID,
-			key.KeySpec,
-			key.Origin,
-		)
+		return &GetKeyRotationStatusOutput{KeyID: key.KeyID}, nil
 	}
 
 	out := &GetKeyRotationStatusOutput{

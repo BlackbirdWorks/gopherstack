@@ -941,3 +941,27 @@ func TestListKeyRotationsLegacyFallback(t *testing.T) {
 	require.Len(t, out.Rotations, 1)
 	assert.Equal(t, "ON_DEMAND", out.Rotations[0].RotationType)
 }
+
+// TestGetKeyRotationStatus_AsymmetricKeyReturnsFalseNotError covers
+// gopherstack-101r: GetKeyRotationStatus never errors, even for asymmetric,
+// HMAC, or imported-key-material keys -- it just reports
+// KeyRotationEnabled: false, per real AWS behavior. terraform-provider-aws's
+// kms_key resourceKeyRead calls this unconditionally for every key
+// (e.g. Route53 DNSSEC's ECC_NIST_P256 signing keys), so raising
+// UnsupportedOperationException here broke every asymmetric aws_kms_key apply.
+func TestGetKeyRotationStatus_AsymmetricKeyReturnsFalseNotError(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
+		KeySpec:  "ECC_NIST_P256",
+		KeyUsage: "SIGN_VERIFY",
+	})
+	require.NoError(t, err)
+
+	status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{
+		KeyID: key.KeyMetadata.KeyID,
+	})
+	require.NoError(t, err)
+	assert.False(t, status.KeyRotationEnabled)
+}

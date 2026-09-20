@@ -138,9 +138,13 @@ type Alias struct {
 
 // CreateKeyInput is the request payload for CreateKey.
 type CreateKeyInput struct {
-	Description                    string `json:"Description,omitempty"`
-	KeyUsage                       string `json:"KeyUsage,omitempty"`
-	KeySpec                        string `json:"KeySpec,omitempty"`
+	Description string `json:"Description,omitempty"`
+	KeyUsage    string `json:"KeyUsage,omitempty"`
+	KeySpec     string `json:"KeySpec,omitempty"`
+	// CustomerMasterKeySpec is KeySpec's deprecated predecessor (same enum, same
+	// meaning); aws_kms_key's customer_master_key_spec argument still sends this
+	// wire field, not KeySpec.
+	CustomerMasterKeySpec          string `json:"CustomerMasterKeySpec,omitempty"`
 	Origin                         string `json:"Origin,omitempty"`
 	Policy                         string `json:"Policy,omitempty"`
 	Region                         string `json:"-"`

@@ -189,6 +189,9 @@ func (b *InMemoryBackend) CreateKey(
 	keyID := uuid.New().String()
 	keyUsage := input.KeyUsage
 	keySpec := input.KeySpec
+	if keySpec == "" {
+		keySpec = input.CustomerMasterKeySpec
+	}
 
 	// Validate that KeySpec and KeyUsage are compatible when both are specified
 	// (gopherstack-5rjn: see validateKeySpecUsage's doc for the error-code reasoning).
