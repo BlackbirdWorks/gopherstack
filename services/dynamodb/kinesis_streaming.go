@@ -51,9 +51,14 @@ func kinesisDestinationsRLocked(table *Table) (string, []types.KinesisDataStream
 			precision = types.ApproximateCreationDateTimePrecisionMillisecond
 		}
 
+		status := types.DestinationStatusActive
+		if d.Status != "" {
+			status = types.DestinationStatus(d.Status)
+		}
+
 		destinations = append(destinations, types.KinesisDataStreamDestination{
 			StreamArn:                            &d.StreamARN,
-			DestinationStatus:                    types.DestinationStatusActive,
+			DestinationStatus:                    status,
 			ApproximateCreationDateTimePrecision: precision,
 		})
 	}
@@ -84,7 +89,7 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 	streamARN := *input.StreamArn
 	tableName := *input.TableName
 
-	precision, found := removeKinesisDestinationLocked(table, streamARN)
+	precision, found := disableKinesisDestinationLocked(table, streamARN)
 	if !found {
 		return nil, &Error{
 			Type:    errResourceNotFoundExceptionType,
@@ -96,41 +101,40 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 		precision = string(types.ApproximateCreationDateTimePrecisionMillisecond)
 	}
 
-	status := types.DestinationStatusDisabling
-
 	return &dynamodb.DisableKinesisStreamingDestinationOutput{
 		TableName:         &tableName,
 		StreamArn:         &streamARN,
-		DestinationStatus: status,
+		DestinationStatus: types.DestinationStatusDisabling,
 		EnableKinesisStreamingConfiguration: &types.EnableKinesisStreamingConfiguration{
 			ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecision(precision),
 		},
 	}, nil
 }
 
-// removeKinesisDestinationLocked removes the destination with the given
-// streamARN from table.KinesisDestinations under a defer-protected
-// table.mu.Lock, reporting its stored precision and whether an entry was
-// found and removed. deserializers.go:18931 confirms
-// DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration
+// disableKinesisDestinationLocked marks the destination with the given
+// streamARN as DISABLED under a defer-protected table.mu.Lock, reporting its
+// stored precision and whether an entry was found. The entry stays in
+// table.KinesisDestinations (not removed): real AWS keeps a disabled
+// destination visible, and the Terraform provider's delete waiter polls
+// DescribeKinesisStreamingDestination expecting to observe this entry reach
+// DISABLED rather than disappear from the list. deserializers.go:18931
+// confirms DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration
 // is a real modeled response member, not request-only despite its "being
 // enabled" doc comment.
-func removeKinesisDestinationLocked(table *Table, streamARN string) (string, bool) {
+func disableKinesisDestinationLocked(table *Table, streamARN string) (string, bool) {
 	table.mu.Lock("DisableKinesisStreamingDestination")
 	defer table.mu.Unlock()
 
-	for i, dest := range table.KinesisDestinations {
-		if dest.StreamARN == streamARN {
-			precision := dest.Precision
-			table.KinesisDestinations = append(
-				table.KinesisDestinations[:i],
-				table.KinesisDestinations[i+1:]...)
-
-			return precision, true
-		}
+	idx := slices.IndexFunc(table.KinesisDestinations, func(e KinesisDestinationEntry) bool {
+		return e.StreamARN == streamARN
+	})
+	if idx < 0 {
+		return "", false
 	}
 
-	return "", false
+	table.KinesisDestinations[idx].Status = string(types.DestinationStatusDisabled)
+
+	return table.KinesisDestinations[idx].Precision, true
 }
 
 // --- EnableKinesisStreamingDestination ---
@@ -196,6 +200,7 @@ func addOrUpdateKinesisDestinationLocked(table *Table, streamARN, precision stri
 
 	if idx >= 0 {
 		table.KinesisDestinations[idx].Precision = precision
+		table.KinesisDestinations[idx].Status = ""
 	} else {
 		table.KinesisDestinations = append(table.KinesisDestinations, KinesisDestinationEntry{
 			StreamARN: streamARN,

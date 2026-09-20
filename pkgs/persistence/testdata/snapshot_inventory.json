@@ -8141,6 +8141,7 @@
       "Backup.TableID string `json:\"TableID\"`",
       "Backup.TableName string `json:\"TableName\"`",
       "KinesisDestinationEntry.Precision string `json:\"Precision,omitempty\"`",
+      "KinesisDestinationEntry.Status string `json:\"Status,omitempty\"`",
       "KinesisDestinationEntry.StreamARN string `json:\"StreamARN\"`",
       "StoredGlobalTable.BillingMode string `json:\"BillingMode,omitempty\"`",
       "StoredGlobalTable.CreationDateTime time.Time `json:\"CreationDateTime\"`",

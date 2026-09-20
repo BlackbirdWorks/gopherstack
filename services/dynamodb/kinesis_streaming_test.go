@@ -193,7 +193,9 @@ func TestKinesisDestinations_StatePersistence(t *testing.T) {
 	require.Equal(t, http.StatusOK, code2)
 	assert.Equal(t, "DISABLING", resp2["DestinationStatus"])
 
-	// Verify stream is removed
+	// Verify stream stays listed with status DISABLED: real AWS keeps a
+	// disabled destination visible, and Terraform's delete waiter polls
+	// for exactly this entry to reach DISABLED rather than disappear.
 	code3, resp3 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
 		"TableName": "KinesisStateTable",
 	})
@@ -201,7 +203,8 @@ func TestKinesisDestinations_StatePersistence(t *testing.T) {
 
 	destinations2, ok2 := resp3["KinesisDataStreamDestinations"].([]any)
 	require.True(t, ok2)
-	assert.Empty(t, destinations2)
+	require.Len(t, destinations2, 1)
+	assert.Equal(t, "DISABLED", destinations2[0].(map[string]any)["DestinationStatus"])
 }
 
 func TestEnableKinesisStreamingDestination(t *testing.T) {
@@ -318,7 +321,7 @@ func TestEnableDisableKinesis_StatePersistence(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, code5)
 
-	// Verify no destinations remain
+	// Verify the destination stays listed, now DISABLED
 	code6, resp6 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
 		"TableName": "KinesisFullTable",
 	})
@@ -326,7 +329,8 @@ func TestEnableDisableKinesis_StatePersistence(t *testing.T) {
 
 	destinations3, ok3 := resp6["KinesisDataStreamDestinations"].([]any)
 	require.True(t, ok3)
-	assert.Empty(t, destinations3)
+	require.Len(t, destinations3, 1)
+	assert.Equal(t, "DISABLED", destinations3[0].(map[string]any)["DestinationStatus"])
 }
 
 func TestKinesisPrecision_RoundTrip(t *testing.T) {

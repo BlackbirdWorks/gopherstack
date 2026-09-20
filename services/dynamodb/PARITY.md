@@ -1,8 +1,8 @@
 ---
 service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
-last_audit_commit: 176ddc764  # 2026-09-19 perf sweep (Query/Scan/TransactWriteItems, pgoload-guided); prior: 44bff591b
-last_audit_date: 2026-09-19  # prior: 2026-08-23 -- manifest-harvest pass: fixed UpdateGlobalTableSettings autoscaling
+last_audit_commit: cd027034c  # 2026-09-20 mega-batch-35 terraform sweep: DisableKinesisStreamingDestination DISABLED-not-removed fix; prior: 176ddc764
+last_audit_date: 2026-09-20  # prior: 2026-09-19 -- manifest-harvest pass: fixed UpdateGlobalTableSettings autoscaling
   # accept-and-drop gap and DisableKinesisStreamingDestination's never-echoed
   # EnableKinesisStreamingConfiguration -- see global_table_settings_autoscaling/
   # kinesis_streaming_disable_echo families below. Did not re-litigate
@@ -243,6 +243,14 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 ---
 
 ## Notes
+
+### 2026-09-20 mega-batch-35 terraform sweep
+
+DisableKinesisStreamingDestination removed the destination entirely instead
+of marking it DISABLED. Real AWS keeps a disabled destination visible, and
+Terraform's delete waiter polls for exactly this entry to reach DISABLED --
+an empty list looked like NotFound and the waiter failed after 21 retries.
+`KinesisDestinationEntry` gained a `Status` field (additive, persisted).
 
 ### 2026-09-19 perf sweep (gopherstack, pgoload-guided)
 
