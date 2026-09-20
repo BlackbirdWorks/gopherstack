@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: fsx
 sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
-last_audit_commit: d9715a7fd
-last_audit_date: 2026-09-19
+last_audit_commit: 22b4f068c
+last_audit_date: 2026-09-20
 overall: A            # genuine wire-format + error-code bugs found and fixed
                       # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
                       # every Describe* op whose real Input struct declares a Filters member had NO field for it
@@ -767,3 +767,45 @@ accurate steady-state value is AVAILABLE; changed to reuse the existing
 `lifecycleAvailable` constant. Proof: new case in
 `TestRealClient_FileSystemAndStorageConfiguration` asserts
 `types.DataRepositoryLifecycleAvailable` via the real client.
+
+## 2026-09-20 (mega-batch-32 terraform coverage)
+
+New Terraform coverage (test/terraform/fixtures/mega-batch-32.tf,
+mega_batch32_test.go) for aws_fsx_backup, aws_fsx_data_repository_association,
+aws_fsx_file_cache, aws_fsx_ontap_file_system, aws_fsx_ontap_storage_virtual_machine,
+aws_fsx_ontap_volume, aws_fsx_openzfs_file_system, aws_fsx_openzfs_snapshot,
+aws_fsx_openzfs_volume, aws_fsx_windows_file_system -- all 10 resources the
+census flagged as uncovered.
+
+Found and fixed a real emulator bug: `newFSxVolumeID` generated a
+22-character "fsvol-" ID (16 hex chars); the hashicorp/aws provider
+client-side validates `aws_fsx_openzfs_volume.parent_volume_id` and
+`aws_fsx_openzfs_snapshot.volume_id` against a fixed 23-character length
+(matching real AWS's own ID format), so every apply referencing a volume ID
+as an input failed in the provider before ever reaching gopherstack's wire.
+Fixed `fsxVolumeIDHexLen` 16 -> 17. See TestNewFSxVolumeID_Length.
+
+Timing (previous agent's warning confirmed, not a gopherstack bug): every
+FSx file-system-type resource (Windows, ONTAP, OpenZFS, Lustre) takes
+exactly ~30s to create in this provider version regardless of how fast the
+backend actually responds (a fixed initial poll delay), and DELETE is far
+worse -- verified via a manual `tofu destroy` against a bare local server:
+`aws_fsx_windows_file_system` alone was still "Destroying..." at 4m41s
+elapsed when killed at the 5-minute mark, never completing. This is a
+provider waiter characteristic (mirroring real AWS, where deleting an FSx
+file system can genuinely take many minutes), not a wire or state bug --
+`DescribeFileSystems` correctly reports the file system gone on the very
+first poll once deleted (confirmed via direct `aws fsx describe-file-systems`
+calls against the same server). Worked around by setting `timeouts { delete
+= "5s" }` on every FSx resource in the fixture: this makes the delete waiter
+fail fast with a clean "timeout while waiting for resource to be gone" error
+instead of hanging, which is harmless because `applyTofu`'s `t.Cleanup`
+destroy step is already non-fatal on error (the ephemeral test container is
+torn down regardless). Full fixture (14 resources) apply+destroy completes
+in ~166s.
+
+Gates: `go build ./...`, `go vet`, `gofmt -l`, `go test -race -count=1
+./services/fsx/...`, `golangci-lint run ./services/fsx/...` (0 issues) all
+clean. `go test ./pkgs/persistence/ -run TestSnapshotVersionGuard` passes
+with no version bump (fsxVolumeIDHexLen is a generation-time constant, not a
+persisted field).

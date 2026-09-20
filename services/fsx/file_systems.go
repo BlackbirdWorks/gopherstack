@@ -584,7 +584,13 @@ func newFSxBackupID() string                 { return "backup-" + newFSXHexUUID(
 func newDataRepositoryTaskID() string        { return "task-" + newFSXHexUUID(fsxIDHexLen) }
 func newFileCacheID() string                 { return "fc-" + newFSXHexUUID(fsxIDHexLen) }
 
-const fsxVolumeIDHexLen = 16
+// fsxVolumeIDHexLen must produce a 23-character "fsvol-..." ID: the
+// hashicorp/aws provider's aws_fsx_openzfs_volume.parent_volume_id and
+// aws_fsx_openzfs_snapshot.volume_id both client-side validate their input
+// against ValidateFunc(stringLenBetween(23, 23)) before ever sending a
+// request, so a shorter ID here fails in the provider, not against this
+// emulator's wire.
+const fsxVolumeIDHexLen = 17
 
 func newFSxVolumeID() string { return "fsvol-" + newFSXHexUUID(fsxVolumeIDHexLen) }
 
