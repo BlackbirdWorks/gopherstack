@@ -179,7 +179,10 @@ func TestDeleteFleets_StateShape_RealClient(t *testing.T) {
 
 	deletion := out.SuccessfulFleetDeletions[0]
 	assert.Equal(t, fleetID, aws.ToString(deletion.FleetId))
-	assert.Equal(t, types.FleetStateCodeDeleted, deletion.CurrentFleetState,
+	// TerminateInstances=true's immediate state is "deleted_terminating", not
+	// the terminal "deleted", until every launched instance actually
+	// terminates (gopherstack ec2 PARITY.md 2026-09-19 fleet-delete fix).
+	assert.Equal(t, types.FleetStateCodeDeletedTerminatingInstances, deletion.CurrentFleetState,
 		"CurrentFleetState empty - pre-fix the item had no currentFleetState member at all")
 	assert.Equal(t, types.FleetStateCodeActive, deletion.PreviousFleetState,
 		"PreviousFleetState empty - pre-fix the item had no previousFleetState member at all")

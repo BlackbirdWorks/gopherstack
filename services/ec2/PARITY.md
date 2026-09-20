@@ -1,7 +1,7 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 70d96e12d
+last_audit_commit: d57ca880a
 last_audit_date: 2026-09-19
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
@@ -5932,3 +5932,11 @@ reasoning per gopherstack-anjf, 6 genuinely new). Gates all clean; 0
 ## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
 
 Added `leak_main_test.go` (goleak TestMain). No leak found under `-race`.
+
+## 2026-09-19: MegaBatch11 fixture fixes -- fleet terminate-instances state machine, snapshot permission test flake
+
+`DeleteFleets(TerminateInstances=true)` skipped ENI/volume release, leaving fleet-instance
+ENIs stuck so `DeleteSubnet` looped on `DependencyViolation`; now shares `terminateInstanceLocked`
+and reports `deleted_terminating`/`deleted_running` until instances actually terminate.
+`DescribeSnapshotAttribute` itself was fine; the test's own `volume-id` filter also matched
+`aws_ebs_snapshot_copy`, flakily reading the wrong snapshot.

@@ -285,7 +285,7 @@ func (h *Handler) handleDeleteFleets(vals url.Values, reqID string) (any, error)
 	for _, d := range deleted {
 		resp.SuccessfulFleetDeletions.Items = append(resp.SuccessfulFleetDeletions.Items, deleteFleetSuccessItem{
 			FleetID:            d.FleetID,
-			CurrentFleetState:  tgwRouteStateDeleted,
+			CurrentFleetState:  d.CurrentFleetState,
 			PreviousFleetState: d.PreviousFleetState,
 		})
 	}

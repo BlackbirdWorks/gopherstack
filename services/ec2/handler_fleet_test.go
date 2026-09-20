@@ -4,6 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -93,11 +96,29 @@ func TestFleet(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Len(t, deleted, 1)
 		assert.Equal(t, fleetID, deleted[0].FleetID)
 		assert.Equal(t, "active", deleted[0].PreviousFleetState)
+		assert.Equal(t, "deleted_terminating", deleted[0].CurrentFleetState)
+
+		// Immediately after the call, instances are only shutting-down (the
+		// background lifecycle reconciler advances them) so the fleet itself
+		// reports "deleted_terminating", not yet the terminal "deleted".
+		fleetsAfter := b.DescribeFleets([]string{fleetID})
+		require.Len(t, fleetsAfter, 1)
+		assert.Equal(t, "deleted_terminating", fleetsAfter[0].FleetState)
+
+		for _, id := range instanceIDs {
+			insts := b.DescribeInstances([]string{id}, "")
+			require.Len(t, insts, 1)
+			assert.Equal(t, "shutting-down", insts[0].State.Name,
+				"DeleteFleets(terminateInstances=true) must start terminating the fleet's instances")
+		}
+
+		b.TickLifecycleForTest() // shutting-down -> terminated
 
 		// A by-ID Describe still finds the fleet as a "deleted" tombstone
 		// (real AWS keeps it visible for a period; some delete waiters
-		// treat an empty result as a fatal "not found" rather than success).
-		fleetsAfter := b.DescribeFleets([]string{fleetID})
+		// treat an empty result as a fatal "not found" rather than success)
+		// once every instance it launched has actually terminated.
+		fleetsAfter = b.DescribeFleets([]string{fleetID})
 		require.Len(t, fleetsAfter, 1)
 		assert.Equal(t, "deleted", fleetsAfter[0].FleetState)
 
@@ -129,6 +150,77 @@ func TestFleet(t *testing.T) { //nolint:paralleltest // existing issue.
 		assert.Equal(t, "maintain", f.FleetType)
 		assert.Len(t, f.InstanceIDs, 1)
 	})
+}
+
+// TestDeleteFleets_TerminateInstancesTrue_ReleasesENI_RealClient covers the
+// DeleteFleets(TerminateInstances=true) state machine end to end through the
+// real SDK client: the fleet must report "deleted_terminating" (not the
+// terminal "deleted") while its instances are only shutting-down, and the
+// fleet's primary ENI (DeleteOnTermination=true) must actually release once
+// its instance terminates -- otherwise a real client's subsequent
+// DeleteSubnet fails with DependencyViolation on the still-attached ENI.
+func TestDeleteFleets_TerminateInstancesTrue_ReleasesENI_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ec2.NewHandler(backend)
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateFleet(t.Context(), &ec2sdk.CreateFleetInput{
+		Type: types.FleetTypeMaintain,
+		TargetCapacitySpecification: &types.TargetCapacitySpecificationRequest{
+			TotalTargetCapacity: aws.Int32(1),
+		},
+		LaunchTemplateConfigs: []types.FleetLaunchTemplateConfigRequest{{
+			LaunchTemplateSpecification: &types.FleetLaunchTemplateSpecificationRequest{
+				LaunchTemplateId: aws.String("lt-deletefleeteni0001"),
+			},
+		}},
+	})
+	require.NoError(t, err)
+	fleetID := aws.ToString(created.FleetId)
+
+	instOut, err := client.DescribeFleetInstances(t.Context(), &ec2sdk.DescribeFleetInstancesInput{
+		FleetId: aws.String(fleetID),
+	})
+	require.NoError(t, err)
+	require.Len(t, instOut.ActiveInstances, 1)
+	instanceID := aws.ToString(instOut.ActiveInstances[0].InstanceId)
+
+	eniBefore, err := client.DescribeNetworkInterfaces(t.Context(), &ec2sdk.DescribeNetworkInterfacesInput{
+		Filters: []types.Filter{{Name: aws.String("attachment.instance-id"), Values: []string{instanceID}}},
+	})
+	require.NoError(t, err)
+	require.Len(t, eniBefore.NetworkInterfaces, 1, "fleet instance should have its primary ENI attached")
+
+	delOut, err := client.DeleteFleets(t.Context(), &ec2sdk.DeleteFleetsInput{
+		FleetIds:           []string{fleetID},
+		TerminateInstances: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.Len(t, delOut.SuccessfulFleetDeletions, 1)
+	assert.Equal(t, types.FleetStateCodeDeletedTerminatingInstances,
+		delOut.SuccessfulFleetDeletions[0].CurrentFleetState)
+
+	descOut, err := client.DescribeFleets(t.Context(), &ec2sdk.DescribeFleetsInput{FleetIds: []string{fleetID}})
+	require.NoError(t, err)
+	require.Len(t, descOut.Fleets, 1)
+	assert.Equal(t, types.FleetStateCodeDeletedTerminatingInstances, descOut.Fleets[0].FleetState,
+		"fleet must not report terminal deleted before its instances actually terminate")
+
+	backend.TickLifecycleForTest() // shutting-down -> terminated
+
+	descAfter, err := client.DescribeFleets(t.Context(), &ec2sdk.DescribeFleetsInput{FleetIds: []string{fleetID}})
+	require.NoError(t, err)
+	require.Len(t, descAfter.Fleets, 1)
+	assert.Equal(t, types.FleetStateCodeDeleted, descAfter.Fleets[0].FleetState)
+
+	eniAfter, err := client.DescribeNetworkInterfaces(t.Context(), &ec2sdk.DescribeNetworkInterfacesInput{
+		Filters: []types.Filter{{Name: aws.String("attachment.instance-id"), Values: []string{instanceID}}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, eniAfter.NetworkInterfaces,
+		"terminated fleet instance's DeleteOnTermination ENI must release so its subnet can be deleted")
 }
 
 // ---- Network Insights Path ----.

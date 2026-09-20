@@ -946,90 +946,109 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 	var result []*InstanceStateChange
 
 	for _, id := range ids {
-		inst, ok := b.instances.Get(id)
-		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
+		change, err := b.terminateInstanceLocked(id)
+		if err != nil {
+			return nil, err
 		}
 
-		if inst.DisableAPITermination {
-			return nil, fmt.Errorf(
-				"%w: the instance %s may not be terminated. "+
-					"Modify its 'disableApiTermination' instance attribute and try again",
-				ErrOperationNotPermitted, id)
-		}
-
-		prev := inst.State
-		// AWS state machine: any state → shutting-down → terminated (reconciler advances).
-		// Resource cleanup (ENIs, EIPs, volumes) happens immediately so callers
-		// do not observe dangling attachments, but state advances asynchronously.
-		inst.State = StateShuttingDown
-		inst.TerminatedAt = time.Now()
-		inst.StateReasonCode = "Client.UserInitiatedShutdown"
-		inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
-		inst.StateTransitionReason = fmt.Sprintf(
-			"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
-		)
-		result = append(result, &InstanceStateChange{
-			InstanceID:    id,
-			PreviousState: prev,
-			CurrentState:  inst.State,
-		})
-
-		b.releaseOutpostCapacityIfFirstTermination(inst, id, prev)
-
-		// Mirror AWS behaviour: when the backing instance of a spot request is
-		// terminated, the request transitions to "closed" (not stateCancelled).
-		for _, req := range b.spotRequests.All() {
-			if req.InstanceID == id && req.State == stateActive {
-				req.State = "closed"
-				req.CancelledAt = time.Now()
-			}
-		}
-
-		// Per real AWS's per-attachment DeleteOnTermination flag: the
-		// launch-created primary ENI (true) is deleted; an ENI attached later via
-		// CreateNetworkInterface (false, the real default) only detaches and
-		// survives termination in "available" state ("leftover ENI" behaviour).
-		eniIDs := b.eniIDsByInstance[id]
-		for eniID := range eniIDs {
-			eni, exists := b.networkInterfaces.Get(eniID)
-			if !exists {
-				continue
-			}
-
-			b.deindexENILocked(eniID, eni)
-
-			if eni.DeleteOnTermination {
-				b.deindexENIByVPCLocked(eniID, eni)
-				b.recycleENIIPsLocked(eni)
-				b.networkInterfaces.Delete(eniID)
-				delete(b.tags, eniID)
-
-				continue
-			}
-
-			eni.InstanceID = ""
-			eni.AttachmentID = ""
-			eni.DeviceIndex = 0
-			eni.Status = stateAvailable
-		}
-		b.deindexInstanceLocked(inst)
-
-		// Detach any EBS volumes whose attachment refers to this instance so they
-		// return to "available" state. AWS deletes the root volume by default
-		// (deleteOnTermination=true) but detaches additional volumes; since we do
-		// not track the deleteOnTermination flag per attachment, detaching all of
-		// them is the safe, non-destructive equivalent.
-		// Also disassociate any Elastic IPs associated with the terminated instance.
-		b.detachVolumesAndEIPsLocked(id)
-
-		// A terminated instance can't hold an IAM instance profile association
-		// (gopherstack-hmfm): without this the association outlives the
-		// instance and DescribeIamInstanceProfileAssociations returns it forever.
-		b.disassociateIamInstanceProfilesLocked(id)
+		result = append(result, change)
 	}
 
 	return result, nil
+}
+
+// terminateInstanceLocked terminates a single instance: any state →
+// shutting-down (the background lifecycle reconciler advances it to
+// terminated) → resource cleanup runs immediately so callers never observe
+// dangling ENI/volume/EIP/IAM-profile attachments. Shared by TerminateInstances
+// and DeleteFleets(TerminateInstances=true). Must be called with b.mu held for
+// writing. Already-terminated instances are a no-op (idempotent), since fleet
+// deletion may target instances a caller separately terminated.
+func (b *InMemoryBackend) terminateInstanceLocked(id string) (*InstanceStateChange, error) {
+	inst, ok := b.instances.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
+	}
+
+	if inst.State == StateTerminated {
+		return &InstanceStateChange{InstanceID: id, PreviousState: inst.State, CurrentState: inst.State}, nil
+	}
+
+	if inst.DisableAPITermination {
+		return nil, fmt.Errorf(
+			"%w: the instance %s may not be terminated. "+
+				"Modify its 'disableApiTermination' instance attribute and try again",
+			ErrOperationNotPermitted, id)
+	}
+
+	prev := inst.State
+	inst.State = StateShuttingDown
+	inst.TerminatedAt = time.Now()
+	inst.StateReasonCode = "Client.UserInitiatedShutdown"
+	inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+	inst.StateTransitionReason = fmt.Sprintf(
+		"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
+	)
+	change := &InstanceStateChange{
+		InstanceID:    id,
+		PreviousState: prev,
+		CurrentState:  inst.State,
+	}
+
+	b.releaseOutpostCapacityIfFirstTermination(inst, id, prev)
+
+	// Mirror AWS behaviour: when the backing instance of a spot request is
+	// terminated, the request transitions to "closed" (not stateCancelled).
+	for _, req := range b.spotRequests.All() {
+		if req.InstanceID == id && req.State == stateActive {
+			req.State = "closed"
+			req.CancelledAt = time.Now()
+		}
+	}
+
+	// Per real AWS's per-attachment DeleteOnTermination flag: the
+	// launch-created primary ENI (true) is deleted; an ENI attached later via
+	// CreateNetworkInterface (false, the real default) only detaches and
+	// survives termination in "available" state ("leftover ENI" behaviour).
+	eniIDs := b.eniIDsByInstance[id]
+	for eniID := range eniIDs {
+		eni, exists := b.networkInterfaces.Get(eniID)
+		if !exists {
+			continue
+		}
+
+		b.deindexENILocked(eniID, eni)
+
+		if eni.DeleteOnTermination {
+			b.deindexENIByVPCLocked(eniID, eni)
+			b.recycleENIIPsLocked(eni)
+			b.networkInterfaces.Delete(eniID)
+			delete(b.tags, eniID)
+
+			continue
+		}
+
+		eni.InstanceID = ""
+		eni.AttachmentID = ""
+		eni.DeviceIndex = 0
+		eni.Status = stateAvailable
+	}
+	b.deindexInstanceLocked(inst)
+
+	// Detach any EBS volumes whose attachment refers to this instance so they
+	// return to "available" state. AWS deletes the root volume by default
+	// (deleteOnTermination=true) but detaches additional volumes; since we do
+	// not track the deleteOnTermination flag per attachment, detaching all of
+	// them is the safe, non-destructive equivalent.
+	// Also disassociate any Elastic IPs associated with the terminated instance.
+	b.detachVolumesAndEIPsLocked(id)
+
+	// A terminated instance can't hold an IAM instance profile association
+	// (gopherstack-hmfm): without this the association outlives the
+	// instance and DescribeIamInstanceProfileAssociations returns it forever.
+	b.disassociateIamInstanceProfilesLocked(id)
+
+	return change, nil
 }
 
 // SetInstanceLaunchConfig sets the key pair name and security groups on an instance.

@@ -395,6 +395,14 @@ const (
 	// (ec2@v1.329.0 types/enums.go:3057), the default policy under which a
 	// capacity decrease terminates the excess instances.
 	fleetExcessTerminationPolicy = "termination"
+	// fleetStateDeletedTerminating and fleetStateDeletedRunning are
+	// FleetStateCodeDeletedTerminatingInstances/FleetStateCodeDeletedRunning
+	// (ec2@v1.329.0 types/enums.go:3196-3197): DeleteFleets' immediate
+	// post-call state depends on TerminateInstances -- "deleted_terminating"
+	// until every launched instance reaches terminated, "deleted_running"
+	// when instances are left running.
+	fleetStateDeletedTerminating = "deleted_terminating"
+	fleetStateDeletedRunning     = "deleted_running"
 )
 
 type TrafficMirrorFilter struct {

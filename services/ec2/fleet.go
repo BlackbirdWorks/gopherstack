@@ -396,12 +396,15 @@ func (b *InMemoryBackend) appendEC2FleetHistoryLocked(fleetID string, rec FleetH
 type FleetDeletionResult struct {
 	FleetID            string
 	PreviousFleetState string
+	CurrentFleetState  string
 }
 
 // DeleteFleets deletes the given fleets. terminateInstances mirrors
-// DeleteFleetsInput.TerminateInstances (ec2@v1.319.1
-// api_op_DeleteFleets.go): when true, every instance the fleet launched is
-// terminated too, rather than left running with no owning fleet.
+// DeleteFleetsInput.TerminateInstances (ec2@v1.319.1 api_op_DeleteFleets.go):
+// when true, every instance the fleet launched is terminated too (via the
+// same terminateInstanceLocked path TerminateInstances uses, so ENIs/volumes/
+// EIPs release immediately -- a subnet a fleet instance's ENI sat in can
+// otherwise never delete), rather than left running with no owning fleet.
 func (b *InMemoryBackend) DeleteFleets(ids []string, terminateInstances bool) []FleetDeletionResult {
 	b.mu.Lock("DeleteFleets")
 	defer b.mu.Unlock()
@@ -415,15 +418,15 @@ func (b *InMemoryBackend) DeleteFleets(ids []string, terminateInstances bool) []
 		}
 
 		prev := f.FleetState
-		f.FleetState = tgwRouteStateDeleted
 
 		if terminateInstances {
+			f.FleetState = fleetStateDeletedTerminating
+
 			for _, instID := range f.InstanceIDs {
-				if inst, exists := b.instances.Get(instID); exists {
-					inst.State = StateTerminated
-					inst.TerminatedAt = time.Now().UTC()
-				}
+				_, _ = b.terminateInstanceLocked(instID)
 			}
+		} else {
+			f.FleetState = fleetStateDeletedRunning
 		}
 
 		cp := *f
@@ -431,10 +434,34 @@ func (b *InMemoryBackend) DeleteFleets(ids []string, terminateInstances bool) []
 
 		b.fleets.Delete(id)
 		delete(b.tags, id)
-		deleted = append(deleted, FleetDeletionResult{FleetID: id, PreviousFleetState: prev})
+		deleted = append(deleted, FleetDeletionResult{
+			FleetID:            id,
+			PreviousFleetState: prev,
+			CurrentFleetState:  f.FleetState,
+		})
 	}
 
 	return deleted
+}
+
+// fleetReportedStateLocked returns f's externally-visible FleetState:
+// "deleted_terminating" upgrades to "deleted" (FleetStateCodeDeleted) once
+// every instance the fleet launched has actually reached terminated, since
+// terminateInstanceLocked only starts the shutting-down -> terminated
+// transition and the background lifecycle reconciler finishes it
+// asynchronously. Must be called with b.mu held (read or write).
+func (b *InMemoryBackend) fleetReportedStateLocked(f *Fleet) string {
+	if f.FleetState != fleetStateDeletedTerminating {
+		return f.FleetState
+	}
+
+	for _, instID := range f.InstanceIDs {
+		if inst, ok := b.instances.Get(instID); ok && inst.State != StateTerminated {
+			return f.FleetState
+		}
+	}
+
+	return tgwRouteStateDeleted
 }
 
 func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
@@ -458,9 +485,9 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 	}
 
 	// A by-ID Describe of a just-deleted fleet still finds its tombstone
-	// (state "deleted") -- DeleteFleets' waiter otherwise never sees a
-	// terminal state and fails with "couldn't find resource" after
-	// exhausting its retries.
+	// (state "deleted"/"deleted_running"/"deleted_terminating") -- DeleteFleets'
+	// waiter otherwise never sees a terminal state and fails with "couldn't
+	// find resource" after exhausting its retries.
 	for _, id := range ids {
 		if found[id] {
 			continue
@@ -468,6 +495,7 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 
 		if tomb, ok := b.fleetTombstones[id]; ok {
 			cp := *tomb
+			cp.FleetState = b.fleetReportedStateLocked(tomb)
 			result = append(result, &cp)
 		}
 	}
