@@ -5,6 +5,8 @@ import (
 	"maps"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -32,8 +34,10 @@ func (b *InMemoryBackend) CreateConfigurationPolicy(
 	b.mu.Lock("CreateConfigurationPolicy")
 	defer b.mu.Unlock()
 
-	b.configPolicySeq++
-	id := fmt.Sprintf("policy-%d", b.configPolicySeq)
+	// Real SecurityHub configuration policy IDs are UUIDs;
+	// terraform-provider-aws validates policy_id client-side against that
+	// shape ("policy-N" fails plan-time validation).
+	id := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	cp := &ConfigurationPolicy{

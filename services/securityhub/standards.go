@@ -1,12 +1,10 @@
 package securityhub
 
 import (
-	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // clone deep-copies s's map fields and its unexported pollCount, which
@@ -72,12 +70,17 @@ var knownStandards = []Standard{ //nolint:gochecknoglobals // read-only lookup d
 	},
 }
 
-func (b *InMemoryBackend) subscriptionARN(seq int) string {
-	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("subscription/%d", seq))
+// standardsSubscriptionArn derives a StandardsSubscriptionArn from a
+// StandardsArn the same way real AWS does: same ARN, "standards/" swapped
+// for "subscription/" (e.g. "arn:aws:securityhub:us-east-1::standards/
+// aws-foundational-security-best-practices/v/1.0.0" ->
+// ".../subscription/aws-foundational-security-best-practices/v/1.0.0").
+// The prior "subscription/<seq>" shape (account-scoped, no standard name)
+// didn't match this, breaking aws_securityhub_standards_control's ARN-based
+// lookup after BatchEnableStandards/aws_securityhub_standards_subscription.
+func standardsSubscriptionArn(standardsArn string) string {
+	return strings.Replace(standardsArn, ":standards/", ":subscription/", 1)
 }
-
-// unused: keep compiler happy
-var _ = (*InMemoryBackend).subscriptionARN
 
 func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*StandardsSubscription, []map[string]any) {
 	b.mu.Lock("BatchEnableStandards")
@@ -100,7 +103,7 @@ func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*St
 		}
 
 		b.standardsSeq++
-		subArn := arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("subscription/%d", b.standardsSeq))
+		subArn := standardsSubscriptionArn(standardsArn)
 
 		sub := &StandardsSubscription{
 			StandardsSubscriptionArn: subArn,
@@ -279,8 +282,16 @@ func (b *InMemoryBackend) DescribeStandardsControls(
 }
 
 // defaultControls returns a minimal set of controls for a subscription.
+// A real StandardsControlArn is the subscription ARN plus exactly one
+// trailing segment, the control ID (e.g. ".../v/1.0.0/1.1") -- no literal
+// "control" path segment. terraform-provider-aws's Read for
+// aws_securityhub_standards_control derives the subscription ARN by
+// trimming that one segment back off; the prior ".../control/{n}" shape (an
+// extra fabricated segment) made it trim to ".../control" instead of the
+// real subscription ARN, so DescribeStandardsControls could never find the
+// subscription and always returned empty.
 func defaultControls(subscriptionArn string) []*StandardsControl {
-	prefix := subscriptionArn + "/control"
+	prefix := subscriptionArn
 
 	return []*StandardsControl{
 		{

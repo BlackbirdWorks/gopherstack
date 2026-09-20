@@ -59,7 +59,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// controlOverrides: override one of the default controls for subArn.
-	controlArn := subArn + "/control/1"
+	controlArn := subArn + "/1"
 	require.NoError(t, b.UpdateStandardsControl(controlArn, "DISABLED", "not applicable"))
 
 	// controlAssocOverrides (flattened nested map -> composite-key table).

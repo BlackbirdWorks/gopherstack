@@ -1,7 +1,7 @@
 ---
 service: securityhub
 sdk_module: aws-sdk-go-v2/service/securityhub@v1.75.4
-last_audit_commit: 75c14a90f
+last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (mega-batch-19); prior: 75c14a90f
 last_audit_date: 2026-09-19
 overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, SecurityHub V2 opt-in
                        # Feature enable/disable) implemented for real against v1.75.0, wired into
@@ -153,6 +153,11 @@ leaks: {status: clean, note: "no goroutines, tickers, or background loops in ser
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, mega-batch-19)
+
+Configuration policy IDs were sequential "policy-N" (fails the provider's UUID validation);
+StandardsSubscriptionArn/StandardsControlArn used a fabricated shape breaking control lookup.
 
 ### 2026-09-19: required-output-member census
 
