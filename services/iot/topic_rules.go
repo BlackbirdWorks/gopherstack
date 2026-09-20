@@ -25,6 +25,13 @@ func cloneTopicRule(r *TopicRule) *TopicRule {
 				FunctionARN: action.Lambda.FunctionARN,
 			}
 		}
+		if action.SNS != nil {
+			actions[i].SNS = &SNSAction{
+				RoleARN:       action.SNS.RoleARN,
+				TargetARN:     action.SNS.TargetARN,
+				MessageFormat: action.SNS.MessageFormat,
+			}
+		}
 	}
 
 	return &TopicRule{
@@ -219,8 +226,13 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	b.mu.Lock("CreateTopicRuleDestination")
 	defer b.mu.Unlock()
 
+	destType := "http"
+	if input.DestinationConfiguration != nil && input.DestinationConfiguration.VPCConfiguration != nil {
+		destType = "vpc"
+	}
+
 	arn := arn.Build("iot", b.region, b.accountID,
-		fmt.Sprintf("ruledestination/http/%s", uuid.NewString()))
+		fmt.Sprintf("ruledestination/%s/%s", destType, uuid.NewString()))
 
 	now := time.Now()
 	dest := &TopicRuleDestination{
@@ -229,7 +241,8 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		LastUpdatedAt: now,
 	}
 
-	if input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil {
+	switch {
+	case input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil:
 		dest.HTTPURLProperties = &HTTPURLDestinationProperties{
 			ConfirmationURL: input.DestinationConfiguration.HTTPURLConfiguration.ConfirmationURL,
 		}
@@ -237,7 +250,17 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		// matching AWS's real IN_PROGRESS -> ENABLED lifecycle.
 		dest.Status = statusInProgress
 		dest.ConfirmationToken = randomHex(certIDHexLen)
-	} else {
+	case input.DestinationConfiguration != nil && input.DestinationConfiguration.VPCConfiguration != nil:
+		vpcCfg := input.DestinationConfiguration.VPCConfiguration
+		dest.VPCProperties = &VPCDestinationProperties{
+			RoleARN:        vpcCfg.RoleARN,
+			SecurityGroups: vpcCfg.SecurityGroups,
+			SubnetIDs:      vpcCfg.SubnetIDs,
+			VpcID:          vpcCfg.VpcID,
+		}
+		// VPC destinations need no out-of-band confirmation.
+		dest.Status = statusEnabled
+	default:
 		dest.Status = statusEnabled
 	}
 

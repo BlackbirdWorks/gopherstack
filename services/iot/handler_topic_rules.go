@@ -334,6 +334,9 @@ func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
 	if d.HTTPURLProperties != nil {
 		out["httpUrlProperties"] = d.HTTPURLProperties
 	}
+	if d.VPCProperties != nil {
+		out["vpcProperties"] = d.VPCProperties
+	}
 
 	return out
 }
@@ -341,7 +344,9 @@ func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
 // topicRuleDestinationSummaryFields builds the TopicRuleDestinationSummary
 // wire shape used by ListTopicRuleDestinations -- same status/ARN fields as
 // TopicRuleDestination, but the HTTP URL sub-object is "httpUrlSummary" (types.
-// HttpUrlDestinationSummary), not "httpUrlProperties".
+// HttpUrlDestinationSummary), not "httpUrlProperties"; the VPC sub-object
+// ("vpcDestinationSummary") happens to share the same field set as
+// VpcDestinationProperties, so VPCDestinationProperties is reused as-is.
 func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
 	out := map[string]any{
 		keyArn:           d.ARN,
@@ -351,6 +356,9 @@ func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
 	}
 	if d.HTTPURLProperties != nil {
 		out["httpUrlSummary"] = d.HTTPURLProperties
+	}
+	if d.VPCProperties != nil {
+		out["vpcDestinationSummary"] = d.VPCProperties
 	}
 
 	return out

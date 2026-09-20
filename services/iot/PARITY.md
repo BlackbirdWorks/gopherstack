@@ -2,7 +2,7 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.83.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
-last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (mega-batch-17, RouteMatcher fix); prior: 302aa4e3c
+last_audit_commit: bfdb308be  # 2026-09-19 terraform-coverage sweep (mega-batch-22, topic rule destination/action fixes); prior: b7c35baea
 last_audit_date: 2026-09-19
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
                        # filter/sort constraints across the certificate, policy, authorizer,
@@ -188,8 +188,9 @@ ops:
   CreatePolicyVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response was missing policyArn (real CreatePolicyVersionOutput has it); fixed"}
   GetPolicyVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "used wrong date field name \"createDate\" (real GetPolicyVersionOutput uses \"creationDate\", verified against v1.76.0's awsRestjson1_deserializeOpDocumentGetPolicyVersionOutput -- \"createDate\" is only correct for the ListPolicyVersions summary shape) and was missing generationId/lastModifiedDate + epoch encoding; fixed, added GenerationID to the PolicyVersion domain type"}
   ListPolicyVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "createDate was a raw time.Time; fixed via awstime.Epoch"}
-  CreateTopicRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateTopicRule: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-19 (terraform-coverage sweep, mega-batch-22): RuleAction only modeled Sqs/Lambda -- an sns action (types.SnsAction: RoleArn/TargetArn/MessageFormat) decoded into an all-nil RuleAction{} (unknown JSON key silently dropped), so GetTopicRule always returned Actions[0].Sns == nil for a real SNS-action rule. Confirmed via a real aws_iot_topic_rule apply with an sns{} block. cloudwatch_alarm/dynamodb/firehose/kinesis/s3/http/republish/step_functions/... action types remain unmodeled (RuleAction only has Sqs/Lambda/Sns) -- see items_still_open."}
   GetTopicRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "rule.createdAt was a raw time.Time (RFC3339 string) instead of epoch-seconds; fixed via awstime.Epoch"}
+  CreateTopicRuleDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-19 (terraform-coverage sweep, mega-batch-22): TopicRuleDestinationConfiguration only modeled HttpUrlConfiguration -- a vpcConfiguration request body was decoded into nothing (unknown JSON key), and CreateTopicRuleDestination unconditionally minted an http-typed ARN (\"ruledestination/http/...\") and ENABLED status regardless of what was requested, silently discarding the caller's VPC config end to end. Now branches on which configuration variant is present, builds a vpc-typed ARN (\"ruledestination/vpc/...\"), and stores/echoes VpcProperties (Create/Get) and VpcDestinationSummary (List) -- see VPCDestinationConfiguration/VPCDestinationProperties in types.go."}
   DeleteTopicRule: {wire: ok, errors: ok, state: fixed, persist: ok, note: "(gopherstack-1ycq, 2026-09-06) left b.resourceTags[ruleARN] behind on delete, inherited by a same-named recreate; fixed. Regression: TestDeleteResource_ClearsResourceTagsOnRecreate/topic_rule."}
   ReplaceTopicRule: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableTopicRule: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -293,7 +294,7 @@ items_still_open:
   - "GetThingConnectivityData's IncludeSocketInformation is not honored: the real output's socket fields (sourcePort/targetPort/sourceIp/targetIp/vpcEndpointId) have no backing data anywhere in this backend's ThingConnectivityData model (only Connected/Timestamp/DisconnectReason are tracked), so there is nothing to conditionally include even if the flag were read (gopherstack-xhu2t slice 2)."
   - "gopherstack-21my (per-item sweep): ListJobs' JobSummary omits IsConcurrent and ThingGroupId -- neither is modeled anywhere on the Job type (no concurrent-execution or thing-group-target tracking exists), so there is no honest value to surface. CompletedAt IS a real Job struct field but nothing ever sets it (no job-completion codepath writes it), so it would always emit as its own zero value; left unwired rather than adding a field that can never round-trip a real value."
   - "gopherstack-21my (per-item sweep): ListCommandExecutions/GetCommandExecution's CommandExecutionSummary omits StartedAt/CompletedAt -- IoTCommandExecution has no such fields and this backend has no StartCommandExecution/UpdateCommandExecution control-plane op to set them (executions only arrive via test-seeding or Get/Delete), matching the existing doc comment on commandExecutionSummaryFields."
-  - "gopherstack-21my (per-item sweep): ListTopicRuleDestinations/GetTopicRuleDestination never surface VpcDestinationSummary/InfluxDBSummary or StatusReason -- this backend only implements the HTTP URL destination variant (TopicRuleDestination has no VPC/InfluxDB config at all), and no failure path ever produces a StatusReason string."
+  - "ListTopicRuleDestinations/GetTopicRuleDestination never surface InfluxDBSummary or StatusReason -- this backend only implements the HTTP URL and VPC destination variants (VpcDestinationSummary FIXED 2026-09-19, terraform-coverage sweep gopherstack mega-batch-22: CreateTopicRuleDestination silently ignored destinationConfiguration.vpcConfiguration entirely, always emitting an http-typed ARN/httpUrlProperties response regardless of what the caller sent -- confirmed via a real aws_iot_topic_rule_destination apply, which got a VPC-shaped resource back with none of its own config; see topic_rules.go/handler_topic_rules.go). InfluxDB destinations remain unmodeled, and no failure path ever produces a StatusReason string."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -302,6 +303,12 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, mega-batch-22)
+
+CreateTopicRuleDestination silently dropped VPC destination config (always emitted
+http-typed) and RuleAction had no Sns field (dropped sns actions) -- both found and
+fixed via a real `aws_iot_topic_rule`/`aws_iot_topic_rule_destination` terraform apply.
 
 ### 2026-09-19 (terraform-coverage sweep, mega-batch-17/19)
 
