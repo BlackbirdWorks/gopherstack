@@ -1,7 +1,7 @@
 ---
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.86.0
-last_audit_commit: 41d2135ec  # 2026-09-19 PGO perf sweep (FilterLogEvents sort)
+last_audit_commit: 2bc650bf9  # 2026-09-19 terraform mega-batch-20 (anomaly detector visibility-time unit bug)
 last_audit_date: 2026-09-19
 overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType
                        # from the request body at all (not even a field on the decode struct),
@@ -142,6 +142,18 @@ leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDeliv
 ---
 
 ## Notes
+
+### 2026-09-19: terraform mega-batch-20 coverage (12 previously-uncovered resources)
+
+Real terraform apply of account_policy, anomaly_detector, data_protection_policy,
+delivery(+source/destination/destination_policy), destination(+policy),
+index_policy, resource_policy, and query_definition found one real bug:
+Create/UpdateLogAnomalyDetector divided anomalyVisibilityTime by a bogus
+`msPerDay` before range-checking it against 7..90 -- the real field
+(CreateLogAnomalyDetectorInput.AnomalyVisibilityTime) is already a plain day
+count, so every non-zero value under 2520 was rejected as too small. Fixed
+in anomaly_detectors.go; the pre-existing unit tests encoded the same wrong
+unit and were corrected alongside the fix.
 
 **2026-09-18 (parity gap burn-down):** adjudicated all 36 items_still_open
 entries. Removed 20 (fixed/RESOLVED-but-not-yet-deleted, confirmed non-issues,
