@@ -110,6 +110,7 @@ type StorageBackend interface {
 	ListIngestions(accountID, dataSetID string, maxResults int32, nextToken string) ([]*Ingestion, string, error)
 
 	// Dashboards
+	ResolveSourceEntityDefinition(sourceEntityArn string) map[string]any
 	CreateDashboard(
 		accountID, dashboardID, name, themeArn, versionDescription string,
 		definition, publishOptions map[string]any,

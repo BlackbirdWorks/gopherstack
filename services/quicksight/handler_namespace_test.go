@@ -33,7 +33,7 @@ func TestQuickSight_Namespaces(t *testing.T) {
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
 				assert.Contains(t, body["Arn"], "arn:aws:quicksight:us-east-1:000000000000:namespace/my-ns")
-				assert.Equal(t, "CREATION_SUCCESSFUL", body["CreationStatus"])
+				assert.Equal(t, "CREATED", body["CreationStatus"])
 				assert.Equal(t, "QUICKSIGHT", body["IdentityStore"])
 			},
 		},
@@ -57,7 +57,7 @@ func TestQuickSight_Namespaces(t *testing.T) {
 				ns, ok := body["Namespace"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "default", ns["Name"])
-				assert.Equal(t, "CREATION_SUCCESSFUL", ns["CreationStatus"])
+				assert.Equal(t, "CREATED", ns["CreationStatus"])
 			},
 		},
 		{

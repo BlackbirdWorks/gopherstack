@@ -92,6 +92,10 @@ func (b *InMemoryBackend) CreateTemplate(
 		return nil, ErrTemplateAlreadyExists
 	}
 
+	if definition == nil {
+		definition = b.resolveSourceEntityDefinition(sourceEntityArn)
+	}
+
 	now := time.Now().UTC()
 	arn := b.buildARN("template", templateID)
 	t := &storedTemplate{

@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateNamespace(
 		Name:           namespace,
 		Arn:            arn.Build("quicksight", b.region, accountID, fmt.Sprintf("namespace/%s", namespace)),
 		CapacityRegion: capacityRegion,
-		Status:         statusCreationSuccessful,
+		Status:         namespaceStatusCreated,
 		IdentityStore:  identityStoreQuickSight,
 	}
 	b.namespaces.Put(ns)

@@ -1,7 +1,28 @@
 service: quicksight
 sdk_module: aws-sdk-go-v2/service/quicksight@v1.129.0
-last_audit_commit: a8b26ceaa
-last_audit_date: 2026-09-19 # parity-sweep: implemented the Q Apps family (DescribeApp/
+last_audit_commit: 4ad783e5c
+last_audit_date: 2026-09-20 # mega-batch-25 terraform coverage: CreateNamespace/Reset's
+                      # default-namespace seed used the ResourceStatus enum's
+                      # "CREATION_SUCCESSFUL" for Namespace.CreationStatus instead of the real,
+                      # distinct NamespaceStatus enum's "CREATED" -- confirmed against
+                      # types.NamespaceStatus (CREATED/CREATING/DELETING/RETRYABLE_FAILURE/
+                      # NON_RETRYABLE_FAILURE), a copy-paste from the unrelated
+                      # Analysis/Dashboard/Template status constant. Broke the real
+                      # terraform-provider-aws waitNamespaceCreated poll ("unexpected state
+                      # 'CREATION_SUCCESSFUL', wanted target 'CREATED'"). Fixed in
+                      # namespace.go/store.go (namespaceStatusCreated). Also fixed:
+                      # CreateTemplate/CreateDashboard never derived Definition from a
+                      # SourceEntity (SourceAnalysis/SourceTemplate) reference -- only a
+                      # caller-supplied Definition was ever stored, so a real
+                      # provider-driven `source_entity`-based create left
+                      # DescribeTemplateDefinition/DescribeDashboardDefinition permanently
+                      # empty. Added resolveSourceEntityDefinition (store.go), which resolves
+                      # the referenced Analysis's or Template's live Definition by ARN; wired
+                      # into CreateTemplate directly and into handleCreateDashboard via the new
+                      # exported ResolveSourceEntityDefinition (CreateDashboard's own signature
+                      # has no SourceEntityArn parameter to extend without a wider, riskier
+                      # signature change touching 6 test files).
+                      # 2026-09-19 (previous audit): parity-sweep: implemented the Q Apps family (DescribeApp/
                       # DeleteApp/ListApps/SearchApps/DescribeAppPermissions/
                       # UpdateAppPermissions -- app.go/handler_app.go, seeded via
                       # AddAppInternal since real AWS has no CreateApp) and
