@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ses
 sdk_module: aws-sdk-go-v2/service/ses@v1.37.4   # version audited against (query-XML, 2010-12-01); verified == go.mod this pass
-last_audit_commit: b1905140e                      # HEAD at audit time (2026-09-18, gopherstack-xhu2t
-                       # reqfielddiff tier-1 sweep); prior value 44a1f8a1c predates this pass.
-last_audit_date: 2026-09-18                       # gopherstack wrapper-key/constraint sweep: 4 fixes below
+last_audit_commit: bfdb308be                      # HEAD at audit time (2026-09-19, terraform-coverage
+                       # sweep mega-batch-22: VerifyDomainDkim DkimEnabled default fix); prior b1905140e
+last_audit_date: 2026-09-19                       # gopherstack wrapper-key/constraint sweep: 4 fixes below
                        # (ListTemplates default page size, DescribeConfigurationSet attribute gating,
                        # ListCustomVerificationEmailTemplates + ListReceiptRuleSets pagination never
                        # plumbed through the call chain at all) -- see the four rows' notes.
@@ -66,7 +66,7 @@ ops:
   GetIdentityPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-05 pass: PolicyNames is a required member (api_op_GetIdentityPolicies.go: \"This member is required\"; client-side validateOpGetIdentityPoliciesInput also enforces v.PolicyNames != nil) -- gopherstack instead treated an absent/empty PolicyNames as \"return every policy for this identity\", a fabricated mode the real op doesn't have (its own doc even directs callers who don't know the names to call ListIdentityPolicies first). Fixed: empty/nil PolicyNames now returns InvalidParameterValue (ErrInvalidParameter, same convention as this op's own \"Identity is required\" check). Confirmed safe against errtargetaudit: GetIdentityPolicies's own deserializeOpError switch declares only the default case (no typed exceptions at all), so any wire code is passed through as a generic smithy.GenericAPIError verbatim -- unlike the DeleteReceiptRule-class bug, there's no risk of colliding with a real typed exception this op does declare."}
   ListIdentityPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
   VerifyDomainIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
-  VerifyDomainDkim: {wire: ok, errors: ok, state: ok, persist: ok, note: "deterministic tokens per identity, stable across calls"}
+  VerifyDomainDkim: {wire: ok, errors: ok, state: fixed, persist: ok, note: "deterministic tokens per identity, stable across calls. FIXED 2026-09-19 (terraform-coverage sweep, mega-batch-22): never set DkimEnabled -- real GetIdentityDkimAttributesOutput's own doc comment says DkimEnabled's 'default value is true', but a fresh VerifyDomainDkim call left it at its Go zero value (false); confirmed via a real aws_ses_domain_dkim apply (GetIdentityDkimAttributes came back DkimEnabled=false with no way to have set it otherwise). Now sets DkimEnabled=true on both the new- and existing-identity branches."}
   ListVerifiedEmailAddresses: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccountSendingEnabled: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSendQuota: {wire: ok, errors: ok, state: ok, persist: ok, note: "SentLast24Hours logic factored into sentLast24HoursLocked(), now also used to enforce the quota on send ops"}
@@ -138,6 +138,11 @@ leaks: {status: clean, note: "janitor sweep uses pkgs/worker.Group ticker with p
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, mega-batch-22)
+
+VerifyDomainDkim never set DkimEnabled (real default is true per the SDK's own doc
+comment); found via a real `aws_ses_domain_dkim` terraform apply, fixed.
 
 ### 2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1 sweep)
 
