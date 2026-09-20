@@ -120,7 +120,9 @@ func (b *InMemoryBackend) CreateLocationFsxOntap(
 	storedProtocol := toStoredFsxProtocol(protocol)
 
 	sub := strings.TrimPrefix(subdirectory, "/")
-	locationURI := fmt.Sprintf("%s%s/%s", fsxOntapURIScheme(storedProtocol), storageVirtualMachineArn, sub)
+	locationURI := fmt.Sprintf(
+		"%s%s.%s/%s", fsxOntapURIScheme(storedProtocol), b.region, fsxShortResourceID(storageVirtualMachineArn), sub,
+	)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -197,7 +199,9 @@ func (b *InMemoryBackend) UpdateLocationFsxOntap(locationArn, subdirectory strin
 		}
 
 		sub := strings.TrimPrefix(l.Subdirectory, "/")
-		l.LocationURI = fmt.Sprintf("%s%s/%s", fsxOntapURIScheme(l.FsxOntap.Protocol), svm, sub)
+		l.LocationURI = fmt.Sprintf(
+			"%s%s.%s/%s", fsxOntapURIScheme(l.FsxOntap.Protocol), b.region, fsxShortResourceID(svm), sub,
+		)
 	}
 
 	return nil

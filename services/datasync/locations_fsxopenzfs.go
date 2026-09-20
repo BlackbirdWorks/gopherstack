@@ -26,7 +26,7 @@ func (b *InMemoryBackend) CreateLocationFsxOpenZfs(
 	// AWS uses the "fsxz://" scheme for FSx OpenZFS location URIs (e.g.
 	// "fsxz://us-west-2.fs-1234567890abcdef02/fsx/folderA/folder" per the
 	// DescribeLocationFsxOpenZfs API docs), not "openzfs://".
-	locationURI := fmt.Sprintf("fsxz://%s/%s", fsxFilesystemArn, sub)
+	locationURI := fmt.Sprintf("fsxz://%s.%s/%s", b.region, fsxShortResourceID(fsxFilesystemArn), sub)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -92,7 +92,7 @@ func (b *InMemoryBackend) UpdateLocationFsxOpenZfs(locationArn, subdirectory str
 		}
 
 		sub := strings.TrimPrefix(subdirectory, "/")
-		l.LocationURI = fmt.Sprintf("fsxz://%s/%s", fsArn, sub)
+		l.LocationURI = fmt.Sprintf("fsxz://%s.%s/%s", b.region, fsxShortResourceID(fsArn), sub)
 	}
 
 	if protocol != nil && l.FsxOpenZfs != nil {

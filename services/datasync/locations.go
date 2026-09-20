@@ -192,6 +192,23 @@ func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageC
 	return nil
 }
 
+// fsxShortResourceID extracts the trailing resource ID from an FSx ARN
+// (e.g. "arn:aws:fsx:us-east-1:000000000000:file-system/fs-XXXX" -> "fs-XXXX",
+// "...:storage-virtual-machine/svm-XXXX" -> "svm-XXXX"). Real AWS's
+// LocationUri for every FSx-backed location embeds this short ID (region-
+// qualified, e.g. "fsxz://us-west-2.fs-.../fsx/..." per
+// DescribeLocationFsxOpenZfs's doc comment), never the full ARN -- a
+// LocationUri containing raw ARN colons fails the AWS provider's own URI
+// parsing outright (confirmed via terraform-provider-aws: it errors trying
+// to parse the embedded ARN as an S3-on-Outposts access point resource).
+func fsxShortResourceID(fsxArn string) string {
+	if idx := strings.LastIndex(fsxArn, "/"); idx >= 0 {
+		return fsxArn[idx+1:]
+	}
+
+	return fsxArn
+}
+
 // extractBucketName extracts the bucket name from an S3 ARN.
 // Format: arn:aws:s3:::bucket-name or arn:aws:s3:::bucket-name/prefix.
 func extractBucketName(s3BucketArn string) string {
