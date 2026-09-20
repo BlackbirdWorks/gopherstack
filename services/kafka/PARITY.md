@@ -116,6 +116,15 @@ gaps: []
   #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
   #     ownership model to draw a different value from.
 items_still_open:
+  - "MSK Connect (CreateConnector/CreateCustomPlugin/CreateWorkerConfiguration and
+    the rest of the kafkaconnect API, e.g. Terraform's aws_mskconnect_connector/
+    _custom_plugin/_worker_configuration) is not implemented at all -- it is a
+    structurally distinct AWS service/endpoint (kafkaconnect, not kafka) with no
+    services/kafkaconnect directory in this repo and no route registered for any
+    of its ops. 2026-09-20 (mega-batch-29 Terraform coverage pass): confirmed via
+    grep that no such service exists before attempting any fixture; left out of
+    that pass's fixture rather than fabricating a stub. Implementing it is a new
+    service, not a fix to this one."
   - "Channel Create/Update/Delete are immediate (no CREATING/UPDATING/DELETING
     polling window) -- same documented simplification as Topic.Status (see
     below): the real API exposes a ClusterOperationArn/polling protocol this

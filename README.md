@@ -564,7 +564,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 6 gaps; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 7 gaps |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 9 gaps |
-| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps |
+| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 4 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 19 | 2 gaps |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 10 gaps |
