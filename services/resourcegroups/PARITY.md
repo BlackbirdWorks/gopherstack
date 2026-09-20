@@ -1,9 +1,22 @@
 ---
 service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
-last_audit_commit: f01b0c551   # HEAD when this audit started (errtargetaudit sweep, 2026-09-07)
-last_audit_date: 2026-09-07
-overall: A            # clean pass this sweep -- no wire bugs found; see notes
+last_audit_commit: 4ad783e5c   # HEAD when this manifest was written
+last_audit_date: 2026-09-20
+overall: A            # 2026-09-20 (mega-batch-24/25/26 terraform coverage, cross-service
+                      # routing fix): isResourceTagsPath (handler.go) matched ANY
+                      # /resources/{Arn}/tags path with no ARN-service check -- a real
+                      # route-prefix collision (RouteMatcher class) that swallowed
+                      # QuickSight's ListTagsForResource/TagResource/UntagResource calls
+                      # (QuickSight uses the identical REST shape once multiplexed onto one
+                      # gopherstack host) whenever this service's Matcher ran first, turning
+                      # a real cross-service tag read into a bogus "group with ARN ... not
+                      # found". Fixed by requiring the ARN's own service segment
+                      # ("arn:aws:resource-groups:") match, narrowing the prefix rather than
+                      # raising MatchPriority. See handler_sdk_route_table_test.go /
+                      # handler_test.go (updated to use real resource-groups ARNs instead of
+                      # a PLACEHOLDER/"rg" stand-in).
+                      # 2026-09-07 (errtargetaudit sweep): clean pass -- no wire bugs found; see notes
                       # 2026-08-29 (request-direction sweep): checked every List/Describe/Get op's REQUEST side (filter/sort/time-range/pagination/precondition members from the real Input struct), not just response shape -- a prior "wire: ok" here had only ever been verified response-side. FOUND AND FIXED one real dropped-filter bug: ListGroupingStatuses' Filters member (real ListGroupingStatusesFilterName values "status"/"resource-arn") had no field at all on gopherstack's listGroupingStatusesInput wire struct, so json.Unmarshal silently discarded it and every real client's Filters was a no-op. Fixed via a new ListGroupingStatusesFilter type threaded through StorageBackend.ListGroupingStatuses (interfaces.go/resources.go/handler_resources.go) and proven by Test_ListGroupingStatuses_FiltersRoundTrip (list_grouping_statuses_filters_test.go), which drives the real typed aws-sdk-go-v2/service/resourcegroups client and includes a non-matching (FAILED-status / other-ARN) record the filter must EXCLUDE. Every other List/Describe/Get op's filter/pagination members (ListGroups.Filters, ListGroupResources.Filters, ListTagSyncTasks.Filters, SearchResources's ResourceQuery.Query ResourceTypeFilters) were re-checked and confirmed already correctly read and applied -- see gaps: for the one already-disclosed, structurally-blocked exception (SearchResources' TagFilters, which needs a cross-service tag registry this backend does not have; left as previously documented, not fabricated).
 ops:
   CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Tags/ResourceQuery no longer nested inside Group; Owner tag renamed; now accepts Owner/DisplayName/Criticality at creation time via CreateGroupOption; Criticality range corrected to 1-10"}
@@ -30,7 +43,7 @@ ops:
   GetTagSyncTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CreatedAt now epoch-seconds, was ISO8601 string"}
   ListTagSyncTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CreatedAt now epoch-seconds, was RFC3339 string (default time.Time marshal)"}
 families:
-  route_matcher: {status: ok, note: "verified every REST path/method (POST for all ops except GET/PUT/PATCH /resources/{Arn}/tags) against serializers.go opPath/request.Method -- exact match, no gaps"}
+  route_matcher: {status: ok, note: "verified every REST path/method (POST for all ops except GET/PUT/PATCH /resources/{Arn}/tags) against serializers.go opPath/request.Method -- exact match, no gaps. FIXED 2026-09-20: isResourceTagsPath now requires the ARN's service segment to be resource-groups, so this service's own tag ops still match while a sibling service's identically-shaped /resources/{Arn}/tags request (QuickSight, confirmed) no longer does -- see overall note."}
 gaps: []
 items_still_open:
   - "SearchResources/ListGroupResources' QueryErrors field is present on the wire but always empty. CLOUDFORMATION_STACK_INACTIVE/NOT_EXISTING/UNASSUMABLE_ROLE only ever arise for CLOUDFORMATION_STACK_1_0-based groups (AWS docs describe them as occurring when 'the CloudFormation stack on which the query is based either does not exist, or has a status that renders the stack inactive'); RESOURCE_TYPE_NOT_SUPPORTED is likewise CFN-only by mechanism -- it is absent from SearchResourcesOutput.QueryErrors' own possible-value doc (api_op_SearchResources.go:79-86, aws-sdk-go-v2/service/resourcegroups@v1.36.4, lists only the 3 CFN codes) but present on ListGroupResourcesOutput's (api_op_ListGroupResources.go:105-108, lists all 4), and it is never documented independently of the 3 explicit CFN codes anywhere in the public API reference. Ordinary TAG_FILTERS_1_0 queries can't hit it: tag:GetResources (which backs tag-based membership) only ever returns already-taggable/supported resources, so there's no 'unsupported type' to error on outside a CFN-stack-to-Resource-Groups-type translation. Re-checked this sweep: 'no CFN stack backend' is stale framing -- gopherstack has a real CloudFormation stack backend (services/cloudformation) and an established cross-service wiring pattern for a Provider to reach another service's backend (services/sagemakerruntime/provider.go's sagemakerHandlerProvider; services/cloudformation/provider.go's BackendsProvider), so this isn't structurally blocked. What's actually missing: resourcegroups' Provider.Init (provider.go) never receives a CloudFormation backend reference, and SearchResources/ListGroupResources' CLOUDFORMATION_STACK_1_0 path (query.go's SearchResources, resources.go's ListGroupResources) doesn't evaluate the query against real stack resources at all -- it silently falls through to the same manually-grouped-ARN set used for every other group, CFN-scoping and all. Finishing this needs a handler-provider interface threaded into Provider.Init to reach the cloudformation backend, real CLOUDFORMATION_STACK_1_0 query evaluation against that stack's resources, and the stack-state checks that drive the three CFN error codes -- left undone this sweep as cross-service wiring, out of the single-service scope of this pass. (bd: gopherstack-rg-cfn-queryerrors)"
