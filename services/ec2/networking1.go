@@ -119,43 +119,8 @@ func (b *InMemoryBackend) DescribeTransitGatewayVpcAttachments(
 	b.mu.RLock("DescribeTransitGatewayVpcAttachments")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
-	out := make([]*TransitGatewayVpcAttachment, 0, b.tgwVpcAttachments.Len())
-	found := make(map[string]bool, len(ids))
-
-	for _, att := range b.tgwVpcAttachments.All() {
-		if len(idSet) > 0 && !idSet[att.TransitGatewayAttachmentID] {
-			continue
-		}
-
-		cp := *att
-		out = append(out, &cp)
-		found[att.TransitGatewayAttachmentID] = true
-	}
-
-	// A by-ID Describe of a just-deleted attachment still finds its
-	// tombstone (state "deleted") -- an unfiltered Describe never surfaces
-	// tombstones, matching real AWS's list-vs-get behavior.
-	for _, id := range ids {
-		if found[id] {
-			continue
-		}
-
-		if tomb, ok := b.tgwVpcAttachmentTombstones[id]; ok {
-			cp := *tomb
-			out = append(out, &cp)
-		}
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].TransitGatewayAttachmentID < out[j].TransitGatewayAttachmentID
-	})
-
-	return out
+	return describeWithTombstones(b.tgwVpcAttachments.All(), b.tgwVpcAttachmentTombstones, ids,
+		func(att *TransitGatewayVpcAttachment) string { return att.TransitGatewayAttachmentID })
 }
 
 // DeleteTransitGatewayVpcAttachment removes a TGW VPC attachment, keeping a

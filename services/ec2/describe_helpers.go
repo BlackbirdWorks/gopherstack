@@ -31,6 +31,45 @@ func describeByIDsOrNotFound[T any](
 	return out, nil
 }
 
+// describeWithTombstones copies matching live items plus, for any requested
+// id not found live, its tombstone -- an unfiltered Describe never surfaces
+// tombstones, matching real AWS's list-vs-get behavior. Result sorted by id.
+func describeWithTombstones[T any](live []*T, tombstones map[string]*T, ids []string, idOf func(*T) string) []*T {
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	out := make([]*T, 0, len(live))
+	found := make(map[string]bool, len(ids))
+
+	for _, item := range live {
+		itemID := idOf(item)
+		if len(idSet) > 0 && !idSet[itemID] {
+			continue
+		}
+
+		cp := *item
+		out = append(out, &cp)
+		found[itemID] = true
+	}
+
+	for _, id := range ids {
+		if found[id] {
+			continue
+		}
+
+		if tomb, ok := tombstones[id]; ok {
+			cp := *tomb
+			out = append(out, &cp)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return idOf(out[i]) < idOf(out[j]) })
+
+	return out
+}
+
 // firstMissingID reports the lexicographically-first id in requested that has
 // no entry in found, wrapped in notFoundErr -- for Describe ops (e.g.
 // DescribeImages) that build their found set while scanning a pre-existing

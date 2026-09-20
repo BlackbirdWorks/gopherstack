@@ -493,43 +493,8 @@ func (b *InMemoryBackend) DescribeTransitGatewayRouteTables(
 	b.mu.RLock("DescribeTransitGatewayRouteTables")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
-	out := make([]*TransitGatewayRouteTable, 0, b.tgwRouteTables.Len())
-	found := make(map[string]bool, len(ids))
-
-	for _, rt := range b.tgwRouteTables.All() {
-		if len(idSet) > 0 && !idSet[rt.RouteTableID] {
-			continue
-		}
-
-		cp := *rt
-		out = append(out, &cp)
-		found[rt.RouteTableID] = true
-	}
-
-	// A by-ID Describe of a just-deleted route table still finds its
-	// tombstone (state "deleted") -- an unfiltered Describe never surfaces
-	// tombstones, matching real AWS's list-vs-get behavior.
-	for _, id := range ids {
-		if found[id] {
-			continue
-		}
-
-		if tomb, ok := b.tgwRouteTableTombstones[id]; ok {
-			cp := *tomb
-			out = append(out, &cp)
-		}
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].RouteTableID < out[j].RouteTableID
-	})
-
-	return out
+	return describeWithTombstones(b.tgwRouteTables.All(), b.tgwRouteTableTombstones, ids,
+		func(rt *TransitGatewayRouteTable) string { return rt.RouteTableID })
 }
 
 // DeleteTransitGatewayRouteTable removes a TGW route table, keeping a
