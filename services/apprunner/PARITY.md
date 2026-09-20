@@ -1,8 +1,8 @@
 ---
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
-last_audit_commit: 75c14a90f
-last_audit_date: 2026-09-19
+last_audit_commit: 22b4f068c
+last_audit_date: 2026-09-20
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit,
                        # plus the wrapper-key/nested-shape sweep (2026-08-19, one fabricated-field bug fixed);
                        # 2026-08-23: closed the four member-never-emitted items disclosed 2026-08-19 (see Notes)
@@ -38,9 +38,9 @@ ops:
   DeleteVpcIngressConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as DescribeVpcIngressConnection."}
   ListVpcIngressConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): VpcIngressConnectionSummary member set exact against v1.42.4, see list_summary_shapes_test.go."}
   UpdateVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): required vpcDNSTargets (api_op_AssociateCustomDomain.go, required; deserializers.go:7705-7763) had no struct field on associateCustomDomainOutput at all -- DescribeCustomDomains (identical required set) already emitted it correctly as []. Added, always []any{} (this backend doesn't model per-domain VPC ingress DNS targets, so empty is the honest value, not fabricated). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u)."}
+  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): required vpcDNSTargets (api_op_AssociateCustomDomain.go, required; deserializers.go:7705-7763) had no struct field on associateCustomDomainOutput at all -- DescribeCustomDomains (identical required set) already emitted it correctly as []. Added, always []any{} (this backend doesn't model per-domain VPC ingress DNS targets, so empty is the honest value, not fabricated). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u). FIXED 2026-09-20 (mega-batch-31 terraform coverage): the new custom domain's Status was hardcoded to ACTIVE -- real App Runner starts it at PENDING_CERTIFICATE_DNS_VALIDATION (DNS/ACM validation is out-of-band and never auto-completes) and returns CertificateValidationRecords (CNAME Name/Type/Value/Status), a required-for-real-usability member this backend never emitted at all. Both fixed; see custom_domains.go's buildCertificateValidationRecords. Not counted toward mega-batch-31 coverage: the pinned hashicorp/aws v5.100.0 provider's own create waiter for aws_apprunner_custom_domain_association still fails ('unexpected state', see Notes) even against the now-correct wire value -- a provider defect, not a gopherstack gap."}
   DisassociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same vpcDNSTargets gap and fix as AssociateCustomDomain above (deserializers.go:8462-8520). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u)."}
-  DescribeCustomDomains: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeCustomDomains: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also returns the CertificateValidationRecords set on each domain (see AssociateCustomDomain)."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -696,3 +696,40 @@ member-for-member exact (prior 2026-08-19/08-23 passes had already fixed the
 real leaks); no new bug found, false-positive census hits. Locked in via
 list_summary_shapes_test.go (real SDK client + raw-body leak checks). Gates:
 `go build`/`go vet`/`go test -race` clean, `golangci-lint run` 0 issues.
+
+## 2026-09-20 (mega-batch-31 terraform coverage)
+
+New Terraform coverage (test/terraform/fixtures/mega-batch-31.tf,
+mega_batch31_test.go) for aws_apprunner_connection,
+aws_apprunner_deployment, aws_apprunner_observability_configuration,
+aws_apprunner_vpc_connector, aws_apprunner_vpc_ingress_connection. Found and
+fixed a real bug: AssociateCustomDomain hardcoded Status=ACTIVE and never
+emitted CertificateValidationRecords -- see AssociateCustomDomain row.
+
+Two resources left out of the fixture after a real apply attempt, both
+confirmed via `TF_LOG=trace` wire capture to be provider-side, not
+gopherstack gaps:
+
+- `aws_apprunner_auto_scaling_configuration_version`: the pinned
+  hashicorp/aws v5.100.0 provider's create waiter times out after 2m even
+  though every `DescribeAutoScalingConfiguration` poll already returns
+  `Status=ACTIVE` (the real, verified-correct wire value) -- confirmed by a
+  manual `tofu apply` against a bare local server with trace logging: the
+  same "ACTIVE" JSON body came back on every single poll for the full 2
+  minutes.
+- `aws_apprunner_custom_domain_association`: with the Status fix above in
+  place, the provider's create waiter now fails immediately with
+  `unexpected state 'PENDING_CERTIFICATE_DNS_VALIDATION', wanted target
+  'pending_certificate_dns_validation, binding_certificate'` -- our wire
+  value is the real (uppercase) SDK enum member
+  (`types.CustomDomainAssociationStatusPendingCertificateDnsValidation`),
+  but the provider's own waiter target list is lowercase and never matches
+  it. Same defect class as the ASG waiter above.
+- `aws_apprunner_default_auto_scaling_configuration_version` was also
+  dropped since it requires an `aws_apprunner_auto_scaling_configuration_version`
+  to reference, which the above defect blocks from ever being created via
+  Terraform in this provider version.
+
+Gates: `go build ./...`, `go vet`, `gofmt -l`, `go test -race -count=1
+./services/apprunner/...`, `golangci-lint run ./services/apprunner/...` (0
+issues) all clean.

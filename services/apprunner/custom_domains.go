@@ -30,15 +30,37 @@ func (b *InMemoryBackend) AssociateCustomDomain(
 	}
 
 	cd := &storedCustomDomain{
-		DomainName:         domainName,
-		Status:             customDomainStatusActive,
-		EnableWWWSubdomain: enableWWW,
+		DomainName:                   domainName,
+		Status:                       customDomainStatusPendingCertificateDNSValidation,
+		CertificateValidationRecords: buildCertificateValidationRecords(domainName, enableWWW),
+		EnableWWWSubdomain:           enableWWW,
 	}
 	b.customDomains[serviceArn] = append(b.customDomains[serviceArn], cd)
 
 	cp := cd.toCustomDomain()
 
 	return &cp, nil
+}
+
+// buildCertificateValidationRecords synthesizes the ACM CNAME validation
+// records App Runner returns for a newly associated custom domain: one for
+// the base domain, plus one for the www subdomain when enabled.
+func buildCertificateValidationRecords(domainName string, enableWWW bool) []CertificateValidationRecord {
+	records := []CertificateValidationRecord{certValidationRecord(domainName)}
+	if enableWWW {
+		records = append(records, certValidationRecord("www."+domainName))
+	}
+
+	return records
+}
+
+func certValidationRecord(domainName string) CertificateValidationRecord {
+	return CertificateValidationRecord{
+		Name:   "_" + newID() + "." + domainName + ".",
+		Type:   "CNAME",
+		Value:  "_" + newID() + ".acm-validations.aws.",
+		Status: certValidationRecordStatusPendingValidation,
+	}
 }
 
 // DisassociateCustomDomain removes a custom domain from a service.

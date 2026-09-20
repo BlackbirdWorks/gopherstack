@@ -35,8 +35,20 @@ func TestCustomDomainAssociateDescribeDisassociate(t *testing.T) { //nolint:para
 				require.NoError(t, json.Unmarshal(body, &resp))
 				cd := resp["CustomDomain"].(map[string]any)
 				assert.Equal(t, "example.com", cd["DomainName"])
-				assert.Equal(t, "ACTIVE", cd["Status"])
+				assert.Equal(t, "PENDING_CERTIFICATE_DNS_VALIDATION", cd["Status"])
 				assert.Equal(t, true, cd["EnableWWWSubdomain"])
+				records, ok := cd["CertificateValidationRecords"].([]any)
+				require.True(t, ok, "CertificateValidationRecords should be a list")
+				require.Len(t, records, 2, "base domain + www subdomain records")
+
+				for _, r := range records {
+					rec, recOk := r.(map[string]any)
+					require.True(t, recOk)
+					assert.Equal(t, "CNAME", rec["Type"])
+					assert.Equal(t, "PENDING_VALIDATION", rec["Status"])
+					assert.NotEmpty(t, rec["Name"])
+					assert.NotEmpty(t, rec["Value"])
+				}
 			},
 		},
 		{

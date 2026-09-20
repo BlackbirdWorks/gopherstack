@@ -1438,6 +1438,10 @@
   },
   "apprunner": {
     "fields": [
+      "CertificateValidationRecord.Name string",
+      "CertificateValidationRecord.Status string",
+      "CertificateValidationRecord.Type string",
+      "CertificateValidationRecord.Value string",
       "CodeSource.BuildCommand string `json:\"buildCommand\"`",
       "CodeSource.ConfigurationSource string `json:\"configurationSource\"`",
       "CodeSource.Port string `json:\"port\"`",
@@ -1495,6 +1499,7 @@
       "storedConnection.CreatedAt time.Time `json:\"createdAt\"`",
       "storedConnection.ProviderType string `json:\"providerType\"`",
       "storedConnection.Status string `json:\"status\"`",
+      "storedCustomDomain.CertificateValidationRecords []CertificateValidationRecord `json:\"certificateValidationRecords,omitempty\"`",
       "storedCustomDomain.DomainName string `json:\"domainName\"`",
       "storedCustomDomain.EnableWWWSubdomain bool `json:\"enableWwwSubdomain\"`",
       "storedCustomDomain.Status string `json:\"status\"`",
