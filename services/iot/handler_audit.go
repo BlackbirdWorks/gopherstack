@@ -25,6 +25,7 @@ func (h *Handler) handleCancelAuditTask(c *echo.Context) error {
 }
 
 const pathAuditConfiguration = "/audit/configuration"
+const pathAuditTasks = "/audit/tasks"
 
 func resolveAuditConfigOps(path, method string) string {
 	switch {
@@ -34,9 +35,9 @@ func resolveAuditConfigOps(path, method string) string {
 		return opUpdateAccountAuditConfiguration
 	case path == pathAuditConfiguration && method == http.MethodDelete:
 		return opDeleteAccountAuditConfiguration
-	case path == "/audit/tasks" && method == http.MethodGet:
+	case path == pathAuditTasks && method == http.MethodGet:
 		return opListAuditTasks
-	case path == "/audit/tasks" && method == http.MethodPost:
+	case path == pathAuditTasks && method == http.MethodPost:
 		return opStartOnDemandAuditTask
 	case strings.HasPrefix(path, "/audit/tasks/") && method == http.MethodGet:
 		return opDescribeAuditTask

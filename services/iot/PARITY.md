@@ -2,8 +2,8 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.83.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
-last_audit_commit: 302aa4e3c  # topic rule destination timestamp test flake fix
-last_audit_date: 2026-09-18
+last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (mega-batch-17, RouteMatcher fix); prior: 302aa4e3c
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
                        # filter/sort constraints across the certificate, policy, authorizer,
                        # role-alias, stream, and audit-suppression families were never read or
@@ -302,6 +302,11 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, mega-batch-17/19)
+
+RouteMatcher's blanket `/audit/` prefix swallowed Backup's `/audit/frameworks` and
+`/audit/report-plans`; narrowed to IoT's own known audit sub-paths only.
 
 ### 2026-09-18 flaky TestTopicRuleDestination_Timestamps fix
 

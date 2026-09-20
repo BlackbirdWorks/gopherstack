@@ -196,9 +196,29 @@ func matchCoreIoTPathSecondary(path string) bool {
 		strings.HasPrefix(path, "/security-profiles/") ||
 		path == "/security-profiles" ||
 		path == "/security-profiles-for-target" ||
-		strings.HasPrefix(path, "/audit/") ||
+		matchIoTAuditPath(path) ||
 		strings.HasPrefix(path, "/mitigationactions/") ||
 		matchDeviceDefenderPath(path)
+}
+
+// matchIoTAuditPath matches IoT Device Defender's own /audit/* paths
+// (tasks, suppressions, findings, scheduledaudits, configuration,
+// relatedResources, mitigationactions). A blanket HasPrefix(path, "/audit/")
+// here swallowed Backup's /audit/frameworks and /audit/report-plans (a
+// RouteMatcher prefix collision, see .claude/memories/route-matcher-prefix-
+// collision.md) -- IoT never routes those, only Backup does.
+func matchIoTAuditPath(path string) bool {
+	return path == pathAuditTasks ||
+		strings.HasPrefix(path, "/audit/tasks/") ||
+		path == "/audit/suppressions" ||
+		strings.HasPrefix(path, "/audit/suppressions/") ||
+		path == "/audit/findings" ||
+		strings.HasPrefix(path, "/audit/findings/") ||
+		path == "/audit/scheduledaudits" ||
+		strings.HasPrefix(path, "/audit/scheduledaudits/") ||
+		path == pathAuditConfiguration ||
+		path == "/audit/relatedResources" ||
+		strings.HasPrefix(path, "/audit/mitigationactions/")
 }
 
 // matchJobAndTemplatePath reports whether path is one of ListJobs (GET
