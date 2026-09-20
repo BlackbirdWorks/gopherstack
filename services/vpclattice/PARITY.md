@@ -1,6 +1,6 @@
 service: vpclattice
 sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
-last_audit_commit: a83673c4a
+last_audit_commit: 2bc650bf9
 last_audit_date: 2026-09-19
 # 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
 # left unchanged per this campaign's convention (the orchestrator, not this
@@ -147,6 +147,16 @@ items_still_open:
     resource, same class as the pre-existing ResourceEndpointAssociation
     gap above)."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
+
+### 2026-09-19: terraform mega-batch-21 coverage (13 previously-uncovered resources)
+
+Real terraform apply/verify/destroy of all 13 previously-uncovered vpclattice
+resource types (access_log_subscription, auth_policy, listener(+rule),
+resource_configuration, resource_gateway, resource_policy, service,
+service_network_resource_association, service_network_service_association,
+service_network_vpc_association, target_group(+attachment)) against real
+aws-sdk-go-v2 Get/List calls end to end -- 0 emulator bugs found, every
+resource applied and read back correctly on the first real attempt.
 
 ### 2026-09-19 (required-output-members reverification)
 
