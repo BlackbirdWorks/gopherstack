@@ -340,7 +340,7 @@ func TestSDK_RDS_ExportTasks(t *testing.T) {
 	})
 	require.NoError(t, err, "StartExportTask should succeed")
 	assert.Equal(t, taskID, aws.ToString(startOut.ExportTaskIdentifier))
-	assert.Equal(t, "complete", aws.ToString(startOut.Status))
+	assert.Equal(t, "COMPLETE", aws.ToString(startOut.Status))
 
 	// DescribeExportTasks
 	descOut, err := client.DescribeExportTasks(ctx, &rdssdk.DescribeExportTasksInput{
