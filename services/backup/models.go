@@ -239,6 +239,12 @@ type ReportPlan struct {
 	ReportPlanName        string                 `json:"reportPlanName"`
 	ReportPlanArn         string                 `json:"reportPlanArn"`
 	ReportPlanDescription string                 `json:"reportPlanDescription,omitempty"`
+	// DeploymentStatus is always "COMPLETED": this backend has no async
+	// create/update/delete pipeline for report plans, so the transient
+	// *_IN_PROGRESS states real AWS reports never apply here.
+	// terraform-provider-aws polls this field and errors if it's ever
+	// omitted/empty.
+	DeploymentStatus string `json:"deploymentStatus"`
 }
 
 // RestoreAccessVault represents an AWS Backup restore access backup vault.
@@ -298,6 +304,7 @@ type RestoreTestingPlan struct {
 	// update -- real AWS only sets it once an update has occurred.
 	UpdateTime             *time.Time                            `json:"updateTime,omitempty"`
 	RecoveryPointSelection *RestoreTestingRecoveryPointSelection `json:"recoveryPointSelection"`
+	Tags                   *tags.Tags                            `json:"tags,omitempty"`
 	RestoreTestingPlanName string                                `json:"restoreTestingPlanName"`
 	RestoreTestingPlanArn  string                                `json:"restoreTestingPlanArn"`
 	ScheduleExpression     string                                `json:"scheduleExpression,omitempty"`

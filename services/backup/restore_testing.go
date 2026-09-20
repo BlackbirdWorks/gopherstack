@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateRestoreTestingPlan creates a restore testing plan.
@@ -23,6 +24,7 @@ func (b *InMemoryBackend) CreateRestoreTestingPlan(
 	name, scheduleExpression string,
 	startWindowHours int64,
 	recoveryPointSelection *RestoreTestingRecoveryPointSelection,
+	kv map[string]string,
 ) (*RestoreTestingPlan, error) {
 	b.mu.Lock("CreateRestoreTestingPlan")
 	defer b.mu.Unlock()
@@ -36,6 +38,8 @@ func (b *InMemoryBackend) CreateRestoreTestingPlan(
 	}
 
 	planARN := arn.Build("backup", b.region, b.accountID, "restore-testing-plan:"+name)
+	t := tags.New("backup.restore-testing-plan." + name + ".tags")
+	t.Merge(kv)
 	rtp := &RestoreTestingPlan{
 		RestoreTestingPlanName: name,
 		RestoreTestingPlanArn:  planARN,
@@ -43,11 +47,22 @@ func (b *InMemoryBackend) CreateRestoreTestingPlan(
 		RecoveryPointSelection: recoveryPointSelection,
 		StartWindowHours:       startWindowHours,
 		CreationTime:           time.Now().UTC(),
+		Tags:                   t,
 	}
 	b.restoreTestingPlans.Put(rtp)
 	cp := *rtp
 
 	return &cp, nil
+}
+
+// restoreTestingPlanNameFromARN extracts the plan name from a restore
+// testing plan ARN (arn:...:restore-testing-plan:{name}), for
+// TagResource/ListTags/UntagResource -- restoreTestingPlans is keyed by
+// name, not ARN, and has no separate ARN index.
+func (b *InMemoryBackend) restoreTestingPlanNameFromARN(resourceArn string) (string, bool) {
+	prefix := arn.Build("backup", b.region, b.accountID, "restore-testing-plan:")
+
+	return strings.CutPrefix(resourceArn, prefix)
 }
 
 // CreateRestoreTestingSelection creates a selection within a restore

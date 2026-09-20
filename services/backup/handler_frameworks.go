@@ -138,7 +138,7 @@ func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
 		keyFrameworkName:       f.FrameworkName,
 		"FrameworkDescription": f.FrameworkDescription,
 		"FrameworkStatus":      f.FrameworkStatus,
-		"DeploymentStatus":     f.DeploymentStatus,
+		keyDeploymentStatus:    f.DeploymentStatus,
 		keyCreationTime:        epochSeconds(f.CreationTime),
 	}
 	if len(f.FrameworkControls) > 0 {

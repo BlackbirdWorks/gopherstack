@@ -1,7 +1,7 @@
 ---
 service: backup
 sdk_module: aws-sdk-go-v2/service/backup@v1.64.0
-last_audit_commit: 4a7682d1e  # 2026-09-19 required-output-members re-check (gopherstack-r80d); prior: d522d763f
+last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (mega-batch-17); prior: 4a7682d1e
 last_audit_date: 2026-09-19  # prior: 2026-09-19
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes) + gopherstack-21my (per-item field sweep: copy-job-summary AccountId, recovery-point StorageClass leak, backup-vault list lock/creator fields, protected-resource last-vault/recovery-point ARNs)
                       # 2026-09-19 (parity-sweep, notImplemented closure): implemented the 6 backup
@@ -208,6 +208,11 @@ leaks: {status: clean, note: "Janitor's advanceCreatedJobs takes the backend RLo
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, mega-batch-17)
+
+ReportPlan lacked DeploymentStatus (terraform's create-waiter hung); ProtectedResourceConditions
+wire-marshaled lowercase key/value; RestoreTestingPlan had no Tags support at all. All fixed.
 
 ### 2026-09-19 required-output-members re-check (gopherstack-r80d)
 

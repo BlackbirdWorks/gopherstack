@@ -199,6 +199,7 @@ const (
 	keyFrameworkArn                = "FrameworkArn"
 	keyFrameworkName               = "FrameworkName"
 	keyStatus                      = "Status"
+	keyDeploymentStatus            = "DeploymentStatus"
 	keyReportPlanArn               = "ReportPlanArn"
 	keyReportPlanName              = "ReportPlanName"
 	keyRestoreTestingPlanArn       = "RestoreTestingPlanArn"

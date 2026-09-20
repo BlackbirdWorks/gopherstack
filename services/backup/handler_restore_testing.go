@@ -64,6 +64,7 @@ type restoreTestingPlanDoc struct {
 }
 
 type createRestoreTestingPlanBody struct {
+	Tags               map[string]string     `json:"Tags,omitempty"`
 	CreatorRequestID   string                `json:"CreatorRequestId,omitempty"`
 	RestoreTestingPlan restoreTestingPlanDoc `json:"RestoreTestingPlan"`
 }
@@ -86,6 +87,7 @@ func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) e
 		in.RestoreTestingPlan.ScheduleExpression,
 		in.RestoreTestingPlan.StartWindowHours,
 		in.RestoreTestingPlan.RecoveryPointSelection.toModel(),
+		in.Tags,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -129,10 +131,23 @@ func protectedResourceConditionsFromJSON(in *protectedResourceConditionsJSON) *P
 func protectedResourceConditionsToJSON(in *ProtectedResourceConditions) map[string]any {
 	out := map[string]any{}
 	if len(in.StringEquals) > 0 {
-		out["StringEquals"] = in.StringEquals
+		out["StringEquals"] = keyValuesToJSON(in.StringEquals)
 	}
 	if len(in.StringNotEquals) > 0 {
-		out["StringNotEquals"] = in.StringNotEquals
+		out["StringNotEquals"] = keyValuesToJSON(in.StringNotEquals)
+	}
+
+	return out
+}
+
+// keyValuesToJSON converts KeyValue's internal lowercase-tagged
+// (key/value) shape to the real wire's PascalCase Key/Value -- passing
+// []KeyValue straight to json.Marshal (the prior behavior) emitted
+// "key"/"value", which a real client silently reads back as null.
+func keyValuesToJSON(in []KeyValue) []keyValueJSON {
+	out := make([]keyValueJSON, len(in))
+	for i, kv := range in {
+		out[i] = keyValueJSON(kv)
 	}
 
 	return out

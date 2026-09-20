@@ -176,6 +176,7 @@ func (h *Handler) handleListReportPlans(c *echo.Context) error {
 			keyReportPlanName:       rp.ReportPlanName,
 			"ReportPlanDescription": rp.ReportPlanDescription,
 			keyCreationTime:         epochSeconds(rp.CreationTime),
+			keyDeploymentStatus:     rp.DeploymentStatus,
 		})
 	}
 
@@ -205,6 +206,7 @@ func (h *Handler) handleDescribeReportPlan(c *echo.Context, name string) error {
 		keyReportPlanName:       rp.ReportPlanName,
 		"ReportPlanDescription": rp.ReportPlanDescription,
 		keyCreationTime:         epochSeconds(rp.CreationTime),
+		keyDeploymentStatus:     rp.DeploymentStatus,
 	}
 	if rp.ReportDeliveryChannel != nil {
 		rpDoc["ReportDeliveryChannel"] = reportDeliveryChannelToJSON(rp.ReportDeliveryChannel)
