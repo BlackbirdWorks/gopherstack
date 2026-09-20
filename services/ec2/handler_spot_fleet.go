@@ -410,15 +410,15 @@ type spotFleetIamInstanceProfileItem struct {
 }
 
 type spotFleetLaunchSpecItem struct {
-	Placement          spotFleetPlacementItem          `xml:"placement"`
-	Monitoring         spotFleetMonitoringItem         `xml:"monitoring"`
 	IamInstanceProfile spotFleetIamInstanceProfileItem `xml:"iamInstanceProfile"`
+	Placement          spotFleetPlacementItem          `xml:"placement"`
 	ImageID            string                          `xml:"imageId,omitempty"`
 	InstanceType       string                          `xml:"instanceType,omitempty"`
 	SubnetID           string                          `xml:"subnetId,omitempty"`
 	KeyName            string                          `xml:"keyName,omitempty"`
 	SpotPrice          string                          `xml:"spotPrice,omitempty"`
 	WeightedCapacity   string                          `xml:"weightedCapacity,omitempty"`
+	Monitoring         spotFleetMonitoringItem         `xml:"monitoring"`
 	EbsOptimized       bool                            `xml:"ebsOptimized"`
 }
 

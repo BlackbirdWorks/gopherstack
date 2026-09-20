@@ -18,38 +18,21 @@ const imageOwnerAliasAmazon = "amazon"
 
 // AMIStub is a static image entry.
 type AMIStub struct {
-	ImageID        string `json:"imageID,omitempty"`
-	Name           string `json:"name,omitempty"`
-	Description    string `json:"description,omitempty"`
-	Architecture   string `json:"architecture,omitempty"`
-	Platform       string `json:"platform,omitempty"`
-	RootDeviceName string `json:"rootDeviceName,omitempty"`
-	State          string `json:"state,omitempty"`
-	// SourceImageID is the parent AMI this image was copied from via
-	// CopyImage, or empty for root images. Used by GetImageAncestry.
-	SourceImageID string `json:"sourceImageID,omitempty"`
-	// OwnerID is the account ID (or "amazon" for the seeded public catalog
-	// entries below) that owns this AMI, used by DescribeImages' Owner.N
-	// filter.
-	OwnerID string `json:"ownerID,omitempty"`
-	// ImdsSupport/VirtualizationType are RegisterImage inputs echoed back
-	// on DescribeImages; this backend has no IMDS or hypervisor simulation
-	// to enforce either against.
-	ImdsSupport        string `json:"imdsSupport,omitempty"`
-	VirtualizationType string `json:"virtualizationType,omitempty"`
-	// EnaSupportSet/EnaSupport and SriovNetSupport are RegisterImage inputs
-	// echoed back on DescribeImages -- terraform-provider-aws's aws_ami
-	// resource always sends both (SriovNetSupport defaults to "simple"), and
-	// both are ForceNew: never echoing them back left every apply showing
-	// permanent drift ("sriov_net_support forces replacement" on every plan).
-	EnaSupportSet   bool   `json:"enaSupportSet,omitempty"`
-	EnaSupport      bool   `json:"enaSupport,omitempty"`
-	SriovNetSupport string `json:"sriovNetSupport,omitempty"`
-	// BlockDeviceMappings is RegisterImage's BlockDeviceMapping.N.* echoed back
-	// on DescribeImages -- real AWS clients (including the Terraform provider's
-	// spot fleet/launch template flattening, which locates the root device's
-	// mapping by DeviceName) rely on this list being populated.
+	State               string                    `json:"state,omitempty"`
+	VirtualizationType  string                    `json:"virtualizationType,omitempty"`
+	Description         string                    `json:"description,omitempty"`
+	Architecture        string                    `json:"architecture,omitempty"`
+	Platform            string                    `json:"platform,omitempty"`
+	RootDeviceName      string                    `json:"rootDeviceName,omitempty"`
+	Name                string                    `json:"name,omitempty"`
+	OwnerID             string                    `json:"ownerID,omitempty"`
+	ImageID             string                    `json:"imageID,omitempty"`
+	ImdsSupport         string                    `json:"imdsSupport,omitempty"`
+	SourceImageID       string                    `json:"sourceImageID,omitempty"`
+	SriovNetSupport     string                    `json:"sriovNetSupport,omitempty"`
 	BlockDeviceMappings []ImageBlockDeviceMapping `json:"blockDeviceMappings,omitempty"`
+	EnaSupport          bool                      `json:"enaSupport,omitempty"`
+	EnaSupportSet       bool                      `json:"enaSupportSet,omitempty"`
 }
 
 // ImageBlockDeviceMapping mirrors ec2@v1.329.0 types.BlockDeviceMapping as

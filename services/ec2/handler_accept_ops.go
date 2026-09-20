@@ -147,8 +147,8 @@ type acceptVpcEndpointConnectionsResponse struct {
 }
 
 type vpcPeeringConnectionVpcInfoItem struct {
-	VpcID          string              `xml:"vpcId,omitempty"`
 	PeeringOptions *peeringOptionsItem `xml:"peeringOptions,omitempty"`
+	VpcID          string              `xml:"vpcId,omitempty"`
 }
 
 type vpcPeeringConnectionStatusItem struct {

@@ -101,22 +101,16 @@ type TransitGatewayPeeringAttachment struct {
 
 // TransitGatewayVpcAttachment represents a TGW VPC attachment.
 type TransitGatewayVpcAttachment struct {
-	CreationTime               time.Time `json:"creationTime"`
-	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID,omitempty"`
-	TransitGatewayID           string    `json:"transitGatewayID,omitempty"`
-	VpcID                      string    `json:"vpcID,omitempty"`
-	State                      string    `json:"state,omitempty"`
-	// SubnetIDs is the set of subnet IDs the attachment uses, managed via
-	// ModifyTransitGatewayVpcAttachment's AddSubnetIds/RemoveSubnetIds.
-	SubnetIDs []string `json:"subnetIDs,omitempty"`
-	// ApplianceModeSupport/DnsSupport/Ipv6Support/SecurityGroupReferencingSupport
-	// are CreateTransitGatewayVpcAttachment's Options.* request members, always
-	// echoed back on the real wire (aws_ec2_transit_gateway_vpc_attachment reads
-	// them as Optional+Computed attributes and waits for them to be populated).
-	ApplianceModeSupport            string `json:"applianceModeSupport,omitempty"`
-	DNSSupport                      string `json:"dnsSupport,omitempty"`
-	Ipv6Support                     string `json:"ipv6Support,omitempty"`
-	SecurityGroupReferencingSupport string `json:"securityGroupReferencingSupport,omitempty"`
+	CreationTime                    time.Time `json:"creationTime"`
+	TransitGatewayAttachmentID      string    `json:"transitGatewayAttachmentID,omitempty"`
+	TransitGatewayID                string    `json:"transitGatewayID,omitempty"`
+	VpcID                           string    `json:"vpcID,omitempty"`
+	State                           string    `json:"state,omitempty"`
+	ApplianceModeSupport            string    `json:"applianceModeSupport,omitempty"`
+	DNSSupport                      string    `json:"dnsSupport,omitempty"`
+	Ipv6Support                     string    `json:"ipv6Support,omitempty"`
+	SecurityGroupReferencingSupport string    `json:"securityGroupReferencingSupport,omitempty"`
+	SubnetIDs                       []string  `json:"subnetIDs,omitempty"`
 }
 
 // VpcEndpointConnection represents a VPC endpoint connection to a service.

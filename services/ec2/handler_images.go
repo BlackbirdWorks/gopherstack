@@ -1113,22 +1113,22 @@ type amiBlockDeviceMappingItem struct {
 
 type amiItem struct {
 	InstanceTypeSpecification *instanceTypeSpecificationItem `xml:"instanceTypeSpecification,omitempty"`
-	RootDeviceName            string                         `xml:"rootDeviceName,omitempty"`
-	Description               string                         `xml:"description,omitempty"`
-	Architecture              string                         `xml:"architecture"`
+	EnaSupport                *bool                          `xml:"enaSupport,omitempty"`
+	OwnerAlias                string                         `xml:"imageOwnerAlias,omitempty"`
+	ImdsSupport               string                         `xml:"imdsSupport,omitempty"`
 	Platform                  string                         `xml:"platform,omitempty"`
 	State                     string                         `xml:"imageState"`
 	ImageID                   string                         `xml:"imageId"`
 	OwnerID                   string                         `xml:"imageOwnerId,omitempty"`
-	OwnerAlias                string                         `xml:"imageOwnerAlias,omitempty"`
-	ImdsSupport               string                         `xml:"imdsSupport,omitempty"`
+	Description               string                         `xml:"description,omitempty"`
+	Architecture              string                         `xml:"architecture"`
 	VirtualizationType        string                         `xml:"virtualizationType,omitempty"`
 	DeprecationTime           string                         `xml:"deprecationTime,omitempty"`
 	Name                      string                         `xml:"name"`
 	SriovNetSupport           string                         `xml:"sriovNetSupport,omitempty"`
-	TagSet                    []simpleTagItem                `xml:"tagSet>item,omitempty"`
+	RootDeviceName            string                         `xml:"rootDeviceName,omitempty"`
 	BlockDeviceMapping        []amiBlockDeviceMappingItem    `xml:"blockDeviceMapping>item,omitempty"`
-	EnaSupport                *bool                          `xml:"enaSupport,omitempty"`
+	TagSet                    []simpleTagItem                `xml:"tagSet>item,omitempty"`
 }
 
 // toAMIBlockDeviceMappingItems converts stored block device mappings to their

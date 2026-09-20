@@ -638,8 +638,7 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(
 	// AWS sends the attribute as a nested element: e.g. Description.Value, SourceDestCheck.Value,
 	// Attachment.AttachmentId + Attachment.DeleteOnTermination.
 	// Use HasKey to allow clearing the description (empty string is valid).
-	attr := ""
-	value := ""
+	var attr, value string
 
 	_, hasDesc := vals["Description.Value"]
 	_, hasSdc := vals["SourceDestCheck.Value"]
