@@ -391,6 +391,7 @@ type xmlRestoreAccessList struct {
 type xmlSnapshot struct {
 	SnapshotIdentifier            string               `xml:"SnapshotIdentifier"`
 	ClusterIdentifier             string               `xml:"ClusterIdentifier"`
+	SnapshotArn                   string               `xml:"SnapshotArn,omitempty"`
 	SnapshotType                  string               `xml:"SnapshotType,omitempty"`
 	SnapshotCreateTime            string               `xml:"SnapshotCreateTime,omitempty"`
 	Status                        string               `xml:"Status"`
@@ -418,6 +419,7 @@ func snapshotToXML(snap *Snapshot) xmlSnapshot {
 	return xmlSnapshot{
 		SnapshotIdentifier:            snap.SnapshotIdentifier,
 		ClusterIdentifier:             snap.ClusterIdentifier,
+		SnapshotArn:                   snap.SnapshotArn,
 		SnapshotType:                  snap.SnapshotType,
 		SnapshotCreateTime:            createTime,
 		Status:                        snap.Status,

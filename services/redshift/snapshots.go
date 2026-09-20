@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -213,8 +214,14 @@ func (b *InMemoryBackend) CreateClusterSnapshot(snapshotID, clusterID string) (*
 	}
 
 	snap := &Snapshot{
-		SnapshotIdentifier:            snapshotID,
-		ClusterIdentifier:             clusterID,
+		SnapshotIdentifier: snapshotID,
+		ClusterIdentifier:  clusterID,
+		SnapshotArn: arn.Build(
+			"redshift",
+			b.region,
+			b.accountID,
+			"snapshot:"+clusterID+"/"+snapshotID,
+		),
 		SnapshotType:                  "manual",
 		Status:                        "available",
 		AccountsWithRestoreAccess:     []AccountWithRestoreAccess{},

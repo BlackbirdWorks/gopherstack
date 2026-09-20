@@ -7,7 +7,7 @@
 service: redshift
 sdk_module: aws-sdk-go-v2/service/redshift@v1.65.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/redshiftserverless@v1.38.5]  # pinned in go.mod 2026-08-13, bd gopherstack-0w2p; see "Redshift Serverless" family row
-last_audit_commit: 49cff86c4
+last_audit_commit: 68761ba3a
 last_audit_date: 2026-09-19
 overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherstack-0eyk): the
                        # Create/ModifyRedshiftIdcApplicationResult missing-inner-<RedshiftIdcApplication>
@@ -91,11 +91,25 @@ items_still_open:
   - "2026-09-13 (gopherstack-xhu2t tier-1 sweep): GetClusterCredentials.DbGroups remains unread -- the real field adds the temporary user to existing database groups for the session; this backend has no real database/session/group-membership model to add to (GetClusterCredentials only mints a pseudo-password/Expiration pair), so there is nothing observable a test could assert. DurationSeconds (same op, and GetClusterCredentialsWithIAM's) was genuinely dropped and is now fixed -- see 2026-09-13 Notes section."
   - "2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints (aws-sdk-go-v2/service/redshiftserverless@v1.38.5 types.Workgroup/types.Endpoint) are unmodeled -- they'd need a maintenance-track-upgrade scheduler, a patch-version catalog and real VPC/ENI allocation this backend has nowhere else either (the same judgment call already made for ServerlessEndpointAccess's own VpcEndpoint, see serverless.go). Confirmed absent via structfielddiff; all are optional members, not required-and-zero, so every other Workgroup field name/case was confirmed to match exactly."
   - "2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): ScheduledActionResponse.NextInvocations is unmodeled for serverless scheduled actions -- classic Redshift's own ScheduledAction.NextInvocations IS computed (schedule.go's nextInvocations, parsing cron(...)/at(...) function-call syntax), but Redshift Serverless's Schedule is a different raw-JSON tagged union ({\"cron\":\"...\"} bare string, or {\"at\":<epoch-seconds>}), so that evaluator doesn't apply as-is; a correct implementation needs its own parser, not a one-line reuse. Optional member, not required-and-zero -- every other ScheduledActionResponse field confirmed correct, including the already-fixed slScheduledActionAssociationWire List-item narrowing (NamespaceName/ScheduledActionName only, no other fields)."
+  - "2026-09-19 (terraform mega-batch-18 coverage pass): aws_redshift_data_share_authorization
+    and aws_redshift_data_share_consumer_association were left out of terraform coverage --
+    real datashares are created by a `CREATE DATASHARE` SQL statement inside the cluster, not
+    a wire-reachable RDS/Redshift API this backend's AuthorizeDataShare/AssociateDataShareConsumer
+    can seed on their own (AddDataShareInternal exists but is test-only). No provider error was
+    produced because no fixture was attempted; this is a structural gap, not a bug."
 deferred: []      # all 17 prior deferred families field-diffed in the 2026-07-22 pass, see families above
 leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines. New Qev2IdcApplication store.Table this pass introduces no goroutines/tickers -- registered through the existing store.Registry the same way every other table is (store_setup.go), snapshotted/restored generically via registry.SnapshotAll/RestoreAll, no bespoke persistence code added."}
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform mega-batch-18 coverage pass)
+
+Found via the real hashicorp/aws provider: CreateHsmClientCertificate/CreateHsmConfiguration
+responses omitted the required inner `HsmClientCertificate`/`HsmConfiguration` wrapper element
+(nil pointer panic in the provider); Snapshot never carried its own ARN, so
+`aws_redshift_resource_policy` always sent an empty ResourceArn; Cluster never carried
+ClusterSnapshotCopyStatus, so `aws_redshift_snapshot_copy` failed with "empty output". All fixed.
 
 ### 2026-09-13 (gopherstack-xhu2t tier-1 sweep): 49 tier-1 undeclared-request-field findings, 47 fixed, 2 recorded
 

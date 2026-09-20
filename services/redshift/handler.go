@@ -738,7 +738,9 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 
 	for _, c := range clusters {
 		cp := c
-		members = append(members, toXMLClusterWithTags(&cp, allTags[c.ClusterIdentifier]))
+		x := toXMLClusterWithTags(&cp, allTags[c.ClusterIdentifier])
+		x.ClusterSnapshotCopyStatus = snapshotCopyStatusXML(h.Backend.SnapshotCopyConfigFor(c.ClusterIdentifier))
+		members = append(members, x)
 	}
 
 	return &describeClustersResponse{
@@ -807,7 +809,24 @@ func validateMasterUserPassword(password string) error {
 // used in a per-cluster loop over DescribeClusters results -- see
 // toXMLClusterWithTags for that path.
 func (h *Handler) toXMLCluster(c *Cluster) xmlCluster {
-	return toXMLClusterWithTags(c, h.Backend.DescribeTags()[c.ClusterIdentifier])
+	x := toXMLClusterWithTags(c, h.Backend.DescribeTags()[c.ClusterIdentifier])
+	x.ClusterSnapshotCopyStatus = snapshotCopyStatusXML(h.Backend.SnapshotCopyConfigFor(c.ClusterIdentifier))
+
+	return x
+}
+
+// snapshotCopyStatusXML maps a SnapshotCopyConfig (nil when snapshot copy is
+// not enabled) to its wire shape.
+func snapshotCopyStatusXML(cfg *SnapshotCopyConfig) *xmlClusterSnapshotCopyStatus {
+	if cfg == nil {
+		return nil
+	}
+
+	return &xmlClusterSnapshotCopyStatus{
+		DestinationRegion:     cfg.DestinationRegion,
+		SnapshotCopyGrantName: cfg.SnapshotCopyGrantName,
+		RetentionPeriod:       cfg.RetentionPeriod,
+	}
 }
 
 // clusterParameterGroupNameOrDefault reports the parameter group a cluster
@@ -1032,43 +1051,59 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
-	AquaConfiguration                xmlAquaConfig                   `xml:"AquaConfiguration"`
-	MasterUsername                   string                          `xml:"MasterUsername"`
-	PreferredMaintenanceWindow       string                          `xml:"PreferredMaintenanceWindow,omitempty"`
-	ClusterType                      string                          `xml:"ClusterType,omitempty"`
-	Endpoint                         string                          `xml:"Endpoint>Address"`
-	ClusterStatus                    string                          `xml:"ClusterStatus"`
-	NodeType                         string                          `xml:"NodeType"`
-	ClusterAvailabilityStatus        string                          `xml:"ClusterAvailabilityStatus"`
-	MultiAZ                          string                          `xml:"MultiAZ"`
-	ClusterIdentifier                string                          `xml:"ClusterIdentifier"`
-	SnapshotScheduleIdentifier       string                          `xml:"SnapshotScheduleIdentifier,omitempty"`
-	DBName                           string                          `xml:"DBName"`
-	KmsKeyID                         string                          `xml:"KmsKeyId,omitempty"`
-	AvailabilityZoneRelocationStatus string                          `xml:"AvailabilityZoneRelocationStatus"`
-	SnapshotScheduleState            string                          `xml:"SnapshotScheduleState,omitempty"`
-	CatalogArn                       string                          `xml:"CatalogArn,omitempty"`
-	LakehouseRegistrationStatus      string                          `xml:"LakehouseRegistrationStatus,omitempty"`
-	AvailabilityZone                 string                          `xml:"AvailabilityZone,omitempty"`
-	ClusterSubnetGroupName           string                          `xml:"ClusterSubnetGroupName,omitempty"`
-	DefaultIamRoleArn                string                          `xml:"DefaultIamRoleArn,omitempty"`
-	ClusterParameterGroups           xmlClusterParamGroups           `xml:"ClusterParameterGroups"`
-	ClusterSecurityGroups            xmlClusterSecGroups             `xml:"ClusterSecurityGroups"`
-	ClusterNodes                     xmlClusterNodes                 `xml:"ClusterNodes"`
-	IamRoles                         xmlIamRoles                     `xml:"IamRoles"`
-	Tags                             []svcTags.KV                    `xml:"Tags>Tag,omitempty"`
-	ClusterVersion                   string                          `xml:"ClusterVersion,omitempty"`
-	VpcSecurityGroups                []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroups>VpcSecurityGroup,omitempty"`
-	NumberOfNodes                    int                             `xml:"NumberOfNodes,omitempty"`
-	EndpointPort                     int                             `xml:"Endpoint>Port,omitempty"`
-	AutomatedSnapshotRetentionPeriod int                             `xml:"AutomatedSnapshotRetentionPeriod"`
-	ManualSnapshotRetentionPeriod    int                             `xml:"ManualSnapshotRetentionPeriod"`
-	EnhancedVpcRouting               bool                            `xml:"EnhancedVpcRouting"`
-	Encrypted                        bool                            `xml:"Encrypted"`
-	PubliclyAccessible               bool                            `xml:"PubliclyAccessible"`
-	AllowVersionUpgrade              bool                            `xml:"AllowVersionUpgrade"`
+	ClusterSnapshotCopyStatus        *xmlClusterSnapshotCopyStatus `xml:"ClusterSnapshotCopyStatus,omitempty"`
+	AquaConfiguration                xmlAquaConfig                 `xml:"AquaConfiguration"`
+	ClusterSubnetGroupName           string                        `xml:"ClusterSubnetGroupName,omitempty"`
+	DefaultIamRoleArn                string                        `xml:"DefaultIamRoleArn,omitempty"`
+	Endpoint                         string                        `xml:"Endpoint>Address"`
+	ClusterStatus                    string                        `xml:"ClusterStatus"`
+	NodeType                         string                        `xml:"NodeType"`
+	ClusterAvailabilityStatus        string                        `xml:"ClusterAvailabilityStatus"`
+	MultiAZ                          string                        `xml:"MultiAZ"`
+	ClusterIdentifier                string                        `xml:"ClusterIdentifier"`
+	SnapshotScheduleIdentifier       string                        `xml:"SnapshotScheduleIdentifier,omitempty"`
+	DBName                           string                        `xml:"DBName"`
+	KmsKeyID                         string                        `xml:"KmsKeyId,omitempty"`
+	AvailabilityZoneRelocationStatus string                        `xml:"AvailabilityZoneRelocationStatus"`
+	SnapshotScheduleState            string                        `xml:"SnapshotScheduleState,omitempty"`
+	CatalogArn                       string                        `xml:"CatalogArn,omitempty"`
+	LakehouseRegistrationStatus      string                        `xml:"LakehouseRegistrationStatus,omitempty"`
+	AvailabilityZone                 string                        `xml:"AvailabilityZone,omitempty"`
+	ClusterType                      string                        `xml:"ClusterType,omitempty"`
+	PreferredMaintenanceWindow       string                        `xml:"PreferredMaintenanceWindow,omitempty"`
+	MasterUsername                   string                        `xml:"MasterUsername"`
+	ClusterVersion                   string                        `xml:"ClusterVersion,omitempty"`
+	ClusterParameterGroups           xmlClusterParamGroups         `xml:"ClusterParameterGroups"`
+	IamRoles                         xmlIamRoles                   `xml:"IamRoles"`
+	Tags                             []svcTags.KV                  `xml:"Tags>Tag,omitempty"`
+	ClusterSecurityGroups            xmlClusterSecGroups           `xml:"ClusterSecurityGroups"`
 
-	ExtraComputeForAutomaticOptimization bool `xml:"ExtraComputeForAutomaticOptimization"`
+	VpcSecurityGroups []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroups>VpcSecurityGroup,omitempty"`
+
+	ClusterNodes                         xmlClusterNodes `xml:"ClusterNodes"`
+	ManualSnapshotRetentionPeriod        int             `xml:"ManualSnapshotRetentionPeriod"`
+	AutomatedSnapshotRetentionPeriod     int             `xml:"AutomatedSnapshotRetentionPeriod"`
+	EndpointPort                         int             `xml:"Endpoint>Port,omitempty"`
+	NumberOfNodes                        int             `xml:"NumberOfNodes,omitempty"`
+	EnhancedVpcRouting                   bool            `xml:"EnhancedVpcRouting"`
+	Encrypted                            bool            `xml:"Encrypted"`
+	PubliclyAccessible                   bool            `xml:"PubliclyAccessible"`
+	AllowVersionUpgrade                  bool            `xml:"AllowVersionUpgrade"`
+	ExtraComputeForAutomaticOptimization bool            `xml:"ExtraComputeForAutomaticOptimization"`
+}
+
+// xmlClusterSnapshotCopyStatus is the wire shape of
+// types.ClusterSnapshotCopyStatus (redshift@v1.65.4 types.go:624), confirmed
+// against awsAwsquery_deserializeDocumentClusterSnapshotCopyStatus in
+// deserializers.go. Only present when cross-region snapshot copy is enabled
+// for the cluster (aws_redshift_snapshot_copy) -- its own create reads this
+// field on the EnableSnapshotCopy response and errors with "empty output" if
+// it's absent.
+type xmlClusterSnapshotCopyStatus struct {
+	DestinationRegion             string `xml:"DestinationRegion,omitempty"`
+	SnapshotCopyGrantName         string `xml:"SnapshotCopyGrantName,omitempty"`
+	ManualSnapshotRetentionPeriod int    `xml:"ManualSnapshotRetentionPeriod,omitempty"`
+	RetentionPeriod               int    `xml:"RetentionPeriod,omitempty"`
 }
 
 type xmlAquaConfig struct {
