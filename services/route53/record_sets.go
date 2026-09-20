@@ -743,7 +743,7 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(
 	changeID := "C" + randomID("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 14) //nolint:mnd // 14-char AWS-style change ID
 	ci := &ChangeInfo{
 		ID:          "/change/" + changeID,
-		Status:      "INSYNC",
+		Status:      statusInsync,
 		SubmittedAt: time.Now(),
 	}
 	b.changes.Put(ci)

@@ -72,7 +72,8 @@ type xmlDNSSECStatus struct {
 func (h *Handler) enableHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
 	ctx := c.Request().Context()
 
-	if err := h.Backend.EnableHostedZoneDNSSEC(zoneID); err != nil {
+	changeID, err := h.Backend.EnableHostedZoneDNSSEC(zoneID)
+	if err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -85,7 +86,7 @@ func (h *Handler) enableHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
 	}{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/enable-dnssec-" + zoneID,
+			ID:          changeID,
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
@@ -97,7 +98,8 @@ func (h *Handler) enableHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
 func (h *Handler) disableHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
 	ctx := c.Request().Context()
 
-	if err := h.Backend.DisableHostedZoneDNSSEC(zoneID); err != nil {
+	changeID, err := h.Backend.DisableHostedZoneDNSSEC(zoneID)
+	if err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -110,7 +112,7 @@ func (h *Handler) disableHostedZoneDNSSEC(c *echo.Context, zoneID string) error 
 	}{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/disable-dnssec-" + zoneID,
+			ID:          changeID,
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},

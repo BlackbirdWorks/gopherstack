@@ -193,29 +193,43 @@ func (b *InMemoryBackend) ListCidrLocations(
 	return page.New(locations, nextToken, maxResults, route53DefaultMaxItems), nil
 }
 
-// ListCidrBlocks returns a page of CIDR blocks for a given location in a
-// collection, paginated by NextToken (route53@v1.65.6
-// api_op_ListCidrBlocks.go). col.Locations[locationName] is an append-only
-// slice (never a map), so it is already deterministic across calls.
+// ListCidrBlocks returns a page of CIDR blocks in a collection, paginated by
+// NextToken (route53@v1.65.6 api_op_ListCidrBlocks.go). locationName is
+// optional (api_op_ListCidrBlocks.go's LocationName has no "required" doc
+// comment) -- when empty, every location's blocks are returned, sorted by
+// location name (collections.SortedKeys) then in each location's append
+// order, so results stay deterministic across calls (gopherstack-101r: this
+// previously looked up col.Locations[""] directly, always returning empty
+// when the caller omitted LocationName).
 func (b *InMemoryBackend) ListCidrBlocks(
 	collectionID, locationName, nextToken string,
 	maxResults int,
-) (page.Page[string], error) {
+) (page.Page[CidrBlockEntry], error) {
 	b.mu.RLock("ListCidrBlocks")
 	defer b.mu.RUnlock()
 
 	col, ok := b.cidrCollections.Get(collectionID)
 	if !ok {
-		return page.Page[string]{}, fmt.Errorf(
+		return page.Page[CidrBlockEntry]{}, fmt.Errorf(
 			"%w: CIDR collection %s not found",
 			ErrCidrCollectionNotFound,
 			collectionID,
 		)
 	}
 
-	cidrs := col.Locations[locationName]
-	result := make([]string, len(cidrs))
-	copy(result, cidrs)
+	var result []CidrBlockEntry
+
+	if locationName != "" {
+		for _, cidr := range col.Locations[locationName] {
+			result = append(result, CidrBlockEntry{CIDR: cidr, LocationName: locationName})
+		}
+	} else {
+		for _, loc := range collections.SortedKeys(col.Locations) {
+			for _, cidr := range col.Locations[loc] {
+				result = append(result, CidrBlockEntry{CIDR: cidr, LocationName: loc})
+			}
+		}
+	}
 
 	return page.New(result, nextToken, maxResults, route53DefaultMaxItems), nil
 }

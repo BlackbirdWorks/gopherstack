@@ -279,7 +279,7 @@ func (h *Handler) listCidrBlocks(c *echo.Context, path string) error {
 
 	summaries := make([]xmlCidrBlockSummary, 0, len(p.Data))
 	for _, b := range p.Data {
-		summaries = append(summaries, xmlCidrBlockSummary{CidrBlock: b, LocationName: locationName})
+		summaries = append(summaries, xmlCidrBlockSummary{CidrBlock: b.CIDR, LocationName: b.LocationName})
 	}
 
 	return writeXML(c, http.StatusOK, listCidrBlocksResponse{
