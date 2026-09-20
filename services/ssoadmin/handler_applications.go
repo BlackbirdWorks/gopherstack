@@ -25,7 +25,7 @@ type applicationView struct {
 
 func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	var req struct {
-		PortalOptions struct {
+		PortalOptions *struct {
 			Visibility    string `json:"Visibility"`
 			SignInOptions struct {
 				Origin         string `json:"Origin"`
@@ -53,12 +53,19 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		tags[t.Key] = t.Value
 	}
 
-	portalOptions := &PortalOptions{
-		Visibility: req.PortalOptions.Visibility,
-		SignInOptions: SignInOptions{
-			Origin:         req.PortalOptions.SignInOptions.Origin,
-			ApplicationURL: req.PortalOptions.SignInOptions.ApplicationURL,
-		},
+	// PortalOptions must stay nil when the request omits it -- a synthesized
+	// empty PortalOptions echoed back by DescribeApplication makes
+	// terraform-provider-aws see the portal_options block go from absent to
+	// present ("Provider produced inconsistent result after apply").
+	var portalOptions *PortalOptions
+	if req.PortalOptions != nil {
+		portalOptions = &PortalOptions{
+			Visibility: req.PortalOptions.Visibility,
+			SignInOptions: SignInOptions{
+				Origin:         req.PortalOptions.SignInOptions.Origin,
+				ApplicationURL: req.PortalOptions.SignInOptions.ApplicationURL,
+			},
+		}
 	}
 
 	app, err := h.Backend.CreateApplication(
@@ -126,19 +133,29 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 	// ListTagsForResource, matching every other taggable ssoadmin resource);
 	// see awsAwsjson11_deserializeOpDocumentDescribeApplicationOutput in the
 	// real SDK's deserializers.go.
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"ApplicationAccount":      app.ApplicationAccount,
 		keyApplicationArn:         app.ApplicationArn,
 		keyApplicationProviderArn: app.ApplicationProviderArn,
 		"CreatedDate":             float64(app.CreatedDate.Unix()),
 		"CreatedFrom":             app.CreatedFrom,
-		"Description":             app.Description,
 		"IdentityStoreArn":        app.IdentityStoreArn,
 		keyInstanceArn:            app.InstanceArn,
 		keyName:                   app.Name,
 		"PortalOptions":           app.PortalOptions,
 		keyStatus:                 app.Status,
-	})
+	}
+
+	// Description is *string on the real wire and omitted when unset -- a
+	// map literal has no struct tag to omitempty, so an always-present ""
+	// key here (unlike the real API) makes terraform-provider-aws's
+	// Optional-only (non-Computed) description attribute see "" on refresh
+	// against a null config value, producing a permanent diff.
+	if app.Description != "" {
+		resp["Description"] = app.Description
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeApplicationProvider(c *echo.Context, body []byte) error {
