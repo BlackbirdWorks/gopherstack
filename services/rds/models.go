@@ -94,6 +94,14 @@ type DBClusterRole struct {
 	Status      string `json:"status"`
 }
 
+// DBInstanceRole represents an IAM role association on a DB instance
+// (AssociatedRoles on DescribeDBInstances' DBInstance, rds@v1.124.1 types.go:1956).
+type DBInstanceRole struct {
+	RoleArn     string `json:"roleArn"`
+	FeatureName string `json:"featureName"`
+	Status      string `json:"status"`
+}
+
 // GlobalClusterMember represents a member cluster in a global cluster.
 type GlobalClusterMember struct {
 	DBClusterArn          string `json:"dbClusterArn"`
@@ -656,17 +664,18 @@ type DBSnapshotTenantDatabase struct {
 
 // DBInstanceAutomatedBackup represents an automated backup record for an RDS instance.
 type DBInstanceAutomatedBackup struct {
-	DBInstanceIdentifier  string `json:"dbInstanceIdentifier"`
-	DbiResourceID         string `json:"dbiResourceId"`
-	Engine                string `json:"engine"`
-	EngineVersion         string `json:"engineVersion"`
-	DBInstanceArn         string `json:"dbInstanceArn"`
-	Region                string `json:"region"`
-	Status                string `json:"status"`
-	AllocatedStorage      int    `json:"allocatedStorage"`
-	Port                  int    `json:"port"`
-	BackupRetentionPeriod int    `json:"backupRetentionPeriod"`
-	Encrypted             bool   `json:"encrypted"`
+	DBInstanceIdentifier          string `json:"dbInstanceIdentifier"`
+	DbiResourceID                 string `json:"dbiResourceId"`
+	Engine                        string `json:"engine"`
+	EngineVersion                 string `json:"engineVersion"`
+	DBInstanceArn                 string `json:"dbInstanceArn"`
+	DBInstanceAutomatedBackupsArn string `json:"dbInstanceAutomatedBackupsArn"`
+	Region                        string `json:"region"`
+	Status                        string `json:"status"`
+	AllocatedStorage              int    `json:"allocatedStorage"`
+	Port                          int    `json:"port"`
+	BackupRetentionPeriod         int    `json:"backupRetentionPeriod"`
+	Encrypted                     bool   `json:"encrypted"`
 }
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.

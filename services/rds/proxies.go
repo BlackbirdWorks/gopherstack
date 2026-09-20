@@ -161,7 +161,7 @@ func (b *InMemoryBackend) DeleteDBProxy(name string) (*DBProxy, error) {
 
 	proxy, exists := b.proxies.Get(name)
 	if !exists {
-		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, name)
+		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, name)
 	}
 
 	b.proxies.Delete(name)
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) DescribeDBProxies(name string) ([]DBProxy, error) {
 	}
 
 	if name != "" && len(result) == 0 {
-		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, name)
+		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, name)
 	}
 
 	return result, nil
@@ -215,7 +215,7 @@ func (b *InMemoryBackend) ModifyDBProxy(
 
 	proxy, exists := b.proxies.Get(name)
 	if !exists {
-		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, name)
+		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, name)
 	}
 
 	if requireTLS != nil {
@@ -245,7 +245,7 @@ func (b *InMemoryBackend) RegisterDBProxyTargets(
 	defer b.mu.Unlock()
 
 	if _, exists := b.proxies.Get(proxyName); !exists {
-		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
+		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, proxyName)
 	}
 
 	if b.proxyTargets[proxyName] == nil {
@@ -295,7 +295,7 @@ func (b *InMemoryBackend) DeregisterDBProxyTargets(
 	defer b.mu.Unlock()
 
 	if _, exists := b.proxies.Get(proxyName); !exists {
-		return fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
+		return fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, proxyName)
 	}
 
 	removeIDs := make(map[string]bool)
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) DescribeDBProxyTargets(proxyName, _ string) ([]DBProxy
 	defer b.mu.RUnlock()
 
 	if _, exists := b.proxies.Get(proxyName); !exists {
-		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
+		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, proxyName)
 	}
 
 	targets := b.proxyTargets[proxyName]
@@ -341,7 +341,7 @@ func (b *InMemoryBackend) DescribeDBProxyTargetGroups(proxyName, targetGroupName
 	defer b.mu.RUnlock()
 
 	if _, exists := b.proxies.Get(proxyName); !exists {
-		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
+		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, proxyName)
 	}
 
 	result := make([]DBProxyTargetGroup, 0, b.proxyTargetGroups.Len())
@@ -393,7 +393,7 @@ func (b *InMemoryBackend) CreateDBProxyEndpoint(
 	defer b.mu.Unlock()
 
 	if _, exists := b.proxies.Get(proxyName); !exists {
-		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
+		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrDBProxyNotFound, proxyName)
 	}
 	if _, exists := b.proxyEndpoints.Get(endpointName); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBProxyEndpointAlreadyExists, endpointName)
@@ -432,7 +432,7 @@ func (b *InMemoryBackend) DeleteDBProxyEndpoint(endpointName string) (*DBProxyEn
 
 	ep, exists := b.proxyEndpoints.Get(endpointName)
 	if !exists {
-		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrInvalidParameter, endpointName)
+		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrDBProxyEndpointNotFound, endpointName)
 	}
 	if ep.IsDefault {
 		return nil, ErrCannotDeleteDefaultProxyEndpoint
@@ -459,7 +459,7 @@ func (b *InMemoryBackend) DescribeDBProxyEndpoints(proxyName, endpointName strin
 	}
 
 	if endpointName != "" && len(result) == 0 {
-		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrInvalidParameter, endpointName)
+		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrDBProxyEndpointNotFound, endpointName)
 	}
 
 	return result, nil
@@ -472,7 +472,7 @@ func (b *InMemoryBackend) ModifyDBProxyEndpoint(endpointName string, vpcSGIDs []
 
 	ep, exists := b.proxyEndpoints.Get(endpointName)
 	if !exists {
-		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrInvalidParameter, endpointName)
+		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrDBProxyEndpointNotFound, endpointName)
 	}
 	if len(vpcSGIDs) > 0 {
 		ep.VpcSecurityGroupIDs = vpcSGIDs

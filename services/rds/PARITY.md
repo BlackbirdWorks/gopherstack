@@ -5,7 +5,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
 sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
-last_audit_commit: d522d763f
+last_audit_commit: 68761ba3a
 last_audit_date: 2026-09-19
 overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):
                        # both defects behind the 2026-07-31 A->A- downgrade (recorded verbatim
@@ -377,10 +377,22 @@ items_still_open:
     Inventing specific version strings would fabricate data with nothing in this SDK
     module to verify them against. See the ops: entry for full reasoning; re-review if a
     future SDK/API model version publishes an authoritative version list.
+  - "2026-09-19 (terraform mega-batch-16 coverage pass): aws_rds_custom_db_engine_version
+    and aws_rds_reserved_instance were left out of terraform coverage without attempting
+    them -- the first needs real S3-hosted engine installation media, the second is a
+    reserved-capacity purchase, both explicitly out of scope for this pass rather than
+    emulator gaps."
 deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 
 ## Notes
+
+- **2026-09-19 (terraform mega-batch-16 coverage pass)**: fixed 6 real bugs found via
+  the real hashicorp/aws provider: AssociatedRoles never serialized on DBInstance;
+  DescribeDBClusters/DescribeDBInstances rejected ARN-form identifiers; DBProxy(Endpoint)
+  not-found errors surfaced as 500 instead of the declared fault code; ExportTask.Status
+  was lowercase; automated-backups-replication used the source ARN as DBInstanceIdentifier;
+  DBShardGroup's ComputeRedundancy/MinACU omitted zero values on the wire.
 
 - **2026-09-19 (gopherstack-1x2u0 leak-audit follow-up)**: retrofitted all ~110 test
   call sites that constructed `InMemoryBackend` directly to register

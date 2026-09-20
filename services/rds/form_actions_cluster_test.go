@@ -469,7 +469,7 @@ func TestRDSHandler_FormActions_Clusters(t *testing.T) {
 				"&S3BucketName=my-bucket&IamRoleArn=arn:aws:iam::000000000000:role/export-role" +
 				"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"StartExportTaskResponse", "my-export", "complete"},
+			wantContains: []string{"StartExportTaskResponse", "my-export", "COMPLETE"},
 		},
 		{
 			name: "StartExportTask_EmptyID",
@@ -541,7 +541,7 @@ func TestRDSHandler_FormActions_Clusters(t *testing.T) {
 			},
 			body:         "Action=CancelExportTask&Version=2014-10-31&ExportTaskIdentifier=cancel-export",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"CancelExportTaskResponse", "cancel-export", "canceled"},
+			wantContains: []string{"CancelExportTaskResponse", "cancel-export", "CANCELED"},
 		},
 		{
 			name:         "CancelExportTask_EmptyID",

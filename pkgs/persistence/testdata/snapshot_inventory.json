@@ -22076,6 +22076,7 @@
       "DBInstanceAutomatedBackup.AllocatedStorage int `json:\"allocatedStorage\"`",
       "DBInstanceAutomatedBackup.BackupRetentionPeriod int `json:\"backupRetentionPeriod\"`",
       "DBInstanceAutomatedBackup.DBInstanceArn string `json:\"dbInstanceArn\"`",
+      "DBInstanceAutomatedBackup.DBInstanceAutomatedBackupsArn string `json:\"dbInstanceAutomatedBackupsArn\"`",
       "DBInstanceAutomatedBackup.DBInstanceIdentifier string `json:\"dbInstanceIdentifier\"`",
       "DBInstanceAutomatedBackup.DbiResourceID string `json:\"dbiResourceId\"`",
       "DBInstanceAutomatedBackup.Encrypted bool `json:\"encrypted\"`",

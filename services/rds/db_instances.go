@@ -219,7 +219,11 @@ func validateDeleteDBInstanceLocked(
 	skipFinalSnapshot bool,
 	finalSnapshotID string,
 ) error {
-	if !skipFinalSnapshot && finalSnapshotID == "" {
+	// Aurora cluster member instances don't take a final snapshot on delete
+	// (that's the cluster's own SkipFinalSnapshot, at DeleteDBCluster time),
+	// so real AWS doesn't require either parameter here for them -- only for
+	// standalone instances.
+	if inst.DBClusterIdentifier == "" && !skipFinalSnapshot && finalSnapshotID == "" {
 		return fmt.Errorf(
 			"%w: FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
 			ErrInvalidParameterCombination,
@@ -355,7 +359,10 @@ func (b *InMemoryBackend) DeleteDBInstanceWithOptions(
 }
 
 // DescribeDBInstances returns instances. If id is non-empty, returns only that instance.
+// id may be a bare DBInstanceIdentifier or the instance's ARN (real AWS accepts both).
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
+	id = rdsIDFromARN(id)
+
 	var (
 		result []DBInstance
 		err    error

@@ -561,6 +561,8 @@ func rdsErrorCode(opErr error) string {
 		{ErrDBProxyAlreadyExists, "DBProxyAlreadyExistsFault"},
 		{ErrDBProxyEndpointAlreadyExists, "DBProxyEndpointAlreadyExistsFault"},
 		{ErrCannotDeleteDefaultProxyEndpoint, "InvalidDBProxyEndpointStateFault"},
+		{ErrDBProxyNotFound, "DBProxyNotFoundFault"},
+		{ErrDBProxyEndpointNotFound, "DBProxyEndpointNotFoundFault"},
 	}
 
 	for _, m := range mappings {

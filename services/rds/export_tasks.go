@@ -27,7 +27,7 @@ func (b *InMemoryBackend) StartExportTask(
 	task := &ExportTask{
 		ExportTaskIdentifier: taskID,
 		SourceArn:            sourceARN,
-		Status:               "complete",
+		Status:               "COMPLETE",
 		S3Bucket:             s3Bucket,
 		IamRoleArn:           iamRoleARN,
 		KmsKeyID:             kmsKeyID,
@@ -143,9 +143,12 @@ func (b *InMemoryBackend) CancelExportTask(taskID string) (*ExportTask, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: export task %s not found", ErrExportTaskNotFound, taskID)
 	}
-	task.Status = "canceled"
+	// Real AWS export tasks are permanent records: canceling one only moves
+	// it to the CANCELED status, it stays describable forever after (matches
+	// COMPLETE/FAILED tasks, which are never removed either). A real client's
+	// post-cancel verification read expects to still find it.
+	task.Status = "CANCELED"
 	cp := *task
-	b.exportTasks.Delete(taskID)
 
 	return &cp, nil
 }

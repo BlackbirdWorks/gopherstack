@@ -151,6 +151,8 @@ func (b *InMemoryBackend) newDBCluster(
 
 // DescribeDBClusters returns clusters. If id is non-empty, returns only that cluster.
 func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
+	id = rdsIDFromARN(id)
+
 	b.mu.RLock("DescribeDBClusters")
 	defer b.mu.RUnlock()
 	if id != "" {

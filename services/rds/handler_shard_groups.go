@@ -13,8 +13,8 @@ type xmlDBShardGroup struct {
 	Status                 string  `xml:"Status,omitempty"`
 	Endpoint               string  `xml:"Endpoint,omitempty"`
 	MaxACU                 float64 `xml:"MaxACU,omitempty"`
-	MinACU                 float64 `xml:"MinACU,omitempty"`
-	ComputeRedundancy      int     `xml:"ComputeRedundancy,omitempty"`
+	MinACU                 float64 `xml:"MinACU"`
+	ComputeRedundancy      int     `xml:"ComputeRedundancy"`
 	PubliclyAccessible     bool    `xml:"PubliclyAccessible,omitempty"`
 }
 
@@ -47,8 +47,8 @@ type createDBShardGroupResponse struct {
 	Status                 string   `xml:"CreateDBShardGroupResult>Status,omitempty"`
 	Endpoint               string   `xml:"CreateDBShardGroupResult>Endpoint,omitempty"`
 	MaxACU                 float64  `xml:"CreateDBShardGroupResult>MaxACU,omitempty"`
-	MinACU                 float64  `xml:"CreateDBShardGroupResult>MinACU,omitempty"`
-	ComputeRedundancy      int      `xml:"CreateDBShardGroupResult>ComputeRedundancy,omitempty"`
+	MinACU                 float64  `xml:"CreateDBShardGroupResult>MinACU"`
+	ComputeRedundancy      int      `xml:"CreateDBShardGroupResult>ComputeRedundancy"`
 	PubliclyAccessible     bool     `xml:"CreateDBShardGroupResult>PubliclyAccessible,omitempty"`
 }
 
@@ -62,8 +62,8 @@ type deleteDBShardGroupResponse struct {
 	Status                 string   `xml:"DeleteDBShardGroupResult>Status,omitempty"`
 	Endpoint               string   `xml:"DeleteDBShardGroupResult>Endpoint,omitempty"`
 	MaxACU                 float64  `xml:"DeleteDBShardGroupResult>MaxACU,omitempty"`
-	MinACU                 float64  `xml:"DeleteDBShardGroupResult>MinACU,omitempty"`
-	ComputeRedundancy      int      `xml:"DeleteDBShardGroupResult>ComputeRedundancy,omitempty"`
+	MinACU                 float64  `xml:"DeleteDBShardGroupResult>MinACU"`
+	ComputeRedundancy      int      `xml:"DeleteDBShardGroupResult>ComputeRedundancy"`
 	PubliclyAccessible     bool     `xml:"DeleteDBShardGroupResult>PubliclyAccessible,omitempty"`
 }
 
@@ -84,8 +84,8 @@ type modifyDBShardGroupResponse struct {
 	Status                 string   `xml:"ModifyDBShardGroupResult>Status,omitempty"`
 	Endpoint               string   `xml:"ModifyDBShardGroupResult>Endpoint,omitempty"`
 	MaxACU                 float64  `xml:"ModifyDBShardGroupResult>MaxACU,omitempty"`
-	MinACU                 float64  `xml:"ModifyDBShardGroupResult>MinACU,omitempty"`
-	ComputeRedundancy      int      `xml:"ModifyDBShardGroupResult>ComputeRedundancy,omitempty"`
+	MinACU                 float64  `xml:"ModifyDBShardGroupResult>MinACU"`
+	ComputeRedundancy      int      `xml:"ModifyDBShardGroupResult>ComputeRedundancy"`
 	PubliclyAccessible     bool     `xml:"ModifyDBShardGroupResult>PubliclyAccessible,omitempty"`
 }
 
@@ -99,8 +99,8 @@ type rebootDBShardGroupResponse struct {
 	Status                 string   `xml:"RebootDBShardGroupResult>Status,omitempty"`
 	Endpoint               string   `xml:"RebootDBShardGroupResult>Endpoint,omitempty"`
 	MaxACU                 float64  `xml:"RebootDBShardGroupResult>MaxACU,omitempty"`
-	MinACU                 float64  `xml:"RebootDBShardGroupResult>MinACU,omitempty"`
-	ComputeRedundancy      int      `xml:"RebootDBShardGroupResult>ComputeRedundancy,omitempty"`
+	MinACU                 float64  `xml:"RebootDBShardGroupResult>MinACU"`
+	ComputeRedundancy      int      `xml:"RebootDBShardGroupResult>ComputeRedundancy"`
 	PubliclyAccessible     bool     `xml:"RebootDBShardGroupResult>PubliclyAccessible,omitempty"`
 }
 

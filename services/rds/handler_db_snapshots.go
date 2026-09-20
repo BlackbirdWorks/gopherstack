@@ -154,18 +154,7 @@ type copyDBSnapshotResponse struct {
 func (h *Handler) handleRestoreDBInstanceFromDBSnapshot(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	snapshotID := vals.Get("DBSnapshotIdentifier")
-	opts := DBInstanceOptions{
-		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
-		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
-		StorageType:                      vals.Get("StorageType"),
-		AvailabilityZone:                 vals.Get("AvailabilityZone"),
-		DBParameterGroupName:             vals.Get("DBParameterGroupName"),
-		OptionGroupName:                  vals.Get("OptionGroupName"),
-		VpcSecurityGroupIDs:              parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
-		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
-		UseDefaultProcessorFeatures:      vals.Get("UseDefaultProcessorFeatures") == formTrue,
-		BackupTarget:                     vals.Get("BackupTarget"),
-	}
+	opts := parseRestoreDBInstanceOptions(vals)
 
 	inst, err := h.Backend.RestoreDBInstanceFromDBSnapshot(id, snapshotID, opts)
 	if err != nil {
@@ -174,7 +163,7 @@ func (h *Handler) handleRestoreDBInstanceFromDBSnapshot(vals url.Values) (any, e
 
 	return &restoreDBInstanceFromDBSnapshotResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 

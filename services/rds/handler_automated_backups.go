@@ -41,15 +41,16 @@ type describeDBClusterAutomatedBackupsResponse struct {
 }
 
 type xmlDBInstanceAutomatedBackup struct {
-	DBInstanceIdentifier  string `xml:"DBInstanceIdentifier"`
-	DbiResourceID         string `xml:"DbiResourceId,omitempty"`
-	Engine                string `xml:"Engine,omitempty"`
-	EngineVersion         string `xml:"EngineVersion,omitempty"`
-	DBInstanceArn         string `xml:"DBInstanceArn,omitempty"`
-	Region                string `xml:"Region,omitempty"`
-	Status                string `xml:"Status,omitempty"`
-	AllocatedStorage      int    `xml:"AllocatedStorage,omitempty"`
-	BackupRetentionPeriod int    `xml:"BackupRetentionPeriod,omitempty"`
+	DBInstanceIdentifier          string `xml:"DBInstanceIdentifier"`
+	DbiResourceID                 string `xml:"DbiResourceId,omitempty"`
+	Engine                        string `xml:"Engine,omitempty"`
+	EngineVersion                 string `xml:"EngineVersion,omitempty"`
+	DBInstanceArn                 string `xml:"DBInstanceArn,omitempty"`
+	DBInstanceAutomatedBackupsArn string `xml:"DBInstanceAutomatedBackupsArn,omitempty"`
+	Region                        string `xml:"Region,omitempty"`
+	Status                        string `xml:"Status,omitempty"`
+	AllocatedStorage              int    `xml:"AllocatedStorage,omitempty"`
+	BackupRetentionPeriod         int    `xml:"BackupRetentionPeriod,omitempty"`
 }
 
 type xmlDBInstanceAutomatedBackupList struct {
@@ -117,15 +118,16 @@ func (h *Handler) handleDeleteDBClusterAutomatedBackup(vals url.Values) (any, er
 
 func toXMLInstanceBackup(ab *DBInstanceAutomatedBackup) xmlDBInstanceAutomatedBackup {
 	return xmlDBInstanceAutomatedBackup{
-		DBInstanceIdentifier:  ab.DBInstanceIdentifier,
-		DbiResourceID:         ab.DbiResourceID,
-		Engine:                ab.Engine,
-		EngineVersion:         ab.EngineVersion,
-		DBInstanceArn:         ab.DBInstanceArn,
-		Region:                ab.Region,
-		Status:                ab.Status,
-		AllocatedStorage:      ab.AllocatedStorage,
-		BackupRetentionPeriod: ab.BackupRetentionPeriod,
+		DBInstanceIdentifier:          ab.DBInstanceIdentifier,
+		DbiResourceID:                 ab.DbiResourceID,
+		Engine:                        ab.Engine,
+		EngineVersion:                 ab.EngineVersion,
+		DBInstanceArn:                 ab.DBInstanceArn,
+		DBInstanceAutomatedBackupsArn: ab.DBInstanceAutomatedBackupsArn,
+		Region:                        ab.Region,
+		Status:                        ab.Status,
+		AllocatedStorage:              ab.AllocatedStorage,
+		BackupRetentionPeriod:         ab.BackupRetentionPeriod,
 	}
 }
 
@@ -171,7 +173,12 @@ func (h *Handler) handleDeleteDBInstanceAutomatedBackup(vals url.Values) (any, e
 
 func (h *Handler) handleDescribeDBInstanceAutomatedBackups(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
+	backupsArn := vals.Get("DBInstanceAutomatedBackupsArn")
+
 	backups := h.Backend.DescribeDBInstanceAutomatedBackups(instanceID)
+	if instanceID == "" && backupsArn != "" {
+		backups = h.Backend.DescribeDBInstanceAutomatedBackupsByArn(backupsArn)
+	}
 	backups, err := applyDBInstanceAutomatedBackupFilters(vals, backups)
 	if err != nil {
 		return nil, err

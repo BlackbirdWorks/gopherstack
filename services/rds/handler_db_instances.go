@@ -162,7 +162,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 
 	return &createDBInstanceResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -179,7 +179,7 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 
 	return &deleteDBInstanceResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -223,7 +223,7 @@ func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 	}, func(item DBInstance) xmlDBInstance {
 		cp := item
 
-		return toXMLInstance(&cp)
+		return toXMLInstance(&cp, h.Backend.InstanceAssociatedRoles(cp.DBInstanceIdentifier))
 	})
 	if err != nil {
 		return nil, err
@@ -321,11 +321,11 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 
 	return &modifyDBInstanceResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
-func toXMLInstance(inst *DBInstance) xmlDBInstance {
+func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 	var instanceCreateTime string
 	if !inst.InstanceCreateTime.IsZero() {
 		instanceCreateTime = inst.InstanceCreateTime.UTC().Format(time.RFC3339)
@@ -416,6 +416,8 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 
 		result.EnabledCloudwatchLogsExports = &xmlLogTypeList{Members: members}
 	}
+
+	result.AssociatedRoles = xmlDBInstanceRolesOrNil(roles)
 
 	return result
 }
@@ -538,6 +540,34 @@ type xmlPendingModifiedValues struct {
 	MultiAZ          bool   `xml:"MultiAZ,omitempty"`
 }
 
+// xmlDBInstanceRole is the wire shape of types.DBInstanceRole (rds@v1.124.1
+// types.go:2600). The field names and the AssociatedRoles>DBInstanceRole
+// nesting are confirmed against awsAwsquery_deserializeDocumentDBInstanceRole
+// and awsAwsquery_deserializeDocumentDBInstanceRoles in deserializers.go.
+type xmlDBInstanceRole struct {
+	RoleArn     string `xml:"RoleArn"`
+	FeatureName string `xml:"FeatureName,omitempty"`
+	Status      string `xml:"Status"`
+}
+
+type xmlDBInstanceRoleList struct {
+	Members []xmlDBInstanceRole `xml:"DBInstanceRole"`
+}
+
+// xmlDBInstanceRolesOrNil maps roles to their wire shape, or nil if empty.
+func xmlDBInstanceRolesOrNil(roles []DBInstanceRole) *xmlDBInstanceRoleList {
+	if len(roles) == 0 {
+		return nil
+	}
+
+	members := make([]xmlDBInstanceRole, 0, len(roles))
+	for _, r := range roles {
+		members = append(members, xmlDBInstanceRole(r))
+	}
+
+	return &xmlDBInstanceRoleList{Members: members}
+}
+
 type xmlDBInstance struct {
 	DBParameterGroups                *xmlDBParamGroupsWrapper      `xml:"DBParameterGroups,omitempty"`
 	VpcSecurityGroups                *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
@@ -546,6 +576,7 @@ type xmlDBInstance struct {
 	EnabledCloudwatchLogsExports     *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	PendingModifiedValues            *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
 	OptionGroupMemberships           *xmlOptionGroupMembershipList `xml:"OptionGroupMemberships,omitempty"`
+	AssociatedRoles                  *xmlDBInstanceRoleList        `xml:"AssociatedRoles,omitempty"`
 
 	LicenseModel                      string `xml:"LicenseModel,omitempty"`
 	PreferredBackupWindow             string `xml:"PreferredBackupWindow,omitempty"`
@@ -659,7 +690,7 @@ func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error
 
 	return &createDBInstanceReadReplicaResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -672,7 +703,7 @@ func (h *Handler) handlePromoteReadReplica(vals url.Values) (any, error) {
 
 	return &promoteReadReplicaResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -685,7 +716,7 @@ func (h *Handler) handleRebootDBInstance(vals url.Values) (any, error) {
 
 	return &rebootDBInstanceResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -770,10 +801,10 @@ type stopDBInstanceResponse struct {
 	DBInstance xmlDBInstance `xml:"StopDBInstanceResult>DBInstance"`
 }
 
-func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, error) {
-	id := vals.Get("TargetDBInstanceIdentifier")
-	sourceID := vals.Get("SourceDBInstanceIdentifier")
-	opts := DBInstanceOptions{
+// parseRestoreDBInstanceOptions parses the DBInstanceOptions fields shared by
+// RestoreDBInstanceToPointInTime and RestoreDBInstanceFromDBSnapshot's request forms.
+func parseRestoreDBInstanceOptions(vals url.Values) DBInstanceOptions {
+	return DBInstanceOptions{
 		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
 		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
 		StorageType:                      vals.Get("StorageType"),
@@ -785,6 +816,12 @@ func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, er
 		UseDefaultProcessorFeatures:      vals.Get("UseDefaultProcessorFeatures") == formTrue,
 		BackupTarget:                     vals.Get("BackupTarget"),
 	}
+}
+
+func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, error) {
+	id := vals.Get("TargetDBInstanceIdentifier")
+	sourceID := vals.Get("SourceDBInstanceIdentifier")
+	opts := parseRestoreDBInstanceOptions(vals)
 
 	inst, err := h.Backend.RestoreDBInstanceToPointInTime(id, sourceID, opts)
 	if err != nil {
@@ -793,7 +830,7 @@ func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, er
 
 	return &restoreDBInstanceToPointInTimeResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -807,7 +844,7 @@ func (h *Handler) handleStartDBInstance(vals url.Values) (any, error) {
 
 	return &startDBInstanceResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -821,7 +858,7 @@ func (h *Handler) handleStopDBInstance(vals url.Values) (any, error) {
 
 	return &stopDBInstanceResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -846,7 +883,7 @@ func (h *Handler) handleSwitchoverReadReplica(vals url.Values) (any, error) {
 
 	return &switchoverReadReplicaResponse{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
 
@@ -884,6 +921,6 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 
 	return &restoreDBInstanceFromS3Response{
 		Xmlns:      rdsXMLNS,
-		DBInstance: toXMLInstance(inst),
+		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
 }
