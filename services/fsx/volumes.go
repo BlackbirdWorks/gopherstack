@@ -39,6 +39,19 @@ func (v *storedVolume) toPublic() *Volume {
 		vol.OntapConfiguration = &OntapVolumeConfiguration{StorageVirtualMachineID: v.StorageVirtualMachineID}
 	}
 
+	if v.VolumeType == fileSystemTypeOpenZFS {
+		volumePath := "/fsx/" + v.Name
+		if v.Name == openZFSRootVolumeName {
+			volumePath = "/fsx"
+		}
+
+		vol.OpenZFSConfiguration = &OpenZFSVolumeConfiguration{
+			DataCompressionType: "NONE",
+			VolumePath:          volumePath,
+			RecordSizeKiB:       openZFSDefaultRecordSizeKiB,
+		}
+	}
+
 	return vol
 }
 

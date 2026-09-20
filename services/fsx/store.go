@@ -8,7 +8,13 @@ import (
 )
 
 const (
-	lifecycleAvailable      = "AVAILABLE"
+	lifecycleAvailable = "AVAILABLE"
+	// svmLifecycleCreated is the real terminal lifecycle value for a storage
+	// virtual machine (types.StorageVirtualMachineLifecycle, fsx@v1.68.4
+	// types/enums.go). SVMs never reach "AVAILABLE" -- that's the file-system
+	// lifecycle enum; the AWS provider's SVM create waiter targets
+	// CREATED/MISCONFIGURED and errors on any other terminal value.
+	svmLifecycleCreated     = "CREATED"
 	lifecycleDeleting       = "DELETING"
 	lifecycleDeleted        = "DELETED"
 	backupTypeUserInitiated = "USER_INITIATED"
@@ -33,6 +39,9 @@ const (
 	// openZFSRootVolumeName is the fixed name AWS assigns to the
 	// auto-created root volume of every FSx for OpenZFS file system.
 	openZFSRootVolumeName = "fsx"
+	// openZFSDefaultRecordSizeKiB is real AWS's documented default record
+	// size (KiB) for an OpenZFS volume with no RecordSizeKiB override.
+	openZFSDefaultRecordSizeKiB = 128
 	// defaultNetworkType is CreateFileSystemInput.NetworkType's documented
 	// omission default: "The default is IPV4." (api_op_CreateFileSystem.go).
 	defaultNetworkType = "IPV4"

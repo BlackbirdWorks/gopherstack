@@ -53,7 +53,7 @@ func TestFSx_StorageVirtualMachine(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				svm := out["StorageVirtualMachine"].(map[string]any)
 				assert.Contains(t, svm["StorageVirtualMachineId"].(string), "svm-")
-				assert.Equal(t, "AVAILABLE", svm["Lifecycle"])
+				assert.Equal(t, "CREATED", svm["Lifecycle"])
 				assert.Equal(t, tc.svmName, svm["Name"])
 			}
 		})

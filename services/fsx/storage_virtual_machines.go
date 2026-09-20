@@ -62,7 +62,7 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 	}
 
 	id := newStorageVirtualMachineID()
-	arn := b.svmARN(id)
+	arn := b.svmARN(input.FileSystemID, id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)
 
@@ -72,7 +72,7 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 		StorageVirtualMachineID: id,
 		FileSystemID:            input.FileSystemID,
 		Name:                    input.Name,
-		Lifecycle:               lifecycleAvailable,
+		Lifecycle:               svmLifecycleCreated,
 		ResourceARN:             arn,
 		Subtype:                 input.Subtype,
 		RootVolumeSecurityStyle: input.RootVolumeSecurityStyle,
@@ -244,6 +244,12 @@ func (b *InMemoryBackend) UpdateStorageVirtualMachine(
 	return svm.toPublic(), nil
 }
 
-func (b *InMemoryBackend) svmARN(id string) string {
-	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("storage-virtual-machine/%s", id))
+// svmARN builds a storage virtual machine ARN. Real AWS nests the SVM ID
+// under its parent file system ID in the resource path
+// ("storage-virtual-machine/fs-xxx/svm-xxx", confirmed via AWS's published
+// ARN pattern) -- not a bare "storage-virtual-machine/svm-xxx" -- since a
+// consumer (e.g. DataSync's FSx ONTAP location, which derives the parent
+// file system ARN from the SVM ARN) depends on that segment being present.
+func (b *InMemoryBackend) svmARN(fileSystemID, id string) string {
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("storage-virtual-machine/%s/%s", fileSystemID, id))
 }

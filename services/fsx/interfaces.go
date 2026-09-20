@@ -412,15 +412,16 @@ type StorageVirtualMachine struct {
 // typed SDK client silently drops, leaving a volume's SVM association
 // permanently unreadable through every op that returns a Volume.
 type Volume struct {
-	CreationTime       epochTime                 `json:"CreationTime"`
-	OntapConfiguration *OntapVolumeConfiguration `json:"OntapConfiguration,omitempty"`
-	VolumeID           string                    `json:"VolumeId"`
-	VolumeType         string                    `json:"VolumeType"`
-	FileSystemID       string                    `json:"FileSystemId"`
-	Name               string                    `json:"Name"`
-	Lifecycle          string                    `json:"Lifecycle"`
-	ResourceARN        string                    `json:"ResourceARN"`
-	Tags               []Tag                     `json:"Tags,omitempty"`
+	CreationTime         epochTime                   `json:"CreationTime"`
+	OntapConfiguration   *OntapVolumeConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *OpenZFSVolumeConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	VolumeID             string                      `json:"VolumeId"`
+	VolumeType           string                      `json:"VolumeType"`
+	FileSystemID         string                      `json:"FileSystemId"`
+	Name                 string                      `json:"Name"`
+	Lifecycle            string                      `json:"Lifecycle"`
+	ResourceARN          string                      `json:"ResourceARN"`
+	Tags                 []Tag                       `json:"Tags,omitempty"`
 }
 
 // OntapVolumeConfiguration is the ONTAP-specific block on Volume
@@ -431,6 +432,22 @@ type Volume struct {
 // (see PARITY.md).
 type OntapVolumeConfiguration struct {
 	StorageVirtualMachineID string `json:"StorageVirtualMachineId,omitempty"`
+}
+
+// OpenZFSVolumeConfiguration is the OpenZFS-specific block on Volume
+// (types.OpenZFSVolumeConfiguration, fsx@v1.68.4 types/types.go). The AWS
+// provider's FindOpenZFSVolumeByID helper treats a Volume response with no
+// OpenZFSConfiguration as an empty result, so every OpenZFS volume -- root or
+// user-created -- must carry one. Only the fields real AWS sets by default on
+// an unconfigured volume are modeled (DataCompressionType/RecordSizeKiB/
+// CopyTagsToSnapshots/ReadOnly/VolumePath); NfsExports, quotas, snapshot
+// origin, and copy-strategy fields stay a disclosed, unmodeled gap.
+type OpenZFSVolumeConfiguration struct {
+	DataCompressionType string `json:"DataCompressionType,omitempty"`
+	VolumePath          string `json:"VolumePath,omitempty"`
+	RecordSizeKiB       int32  `json:"RecordSizeKiB,omitempty"`
+	CopyTagsToSnapshots bool   `json:"CopyTagsToSnapshots"`
+	ReadOnly            bool   `json:"ReadOnly"`
 }
 
 // AdministrativeAction represents an in-progress or completed FSx
