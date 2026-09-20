@@ -857,6 +857,11 @@ type CustomKeyStore struct {
 	ConnectionState    string  `json:"ConnectionState"`
 	CustomKeyStoreType string  `json:"CustomKeyStoreType"`
 	CreationDate       float64 `json:"CreationDate"`
+	// CloudHsmClusterId and TrustAnchorCertificate are echoed back by
+	// DescribeCustomKeyStores for AWS_CLOUDHSM stores (types.go:37-40,225);
+	// KeyStorePassword is write-only and never echoed.
+	CloudHsmClusterID      string `json:"CloudHsmClusterId,omitempty"`
+	TrustAnchorCertificate string `json:"TrustAnchorCertificate,omitempty"`
 }
 
 // CreateCustomKeyStoreInput is the request payload for CreateCustomKeyStore.
@@ -865,6 +870,10 @@ type CreateCustomKeyStoreInput struct {
 	CustomKeyStoreName string `json:"CustomKeyStoreName"`
 	// CustomKeyStoreType is the type of custom key store (default AWS_CLOUDHSM).
 	CustomKeyStoreType string `json:"CustomKeyStoreType,omitempty"`
+	// CloudHsmClusterID and TrustAnchorCertificate are AWS_CLOUDHSM-only
+	// inputs, echoed back verbatim by DescribeCustomKeyStores.
+	CloudHsmClusterID      string `json:"CloudHsmClusterId,omitempty"`
+	TrustAnchorCertificate string `json:"TrustAnchorCertificate,omitempty"`
 }
 
 // CreateCustomKeyStoreOutput is the response payload for CreateCustomKeyStore.

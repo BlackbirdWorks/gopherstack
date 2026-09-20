@@ -1,8 +1,8 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
-last_audit_commit: 70d96e12d  # 2026-09-19 mega-batch-14/15 terraform sweep
-last_audit_date: 2026-09-19
+last_audit_commit: cd027034c  # 2026-09-20 mega-batch-35 terraform sweep: custom key store fields, ReplicateKey external-origin fix
+last_audit_date: 2026-09-20
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
                        # (Handler.tags -- a side map keyed by KeyID, entirely outside
@@ -96,6 +96,15 @@ leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by Ke
 ---
 
 ## Notes
+
+### 2026-09-20 mega-batch-35 terraform sweep
+
+CreateCustomKeyStore didn't store/echo CloudHsmClusterId/TrustAnchorCertificate,
+so Terraform saw them null on refresh and force-replaced the resource on the
+next plan. ReplicateKey copied key material and Enabled state onto EXTERNAL-
+origin replicas; real AWS requires separately importing material into each
+region, so the replica must start in PendingImport instead (breaks
+aws_kms_replica_external_key's own post-replicate import step otherwise).
 
 ### 2026-09-19 mega-batch-14/15 terraform sweep (gopherstack-101r)
 

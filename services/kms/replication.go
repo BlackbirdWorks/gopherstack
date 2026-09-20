@@ -60,12 +60,25 @@ func (b *InMemoryBackend) ReplicateKey(
 		description = input.Description
 	}
 
+	// EXTERNAL-origin keys don't share key material across regions: real AWS
+	// requires importing the same material into each replica separately, so
+	// the replica starts in PendingImport regardless of the source's state
+	// (aws_kms_replica_external_key's own create waiter polls for exactly
+	// this and does the import itself).
+	replicaState := sourceKey.KeyState
+	replicaEnabled := sourceKey.Enabled
+
+	if sourceKey.Origin == KeyOriginExternal {
+		replicaState = KeyStatePendingImport
+		replicaEnabled = false
+	}
+
 	replicaARN := gopherarn.Build("kms", input.ReplicaRegion, b.accountID, "key/"+newKeyID)
 	replica := &Key{
 		KeyID:                newKeyID,
 		Arn:                  replicaARN,
 		Description:          description,
-		KeyState:             sourceKey.KeyState,
+		KeyState:             replicaState,
 		KeyUsage:             sourceKey.KeyUsage,
 		KeySpec:              sourceKey.KeySpec,
 		Origin:               sourceKey.Origin,
@@ -74,7 +87,7 @@ func (b *InMemoryBackend) ReplicateKey(
 		RotationPeriodInDays: sourceKey.RotationPeriodInDays,
 		MultiRegion:          true,
 		PrimaryRegion:        b.keyRegion(sourceKey.Arn),
-		Enabled:              sourceKey.Enabled,
+		Enabled:              replicaEnabled,
 	}
 
 	sourceKey.MultiRegion = true
@@ -82,19 +95,12 @@ func (b *InMemoryBackend) ReplicateKey(
 		sourceKey.PrimaryRegion = b.keyRegion(sourceKey.Arn)
 	}
 
-	if km := b.keyMaterialsStore(sourceRegion)[sourceKey.KeyID]; km != nil {
-		serialized, serErr := marshalKeyMaterial(km)
-		if serErr != nil {
-			return nil, fmt.Errorf("serializing key material for replication: %w", serErr)
+	if sourceKey.Origin != KeyOriginExternal {
+		if cloneErr := b.cloneKeyMaterialForReplica(
+			sourceRegion, input.ReplicaRegion, sourceKey.KeyID, replica.KeyID,
+		); cloneErr != nil {
+			return nil, cloneErr
 		}
-
-		cloned, cloneErr := unmarshalKeyMaterial(serialized)
-		if cloneErr != nil {
-			return nil, fmt.Errorf("deserializing replicated key material: %w", cloneErr)
-		}
-
-		// Store replica key material in the target region's store.
-		b.keyMaterialsStore(input.ReplicaRegion)[replica.KeyID] = cloned
 	}
 
 	// Store replica key in the target region's store.
@@ -116,6 +122,32 @@ func (b *InMemoryBackend) ReplicateKey(
 	sourceKey.ReplicaKeyIDs = append(sourceKey.ReplicaKeyIDs, replica.KeyID)
 
 	return &ReplicateKeyOutput{ReplicaKeyMetadata: b.keyToMetadata(replica)}, nil
+}
+
+// cloneKeyMaterialForReplica copies sourceKeyID's key material from
+// sourceRegion's store into replicaKeyID in replicaRegion's store, a no-op
+// if the source has no stored material.
+func (b *InMemoryBackend) cloneKeyMaterialForReplica(
+	sourceRegion, replicaRegion, sourceKeyID, replicaKeyID string,
+) error {
+	km := b.keyMaterialsStore(sourceRegion)[sourceKeyID]
+	if km == nil {
+		return nil
+	}
+
+	serialized, err := marshalKeyMaterial(km)
+	if err != nil {
+		return fmt.Errorf("serializing key material for replication: %w", err)
+	}
+
+	cloned, err := unmarshalKeyMaterial(serialized)
+	if err != nil {
+		return fmt.Errorf("deserializing replicated key material: %w", err)
+	}
+
+	b.keyMaterialsStore(replicaRegion)[replicaKeyID] = cloned
+
+	return nil
 }
 
 // UpdatePrimaryRegion promotes the replica in PrimaryRegion to be the new primary
