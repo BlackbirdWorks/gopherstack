@@ -296,15 +296,25 @@ func TestTerraform_FSxLustre(t *testing.T) {
 
 				return vars
 			},
-			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := fsxmega.NewFromConfig(megaConfig(t), func(o *fsxmega.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				out, err := client.DescribeFileSystems(ctx, &fsxmega.DescribeFileSystemsInput{})
 				require.NoError(t, err, "DescribeFileSystems should succeed after terraform apply")
-				require.NotEmpty(t, out.FileSystems, "a Lustre file system should exist after apply")
-				assert.Equal(t, int32(1200), aws.ToInt32(out.FileSystems[0].StorageCapacity))
+
+				// Other fixtures share the emulator, so pick this test's file system by tag.
+				var capacity int32
+				for _, fs := range out.FileSystems {
+					for _, tag := range fs.Tags {
+						if aws.ToString(tag.Key) == "Name" && aws.ToString(tag.Value) == vars["Name"] {
+							capacity = aws.ToInt32(fs.StorageCapacity)
+						}
+					}
+				}
+
+				assert.Equal(t, int32(1200), capacity, "the Lustre file system tagged for this test should exist")
 			},
 		},
 	}
