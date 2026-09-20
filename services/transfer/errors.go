@@ -45,11 +45,5 @@ var (
 	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 )
 
-// ErrServerOnline is returned when an operation requires the server to be OFFLINE.
-var ErrServerOnline = awserr.New(
-	"ConflictException: server must be offline to be deleted",
-	awserr.ErrConflict,
-)
-
 // ErrSSHPublicKeyDuplicate is returned when an SSH public key body already exists for the user.
 var ErrSSHPublicKeyDuplicate = awserr.New("ResourceExistsException", awserr.ErrConflict)

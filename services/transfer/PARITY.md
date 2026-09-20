@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transfer
 sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
-last_audit_commit: 6c5c49416
-last_audit_date: 2026-09-19                          # requiredoutputfields census: all 69 required output
+last_audit_commit: 1940758f8
+last_audit_date: 2026-09-20                          # requiredoutputfields census: all 69 required output
                                                        # members across 51 ops checked, all always populated
                                                        # on the success path; see 2026-09-19 Notes entry.
                                                        # 2026-09-18: reqfielddiff tier-1 request-field audit: 5 tier-1
@@ -46,7 +46,7 @@ overall: A                # WebApp create/wire rewrite to real shape, SecurityPo
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
   RouteMatcher: {status: ok, note: "X-Amz-Target prefix \"TransferService.\" matches every real SDK serializer target (verified against all 66 api_op_*.go files in the vendored module); MatchPriority is header-exact. No unreachable ops."}
-  Server: {status: ok, note: "CreateServer/DescribeServer/ListServers/StartServer/StopServer/DeleteServer/UpdateServer audited op-by-op (unchanged since 2026-07-12 audit; re-confirmed no timestamp fields exist on DescribedServer in the pinned SDK, so the epoch-seconds bug class does not apply here). FIXED 2026-09-18 (reqfielddiff tier-1): UpdateServerInput.IdentityProviderType was parsed nowhere -- a real client could never change a server's identity provider type after creation. Now applied via UpdateServerFull's SetIdentityProviderType."}
+  Server: {status: ok, note: "CreateServer/DescribeServer/ListServers/StartServer/StopServer/DeleteServer/UpdateServer audited op-by-op (unchanged since 2026-07-12 audit; re-confirmed no timestamp fields exist on DescribedServer in the pinned SDK, so the epoch-seconds bug class does not apply here). FIXED 2026-09-18 (reqfielddiff tier-1): UpdateServerInput.IdentityProviderType was parsed nowhere -- a real client could never change a server's identity provider type after creation. Now applied via UpdateServerFull's SetIdentityProviderType. FIXED 2026-09-20: reverses the 2026-07-12 'creates OFFLINE, StartServer required' claim below -- a real Terraform apply of aws_transfer_server showed the provider only calls CreateServer then DescribeServer while waiting for state ONLINE, never StartServer; a permanent initial OFFLINE fails that wait immediately. CreateServer now seeds STARTING and self-transitions to ONLINE the same way an explicit StartServer does. See 2026-09-20 Notes entry."}
   User: {status: ok, note: "CreateUser/DescribeUser/ListUsers/DeleteUser/UpdateUser audited (unchanged since 2026-07-12). FIXED this pass: DescribeUser's embedded SshPublicKeys[].DateImported was a Format(time.RFC3339) string; real SshPublicKey.DateImported deserializes via smithytime.ParseEpochSeconds (JSON number) -- a real aws-sdk-go-v2 client would fail to parse the string. Now emits awstime.Epoch(...)."}
   Access: {status: ok, note: "CreateAccess/DescribeAccess/ListAccesses/UpdateAccess/DeleteAccess audited (unchanged since 2026-07-12). No Tags/ARN in real AWS for Access -- confirmed still correct."}
   Agreement: {status: ok, note: "unchanged since 2026-07-12 audit. FIXED 2026-09-12 (typed slice 32): ListAgreements' per-item map omitted the real ServerId member (types.ListedAgreement); added, see dated section below. FIXED 2026-09-18 (reqfielddiff tier-1): CreateAgreementInput/UpdateAgreementInput's EnforceMessageSigning/PreserveFilename were parsed nowhere and every agreement silently got the DISABLED default; now applied and echoed on DescribeAgreement."}
@@ -72,6 +72,27 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
 ---
 
 ## Notes
+
+### 2026-09-20: mega-batch-29 Terraform coverage -- 3 real Server bugs found
+
+Wiring `aws_transfer_server`/`_user`/`_access` for real Terraform-fixture
+coverage (mega-batch-29), all found via actual `tofu apply`/`destroy` +
+TF_LOG=trace, none of which unit tests alone had caught:
+
+1. CreateServer hung the apply: the provider calls only CreateServer then
+   DescribeServer while polling for state ONLINE, never StartServer. Fixed:
+   CreateServer now seeds STARTING (self-transitions to ONLINE via the same
+   async path StartServer uses) instead of a permanent OFFLINE.
+2. Server IDs (`"s-" + uuid.NewString()[:20]`) contained hyphens; the
+   provider's own `server_id` argument validation on aws_transfer_user/
+   _access rejects anything but lowercase alphanumeric and errored before
+   any request was even sent. Fixed: IDs are now `"s-"` + 17 lowercase hex
+   chars, hyphen-free.
+3. DeleteServer required OFFLINE (ConflictException otherwise), but the
+   provider destroys aws_transfer_server via DescribeServer + DeleteServer
+   only, never StopServer -- a fabricated precondition that would make a
+   normal (ONLINE) server undeletable via Terraform. Removed; ErrServerOnline
+   sentinel deleted as dead code.
 
 ### 2026-09-19 (gopherstack-r80d): requiredoutputfields census, 0 findings
 
