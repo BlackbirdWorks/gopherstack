@@ -506,9 +506,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 9 gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 17 gaps |
+| [RDS](services/rds/README.md) | A | 52 | 18 gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 3 gaps |
-| [Redshift](services/redshift/README.md) | A | 9 | 5 gaps |
+| [Redshift](services/redshift/README.md) | A | 9 | 6 gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 8 gaps; 1 deferred |
 | [Timestream Query](services/timestreamquery/README.md) | A | 12 | 5 gaps; 1 deferred |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 5 gaps |
