@@ -613,8 +613,19 @@ type ContainerDefinition struct {
 
 // ContainerServiceEndpoint mirrors types.ContainerServiceEndpoint.
 type ContainerServiceEndpoint struct {
+	HealthCheck   *ContainerServiceHealthCheckConfig
 	ContainerName string
 	ContainerPort int32
+}
+
+// ContainerServiceHealthCheckConfig mirrors types.ContainerServiceHealthCheckConfig.
+type ContainerServiceHealthCheckConfig struct {
+	Path               string
+	SuccessCodes       string
+	HealthyThreshold   int32
+	IntervalSeconds    int32
+	TimeoutSeconds     int32
+	UnhealthyThreshold int32
 }
 
 // ContainerImage mirrors types.ContainerImage -- RegisterContainerImage
@@ -649,6 +660,10 @@ func cloneContainerDeployment(d *ContainerServiceDeployment) *ContainerServiceDe
 
 	if d.PublicEndpoint != nil {
 		ep := *d.PublicEndpoint
+		if d.PublicEndpoint.HealthCheck != nil {
+			hc := *d.PublicEndpoint.HealthCheck
+			ep.HealthCheck = &hc
+		}
 		cp.PublicEndpoint = &ep
 	}
 

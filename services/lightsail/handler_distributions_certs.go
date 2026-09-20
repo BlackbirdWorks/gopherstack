@@ -280,7 +280,18 @@ func (h *Handler) handleCreateDistribution(_ context.Context, body []byte) ([]by
 		opw = &w
 	}
 
-	return marshalResponse(distributionAndOpsResponse{Operation: opw})
+	// CreateDistributionOutput.Distribution is required on the real wire --
+	// terraform-provider-aws dereferences it unconditionally
+	// (internal/service/lightsail/distribution.go) and errors with "empty
+	// output" when it's absent.
+	var distw *distributionWire
+
+	if page, getErr := h.Backend.GetDistributions(req.DistributionName, ""); getErr == nil && len(page.Data) > 0 {
+		w := distributionToWire(page.Data[0])
+		distw = &w
+	}
+
+	return marshalResponse(distributionAndOpsResponse{Operation: opw, Distribution: distw})
 }
 
 type distributionNameRequest struct {

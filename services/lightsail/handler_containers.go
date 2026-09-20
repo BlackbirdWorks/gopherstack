@@ -27,9 +27,49 @@ type containerWire struct {
 	Command     []string          `json:"command,omitempty"`
 }
 
+type containerServiceHealthCheckConfigWire struct {
+	Path               string `json:"path,omitempty"`
+	SuccessCodes       string `json:"successCodes,omitempty"`
+	HealthyThreshold   int32  `json:"healthyThreshold,omitempty"`
+	IntervalSeconds    int32  `json:"intervalSeconds,omitempty"`
+	TimeoutSeconds     int32  `json:"timeoutSeconds,omitempty"`
+	UnhealthyThreshold int32  `json:"unhealthyThreshold,omitempty"`
+}
+
+func healthCheckToWire(hc *ContainerServiceHealthCheckConfig) *containerServiceHealthCheckConfigWire {
+	if hc == nil {
+		return nil
+	}
+
+	return &containerServiceHealthCheckConfigWire{
+		HealthyThreshold:   hc.HealthyThreshold,
+		IntervalSeconds:    hc.IntervalSeconds,
+		Path:               hc.Path,
+		SuccessCodes:       hc.SuccessCodes,
+		TimeoutSeconds:     hc.TimeoutSeconds,
+		UnhealthyThreshold: hc.UnhealthyThreshold,
+	}
+}
+
+func healthCheckFromWire(hc *containerServiceHealthCheckConfigWire) *ContainerServiceHealthCheckConfig {
+	if hc == nil {
+		return nil
+	}
+
+	return &ContainerServiceHealthCheckConfig{
+		HealthyThreshold:   hc.HealthyThreshold,
+		IntervalSeconds:    hc.IntervalSeconds,
+		Path:               hc.Path,
+		SuccessCodes:       hc.SuccessCodes,
+		TimeoutSeconds:     hc.TimeoutSeconds,
+		UnhealthyThreshold: hc.UnhealthyThreshold,
+	}
+}
+
 type containerServiceEndpointWire struct {
-	ContainerName string `json:"containerName,omitempty"`
-	ContainerPort int32  `json:"containerPort,omitempty"`
+	HealthCheck   *containerServiceHealthCheckConfigWire `json:"healthCheck,omitempty"`
+	ContainerName string                                 `json:"containerName,omitempty"`
+	ContainerPort int32                                  `json:"containerPort,omitempty"`
 }
 
 type containerServiceDeploymentWire struct {
@@ -61,6 +101,7 @@ func containerDeploymentToWire(d *ContainerServiceDeployment) *containerServiceD
 		w.PublicEndpoint = &containerServiceEndpointWire{
 			ContainerName: d.PublicEndpoint.ContainerName,
 			ContainerPort: d.PublicEndpoint.ContainerPort,
+			HealthCheck:   healthCheckToWire(d.PublicEndpoint.HealthCheck),
 		}
 	}
 
@@ -132,8 +173,9 @@ func containerServiceToWire(cs *ContainerService) containerServiceWire {
 }
 
 type endpointRequestWire struct {
-	ContainerName string `json:"containerName,omitempty"`
-	ContainerPort int32  `json:"containerPort,omitempty"`
+	HealthCheck   *containerServiceHealthCheckConfigWire `json:"healthCheck,omitempty"`
+	ContainerName string                                 `json:"containerName,omitempty"`
+	ContainerPort int32                                  `json:"containerPort,omitempty"`
 }
 
 type containerServiceDeploymentRequestWire struct {
@@ -191,6 +233,7 @@ func (h *Handler) handleCreateContainerService(_ context.Context, body []byte) (
 			ep = &ContainerServiceEndpoint{
 				ContainerName: req.Deployment.PublicEndpoint.ContainerName,
 				ContainerPort: req.Deployment.PublicEndpoint.ContainerPort,
+				HealthCheck:   healthCheckFromWire(req.Deployment.PublicEndpoint.HealthCheck),
 			}
 		}
 
@@ -338,6 +381,7 @@ func (h *Handler) handleCreateContainerServiceDeployment(_ context.Context, body
 		ep = &ContainerServiceEndpoint{
 			ContainerName: req.PublicEndpoint.ContainerName,
 			ContainerPort: req.PublicEndpoint.ContainerPort,
+			HealthCheck:   healthCheckFromWire(req.PublicEndpoint.HealthCheck),
 		}
 	}
 
