@@ -51,16 +51,12 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
 
-				go newFastJanitor(b).Run(ctx)
+				newFastJanitor(b).DrainPendingBucketsOnce(t.Context())
 
-				require.Eventually(t, func() bool {
-					listed, listErr := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
-
-					return listErr == nil && len(listed.Buckets) == 0
-				}, 500*time.Millisecond, 10*time.Millisecond)
+				listed, err := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+				require.NoError(t, err)
+				assert.Empty(t, listed.Buckets)
 			},
 		},
 		{
@@ -106,16 +102,12 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
 
-				go newFastJanitor(b).Run(ctx)
+				newFastJanitor(b).DrainPendingBucketsOnce(t.Context())
 
-				require.Eventually(t, func() bool {
-					listed, listErr := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
-
-					return listErr == nil && len(listed.Buckets) == 0
-				}, 500*time.Millisecond, 10*time.Millisecond)
+				listed, err := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+				require.NoError(t, err)
+				assert.Empty(t, listed.Buckets)
 			},
 		},
 		{
@@ -213,16 +205,11 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
 
-				go newFastJanitor(b).Run(ctx)
+				newFastJanitor(b).DrainPendingBucketsOnce(t.Context())
 
-				// Wait until the janitor has fully removed the bucket.
-				require.Eventually(t, func() bool {
-					return b.UploadsForBucket("cleanup-bucket") == 0 &&
-						b.TagsForBucket("cleanup-bucket") == 0
-				}, 500*time.Millisecond, 10*time.Millisecond, "orphaned uploads/tags must be cleaned up")
+				assert.Equal(t, 0, b.UploadsForBucket("cleanup-bucket"), "orphaned uploads must be cleaned up")
+				assert.Equal(t, 0, b.TagsForBucket("cleanup-bucket"), "orphaned tags must be cleaned up")
 			},
 		},
 		{
@@ -291,13 +278,11 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 </LifecycleConfiguration>`,
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				require.Eventually(t, func() bool {
-					out, listErr := b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
-						Bucket: aws.String("lc-bucket"),
-					})
-
-					return listErr == nil && len(out.Contents) == 0
-				}, 500*time.Millisecond, 10*time.Millisecond)
+				out, err := b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+					Bucket: aws.String("lc-bucket"),
+				})
+				require.NoError(t, err)
+				assert.Empty(t, out.Contents)
 			},
 		},
 		{
@@ -319,22 +304,6 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 </LifecycleConfiguration>`,
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				require.Eventually(t, func() bool {
-					out, listErr := b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
-						Bucket: aws.String("prefix-bucket"),
-					})
-					if listErr != nil {
-						return false
-					}
-					for _, obj := range out.Contents {
-						if aws.ToString(obj.Key) == "logs/old.txt" {
-							return false
-						}
-					}
-
-					return true
-				}, 500*time.Millisecond, 10*time.Millisecond)
-
 				out, err := b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
 					Bucket: aws.String("prefix-bucket"),
 				})
@@ -361,9 +330,7 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 </LifecycleConfiguration>`,
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				// Wait a few janitor ticks then confirm the object is NOT deleted.
-				time.Sleep(50 * time.Millisecond)
-
+				// A disabled rule must not expire the object even after a sweep.
 				out, err := b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
 					Bucket: aws.String("disabled-bucket"),
 				})
@@ -383,10 +350,7 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 			err := b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lifecycleXML, "")
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-
-			go newFastJanitor(b).Run(ctx)
+			newFastJanitor(b).SweepOnce(t.Context())
 
 			tt.verify(t, b)
 		})
@@ -445,20 +409,17 @@ func TestS3Janitor_NoncurrentVersionExpiration(t *testing.T) {
 			err = backend.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
-			j := newFastJanitor(backend)
-			go j.Run(t.Context())
+			newFastJanitor(backend).SweepOnce(t.Context())
 
 			if tt.wantGone {
-				require.Eventually(t, func() bool {
-					out, listErr := backend.ListObjectVersions(
-						t.Context(),
-						&sdk_s3.ListObjectVersionsInput{
-							Bucket: aws.String(tt.bucket),
-						},
-					)
-
-					return listErr == nil && len(out.Versions) <= 1
-				}, 500*time.Millisecond, 10*time.Millisecond)
+				out, listErr := backend.ListObjectVersions(
+					t.Context(),
+					&sdk_s3.ListObjectVersionsInput{
+						Bucket: aws.String(tt.bucket),
+					},
+				)
+				require.NoError(t, listErr)
+				assert.LessOrEqual(t, len(out.Versions), 1)
 			}
 		})
 	}
@@ -564,45 +525,25 @@ func TestLifecycle_TagFilter(t *testing.T) {
 			err = backend.PutBucketLifecycleConfiguration(t.Context(), bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
-			j := newFastJanitor(backend)
-			go j.Run(t.Context())
+			newFastJanitor(backend).SweepOnce(t.Context())
 
-			// Wait for wantGone keys to disappear.
+			out, err := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+				Bucket: aws.String(bucket),
+			})
+			require.NoError(t, err)
+
+			present := make(map[string]bool, len(out.Contents))
+			for _, obj := range out.Contents {
+				present[aws.ToString(obj.Key)] = true
+			}
+
 			for _, goneKey := range tt.wantGone {
-				require.Eventually(t, func() bool {
-					out, listErr := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
-						Bucket: aws.String(bucket),
-					})
-					if listErr != nil {
-						return false
-					}
-					for _, obj := range out.Contents {
-						if aws.ToString(obj.Key) == goneKey {
-							return false
-						}
-					}
-
-					return true
-				}, 500*time.Millisecond, 10*time.Millisecond,
-					"expected key %q to be evicted", goneKey)
+				assert.False(t, present[goneKey], "expected key %q to be evicted", goneKey)
 			}
 
 			// Verify wantKept keys are still present.
 			for _, keptKey := range tt.wantKept {
-				out, listErr := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
-					Bucket: aws.String(bucket),
-				})
-				require.NoError(t, listErr)
-
-				found := false
-				for _, obj := range out.Contents {
-					if aws.ToString(obj.Key) == keptKey {
-						found = true
-
-						break
-					}
-				}
-				assert.True(t, found, "expected key %q to still exist", keptKey)
+				assert.True(t, present[keptKey], "expected key %q to still exist", keptKey)
 			}
 		})
 	}

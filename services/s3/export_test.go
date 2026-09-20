@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"time"
@@ -59,6 +60,32 @@ func (h *S3Handler) GetJanitorTaskTimeout() time.Duration {
 // Used in tests to verify that maxConcurrentDrains is respected.
 func (j *Janitor) DrainSemCapacity() int {
 	return cap(j.drainSem)
+}
+
+// DrainPendingBucketsOnce synchronously drains every DeletePending bucket via
+// processBucket, bypassing sweepAndDrain's goroutine/semaphore machinery
+// (which production uses so thousands of buckets drain in parallel). Tests
+// use this instead of "go j.Run(ctx)" + require.Eventually so bucket removal
+// happens deterministically within a single call rather than racing a
+// wall-clock ticker under CI load.
+func (j *Janitor) DrainPendingBucketsOnce(ctx context.Context) {
+	b := j.Backend
+
+	var pending []string
+	func() {
+		b.mu.RLock("DrainPendingBucketsOnce")
+		defer b.mu.RUnlock()
+
+		for _, bucket := range b.buckets.All() {
+			if bucket.DeletePending {
+				pending = append(pending, bucket.Name)
+			}
+		}
+	}()
+
+	for _, name := range pending {
+		j.processBucket(ctx, name)
+	}
 }
 
 // MaxConcurrentDrains exposes the package constant for external tests.
