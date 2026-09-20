@@ -126,6 +126,26 @@ func (b *InMemoryBackend) PutConfigurationAggregator(
 	return nil
 }
 
+// GetConfigurationAggregator returns the named configuration aggregator.
+// PutConfigurationAggregatorOutput echoes the full ConfigurationAggregator
+// back on the wire (configservice@v1.68.4's own struct field, not an empty
+// envelope) -- the terraform-provider-aws resource dereferences
+// output.ConfigurationAggregator.ConfigurationAggregatorName unconditionally,
+// so an empty Put response panics the provider.
+func (b *InMemoryBackend) GetConfigurationAggregator(name string) (*ConfigurationAggregator, bool) {
+	b.mu.RLock("GetConfigurationAggregator")
+	defer b.mu.RUnlock()
+
+	agg, ok := b.aggregators.Get(name)
+	if !ok {
+		return nil, false
+	}
+
+	cp := *agg
+
+	return &cp, true
+}
+
 // existingAggregatorArnLocked returns the ARN of the aggregator named name, if any.
 func existingAggregatorArnLocked(b *InMemoryBackend, name string) (string, bool) {
 	existing, ok := b.aggregators.Get(name)

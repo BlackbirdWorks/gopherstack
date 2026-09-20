@@ -145,10 +145,36 @@ type ConformancePack struct {
 	LastUpdateRequestedTime string `json:"LastUpdateRequestedTime,omitempty"`
 }
 
+// OrganizationManagedRuleMetadata mirrors types.OrganizationManagedRuleMetadata.
+type OrganizationManagedRuleMetadata struct {
+	RuleIdentifier            string   `json:"RuleIdentifier"`
+	Description               string   `json:"Description,omitempty"`
+	InputParameters           string   `json:"InputParameters,omitempty"`
+	MaximumExecutionFrequency string   `json:"MaximumExecutionFrequency,omitempty"`
+	ResourceIDScope           string   `json:"ResourceIdScope,omitempty"`
+	TagKeyScope               string   `json:"TagKeyScope,omitempty"`
+	TagValueScope             string   `json:"TagValueScope,omitempty"`
+	ResourceTypesScope        []string `json:"ResourceTypesScope,omitempty"`
+}
+
+// OrganizationCustomRuleMetadata mirrors types.OrganizationCustomRuleMetadata.
+type OrganizationCustomRuleMetadata struct {
+	LambdaFunctionArn                  string   `json:"LambdaFunctionArn"`
+	Description                        string   `json:"Description,omitempty"`
+	InputParameters                    string   `json:"InputParameters,omitempty"`
+	MaximumExecutionFrequency          string   `json:"MaximumExecutionFrequency,omitempty"`
+	ResourceIDScope                    string   `json:"ResourceIdScope,omitempty"`
+	OrganizationConfigRuleTriggerTypes []string `json:"OrganizationConfigRuleTriggerTypes"`
+	ResourceTypesScope                 []string `json:"ResourceTypesScope,omitempty"`
+}
+
 // OrganizationConfigRule represents an AWS Config organization config rule.
 type OrganizationConfigRule struct {
-	OrganizationConfigRuleName string `json:"OrganizationConfigRuleName"`
-	OrganizationConfigRuleArn  string `json:"OrganizationConfigRuleArn"`
+	OrganizationManagedRuleMetadata *OrganizationManagedRuleMetadata `json:"OrganizationManagedRuleMetadata,omitempty"`
+	OrganizationCustomRuleMetadata  *OrganizationCustomRuleMetadata  `json:"OrganizationCustomRuleMetadata,omitempty"`
+	OrganizationConfigRuleName      string                           `json:"OrganizationConfigRuleName"`
+	OrganizationConfigRuleArn       string                           `json:"OrganizationConfigRuleArn"`
+	ExcludedAccounts                []string                         `json:"ExcludedAccounts,omitempty"`
 }
 
 // OrganizationConformancePack represents an AWS Config organization conformance pack.
@@ -238,9 +264,32 @@ type RetentionConfiguration struct {
 
 // RemediationConfiguration holds a remediation configuration for a config rule.
 type RemediationConfiguration struct {
-	ConfigRuleName string `json:"ConfigRuleName"`
-	TargetType     string `json:"TargetType"`
-	TargetID       string `json:"TargetId"`
+	Parameters               map[string]RemediationParameterValue `json:"Parameters,omitempty"`
+	ConfigRuleName           string                               `json:"ConfigRuleName"`
+	TargetType               string                               `json:"TargetType"`
+	TargetID                 string                               `json:"TargetId"`
+	Arn                      string                               `json:"Arn,omitempty"`
+	ResourceType             string                               `json:"ResourceType,omitempty"`
+	TargetVersion            string                               `json:"TargetVersion,omitempty"`
+	RetryAttemptSeconds      int64                                `json:"RetryAttemptSeconds,omitempty"`
+	MaximumAutomaticAttempts int32                                `json:"MaximumAutomaticAttempts,omitempty"`
+	Automatic                bool                                 `json:"Automatic,omitempty"`
+}
+
+// RemediationParameterValue mirrors types.RemediationParameterValue.
+type RemediationParameterValue struct {
+	ResourceValue *RemediationResourceValue `json:"ResourceValue,omitempty"`
+	StaticValue   *RemediationStaticValue   `json:"StaticValue,omitempty"`
+}
+
+// RemediationResourceValue mirrors types.ResourceValue.
+type RemediationResourceValue struct {
+	Value string `json:"Value,omitempty"`
+}
+
+// RemediationStaticValue mirrors types.StaticValue.
+type RemediationStaticValue struct {
+	Values []string `json:"Values,omitempty"`
 }
 
 // RemediationException holds an exception for remediation of a resource.
