@@ -46,7 +46,7 @@ func TestReset_ClearsAccountAndSideMapState(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.ModifyVpcTenancy("vpc-default", "dedicated"))
 	require.NoError(t, b.ModifyVpcPeeringConnectionOptions(
-		pc.VpcPeeringConnectionID, PeeringConnectionOptions{AllowDNSResolutionFromRemoteVPC: true},
+		pc.VpcPeeringConnectionID, false, PeeringConnectionOptions{AllowDNSResolutionFromRemoteVPC: true},
 	))
 	_, err = b.AssociateSubnetCidrBlock("subnet-default", "2001:db8::/64")
 	require.NoError(t, err)

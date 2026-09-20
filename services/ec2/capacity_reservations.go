@@ -86,6 +86,23 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 	return cr, nil
 }
 
+// SetCapacityReservationInstancePlatform applies CreateCapacityReservation's
+// InstancePlatform to an existing reservation -- a required, ForceNew field
+// on aws_ec2_capacity_reservation that was never stored, so every apply
+// showed permanent "instance_platform forces replacement" drift.
+func (b *InMemoryBackend) SetCapacityReservationInstancePlatform(reservationID, platform string) {
+	if platform == "" {
+		return
+	}
+
+	b.mu.Lock("SetCapacityReservationInstancePlatform")
+	defer b.mu.Unlock()
+
+	if cr, ok := b.capacityReservations.Get(reservationID); ok {
+		cr.InstancePlatform = platform
+	}
+}
+
 // CancelCapacityReservation cancels an active capacity reservation.
 func (b *InMemoryBackend) CancelCapacityReservation(reservationID string) error {
 	if reservationID == "" {

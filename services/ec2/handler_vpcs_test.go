@@ -51,12 +51,23 @@ func TestModifyVpcPeeringConnectionOptions(t *testing.T) { //nolint:paralleltest
 	vpc2, _ := b.CreateVpc("10.0.0.0/16", "default")
 	pc, _ := b.CreateVpcPeeringConnection("vpc-default", vpc2.ID, "", "")
 
-	t.Run("stores options", func(t *testing.T) {
+	t.Run("stores requester options", func(t *testing.T) { //nolint:paralleltest // shares b/pc with the next subtest.
 		opts := ec2.PeeringConnectionOptions{AllowDNSResolutionFromRemoteVPC: true}
-		require.NoError(t, b.ModifyVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID, opts))
+		require.NoError(t, b.ModifyVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID, false, opts))
 		stored := b.GetVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID)
 		require.NotNil(t, stored)
-		assert.True(t, stored.AllowDNSResolutionFromRemoteVPC)
+		assert.True(t, stored.Requester.AllowDNSResolutionFromRemoteVPC)
+		assert.False(t, stored.Accepter.AllowDNSResolutionFromRemoteVPC)
+	})
+
+	//nolint:paralleltest // depends on the previous subtest's state.
+	t.Run("stores accepter options independently", func(t *testing.T) {
+		opts := ec2.PeeringConnectionOptions{AllowDNSResolutionFromRemoteVPC: true}
+		require.NoError(t, b.ModifyVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID, true, opts))
+		stored := b.GetVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID)
+		require.NotNil(t, stored)
+		assert.True(t, stored.Requester.AllowDNSResolutionFromRemoteVPC)
+		assert.True(t, stored.Accepter.AllowDNSResolutionFromRemoteVPC)
 	})
 }
 

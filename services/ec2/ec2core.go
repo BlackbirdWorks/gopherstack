@@ -148,9 +148,13 @@ func (b *InMemoryBackend) CreateEgressOnlyInternetGateway(
 	}
 
 	igw := &EgressOnlyInternetGateway{
-		ID:         newEgressOnlyInternetGatewayID(),
-		VPCID:      vpcID,
-		State:      stateAvailable,
+		ID:    newEgressOnlyInternetGatewayID(),
+		VPCID: vpcID,
+		// State models the (only) attachment's state, not the gateway
+		// itself -- real AttachmentStatus enum values are
+		// attaching/attached/detaching/detached, never "available"
+		// (aws-sdk-go-v2/service/ec2/types/enums.go).
+		State:      attachmentStateAttached,
 		CreateTime: time.Now(),
 	}
 	b.egressOnlyIGWs.Put(igw)
@@ -377,13 +381,14 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 		oldRT    *RouteTable
 		oldIndex int
 		subnetID string
+		wasMain  bool
 		found    bool
 	)
 
 	for _, rt := range b.routeTables.All() {
 		for i, assoc := range rt.Associations {
 			if assoc.ID == associationID {
-				oldRT, oldIndex, subnetID, found = rt, i, assoc.SubnetID, true
+				oldRT, oldIndex, subnetID, wasMain, found = rt, i, assoc.SubnetID, assoc.Main, true
 
 				break
 			}
@@ -398,21 +403,24 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 		return "", fmt.Errorf("%w: %s", ErrAssociationNotFound, associationID)
 	}
 
-	if subnetID == "" {
-		return "", fmt.Errorf(
-			"%w: %s is the implicit main-route-table association for %s; "+
-				"reassigning a VPC's main route table is not supported",
-			ErrInvalidParameter, associationID, oldRT.VPCID,
-		)
-	}
-
 	oldRT.Associations = append(oldRT.Associations[:oldIndex], oldRT.Associations[oldIndex+1:]...)
+
+	// Moving the main association makes newRouteTableID the VPC's new main
+	// route table -- real AWS never leaves two "main" associations for one
+	// VPC, so any pre-existing main association on newRT (there should be at
+	// most one) is demoted first.
+	if wasMain {
+		for i := range newRT.Associations {
+			newRT.Associations[i].Main = false
+		}
+	}
 
 	newAssocID := newRouteTableAssociationID()
 	newRT.Associations = append(newRT.Associations, RouteAssociation{
 		ID:           newAssocID,
 		RouteTableID: newRouteTableID,
 		SubnetID:     subnetID,
+		Main:         wasMain,
 	})
 
 	return newAssocID, nil
@@ -491,6 +499,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayRouteTables(
 	}
 
 	out := make([]*TransitGatewayRouteTable, 0, b.tgwRouteTables.Len())
+	found := make(map[string]bool, len(ids))
 
 	for _, rt := range b.tgwRouteTables.All() {
 		if len(idSet) > 0 && !idSet[rt.RouteTableID] {
@@ -499,6 +508,21 @@ func (b *InMemoryBackend) DescribeTransitGatewayRouteTables(
 
 		cp := *rt
 		out = append(out, &cp)
+		found[rt.RouteTableID] = true
+	}
+
+	// A by-ID Describe of a just-deleted route table still finds its
+	// tombstone (state "deleted") -- an unfiltered Describe never surfaces
+	// tombstones, matching real AWS's list-vs-get behavior.
+	for _, id := range ids {
+		if found[id] {
+			continue
+		}
+
+		if tomb, ok := b.tgwRouteTableTombstones[id]; ok {
+			cp := *tomb
+			out = append(out, &cp)
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -508,7 +532,8 @@ func (b *InMemoryBackend) DescribeTransitGatewayRouteTables(
 	return out
 }
 
-// DeleteTransitGatewayRouteTable removes a TGW route table.
+// DeleteTransitGatewayRouteTable removes a TGW route table, keeping a
+// tombstone so a subsequent by-ID Describe still finds it in "deleted" state.
 func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: TransitGatewayRouteTableId is required", ErrInvalidParameter)
@@ -517,9 +542,15 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 	b.mu.Lock("DeleteTransitGatewayRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTables.Get(id); !ok {
+	rt, ok := b.tgwRouteTables.Get(id)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, id)
 	}
+
+	cp := *rt
+	cp.State = tgwRouteStateDeleted
+	b.tgwRouteTableTombstones[id] = &cp
+
 	b.tgwRouteTables.Delete(id)
 	delete(b.tags, id)
 
@@ -703,7 +734,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
 		TransitGatewayRouteTableID: routeTableID,
 		TransitGatewayAttachmentID: attachmentID,
 		ResourceType:               resourceType,
-		State:                      stateAvailable,
+		State:                      stateAssociated,
 	}
 	b.tgwRTAssociations.Put(assoc)
 

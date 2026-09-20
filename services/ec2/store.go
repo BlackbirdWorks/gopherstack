@@ -88,6 +88,8 @@ const (
 	resourceTypeSnapshot               = "snapshot"
 	resourceTypeENI                    = "network-interface"
 	vpcDefaultName                     = "vpc-default"
+	dhcpOptionsDefaultID               = "dopt-default"
+	routeTableDefaultID                = "rtb-default"
 	archX8664                          = "x86_64"
 	resourceTypeFISInstance            = "aws:ec2:instance"
 	ec2BooleanFalse                    = "false"
@@ -385,20 +387,31 @@ type InMemoryBackend struct {
 	spotFleets                          *store.Table[SpotFleetRequest]
 	spotFleetHistory                    map[string][]SpotFleetHistoryRecord
 	// batch1 additions
-	volumeModifications      *store.Table[VolumeModification]
-	snapshotTiers            map[string]string
-	snapshotAttributes       map[string]map[string]string
-	sgVpcAssociations        map[string]map[string]string
-	vpcTenancy               map[string]string
-	vpcPeeringOptions        map[string]*PeeringConnectionOptions
-	subnetCIDRAssociations   map[string][]*SubnetCIDRAssociation
-	addressAttributes        *store.Table[AddressAttribute]
-	instanceCreditSpecs      map[string]string
-	instanceMetadataDefaults *InstanceMetadataDefaults
-	instanceEventNotifAttrs  *InstanceEventNotificationAttributes
-	niPermissions            *store.Table[NetworkInterfacePermission]
-	niIPv6Addresses          map[string][]string
-	idFormatSettings         map[string]bool
+	volumeModifications       *store.Table[VolumeModification]
+	snapshotTiers             map[string]string
+	snapshotAttributes        map[string]map[string]string
+	sgVpcAssociations         map[string]map[string]string
+	vpcTenancy                map[string]string
+	vpcPeeringOptions         map[string]*PeeringConnectionOptions
+	vpcPeeringAccepterOptions map[string]*PeeringConnectionOptions
+
+	// tgwRouteTableTombstones retains a deleted TGW route table's last known
+	// state (real AWS keeps DescribeTransitGatewayRouteTables answering with
+	// state "deleted" for a period rather than NotFound; some
+	// terraform-provider-aws delete waiters treat a NotFound response as a
+	// fatal error instead of "done").
+	tgwRouteTableTombstones map[string]*TransitGatewayRouteTable
+	// tgwVpcAttachmentTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for TGW VPC attachment delete waiters.
+	tgwVpcAttachmentTombstones map[string]*TransitGatewayVpcAttachment
+	subnetCIDRAssociations     map[string][]*SubnetCIDRAssociation
+	addressAttributes          *store.Table[AddressAttribute]
+	instanceCreditSpecs        map[string]string
+	instanceMetadataDefaults   *InstanceMetadataDefaults
+	instanceEventNotifAttrs    *InstanceEventNotificationAttributes
+	niPermissions              *store.Table[NetworkInterfacePermission]
+	niIPv6Addresses            map[string][]string
+	idFormatSettings           map[string]bool
 	// batch2 additions
 	endpointConnectionNotifs      *store.Table[VpcEndpointConnectionNotification]
 	vpcEndpointServicePermissions map[string][]string
@@ -410,6 +423,10 @@ type InMemoryBackend struct {
 	imageDeregistrationProtection map[string]bool
 	imageAttributes               map[string]map[string]string
 	imageInstanceTypeSpecs        map[string]*InstanceTypeSpecification
+	imageLaunchPermissions        map[string]map[string]bool
+	imageLaunchPermissionPublic   map[string]bool
+	snapshotCreateVolumePerms     map[string]map[string]bool
+	snapshotCreateVolumePubGroup  map[string]bool
 	vgwRoutePropagation           map[string]bool
 	// batch4 additions
 	managedPrefixLists           *store.Table[ManagedPrefixList]
@@ -434,12 +451,15 @@ type InMemoryBackend struct {
 	vpnConnectionRoutes      *store.Table[VpnConnectionRoute]
 	spotDatafeed             *SpotDatafeed
 	// batch5 additions
-	trafficMirrorFilters               *store.Table[TrafficMirrorFilter]
-	trafficMirrorFilterRules           *store.Table[TrafficMirrorFilterRule]
-	trafficMirrorSessions              *store.Table[TrafficMirrorSession]
-	trafficMirrorTargets               *store.Table[TrafficMirrorTarget]
-	fleets                             *store.Table[Fleet]
-	fleetHistory                       map[string][]FleetHistoryRecord
+	trafficMirrorFilters     *store.Table[TrafficMirrorFilter]
+	trafficMirrorFilterRules *store.Table[TrafficMirrorFilterRule]
+	trafficMirrorSessions    *store.Table[TrafficMirrorSession]
+	trafficMirrorTargets     *store.Table[TrafficMirrorTarget]
+	fleets                   *store.Table[Fleet]
+	fleetHistory             map[string][]FleetHistoryRecord
+	// fleetTombstones is the same tombstone pattern as tgwRouteTableTombstones,
+	// for DeleteFleets' delete waiter.
+	fleetTombstones                    map[string]*Fleet
 	networkInsightsPaths               *store.Table[NetworkInsightsPath]
 	networkInsightsAnalyses            *store.Table[NetworkInsightsAnalysis]
 	networkInsightsAccessScopes        *store.Table[NetworkInsightsAccessScope]
@@ -626,11 +646,15 @@ func initVerifiedAccessExtMaps(b *InMemoryBackend) {
 func initCoreExtraMaps(b *InMemoryBackend) {
 	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
 	b.fleetHistory = make(map[string][]FleetHistoryRecord)
+	b.fleetTombstones = make(map[string]*Fleet)
 	b.snapshotTiers = make(map[string]string)
 	b.snapshotAttributes = make(map[string]map[string]string)
 	b.sgVpcAssociations = make(map[string]map[string]string)
 	b.vpcTenancy = make(map[string]string)
 	b.vpcPeeringOptions = make(map[string]*PeeringConnectionOptions)
+	b.vpcPeeringAccepterOptions = make(map[string]*PeeringConnectionOptions)
+	b.tgwRouteTableTombstones = make(map[string]*TransitGatewayRouteTable)
+	b.tgwVpcAttachmentTombstones = make(map[string]*TransitGatewayVpcAttachment)
 	b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
 	b.instanceCreditSpecs = make(map[string]string)
 	b.niIPv6Addresses = make(map[string][]string)
@@ -642,6 +666,10 @@ func initCoreExtraMaps(b *InMemoryBackend) {
 	b.imageDeregistrationProtection = make(map[string]bool)
 	b.imageAttributes = make(map[string]map[string]string)
 	b.imageInstanceTypeSpecs = make(map[string]*InstanceTypeSpecification)
+	b.imageLaunchPermissions = make(map[string]map[string]bool)
+	b.imageLaunchPermissionPublic = make(map[string]bool)
+	b.snapshotCreateVolumePerms = make(map[string]map[string]bool)
+	b.snapshotCreateVolumePubGroup = make(map[string]bool)
 	b.vgwRoutePropagation = make(map[string]bool)
 }
 
@@ -744,10 +772,12 @@ func (b *InMemoryBackend) Reset() {
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.
+	b.seedDefaultDhcpOptionsLocked()
 	b.vpcs.Put(&VPC{
-		ID:        vpcDefaultName,
-		CIDRBlock: "172.31.0.0/16",
-		IsDefault: true,
+		ID:            vpcDefaultName,
+		CIDRBlock:     "172.31.0.0/16",
+		IsDefault:     true,
+		DHCPOptionsID: dhcpOptionsDefaultID,
 	})
 	b.subnets.Put(&Subnet{
 		ID:               "subnet-default",
@@ -764,6 +794,27 @@ func (b *InMemoryBackend) Reset() {
 		VPCID:       vpcDefaultName,
 	})
 	b.indexSGLocked("sg-default", vpcDefaultName)
+	b.createMainRouteTableLocked(routeTableDefaultID, vpcDefaultName, "172.31.0.0/16")
+}
+
+// seedDefaultDhcpOptionsLocked (re-)creates the account's default DHCP options
+// set (dopt-default): every AWS account/region has one, associated with the
+// default VPC and any VPC reset to "default" via AssociateDhcpOptions. Must be
+// called with b.mu held.
+func (b *InMemoryBackend) seedDefaultDhcpOptionsLocked() {
+	domainName := b.Region + ".compute.internal"
+	if b.Region == "us-east-1" {
+		domainName = "ec2.internal"
+	}
+
+	b.dhcpOptionSets.Put(&DhcpOptions{
+		DhcpOptionsID: dhcpOptionsDefaultID,
+		Configurations: []DhcpConfiguration{
+			{Key: "domain-name", Values: []string{domainName}},
+			{Key: "domain-name-servers", Values: []string{"AmazonProvidedDNS"}},
+		},
+		AssociatedVPCIDs: []string{},
+	})
 }
 
 // resetNewOpsMapsLocked re-initialises all "new operations" resource maps introduced
@@ -876,12 +927,14 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 
 // initDefaults pre-populates a default VPC, subnet, and security group.
 func (b *InMemoryBackend) initDefaults() {
+	b.seedDefaultDhcpOptionsLocked()
+
 	defaultVPCID := vpcDefaultName
 	b.vpcs.Put(&VPC{
 		ID:            defaultVPCID,
 		CIDRBlock:     "172.31.0.0/16",
 		IsDefault:     true,
-		DHCPOptionsID: dhcpOptionsDefault,
+		DHCPOptionsID: dhcpOptionsDefaultID,
 	})
 
 	defaultSubnetID := "subnet-default"
@@ -893,6 +946,8 @@ func (b *InMemoryBackend) initDefaults() {
 		IsDefault:        true,
 	})
 	b.indexSubnetLocked(defaultSubnetID, defaultVPCID)
+
+	b.createMainRouteTableLocked(routeTableDefaultID, defaultVPCID, "172.31.0.0/16")
 
 	defaultSGID := "sg-default"
 	b.securityGroups.Put(&SecurityGroup{

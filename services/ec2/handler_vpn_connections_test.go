@@ -22,7 +22,7 @@ func TestVpnConnectionRoute(t *testing.T) { //nolint:paralleltest // existing is
 	t.Run("create route", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		route, err := b.CreateVpnConnectionRoute(conn.VpnConnectionID, "192.168.0.0/24")
 		require.NoError(t, err)
-		assert.Equal(t, "active", route.State)
+		assert.Equal(t, "available", route.State)
 	})
 
 	t.Run("delete route", func(t *testing.T) { //nolint:paralleltest // existing issue.

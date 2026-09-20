@@ -94,8 +94,17 @@ func TestFleet(t *testing.T) { //nolint:paralleltest // existing issue.
 		assert.Equal(t, fleetID, deleted[0].FleetID)
 		assert.Equal(t, "active", deleted[0].PreviousFleetState)
 
+		// A by-ID Describe still finds the fleet as a "deleted" tombstone
+		// (real AWS keeps it visible for a period; some delete waiters
+		// treat an empty result as a fatal "not found" rather than success).
 		fleetsAfter := b.DescribeFleets([]string{fleetID})
-		assert.Empty(t, fleetsAfter)
+		require.Len(t, fleetsAfter, 1)
+		assert.Equal(t, "deleted", fleetsAfter[0].FleetState)
+
+		allFleets := b.DescribeFleets(nil)
+		for _, f := range allFleets {
+			assert.NotEqual(t, fleetID, f.FleetID, "an unfiltered Describe must not surface deleted tombstones")
+		}
 
 		for _, id := range instanceIDs {
 			insts := b.DescribeInstances([]string{id}, "")

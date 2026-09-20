@@ -73,29 +73,50 @@ func (h *Handler) handleModifyVpcTenancy(vals url.Values, reqID string) (any, er
 	return &modifyVpcTenancyResponse{RequestID: reqID, Return: true}, nil
 }
 
+func parsePeeringConnectionOptions(vals url.Values, prefix string) (PeeringConnectionOptions, bool) {
+	dnsKey := prefix + ".AllowDnsResolutionFromRemoteVpc"
+	classicLinkKey := prefix + ".AllowEgressFromLocalClassicLinkToRemoteVpc"
+	vpcClassicLinkKey := prefix + ".AllowEgressFromLocalVpcToRemoteClassicLink"
+
+	_, hasDNS := vals[dnsKey]
+	_, hasClassicLink := vals[classicLinkKey]
+	_, hasVpcClassicLink := vals[vpcClassicLinkKey]
+
+	if !hasDNS && !hasClassicLink && !hasVpcClassicLink {
+		return PeeringConnectionOptions{}, false
+	}
+
+	return PeeringConnectionOptions{
+		AllowDNSResolutionFromRemoteVPC:            vals.Get(dnsKey) == ec2BooleanTrue,
+		AllowEgressFromLocalClassicLinkToRemoteVPC: vals.Get(classicLinkKey) == ec2BooleanTrue,
+		AllowEgressFromLocalVPCToRemoteClassicLink: vals.Get(vpcClassicLinkKey) == ec2BooleanTrue,
+	}, true
+}
+
+func toPeeringOptionsItem(opts PeeringConnectionOptions) peeringOptionsItem {
+	return peeringOptionsItem(opts)
+}
+
 func (h *Handler) handleModifyVpcPeeringConnectionOptions(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
 	peeringID := vals.Get("VpcPeeringConnectionId")
-	opts := PeeringConnectionOptions{
-		AllowDNSResolutionFromRemoteVPC: vals.Get(
-			"RequesterPeeringConnectionOptions.AllowDnsResolutionFromRemoteVpc",
-		) == ec2BooleanTrue,
-		AllowEgressFromLocalClassicLinkToRemoteVPC: vals.Get(
-			"RequesterPeeringConnectionOptions.AllowEgressFromLocalClassicLinkToRemoteVpc",
-		) == ec2BooleanTrue,
-		AllowEgressFromLocalVPCToRemoteClassicLink: vals.Get(
-			"RequesterPeeringConnectionOptions.AllowEgressFromLocalVpcToRemoteClassicLink",
-		) == ec2BooleanTrue,
-	}
-	if err := h.Backend.ModifyVpcPeeringConnectionOptions(peeringID, opts); err != nil {
-		return nil, err
-	}
 	resp := &modifyVpcPeeringConnectionOptionsResponse{RequestID: reqID}
-	resp.RequesterPeeringConnectionOptions.AllowDNSResolutionFromRemoteVPC = opts.AllowDNSResolutionFromRemoteVPC
-	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalClassicLinkToRemoteVPC = opts.AllowEgressFromLocalClassicLinkToRemoteVPC //nolint:lll // existing issue.
-	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalVPCToRemoteClassicLink = opts.AllowEgressFromLocalVPCToRemoteClassicLink //nolint:lll // existing issue.
+
+	if reqOpts, ok := parsePeeringConnectionOptions(vals, "RequesterPeeringConnectionOptions"); ok {
+		if err := h.Backend.ModifyVpcPeeringConnectionOptions(peeringID, false, reqOpts); err != nil {
+			return nil, err
+		}
+		resp.RequesterPeeringConnectionOptions = toPeeringOptionsItem(reqOpts)
+	}
+
+	if accOpts, ok := parsePeeringConnectionOptions(vals, "AccepterPeeringConnectionOptions"); ok {
+		if err := h.Backend.ModifyVpcPeeringConnectionOptions(peeringID, true, accOpts); err != nil {
+			return nil, err
+		}
+		resp.AccepterPeeringConnectionOptions = toPeeringOptionsItem(accOpts)
+	}
 
 	return resp, nil
 }
@@ -198,6 +219,8 @@ type transitGatewayOptionsItem struct {
 	MulticastSupport                string   `xml:"multicastSupport,omitempty"`
 	SecurityGroupReferencingSupport string   `xml:"securityGroupReferencingSupport,omitempty"`
 	VpnEcmpSupport                  string   `xml:"vpnEcmpSupport,omitempty"`
+	AssociationDefaultRouteTableID  string   `xml:"associationDefaultRouteTableId,omitempty"`
+	PropagationDefaultRouteTableID  string   `xml:"propagationDefaultRouteTableId,omitempty"`
 	TransitGatewayCidrBlocks        []string `xml:"transitGatewayCidrBlocks>item,omitempty"`
 	AmazonSideAsn                   int64    `xml:"amazonSideAsn,omitempty"`
 }
@@ -233,6 +256,8 @@ func toTransitGatewayItem(tgw *TransitGateway, tags map[string]string) transitGa
 			SecurityGroupReferencingSupport: tgw.Options.SecurityGroupReferencingSupport,
 			VpnEcmpSupport:                  tgw.Options.VpnEcmpSupport,
 			TransitGatewayCidrBlocks:        tgw.Options.TransitGatewayCidrBlocks,
+			AssociationDefaultRouteTableID:  tgw.Options.AssociationDefaultRouteTableID,
+			PropagationDefaultRouteTableID:  tgw.Options.PropagationDefaultRouteTableID,
 		},
 	}
 	if !tgw.CreationTime.IsZero() {

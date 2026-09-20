@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 )
@@ -89,6 +90,23 @@ const (
 	instanceEventDefaultCode = "system-reboot"
 )
 
+// knownAvailabilityZoneGroups seeds a small, real (not fabricated) catalog of
+// opt-in Local Zone/Wavelength Zone groups so DescribeAvailabilityZones(
+// AllAvailabilityZones=true) can find one by group-name before it has ever
+// been opted into -- real AWS lists every zone group's not-opted-in status
+// this way; a real client (including aws_ec2_availability_zone_group's
+// create, which looks the group up before calling ModifyAvailabilityZoneGroup)
+// depends on the group already being visible, not just gaining a name once
+// modified. Names match AWS's own published examples (Wavelength Zone group
+// us-east-1-wl1-bos-wlz-1 backing zone us-east-1-wl1-bos-1; Local Zone group
+// us-west-2-lax-1 backing zone us-west-2-lax-1a).
+//
+//nolint:gochecknoglobals // static, read-only reference catalog, not mutated
+var knownAvailabilityZoneGroups = map[string]bool{
+	"us-east-1-wl1-bos-wlz-1": true,
+	"us-west-2-lax-1":         true,
+}
+
 // resetInstanceAttrMapsLocked re-initialises the Availability Zone group
 // opt-in state map. Must be called with b.mu held.
 func (b *InMemoryBackend) resetInstanceAttrMapsLocked() {
@@ -114,6 +132,25 @@ func (b *InMemoryBackend) ModifyAvailabilityZoneGroup(groupName, optInStatus str
 	b.availabilityZoneGroupOptIns[groupName] = optInStatus
 
 	return true, nil
+}
+
+// GetAvailabilityZoneGroups returns every known zone group (the seeded
+// knownAvailabilityZoneGroups catalog, defaulting to not-opted-in) merged
+// with any group ModifyAvailabilityZoneGroup has been called for, keyed by
+// group name, with its current opt-in status. Used by DescribeAvailabilityZones
+// to surface Local Zone/Wavelength Zone group entries (with AllAvailabilityZones=true).
+func (b *InMemoryBackend) GetAvailabilityZoneGroups() map[string]string {
+	b.mu.RLock("GetAvailabilityZoneGroups")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]string, len(knownAvailabilityZoneGroups)+len(b.availabilityZoneGroupOptIns))
+	for name := range knownAvailabilityZoneGroups {
+		out[name] = azGroupNotOptedIn
+	}
+
+	maps.Copy(out, b.availabilityZoneGroupOptIns)
+
+	return out
 }
 
 // ---- ModifyHosts ----

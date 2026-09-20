@@ -1,7 +1,7 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 975764188
+last_audit_commit: 70d96e12d
 last_audit_date: 2026-09-19
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
@@ -499,6 +499,69 @@ items_still_open:
     DescribeInstances never renders a blockDeviceMapping set at all; a real fix needs a new
     per-instance block-device-mapping model threaded through RunInstances/DescribeInstances/
     ModifyInstanceAttribute together, out of scope for a single-field fix."
+  - "aws_spot_fleet_request via classic launch_specification (mega-batch-11, 2026-09-19): does
+    not apply through terraform-provider-aws 5.100.0. Root-caused and fixed two real, verified
+    bugs in this pass: (1) RequestSpotInstances never reported SpotInstanceStatus.Code on the
+    wire (spotInstanceRequestItem had no <status> block at all), so the provider's fulfillment
+    waiter for aws_spot_instance_request polled forever -- fixed (spot_instances.go/
+    handler_spot_instances.go now echo status.code=fulfilled/status.message, matching
+    RequestSpotInstances' 'immediately fulfils' doc comment). (2) RegisterImage silently
+    dropped RootDeviceName and every BlockDeviceMapping.N.* member -- DescribeImages could
+    never report an AMI's root device or EBS mappings, breaking any real client (this one
+    included) that resolves a launch spec's root volume from the AMI -- fixed
+    (SetImageRootDeviceName/SetImageBlockDeviceMappings, images.go/handler_images.go, new
+    blockDeviceMapping set on the wire, field-diffed against BlockDeviceMappingResponse/
+    EbsBlockDeviceResponse in the pinned SDK). With both fixed, aws_spot_fleet_request's
+    launch_specification with a real, registered AMI still panics inside
+    terraform-provider-aws itself: hashLaunchSpecification (ec2_spot_fleet_request.go:2088,
+    called from launchSpecsToSet:1859, from resourceSpotFleetRequestRead:1070) does an
+    unconditional interface{}->string type assertion that panics with 'interface conversion:
+    interface {} is nil, not string' once the read path has real AMI/root-device data to work
+    with. Tried populating every documented LaunchSpecification field this backend could
+    plausibly be missing (placement.availabilityZone, monitoring.enabled, ebsOptimized,
+    iamInstanceProfile.{name,arn}, weightedCapacity always-present) one at a time, rebuilding
+    and re-running against a live container each time; the panic's file:line never moved,
+    including with a same-shape request that uses an unregistered (fake) AMI ID, which instead
+    fails cleanly with 'reading ... launch specifications: couldn't find resource' (no panic).
+    This is consistent with a real, pre-existing bug in this pinned provider build's own Set
+    hash function reading a map key its own flatten step conditionally skips, not a
+    still-missing gopherstack wire field -- but that could not be fully confirmed without the
+    provider's source, which is not vendored here. aws_spot_fleet_request was dropped from
+    mega-batch-11.tf/mega_batch11_test.go rather than merged failing; aws_spot_instance_request
+    and aws_ec2_fleet (both fixed/confirmed working end-to-end via the same test) were kept."
+  - "mega-batch-11/12 residual drift (2026-09-19), confirmed real via TF_LOG=trace against the
+    live wire response, not just plan output: (1) aws_vpn_connection's tunnel1/2_ike_versions
+    flip to null on every re-plan even though DescribeVpnConnections' raw XML correctly and
+    consistently includes ikeVersionSet=[ikev1,ikev2] on both the CreateVpnConnection response
+    and every later Describe (verified byte-for-byte identical across two separate polls) --
+    this is a terraform-provider-aws-side read/flatten quirk for this specific attribute, not
+    a wire gap here. (2) aws_default_vpc_dhcp_options' tags never persist: traced with
+    TF_LOG=trace and confirmed the provider issues exactly one DescribeDhcpOptions call during
+    Create and never issues CreateTags for this resource at all (no transparent-tagging
+    interceptor fires) -- CreateTags itself works correctly when called directly (verified via
+    the AWS CLI against the same running container), so this is the provider never asking us
+    to store the tag, not a backend bug. (3) aws_ec2_fleet's launched instance is not cleaned
+    up on 'terraform destroy' unless the resource sets terminate_instances = true (the
+    mega-batch-11.tf fixture does not); with the default false, the instance and its ENI
+    outlive 'DeleteFleets' by design (matching real AWS), which then blocks
+    'aws_subnet'/DependencyViolation at the end of the same destroy -- setting
+    terminate_instances = true was tried and instead exposed a separate multi-minute-plus
+    'still destroying' hang on aws_ec2_fleet itself (root cause not identified: possibly a
+    real, slow but eventually-successful wait tied to this backend's async instance-state
+    reconciler rather than a hang, not confirmed either way within this pass's time budget) --
+    left at the documented, real-AWS-matching default rather than trading a known, understood
+    gap for an unconfirmed one. (4) aws_vpc_peering_connection_accepter plans to clear its
+    tags whenever aws_vpc_peering_connection (the same underlying resource) sets tags and the
+    accepter resource does not -- a known real-world terraform-provider-aws quirk for this
+    resource pair (both sides tag the same physical connection); mega-batch-12.tf now avoids
+    it by leaving tags off the requester side entirely. (5) aws_spot_instance_request's
+    source_dest_check always shows false->true drift: DescribeInstances never renders a
+    top-level sourceDestCheck field at all (a pre-existing, structural gap -- fixing it risks
+    a deadlock via PrimaryNetworkInterfaceSourceDestCheck taking its own RLock if ever called
+    from within an already-locked path, plus golden-test regeneration); not fixed this pass.
+    (6) aws_ebs_snapshot_copy's description drifts on every re-plan; the resource's schema
+    does not mark description Computed, so this matches real AWS's own well-known drift for
+    this exact resource, not a gopherstack gap."
 structural_gaps:
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always
@@ -528,6 +591,21 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-09-19 mega-batch-11/12 terraform coverage: default-VPC route table/DHCP options, spot status, AMI root device, TGW/fleet delete tombstones
+
+Fixed real gaps found via terraform apply/destroy: seeded default VPC had no main route
+table or real default DHCP options record; RequestSpotInstances never echoed fulfillment
+status; RegisterImage dropped RootDeviceName/BlockDeviceMapping; ModifyTransitGateway
+couldn't set a default association/propagation route table; TransitGatewayVpcAttachment
+never echoed its Options sub-object; VpcPeeringConnectionOptions collapsed requester and
+accepter into one shared record (accepter side never applied); VpnConnection's
+StaticRoutesOnly was never read from CreateVpnConnection, forcing perpetual replacement;
+DeleteTransitGatewayRouteTable/DeleteTransitGatewayVpcAttachment/DeleteFleets hard-deleted
+immediately, so a delete waiter's by-ID Describe got NotFound/empty instead of a terminal
+"deleted" record and hung or errored -- added a small tombstone map for each so a by-ID
+Describe still finds the deleted resource (unfiltered Describes never see tombstones).
+See items_still_open for aws_spot_fleet_request and the remaining residual drift.
 
 ### 2026-09-19 perf: batched tag/security-group/IAM-profile lookups in DescribeInstances/RunInstances
 

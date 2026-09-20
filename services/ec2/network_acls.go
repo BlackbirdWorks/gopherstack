@@ -3,9 +3,18 @@ package ec2
 import (
 	"fmt"
 	"sort"
-
-	"github.com/google/uuid"
+	"strings"
 )
+
+// networkACLDefaultIDPrefix is the synthetic ID prefix DescribeNetworkAcls
+// (deepdive_ops.go) uses for a VPC's on-the-fly default ACL
+// ("acl-default-"+vpcID) -- never a real row in b.networkACLs.
+const networkACLDefaultIDPrefix = "acl-default-"
+
+// isDefaultNetworkACLID reports whether id is a VPC's synthetic default ACL ID.
+func isDefaultNetworkACLID(id string) bool {
+	return strings.HasPrefix(id, networkACLDefaultIDPrefix)
+}
 
 // CreateNetworkACL creates a non-default network ACL in a VPC.
 func (b *InMemoryBackend) CreateNetworkACL(vpcID string) (*StoredNetworkACL, error) {
@@ -282,8 +291,17 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 	b.mu.Lock("ReplaceNetworkACLAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkACLs.Get(aclID); !ok {
-		return "", fmt.Errorf("%w: %s", ErrNetworkACLNotFound, aclID)
+	// The VPC's default ACL (deepdive_ops.go's DescribeNetworkAcls) is
+	// synthesized on the fly, not a real row in b.networkACLs -- moving a
+	// subnet "back to default" (e.g. aws_network_acl_association's destroy)
+	// means just clearing any explicit association, not looking up a
+	// non-existent stored row.
+	movingToDefault := isDefaultNetworkACLID(aclID)
+
+	if !movingToDefault {
+		if _, ok := b.networkACLs.Get(aclID); !ok {
+			return "", fmt.Errorf("%w: %s", ErrNetworkACLNotFound, aclID)
+		}
 	}
 
 	if _, ok := b.subnets.Get(subnetID); !ok {
@@ -304,11 +322,17 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 		}
 	}
 
-	target, _ := b.networkACLs.Get(aclID)
-	target.AssociationIDs = append(target.AssociationIDs, subnetID)
-	newAssocID := "aclassoc-" + uuid.New().String()[:8]
+	if !movingToDefault {
+		target, _ := b.networkACLs.Get(aclID)
+		target.AssociationIDs = append(target.AssociationIDs, subnetID)
+	}
 
-	return newAssocID, nil
+	// The returned association ID must match what DescribeNetworkAcls will
+	// report for this subnet afterwards (AssociationIDs stores the raw
+	// subnet ID -- see DescribeNetworkAcls' doc comment), or a client that
+	// tracks the ID this call returns (e.g. as a resource ID) would never
+	// find it again on a subsequent read.
+	return subnetID, nil
 }
 
 // ---- VPC Endpoint Services ----

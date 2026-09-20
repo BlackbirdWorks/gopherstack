@@ -75,16 +75,17 @@ type deleteTransitGatewayVpcAttachmentResponse struct {
 }
 
 type flowLogItem struct {
-	FlowLogID              string          `xml:"flowLogId"`
-	ResourceID             string          `xml:"resourceId"`
-	TrafficType            string          `xml:"trafficType"`
-	LogDestinationType     string          `xml:"logDestinationType"`
-	LogDestination         string          `xml:"logDestination"`
-	LogFormat              string          `xml:"logFormat,omitempty"`
-	FlowLogStatus          string          `xml:"flowLogStatus"`
-	CreationTime           string          `xml:"creationTime"`
-	TagSet                 []simpleTagItem `xml:"tagSet>item"`
-	MaxAggregationInterval int32           `xml:"maxAggregationInterval,omitempty"`
+	FlowLogID                string          `xml:"flowLogId"`
+	ResourceID               string          `xml:"resourceId"`
+	TrafficType              string          `xml:"trafficType"`
+	LogDestinationType       string          `xml:"logDestinationType"`
+	LogDestination           string          `xml:"logDestination"`
+	LogFormat                string          `xml:"logFormat,omitempty"`
+	FlowLogStatus            string          `xml:"flowLogStatus"`
+	DeliverLogsPermissionArn string          `xml:"deliverLogsPermissionArn,omitempty"`
+	CreationTime             string          `xml:"creationTime"`
+	TagSet                   []simpleTagItem `xml:"tagSet>item"`
+	MaxAggregationInterval   int32           `xml:"maxAggregationInterval,omitempty"`
 }
 
 type createFlowLogsResponse struct {
@@ -221,7 +222,13 @@ func tgwVpcAttachmentToItem(att *TransitGatewayVpcAttachment, tags map[string]st
 		VpcID:                      att.VpcID,
 		State:                      att.State,
 		SubnetIDs:                  att.SubnetIDs,
-		TagSet:                     tagItemsFromMap(tags),
+		Options: tgwVpcAttachmentOptionsItem{
+			ApplianceModeSupport:            att.ApplianceModeSupport,
+			DNSSupport:                      att.DNSSupport,
+			Ipv6Support:                     att.Ipv6Support,
+			SecurityGroupReferencingSupport: att.SecurityGroupReferencingSupport,
+		},
+		TagSet: tagItemsFromMap(tags),
 	}
 	if !att.CreationTime.IsZero() {
 		item.CreationTime = att.CreationTime.Format(time.RFC3339)
@@ -244,6 +251,20 @@ func (h *Handler) handleCreateTransitGatewayVpcAttachment(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	h.Backend.SetTransitGatewayVpcAttachmentOptions(
+		att.TransitGatewayAttachmentID,
+		vals.Get("Options.ApplianceModeSupport"),
+		vals.Get("Options.DnsSupport"),
+		vals.Get("Options.Ipv6Support"),
+		vals.Get("Options.SecurityGroupReferencingSupport"),
+	)
+
+	if updated := h.Backend.DescribeTransitGatewayVpcAttachments(
+		[]string{att.TransitGatewayAttachmentID},
+	); len(updated) == 1 {
+		att = updated[0]
 	}
 
 	return &createTransitGatewayVpcAttachmentResponse{
@@ -298,16 +319,17 @@ func (h *Handler) handleDeleteTransitGatewayVpcAttachment(
 
 func flowLogToItem(fl *FlowLog, tags map[string]string) flowLogItem {
 	return flowLogItem{
-		FlowLogID:              fl.FlowLogID,
-		ResourceID:             fl.ResourceID,
-		TrafficType:            fl.TrafficType,
-		LogDestinationType:     fl.LogDestinationType,
-		LogDestination:         fl.LogDestination,
-		LogFormat:              fl.LogFormat,
-		FlowLogStatus:          fl.FlowLogStatus,
-		CreationTime:           fl.CreationTime.Format(time.RFC3339),
-		MaxAggregationInterval: fl.MaxAggregationInterval,
-		TagSet:                 tagItemsFromMap(tags),
+		FlowLogID:                fl.FlowLogID,
+		ResourceID:               fl.ResourceID,
+		TrafficType:              fl.TrafficType,
+		LogDestinationType:       fl.LogDestinationType,
+		LogDestination:           fl.LogDestination,
+		LogFormat:                fl.LogFormat,
+		FlowLogStatus:            fl.FlowLogStatus,
+		DeliverLogsPermissionArn: fl.DeliverLogsPermissionArn,
+		CreationTime:             fl.CreationTime.Format(time.RFC3339),
+		MaxAggregationInterval:   fl.MaxAggregationInterval,
+		TagSet:                   tagItemsFromMap(tags),
 	}
 }
 
@@ -333,6 +355,11 @@ func (h *Handler) handleCreateFlowLogs(vals url.Values, reqID string) (any, erro
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	deliverLogsPermissionArn := vals.Get("DeliverLogsPermissionArn")
+	for _, fl := range logs {
+		h.Backend.SetFlowLogDeliverLogsPermissionArn(fl.FlowLogID, deliverLogsPermissionArn)
 	}
 
 	resp := &createFlowLogsResponse{RequestID: reqID}

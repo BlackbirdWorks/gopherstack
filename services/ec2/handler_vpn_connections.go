@@ -84,6 +84,11 @@ func (h *Handler) handleCreateVpnConnection(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
+	if v := vals.Get("Options.StaticRoutesOnly"); v != "" {
+		h.Backend.SetVpnConnectionStaticRoutesOnly(conn.VpnConnectionID, v == ec2BooleanTrue)
+		conn.Options.StaticRoutesOnly = v == ec2BooleanTrue
+	}
+
 	if tags := parseTagSpecification(vals, "vpn-connection"); len(tags) > 0 {
 		if err = h.Backend.CreateTags([]string{conn.VpnConnectionID}, tags); err != nil {
 			return nil, err

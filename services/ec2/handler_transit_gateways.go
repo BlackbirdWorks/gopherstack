@@ -43,8 +43,10 @@ type modifyTransitGatewayResponse struct {
 func (h *Handler) handleModifyTransitGateway(vals url.Values, reqID string) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
 	description := vals.Get("Description")
+	associationDefaultRTID := vals.Get("Options.AssociationDefaultRouteTableId")
+	propagationDefaultRTID := vals.Get("Options.PropagationDefaultRouteTableId")
 
-	tgw, err := h.Backend.ModifyTransitGateway(tgwID, description)
+	tgw, err := h.Backend.ModifyTransitGateway(tgwID, description, associationDefaultRTID, propagationDefaultRTID)
 	if err != nil {
 		return nil, err
 	}

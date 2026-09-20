@@ -174,6 +174,13 @@ func resourceTypeByID(id string) string {
 // resource family, each kept small enough to stay under the cyclomatic/
 // cognitive complexity limits) rather than one flat function.
 func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
+	// A VPC's synthetic default network ACL (deepdive_ops.go's
+	// DescribeNetworkAcls) is never a real row in b.networkACLs, but real
+	// AWS clients (including aws_default_network_acl) can still tag it.
+	if isDefaultNetworkACLID(id) {
+		return b.vpcs.Has(strings.TrimPrefix(id, networkACLDefaultIDPrefix))
+	}
+
 	return b.resourceExistsCoreLocked(id) ||
 		b.resourceExistsImagesLocked(id) ||
 		b.resourceExistsVpcAuxLocked(id) ||

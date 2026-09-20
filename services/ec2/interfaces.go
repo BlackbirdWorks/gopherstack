@@ -923,6 +923,10 @@ type Backend interface {
 		extra ...VpnConnectionExtraOptions,
 	) (*VpnConnection, error)
 
+	// SetVpnConnectionStaticRoutesOnly sets the StaticRoutesOnly flag captured
+	// at CreateVpnConnection time.
+	SetVpnConnectionStaticRoutesOnly(vpnConnectionID string, staticRoutesOnly bool)
+
 	// ModifyVpnTunnelOptions updates the configuration of a single tunnel of a VPN connection.
 	ModifyVpnTunnelOptions(
 		vpnConnectionID, outsideIPAddress string, opts VpnTunnelOptionsModify,
@@ -1289,6 +1293,15 @@ type Backend interface {
 	ModifySnapshotTier(snapshotID, storageTier string) error
 	ResetSnapshotAttribute(snapshotID string) error
 
+	// ModifySnapshotCreateVolumePermission applies CreateVolumePermission.Add/Remove account
+	// IDs and the "all" (public) group to a snapshot.
+	ModifySnapshotCreateVolumePermission(
+		snapshotID string, addAccountIDs []string, addPublic bool, removeAccountIDs []string, removePublic bool,
+	) error
+	// GetSnapshotCreateVolumePermission returns the account IDs a snapshot is shared with and
+	// whether it is public.
+	GetSnapshotCreateVolumePermission(snapshotID string) (accountIDs []string, public bool)
+
 	// ---- batch1: VPC/Subnet/SG ----
 
 	CreateDefaultVpc() (*VPC, error)
@@ -1301,8 +1314,8 @@ type Backend interface {
 	DescribeStaleSecurityGroups(vpcID string) []StaleSGItem
 	DescribeSecurityGroupVpcAssociations(sgIDs []string) []SGVpcAssocItem
 	ModifyVpcTenancy(vpcID, tenancy string) error
-	ModifyVpcPeeringConnectionOptions(peeringID string, opts PeeringConnectionOptions) error
-	GetVpcPeeringConnectionOptions(peeringID string) *PeeringConnectionOptions
+	ModifyVpcPeeringConnectionOptions(peeringID string, isAccepter bool, opts PeeringConnectionOptions) error
+	GetVpcPeeringConnectionOptions(peeringID string) *PeeringConnectionOptionsBoth
 
 	// ---- batch1: EIP attributes ----
 
@@ -1404,6 +1417,15 @@ type Backend interface {
 	DisableImageDeregistrationProtection(imageID string) error
 	ModifyImageAttribute(imageID, attribute, value string) error
 	GetImageAttribute(imageID, attribute string) string
+
+	// ModifyImageLaunchPermission applies LaunchPermission.Add/Remove account IDs and the
+	// "all" (public) group to an AMI.
+	ModifyImageLaunchPermission(
+		imageID string, addAccountIDs []string, addPublic bool, removeAccountIDs []string, removePublic bool,
+	) error
+	// GetImageLaunchPermission returns the account IDs an AMI is shared with and whether
+	// it is public.
+	GetImageLaunchPermission(imageID string) (accountIDs []string, public bool)
 	ResetImageAttribute(imageID, attribute string) error
 	DescribeInstanceImageMetadata(instanceIDs []string) []InstanceImageMetadataItem
 	EnableSerialConsoleAccess()
@@ -1411,6 +1433,8 @@ type Backend interface {
 	GetSerialConsoleAccessStatus() bool
 	EnableVgwRoutePropagation(routeTableID, gatewayID string) error
 	DisableVgwRoutePropagation(routeTableID, gatewayID string) error
+	// GetPropagatingVgws returns the VGW IDs propagating routes into routeTableID.
+	GetPropagatingVgws(routeTableID string) []string
 	GetDefaultCreditSpecification() string
 	ModifyDefaultCreditSpecification(cpuCredits string) error
 	CreateReplaceRootVolumeTask(instanceID, snapshotID string) (*ReplaceRootVolumeTask, error)
@@ -1453,6 +1477,15 @@ type Backend interface {
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
 	SetImageMetadata(imageID, imdsSupport, virtualizationType string)
+
+	// SetImageRootDeviceName applies RegisterImage's RootDeviceName to an existing image.
+	SetImageRootDeviceName(imageID, rootDeviceName string)
+
+	// SetImageBlockDeviceMappings applies RegisterImage's BlockDeviceMapping.N.* entries.
+	SetImageBlockDeviceMappings(imageID string, mappings []ImageBlockDeviceMapping)
+
+	// SetImageEnhancedNetworking applies RegisterImage's EnaSupport/SriovNetSupport.
+	SetImageEnhancedNetworking(imageID string, enaSupportSet, enaSupport bool, sriovNetSupport string)
 	ImportImage(description, architecture, platform string, encrypted bool, kmsKeyID string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
 	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
@@ -1487,7 +1520,9 @@ type Backend interface {
 	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
-	ModifyTransitGateway(tgwID, description string) (*TransitGateway, error)
+	ModifyTransitGateway(
+		tgwID, description, associationDefaultRouteTableID, propagationDefaultRouteTableID string,
+	) (*TransitGateway, error)
 
 	// ---- batch4: ManagedPrefixList ----
 	CreateManagedPrefixList(
@@ -2059,7 +2094,19 @@ type Backend interface {
 
 	// ---- Instance-attribute misc cluster ----
 
+	// SetCapacityReservationInstancePlatform applies CreateCapacityReservation's InstancePlatform.
+	SetCapacityReservationInstancePlatform(reservationID, platform string)
+	// SetFlowLogDeliverLogsPermissionArn applies CreateFlowLogs' DeliverLogsPermissionArn.
+	SetFlowLogDeliverLogsPermissionArn(flowLogID, arn string)
+	// SetTransitGatewayVpcAttachmentOptions applies explicit Options overrides on top of
+	// CreateTransitGatewayVpcAttachment's defaults.
+	SetTransitGatewayVpcAttachmentOptions(
+		attachmentID, applianceModeSupport, dnsSupport, ipv6Support, sgReferencingSupport string,
+	)
 	ModifyAvailabilityZoneGroup(groupName, optInStatus string) (bool, error)
+	// GetAvailabilityZoneGroups returns every zone group modified so far, keyed by name,
+	// with its current opt-in status.
+	GetAvailabilityZoneGroups() map[string]string
 	ModifyHosts(
 		hostIDs []string, autoPlacement, hostMaintenance, hostRecovery, instanceFamily, instanceType string,
 	) ([]string, []HostModifyFailure, error)

@@ -39,7 +39,7 @@ func TestModifyTransitGateway(t *testing.T) { //nolint:paralleltest // existing 
 	tgw, _ := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: ""})
 
 	t.Run("modifies description", func(t *testing.T) {
-		modified, err := b.ModifyTransitGateway(tgw.ID, "updated description")
+		modified, err := b.ModifyTransitGateway(tgw.ID, "updated description", "", "")
 		require.NoError(t, err)
 		assert.Equal(t, "updated description", modified.Description)
 	})

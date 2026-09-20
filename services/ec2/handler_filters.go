@@ -417,6 +417,10 @@ func eniMatchesFilter(eni *NetworkInterface, filterName string, values []string,
 		return anyEqual(eni.PrivateIP, values)
 	case filterKeyAttachInstanceID:
 		return anyEqual(eni.InstanceID, values)
+	case "attachment.attachment-id":
+		return eni.AttachmentID != "" && anyEqual(eni.AttachmentID, values)
+	case "attachment.status":
+		return anyEqual(eni.Status, values)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
 			return tagMatch(eni.ID, tagKey, values, b)
@@ -471,6 +475,9 @@ func addressMatchesFilter(addr *Address, filterName string, values []string, b B
 
 // ---- RouteTable filters ----
 
+// applyRouteTableFilters supports route-table-id, vpc-id, association.subnet-id,
+// association.route-table-association-id, association.main, route.destination-cidr-block,
+// and tag: (api_op_DescribeRouteTables.go).
 func applyRouteTableFilters(rts []*RouteTable, filters map[string][]string, b Backend) []*RouteTable {
 	if len(filters) == 0 {
 		return rts
@@ -501,6 +508,8 @@ func routeTableMatchesFilter(rt *RouteTable, filterName string, values []string,
 		return routeTableHasAssocSubnet(rt, values)
 	case "association.route-table-association-id":
 		return routeTableHasAssocID(rt, values)
+	case "association.main":
+		return routeTableHasMainAssoc(rt) == anyEqual("true", values)
 	case "route.destination-cidr-block":
 		return routeTableHasRoute(rt, values)
 	default:
@@ -515,6 +524,16 @@ func routeTableMatchesFilter(rt *RouteTable, filterName string, values []string,
 func routeTableHasAssocSubnet(rt *RouteTable, values []string) bool {
 	for _, assoc := range rt.Associations {
 		if anyEqual(assoc.SubnetID, values) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func routeTableHasMainAssoc(rt *RouteTable) bool {
+	for _, assoc := range rt.Associations {
+		if assoc.Main {
 			return true
 		}
 	}

@@ -3,6 +3,7 @@ package ec2
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,27 @@ func (b *InMemoryBackend) EnableVgwRoutePropagation(routeTableID, gatewayID stri
 	b.vgwRoutePropagation[key] = true
 
 	return nil
+}
+
+// GetPropagatingVgws returns the VGW IDs propagating routes into routeTableID
+// via EnableVgwRoutePropagation, for DescribeRouteTables' propagatingVgwSet.
+func (b *InMemoryBackend) GetPropagatingVgws(routeTableID string) []string {
+	b.mu.RLock("GetPropagatingVgws")
+	defer b.mu.RUnlock()
+
+	var gateways []string
+
+	prefix := routeTableID + ":"
+
+	for key := range b.vgwRoutePropagation {
+		if gwID, ok := strings.CutPrefix(key, prefix); ok {
+			gateways = append(gateways, gwID)
+		}
+	}
+
+	sort.Strings(gateways)
+
+	return gateways
 }
 
 // DisableVgwRoutePropagation disables route propagation for a VGW in a route table.
@@ -67,7 +89,9 @@ type CreateTransitGatewayParams struct {
 }
 
 // ModifyTransitGateway updates properties of a transit gateway.
-func (b *InMemoryBackend) ModifyTransitGateway(tgwID, description string) (*TransitGateway, error) {
+func (b *InMemoryBackend) ModifyTransitGateway(
+	tgwID, description, associationDefaultRouteTableID, propagationDefaultRouteTableID string,
+) (*TransitGateway, error) {
 	if tgwID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
 	}
@@ -83,9 +107,50 @@ func (b *InMemoryBackend) ModifyTransitGateway(tgwID, description string) (*Tran
 		tgw.Description = description
 	}
 
+	if associationDefaultRouteTableID != "" {
+		if err := b.setTGWDefaultRouteTableLocked(tgwID, associationDefaultRouteTableID, true); err != nil {
+			return nil, err
+		}
+
+		tgw.Options.AssociationDefaultRouteTableID = associationDefaultRouteTableID
+	}
+
+	if propagationDefaultRouteTableID != "" {
+		if err := b.setTGWDefaultRouteTableLocked(tgwID, propagationDefaultRouteTableID, false); err != nil {
+			return nil, err
+		}
+
+		tgw.Options.PropagationDefaultRouteTableID = propagationDefaultRouteTableID
+	}
+
 	cp := *tgw
 
 	return &cp, nil
+}
+
+// setTGWDefaultRouteTableLocked marks rtID as the default association (or
+// propagation, when association is false) route table for tgwID, clearing
+// the flag from whichever TGW route table previously held it. Must be called
+// with b.mu held.
+func (b *InMemoryBackend) setTGWDefaultRouteTableLocked(tgwID, rtID string, association bool) error {
+	target, ok := b.tgwRouteTables.Get(rtID)
+	if !ok || target.TransitGatewayID != tgwID {
+		return fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, rtID)
+	}
+
+	for _, rt := range b.tgwRouteTables.All() {
+		if rt.TransitGatewayID != tgwID {
+			continue
+		}
+
+		if association {
+			rt.DefaultAssociation = rt.RouteTableID == rtID
+		} else {
+			rt.DefaultPropagation = rt.RouteTableID == rtID
+		}
+	}
+
+	return nil
 }
 
 // DescribeTransitGateways returns transit gateways, optionally filtered by IDs.

@@ -43,11 +43,23 @@ type NetworkInterfacePermission struct {
 	State              string `json:"state,omitempty"`
 }
 
-// PeeringConnectionOptions holds DNS/routing options for a VPC peering connection.
+// PeeringConnectionOptions holds DNS/routing options for one side (requester
+// or accepter) of a VPC peering connection.
 type PeeringConnectionOptions struct {
 	AllowDNSResolutionFromRemoteVPC            bool `json:"allowDnsResolutionFromRemoteVpc,omitempty"`
 	AllowEgressFromLocalClassicLinkToRemoteVPC bool `json:"allowEgressFromLocalClassicLinkToRemoteVpc,omitempty"`
 	AllowEgressFromLocalVPCToRemoteClassicLink bool `json:"allowEgressFromLocalVpcToRemoteClassicLink,omitempty"`
+}
+
+// PeeringConnectionOptionsBoth aggregates requester- and accepter-side
+// options for GetVpcPeeringConnectionOptions callers. Real AWS tracks these
+// independently (RequesterVpcInfo.PeeringOptions / AccepterVpcInfo.PeeringOptions);
+// it is not itself persisted -- the backend stores each side in its own map
+// (see InMemoryBackend.vpcPeeringOptions / vpcPeeringAccepterOptions) so an
+// older snapshot missing the accepter side still decodes cleanly.
+type PeeringConnectionOptionsBoth struct {
+	Requester PeeringConnectionOptions
+	Accepter  PeeringConnectionOptions
 }
 
 // AddressAttribute holds domain-name attributes for an Elastic IP.

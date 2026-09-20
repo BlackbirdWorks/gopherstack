@@ -29,15 +29,16 @@ var (
 
 // FlowLog represents a VPC Flow Log record.
 type FlowLog struct {
-	CreationTime           time.Time `json:"creationTime"`
-	FlowLogID              string    `json:"flowLogId,omitempty"`
-	ResourceID             string    `json:"resourceId,omitempty"`
-	TrafficType            string    `json:"trafficType,omitempty"`
-	LogDestinationType     string    `json:"logDestinationType,omitempty"`
-	LogDestination         string    `json:"logDestination,omitempty"`
-	LogFormat              string    `json:"logFormat,omitempty"`
-	FlowLogStatus          string    `json:"flowLogStatus,omitempty"`
-	MaxAggregationInterval int32     `json:"maxAggregationInterval,omitempty"`
+	CreationTime             time.Time `json:"creationTime"`
+	FlowLogID                string    `json:"flowLogId,omitempty"`
+	ResourceID               string    `json:"resourceId,omitempty"`
+	TrafficType              string    `json:"trafficType,omitempty"`
+	LogDestinationType       string    `json:"logDestinationType,omitempty"`
+	LogDestination           string    `json:"logDestination,omitempty"`
+	LogFormat                string    `json:"logFormat,omitempty"`
+	FlowLogStatus            string    `json:"flowLogStatus,omitempty"`
+	DeliverLogsPermissionArn string    `json:"deliverLogsPermissionArn,omitempty"`
+	MaxAggregationInterval   int32     `json:"maxAggregationInterval,omitempty"`
 }
 
 // DhcpConfiguration is a single key-value configuration inside a DHCP options set.
@@ -93,6 +94,15 @@ func (b *InMemoryBackend) CreateTransitGatewayVpcAttachment(
 		SubnetIDs:                  append([]string(nil), subnetIDs...),
 		State:                      stateAvailable,
 		CreationTime:               time.Now().UTC(),
+		// Real AWS documented defaults (api_op_CreateTransitGatewayVpcAttachment.go):
+		// ApplianceModeSupport/Ipv6Support/SecurityGroupReferencingSupport
+		// default "disable", DnsSupport defaults "enable". Always echoed on
+		// the wire; aws_ec2_transit_gateway_vpc_attachment reads these as
+		// Optional+Computed and waits for them to be populated.
+		ApplianceModeSupport:            tgwMcastOptionDisable,
+		DNSSupport:                      tgwDefaultRouteTableAssociationEnable,
+		Ipv6Support:                     tgwMcastOptionDisable,
+		SecurityGroupReferencingSupport: tgwMcastOptionDisable,
 	}
 	b.tgwVpcAttachments.Put(att)
 	b.setTagsLocked(att.TransitGatewayAttachmentID, tags)
@@ -115,6 +125,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayVpcAttachments(
 	}
 
 	out := make([]*TransitGatewayVpcAttachment, 0, b.tgwVpcAttachments.Len())
+	found := make(map[string]bool, len(ids))
 
 	for _, att := range b.tgwVpcAttachments.All() {
 		if len(idSet) > 0 && !idSet[att.TransitGatewayAttachmentID] {
@@ -123,6 +134,21 @@ func (b *InMemoryBackend) DescribeTransitGatewayVpcAttachments(
 
 		cp := *att
 		out = append(out, &cp)
+		found[att.TransitGatewayAttachmentID] = true
+	}
+
+	// A by-ID Describe of a just-deleted attachment still finds its
+	// tombstone (state "deleted") -- an unfiltered Describe never surfaces
+	// tombstones, matching real AWS's list-vs-get behavior.
+	for _, id := range ids {
+		if found[id] {
+			continue
+		}
+
+		if tomb, ok := b.tgwVpcAttachmentTombstones[id]; ok {
+			cp := *tomb
+			out = append(out, &cp)
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -132,7 +158,8 @@ func (b *InMemoryBackend) DescribeTransitGatewayVpcAttachments(
 	return out
 }
 
-// DeleteTransitGatewayVpcAttachment removes a TGW VPC attachment.
+// DeleteTransitGatewayVpcAttachment removes a TGW VPC attachment, keeping a
+// tombstone so a subsequent by-ID Describe still finds it in "deleted" state.
 func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
@@ -141,9 +168,15 @@ func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 	b.mu.Lock("DeleteTransitGatewayVpcAttachment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwVpcAttachments.Get(id); !ok {
+	att, ok := b.tgwVpcAttachments.Get(id)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, id)
 	}
+
+	cp := *att
+	cp.State = tgwRouteStateDeleted
+	b.tgwVpcAttachmentTombstones[id] = &cp
+
 	b.tgwVpcAttachments.Delete(id)
 	delete(b.tags, id)
 
@@ -201,6 +234,56 @@ func (b *InMemoryBackend) CreateFlowLogs(
 	}
 
 	return out, nil
+}
+
+// SetTransitGatewayVpcAttachmentOptions applies explicit
+// Options.{ApplianceModeSupport,DnsSupport,Ipv6Support,
+// SecurityGroupReferencingSupport} overrides from CreateTransitGatewayVpcAttachment
+// on top of CreateTransitGatewayVpcAttachment's real documented defaults.
+// An empty value leaves the existing (default) setting untouched.
+func (b *InMemoryBackend) SetTransitGatewayVpcAttachmentOptions(
+	attachmentID, applianceModeSupport, dnsSupport, ipv6Support, sgReferencingSupport string,
+) {
+	b.mu.Lock("SetTransitGatewayVpcAttachmentOptions")
+	defer b.mu.Unlock()
+
+	att, ok := b.tgwVpcAttachments.Get(attachmentID)
+	if !ok {
+		return
+	}
+
+	if applianceModeSupport != "" {
+		att.ApplianceModeSupport = applianceModeSupport
+	}
+
+	if dnsSupport != "" {
+		att.DNSSupport = dnsSupport
+	}
+
+	if ipv6Support != "" {
+		att.Ipv6Support = ipv6Support
+	}
+
+	if sgReferencingSupport != "" {
+		att.SecurityGroupReferencingSupport = sgReferencingSupport
+	}
+}
+
+// SetFlowLogDeliverLogsPermissionArn applies CreateFlowLogs'
+// DeliverLogsPermissionArn to an existing flow log -- a ForceNew field on
+// aws_flow_log's iam_role_arn that was never stored, so every apply showed
+// permanent "iam_role_arn forces replacement" drift.
+func (b *InMemoryBackend) SetFlowLogDeliverLogsPermissionArn(flowLogID, arn string) {
+	if arn == "" {
+		return
+	}
+
+	b.mu.Lock("SetFlowLogDeliverLogsPermissionArn")
+	defer b.mu.Unlock()
+
+	if fl, ok := b.flowLogs.Get(flowLogID); ok {
+		fl.DeliverLogsPermissionArn = arn
+	}
 }
 
 // DescribeFlowLogs returns flow logs, optionally filtered by IDs.
@@ -321,7 +404,7 @@ func (b *InMemoryBackend) AssociateDhcpOptions(dhcpOptionsID, vpcID string) erro
 
 	// dhcpOptionsDefault is a special sentinel meaning "reset to AWS default DHCP options"
 	if dhcpOptionsID == dhcpOptionsDefault {
-		vpc.DHCPOptionsID = dhcpOptionsDefault
+		vpc.DHCPOptionsID = dhcpOptionsDefaultID
 
 		return nil
 	}

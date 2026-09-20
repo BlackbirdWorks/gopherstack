@@ -111,11 +111,16 @@ func (h *Handler) handleRequestSpotFleet(vals url.Values, reqID string) (any, er
 		}
 
 		spec := SpotFleetLaunchSpecification{
-			ImageID:      imageID,
-			InstanceType: instanceType,
-			SubnetID:     vals.Get(prefix + "SubnetId"),
-			KeyName:      vals.Get(prefix + "KeyName"),
-			SpotPrice:    vals.Get(prefix + "SpotPrice"),
+			ImageID:               imageID,
+			InstanceType:          instanceType,
+			SubnetID:              vals.Get(prefix + "SubnetId"),
+			KeyName:               vals.Get(prefix + "KeyName"),
+			SpotPrice:             vals.Get(prefix + "SpotPrice"),
+			AvailabilityZone:      vals.Get(prefix + "Placement.AvailabilityZone"),
+			IamInstanceProfile:    vals.Get(prefix + "IamInstanceProfile.Name"),
+			IamInstanceProfileArn: vals.Get(prefix + "IamInstanceProfile.Arn"),
+			EbsOptimized:          vals.Get(prefix+"EbsOptimized") == ec2BooleanTrue,
+			MonitoringEnabled:     vals.Get(prefix+"Monitoring.Enabled") == ec2BooleanTrue,
 		}
 
 		if wcStr := vals.Get(prefix + "WeightedCapacity"); wcStr != "" {
@@ -177,6 +182,13 @@ func (h *Handler) handleDescribeSpotFleetRequests(vals url.Values, reqID string)
 				KeyName:          spec.KeyName,
 				SpotPrice:        spec.SpotPrice,
 				WeightedCapacity: fmt.Sprintf("%g", spec.WeightedCapacity),
+				Placement:        spotFleetPlacementItem{AvailabilityZone: spec.AvailabilityZone},
+				Monitoring:       spotFleetMonitoringItem{Enabled: spec.MonitoringEnabled},
+				EbsOptimized:     spec.EbsOptimized,
+				IamInstanceProfile: spotFleetIamInstanceProfileItem{
+					Arn:  spec.IamInstanceProfileArn,
+					Name: spec.IamInstanceProfile,
+				},
 			})
 		}
 
@@ -384,13 +396,30 @@ type requestSpotFleetResponse struct {
 	SpotFleetRequestID string   `xml:"spotFleetRequestId"`
 }
 
+type spotFleetPlacementItem struct {
+	AvailabilityZone string `xml:"availabilityZone,omitempty"`
+}
+
+type spotFleetMonitoringItem struct {
+	Enabled bool `xml:"enabled"`
+}
+
+type spotFleetIamInstanceProfileItem struct {
+	Arn  string `xml:"arn,omitempty"`
+	Name string `xml:"name,omitempty"`
+}
+
 type spotFleetLaunchSpecItem struct {
-	ImageID          string `xml:"imageId,omitempty"`
-	InstanceType     string `xml:"instanceType,omitempty"`
-	SubnetID         string `xml:"subnetId,omitempty"`
-	KeyName          string `xml:"keyName,omitempty"`
-	SpotPrice        string `xml:"spotPrice,omitempty"`
-	WeightedCapacity string `xml:"weightedCapacity,omitempty"`
+	Placement          spotFleetPlacementItem          `xml:"placement"`
+	Monitoring         spotFleetMonitoringItem         `xml:"monitoring"`
+	IamInstanceProfile spotFleetIamInstanceProfileItem `xml:"iamInstanceProfile"`
+	ImageID            string                          `xml:"imageId,omitempty"`
+	InstanceType       string                          `xml:"instanceType,omitempty"`
+	SubnetID           string                          `xml:"subnetId,omitempty"`
+	KeyName            string                          `xml:"keyName,omitempty"`
+	SpotPrice          string                          `xml:"spotPrice,omitempty"`
+	WeightedCapacity   string                          `xml:"weightedCapacity,omitempty"`
+	EbsOptimized       bool                            `xml:"ebsOptimized"`
 }
 
 type spotFleetLaunchSpecSet struct {

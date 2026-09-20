@@ -69,7 +69,9 @@ func (b *InMemoryBackend) CreateVpnConnectionRoute(
 	route := &VpnConnectionRoute{
 		VpnConnectionID: vpnConnectionID,
 		DestinationCIDR: destinationCIDR,
-		State:           stateActive,
+		// Real VpnStaticRoute.State uses the VpnState enum (pending/available/
+		// deleting/deleted), never "active" (aws-sdk-go-v2/service/ec2/types/enums.go).
+		State: stateAvailable,
 	}
 	b.vpnConnectionRoutes.Put(route)
 
@@ -143,6 +145,18 @@ func (b *InMemoryBackend) CreateVpnConnection(
 	b.vpnConnections.Put(conn)
 
 	return copyVpnConnection(conn), nil
+}
+
+// SetVpnConnectionStaticRoutesOnly sets StaticRoutesOnly, which real AWS only
+// accepts as a CreateVpnConnection request parameter (Options.StaticRoutesOnly),
+// never via ModifyVpnConnectionOptions.
+func (b *InMemoryBackend) SetVpnConnectionStaticRoutesOnly(vpnConnectionID string, staticRoutesOnly bool) {
+	b.mu.Lock("SetVpnConnectionStaticRoutesOnly")
+	defer b.mu.Unlock()
+
+	if conn, ok := b.vpnConnections.Get(vpnConnectionID); ok {
+		conn.Options.StaticRoutesOnly = staticRoutesOnly
+	}
 }
 
 // DescribeVpnConnections returns VPN connections, optionally filtered by IDs.

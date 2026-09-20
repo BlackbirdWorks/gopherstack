@@ -921,18 +921,39 @@ func (h *Handler) handleDescribeSnapshotAttribute(vals url.Values, reqID string)
 	}
 
 	if attr == "createVolumePermission" {
-		resp.CreateVolumePermission = launchPermissionList{
-			Items: []launchPermissionItem{{Group: "all"}},
+		accountIDs, public := h.Backend.GetSnapshotCreateVolumePermission(snapshotID)
+
+		items := make([]launchPermissionItem, 0, len(accountIDs)+1)
+		if public {
+			items = append(items, launchPermissionItem{Group: permissionGroupAll})
 		}
+
+		for _, id := range accountIDs {
+			items = append(items, launchPermissionItem{UserID: id})
+		}
+
+		resp.CreateVolumePermission = launchPermissionList{Items: items}
 	}
 
 	return resp, nil
 }
 
-// handleModifySnapshotAttribute is a stub that accepts any attribute modification and returns success.
+// handleModifySnapshotAttribute applies CreateVolumePermission.Add/Remove.
 func (h *Handler) handleModifySnapshotAttribute(vals url.Values, reqID string) (any, error) {
-	if vals.Get("SnapshotId") == "" {
+	snapshotID := vals.Get("SnapshotId")
+	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: SnapshotId is required", ErrInvalidParameter)
+	}
+
+	addIDs, addPublic := parseLaunchPermissionList(vals, "CreateVolumePermission.Add")
+	removeIDs, removePublic := parseLaunchPermissionList(vals, "CreateVolumePermission.Remove")
+
+	if len(addIDs) > 0 || addPublic || len(removeIDs) > 0 || removePublic {
+		if err := h.Backend.ModifySnapshotCreateVolumePermission(
+			snapshotID, addIDs, addPublic, removeIDs, removePublic,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	return &modifySnapshotAttributeResponse{

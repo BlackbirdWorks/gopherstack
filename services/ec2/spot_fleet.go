@@ -64,12 +64,17 @@ const (
 
 // SpotFleetLaunchSpecification is a single launch spec within a spot fleet config.
 type SpotFleetLaunchSpecification struct {
-	ImageID          string  `json:"imageId,omitempty"`
-	InstanceType     string  `json:"instanceType,omitempty"`
-	SubnetID         string  `json:"subnetId,omitempty"`
-	KeyName          string  `json:"keyName,omitempty"`
-	SpotPrice        string  `json:"spotPrice,omitempty"`
-	WeightedCapacity float64 `json:"weightedCapacity"`
+	ImageID               string  `json:"imageId,omitempty"`
+	InstanceType          string  `json:"instanceType,omitempty"`
+	SubnetID              string  `json:"subnetId,omitempty"`
+	KeyName               string  `json:"keyName,omitempty"`
+	SpotPrice             string  `json:"spotPrice,omitempty"`
+	AvailabilityZone      string  `json:"availabilityZone,omitempty"`
+	IamInstanceProfile    string  `json:"iamInstanceProfile,omitempty"`
+	IamInstanceProfileArn string  `json:"iamInstanceProfileArn,omitempty"`
+	WeightedCapacity      float64 `json:"weightedCapacity"`
+	EbsOptimized          bool    `json:"ebsOptimized,omitempty"`
+	MonitoringEnabled     bool    `json:"monitoringEnabled,omitempty"`
 }
 
 // SpotFleetRequestConfig is the configuration submitted with RequestSpotFleet.

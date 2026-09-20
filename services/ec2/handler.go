@@ -863,6 +863,7 @@ var errCodeLookup = []struct {
 	{ErrIpamRoutingPolicyRegistrationNotFound, errCodeInvalidParameterValue},
 	{ErrIpamRoutingPolicyRegistrationExists, errCodeIncorrectState},
 	{ErrImageNotOwner, errCodeInvalidParameterValue},
+	{ErrGatewayNotAttached, "Gateway.NotAttached"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.

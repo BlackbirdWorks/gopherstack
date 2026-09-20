@@ -658,12 +658,27 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(
 			return nil, err
 		}
 	default:
-		if hasDesc {
+		switch {
+		case hasDesc:
 			attr = filterKeyDescription
 			value = vals.Get("Description.Value")
-		} else if hasSdc {
+		case hasSdc:
 			attr = attrSourceDest
 			value = vals.Get("SourceDestCheck.Value")
+		default:
+			// A request naming none of Description/SourceDestCheck/Attachment
+			// and carrying no SecurityGroupId.N members at all (as opposed to
+			// an explicit empty Groups modification, which the ec2query
+			// FlatKey array serializer renders identically on the wire) is a
+			// real client sending a request with nothing left to change --
+			// e.g. aws_network_interface_sg_attachment's destroy, which sends
+			// exactly this shape once its group is already the ENI's only
+			// one. Treat it as a no-op rather than InvalidParameterValue.
+			return &modifyNetworkInterfaceAttributeResponse{
+				Xmlns:     ec2XMLNS,
+				RequestID: reqID,
+				Return:    true,
+			}, nil
 		}
 
 		if err := h.Backend.ModifyNetworkInterfaceAttribute(eniID, attr, value); err != nil {

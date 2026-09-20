@@ -426,6 +426,9 @@ func (b *InMemoryBackend) DeleteFleets(ids []string, terminateInstances bool) []
 			}
 		}
 
+		cp := *f
+		b.fleetTombstones[id] = &cp
+
 		b.fleets.Delete(id)
 		delete(b.tags, id)
 		deleted = append(deleted, FleetDeletionResult{FleetID: id, PreviousFleetState: prev})
@@ -440,6 +443,8 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 
 	var result []*Fleet
 
+	found := make(map[string]bool, len(ids))
+
 	for _, f := range b.fleets.All() {
 		if len(ids) > 0 && !slices.Contains(ids, f.FleetID) {
 			continue
@@ -449,6 +454,22 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 		cp.InstanceIDs = append([]string(nil), f.InstanceIDs...)
 		cp.LaunchTemplateConfigs = cloneFleetLaunchTemplateConfigs(f.LaunchTemplateConfigs)
 		result = append(result, &cp)
+		found[f.FleetID] = true
+	}
+
+	// A by-ID Describe of a just-deleted fleet still finds its tombstone
+	// (state "deleted") -- DeleteFleets' waiter otherwise never sees a
+	// terminal state and fails with "couldn't find resource" after
+	// exhausting its retries.
+	for _, id := range ids {
+		if found[id] {
+			continue
+		}
+
+		if tomb, ok := b.fleetTombstones[id]; ok {
+			cp := *tomb
+			result = append(result, &cp)
+		}
 	}
 
 	sort.Slice(result, func(i, j int) bool {

@@ -15,19 +15,26 @@ type spotLaunchSpecItem struct {
 	SubnetID     string `xml:"subnetId,omitempty"`
 }
 
+type spotInstanceStatusItem struct {
+	Code       string `xml:"code,omitempty"`
+	Message    string `xml:"message,omitempty"`
+	UpdateTime string `xml:"updateTime,omitempty"`
+}
+
 type spotInstanceRequestItem struct {
-	LaunchSpecification          spotLaunchSpecItem `xml:"launchSpecification"`
-	SpotInstanceRequestID        string             `xml:"spotInstanceRequestId"`
-	InstanceID                   string             `xml:"instanceId,omitempty"`
-	State                        string             `xml:"state"`
-	SpotPrice                    string             `xml:"spotPrice"`
-	Type                         string             `xml:"type"`
-	CreateTime                   string             `xml:"createTime"`
-	ValidUntil                   string             `xml:"validUntil,omitempty"`
-	AvailabilityZoneGroup        string             `xml:"availabilityZoneGroup,omitempty"`
-	LaunchGroup                  string             `xml:"launchGroup,omitempty"`
-	InstanceInterruptionBehavior string             `xml:"instanceInterruptionBehavior,omitempty"`
-	TagSet                       []simpleTagItem    `xml:"tagSet>item"`
+	LaunchSpecification          spotLaunchSpecItem     `xml:"launchSpecification"`
+	SpotInstanceRequestID        string                 `xml:"spotInstanceRequestId"`
+	InstanceID                   string                 `xml:"instanceId,omitempty"`
+	State                        string                 `xml:"state"`
+	Status                       spotInstanceStatusItem `xml:"status"`
+	SpotPrice                    string                 `xml:"spotPrice"`
+	Type                         string                 `xml:"type"`
+	CreateTime                   string                 `xml:"createTime"`
+	ValidUntil                   string                 `xml:"validUntil,omitempty"`
+	AvailabilityZoneGroup        string                 `xml:"availabilityZoneGroup,omitempty"`
+	LaunchGroup                  string                 `xml:"launchGroup,omitempty"`
+	InstanceInterruptionBehavior string                 `xml:"instanceInterruptionBehavior,omitempty"`
+	TagSet                       []simpleTagItem        `xml:"tagSet>item"`
 }
 
 type spotInstanceRequestSet struct {
@@ -85,9 +92,14 @@ type describeSpotPriceHistoryResponse struct {
 
 func toSpotRequestItem(req *SpotInstanceRequest, tags map[string]string) spotInstanceRequestItem {
 	item := spotInstanceRequestItem{
-		SpotInstanceRequestID:        req.ID,
-		InstanceID:                   req.InstanceID,
-		State:                        req.State,
+		SpotInstanceRequestID: req.ID,
+		InstanceID:            req.InstanceID,
+		State:                 req.State,
+		Status: spotInstanceStatusItem{
+			Code:       req.StatusCode,
+			Message:    req.StatusMessage,
+			UpdateTime: req.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		},
 		SpotPrice:                    req.SpotPrice,
 		Type:                         req.Type,
 		CreateTime:                   req.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),

@@ -34,6 +34,7 @@ type backendSnapshot struct {
 	FleetHistory                   map[string][]FleetHistoryRecord             `json:"fleetHistory,omitempty"`
 	SnapshotTiers                  map[string]string                           `json:"snapshotTiers,omitempty"`
 	VpcPeeringOptions              map[string]*PeeringConnectionOptions        `json:"vpcPeeringOptions"`
+	VpcPeeringAccepterOptions      map[string]*PeeringConnectionOptions        `json:"vpcPeeringAccepterOptions,omitempty"`
 	SubnetCIDRAssociations         map[string][]*SubnetCIDRAssociation         `json:"subnetCIDRAssociations"`
 	InstanceCreditSpecs            map[string]string                           `json:"instanceCreditSpecs"`
 	InstanceMetadataDefaults       *InstanceMetadataDefaults                   `json:"instanceMetadataDefaults"`
@@ -122,6 +123,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SgVpcAssociations:              b.sgVpcAssociations,
 		VpcTenancy:                     b.vpcTenancy,
 		VpcPeeringOptions:              b.vpcPeeringOptions,
+		VpcPeeringAccepterOptions:      b.vpcPeeringAccepterOptions,
 		SubnetCIDRAssociations:         b.subnetCIDRAssociations,
 		InstanceCreditSpecs:            b.instanceCreditSpecs,
 		InstanceMetadataDefaults:       b.instanceMetadataDefaults,
@@ -246,6 +248,7 @@ func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.sgVpcAssociations, snap.SgVpcAssociations)
 	restoreMapField(&b.vpcTenancy, snap.VpcTenancy)
 	restoreMapField(&b.vpcPeeringOptions, snap.VpcPeeringOptions)
+	restoreMapField(&b.vpcPeeringAccepterOptions, snap.VpcPeeringAccepterOptions)
 	restoreMapField(&b.subnetCIDRAssociations, snap.SubnetCIDRAssociations)
 	restoreMapField(&b.instanceCreditSpecs, snap.InstanceCreditSpecs)
 	restoreMapField(&b.niIPv6Addresses, snap.NiIPv6Addresses)
