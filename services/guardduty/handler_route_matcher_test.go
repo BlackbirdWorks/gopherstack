@@ -66,6 +66,17 @@ func TestRouteMatcher_RecognizesServicePaths(t *testing.T) {
 		{name: "admin", method: http.MethodGet, path: "/admin", want: true},
 		{name: "invitation", method: http.MethodGet, path: "/invitation", want: true},
 		{name: "organization", method: http.MethodGet, path: "/organization/statistics", want: true},
+		// A blanket HasPrefix(path, "/organization") swallowed these
+		// SecurityHub paths (RouteMatcher prefix collision); GuardDuty only
+		// ever routes /organization/statistics.
+		{
+			name: "securityhub organization admin enable not claimed", method: http.MethodPost,
+			path: "/organization/admin/enable", want: false,
+		},
+		{
+			name: "securityhub organization configuration not claimed", method: http.MethodPost,
+			path: "/organization/configuration", want: false,
+		},
 		{name: "object-malware-scan", method: http.MethodPost, path: "/object-malware-scan/send", want: true},
 		{
 			name: "tags for a guardduty ARN", method: http.MethodGet,

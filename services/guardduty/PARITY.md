@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
-last_audit_commit: 4a7682d1e
+last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (mega-batch-19); prior: 4a7682d1e
 last_audit_date: 2026-09-19
 overall: A            # 2026-09-08 (gopherstack-uu0n): DeleteMembers/DisassociateMembers/
                        # StopMonitoringMembers's autoEnableOrganizationMembers=ALL guard
@@ -274,6 +274,11 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors intr
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, mega-batch-19)
+
+RouteMatcher's blanket `/organization` prefix swallowed SecurityHub's `/organization/admin/enable`
+and `/organization/configuration`; narrowed to the real `/organization/statistics` path only.
 
 ### 2026-09-19 (required-output-members census, gopherstack-r80d)
 

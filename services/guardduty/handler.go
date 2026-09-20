@@ -302,7 +302,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/"+pathMalwareProtectionPlan) ||
 			strings.HasPrefix(path, "/"+pathMalwareScan) ||
 			strings.HasPrefix(path, "/"+pathObjectMalwareScan) ||
-			strings.HasPrefix(path, "/"+pathOrganization)
+			// Only /organization/statistics is genuinely GuardDuty's (see
+			// topLevelPathParsers); a blanket "/organization" prefix here
+			// swallowed SecurityHub's /organization/admin/enable and
+			// /organization/configuration (RouteMatcher prefix collision,
+			// see .claude/memories/route-matcher-prefix-collision.md).
+			strings.HasPrefix(path, "/"+pathOrganization+"/statistics")
 	}
 }
 
