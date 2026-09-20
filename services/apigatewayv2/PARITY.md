@@ -1,8 +1,8 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
-last_audit_commit: ed6ef1a53
-last_audit_date: 2026-09-19
+last_audit_commit: 22b4f068c
+last_audit_date: 2026-09-20
 overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
                        # nested-candidate batch): hand-verified the 31 apigatewayv2 candidates
                        # from zero_nested_candidates.json (RoutingRule/List*/Portal family).
@@ -1109,3 +1109,11 @@ Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1
 ./services/apigatewayv2/... ./pkgs/persistence/...`, `golangci-lint run
 --new-from-rev=HEAD ./services/apigatewayv2/...` all clean. No persisted
 field changed; no version bump.
+
+## 2026-09-20 (mega-batch-31 terraform coverage)
+
+New Terraform coverage (test/terraform/fixtures/mega-batch-31.tf,
+mega_batch31_test.go) for api_mapping, authorizer, deployment, domain_name,
+integration_response, model, route_response, vpc_link -- all 8 resources
+the census flagged as uncovered. Zero bugs found; confirms the existing
+`ops:` table verdicts.
