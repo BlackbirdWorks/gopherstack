@@ -1,8 +1,8 @@
 ---
 service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
-last_audit_commit: 302aa4e3c  # zeroguard: UpdateAutoScalingGroup form-field omitted-member fix
-last_audit_date: 2026-09-18
+last_audit_commit: cd027034c  # mega-batch-35 terraform sweep: DescribeAutoScalingGroups/DescribeLaunchConfigurations names-filter fix
+last_audit_date: 2026-09-20
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (autoscaling@v1.70.4 deserializers.go,
 # 66/67 ops N-of-N). Handler.autoscalingErrorCode is one global sentinel
@@ -145,6 +145,13 @@ leaks: {status: clean, note: "go test -race passes (verified this pass). The pen
 ---
 
 ## Notes
+
+### 2026-09-20 mega-batch-35 terraform sweep
+
+`describeByNames` (shared by DescribeAutoScalingGroups/DescribeLaunchConfigurations)
+errored on any unmatched name in the filter; real AWS silently omits misses
+instead (unlike EC2's NotFound family). Broke Terraform's ASG delete waiter,
+which polls for an empty list to confirm deletion. Fixed to omit, not error.
 
 Protocol: EC2 Auto Scaling uses the `query` (form-urlencoded request, XML response)
 protocol, `Version=2011-01-01`. Verified against the awsquery serializers/deserializers
