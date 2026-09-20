@@ -1,8 +1,8 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: d57ca880a
-last_audit_date: 2026-09-19
+last_audit_commit: 22b4f068c   # was d57ca880a
+last_audit_date: 2026-09-20   # was 2026-09-19
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
              # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`

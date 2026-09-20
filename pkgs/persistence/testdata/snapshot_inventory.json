@@ -9456,6 +9456,7 @@
       "StoredNetworkACL.ID string `json:\"id,omitempty\"`",
       "StoredNetworkACL.IsDefault bool `json:\"isDefault,omitempty\"`",
       "StoredNetworkACL.VPCID string `json:\"vpcID,omitempty\"`",
+      "Subnet.Arn string `json:\"arn,omitempty\"`",
       "Subnet.AvailabilityZone string `json:\"availabilityZone,omitempty\"`",
       "Subnet.CIDRBlock string `json:\"cidrBlock,omitempty\"`",
       "Subnet.ID string `json:\"id,omitempty\"`",

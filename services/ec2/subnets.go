@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
 )
 
@@ -334,6 +335,7 @@ func (b *InMemoryBackend) CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn st
 		CIDRBlock:        cidr,
 		AvailabilityZone: az,
 		OutpostArn:       outpostArn,
+		Arn:              arn.Build("ec2", b.Region, b.AccountID, "subnet/"+id),
 	}
 	b.subnets.Put(s)
 	b.indexSubnetLocked(id, vpcID)

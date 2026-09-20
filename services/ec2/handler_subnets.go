@@ -362,6 +362,7 @@ func toSubnetItem(s *Subnet, tags map[string]string) subnetItem {
 		CIDRBlock:           s.CIDRBlock,
 		AvailabilityZone:    s.AvailabilityZone,
 		OutpostArn:          s.OutpostArn,
+		SubnetArn:           s.Arn,
 		State:               stateAvailable,
 		MapPublicIPOnLaunch: s.MapPublicIPOnLaunch,
 		DefaultForAz:        s.IsDefault,
@@ -380,6 +381,7 @@ type subnetItem struct {
 	CIDRBlock           string          `xml:"cidrBlock"`
 	AvailabilityZone    string          `xml:"availabilityZone"`
 	OutpostArn          string          `xml:"outpostArn,omitempty"`
+	SubnetArn           string          `xml:"subnetArn,omitempty"`
 	State               string          `xml:"state"`
 	TagSet              []simpleTagItem `xml:"tagSet>item"`
 	MapPublicIPOnLaunch bool            `xml:"mapPublicIpOnLaunch"`

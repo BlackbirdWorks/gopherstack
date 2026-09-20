@@ -304,6 +304,7 @@ type Subnet struct {
 	// services/outposts backend (cross_service.go) when wired. Empty for a
 	// normal (non-Outpost) subnet.
 	OutpostArn          string `json:"outpostArn,omitempty"`
+	Arn                 string `json:"arn,omitempty"`
 	IsDefault           bool   `json:"isDefault,omitempty"`
 	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch,omitempty"`
 }
