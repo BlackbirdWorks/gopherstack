@@ -468,7 +468,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps |
 | [Batch](services/batch/README.md) | A | 45 | 8 gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 9 gaps; 2 structural gaps; 8 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 11 gaps; 2 structural gaps; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 13 gaps |
 | [Lambda](services/lambda/README.md) | A | — | 10 families; 2 gaps |
 
@@ -476,7 +476,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [ECR](services/ecr/README.md) | A | 58 | 3 gaps; 2 deferred |
+| [ECR](services/ecr/README.md) | A | 58 | 4 gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 9 gaps; 1 deferred |
 | [EKS](services/eks/README.md) | A | 70 | 11 gaps; 1 deferred |
 
@@ -526,7 +526,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 gap; 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 5 gaps; 6 deferred |
-| [Route 53](services/route53/README.md) | A | 67 | 3 deferred |
+| [Route 53](services/route53/README.md) | A | 67 | 1 gap; 3 deferred |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 6 gaps; 1 deferred |
 | [VPC Lattice](services/vpclattice/README.md) | A | 73 | 5 gaps |
 
