@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
-last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (mega-batch-19); prior: 4a7682d1e
-last_audit_date: 2026-09-19
+last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: b7c35baea (mega-batch-19)
+last_audit_date: 2026-09-20
 overall: A            # 2026-09-08 (gopherstack-uu0n): DeleteMembers/DisassociateMembers/
                        # StopMonitoringMembers's autoEnableOrganizationMembers=ALL guard
                        # (gopherstack-krb1) rejected the whole call whenever the detector's org config was
@@ -930,3 +930,26 @@ Gates: `go build ./...` clean; `go vet ./services/guardduty/...` clean; `go test
 --concurrency 2 --new-from-rev=HEAD ./services/guardduty/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL. No persisted-field changes, no inventory rows, no
 snapshot version bump (ListDetectors was never persisted state, just an accessor).
+
+## 2026-09-20 (RouteMatcher prefix collision, found while covering macie2's terraform gaps)
+
+RouteMatcher's `strings.HasPrefix(path, "/admin")` swallowed Macie2's POST
+`/admin` (EnableOrganizationAdminAccount), DELETE `/admin`
+(DisableOrganizationAdminAccount), and POST `/admin/configuration`
+(UpdateOrganizationConfiguration) -- none of which GuardDuty's own real API
+uses (GuardDuty's admin routes are GET `/admin`, POST `/admin/enable`, POST
+`/admin/disable`). GET `/admin` (ListOrganizationAdminAccounts) is the same
+shape in both services, so that one case is now also scoped by the SigV4
+signing service (see isGuardDutyAdminPath). Found via a real `tofu apply`
+of a combined macie2+guardduty-adjacent fixture (mega-batch-31), not a
+GuardDuty-specific test. See
+.claude/memories/route-matcher-prefix-collision.md.
+
+Regression: TestRouteMatcher_RecognizesServicePaths (admin/admin_enable/
+admin_disable + the two new "not claimed" cases) and
+TestRouteMatcher_AdminListDisambiguatesBySigV4Service.
+
+Gates: `go build ./...`, `go vet ./services/guardduty/...`, `go test -race
+-count=1 ./services/guardduty/...` (pass), `golangci-lint run
+./services/guardduty/...` (0 issues). No persisted field changed, no
+snapshot version bump.
