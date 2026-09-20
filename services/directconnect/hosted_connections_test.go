@@ -298,3 +298,53 @@ func TestAssociateHostedConnection_UnknownParent(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorAs(t, err, &clientErr)
 }
+
+// TestDescribeHostedConnections_ByOwnID verifies that a hosted connection is
+// also returned when DescribeHostedConnections is called with the hosted
+// connection's own ConnectionId, not just its parent LAG/interconnect id --
+// terraform-provider-aws's aws_dx_hosted_connection resource reads its
+// just-created connection back this way (confirmed via TF_LOG=trace: the
+// provider sends DescribeHostedConnections{"connectionId":"<new hosted
+// connection id>"} right after AllocateHostedConnection, not the LAG id).
+// A non-hosted connection's own id must NOT match.
+func TestDescribeHostedConnections_ByOwnID(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	lagOut, err := client.CreateLag(ctx, &directconnectsdk.CreateLagInput{
+		ConnectionsBandwidth: aws.String("1Gbps"),
+		LagName:              aws.String("own-id-lag"),
+		Location:             aws.String("EqDC2"),
+		NumberOfConnections:  1,
+	})
+	require.NoError(t, err)
+
+	hostedOut, err := client.AllocateHostedConnection(
+		ctx,
+		&directconnectsdk.AllocateHostedConnectionInput{
+			Bandwidth:      aws.String("500Mbps"),
+			ConnectionId:   lagOut.LagId,
+			ConnectionName: aws.String("hosted-by-own-id"),
+			OwnerAccount:   aws.String("000000000000"),
+			Vlan:           202,
+		},
+	)
+	require.NoError(t, err)
+
+	byOwnID, err := client.DescribeHostedConnections(ctx, &directconnectsdk.DescribeHostedConnectionsInput{
+		ConnectionId: hostedOut.ConnectionId,
+	})
+	require.NoError(t, err)
+	require.Len(t, byOwnID.Connections, 1)
+	assert.Equal(t, aws.ToString(hostedOut.ConnectionId), aws.ToString(byOwnID.Connections[0].ConnectionId))
+
+	plainConn := createTestConnection(t, client)
+
+	byPlainOwnID, err := client.DescribeHostedConnections(ctx, &directconnectsdk.DescribeHostedConnectionsInput{
+		ConnectionId: plainConn.ConnectionId,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, byPlainOwnID.Connections, "a non-hosted connection's own id must not match")
+}

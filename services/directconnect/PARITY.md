@@ -11,7 +11,8 @@ sdk_module: aws-sdk-go-v2/service/directconnect@v1.44.1   # bumped since origina
 # in a throwaway scratch module (`go mod init probe && go get`), run in this session's scratchpad,
 # NEVER touching this repo's go.mod (another agent was concurrently editing go.mod/go.sum/cli.go
 # during this pass; this audit did not read or write any of those three files).
-last_audit_commit: 3b90d4523   # STALE (found 2026-08-15, gopherstack-6flj wrapper-key sweep):
+last_audit_commit: 22b4f068c   # bumped 2026-09-20 (mega-batch-33 sweep, real fix landed -- see
+# below); was 3b90d4523, STALE (found 2026-08-15, gopherstack-6flj wrapper-key sweep):
 # this hash resolves to "test: replace the last unbubbleable sleeps with require.Eventually", a
 # cross-service sleep-to-Eventually conversion touching services/lambda and test/{integration,e2e,
 # terraform}, NOT a directconnect-specific commit -- almost certainly a stale/copy-pasted value
@@ -66,7 +67,16 @@ last_audit_commit: 3b90d4523   # STALE (found 2026-08-15, gopherstack-6flj wrapp
 # location, bandwidth, vlan, connectionState, connectionName, connectionId) is still emitted
 # for a hosted connection. New coverage: hosted_connections_test.go (real SDK client, table
 # for all three parent kinds plus the move/unknown-parent cases).
-last_audit_date: 2026-09-11   # was 2026-08-15
+#
+# 2026-09-20 (mega-batch-33 terraform proof, gopherstack-parity-sweep-2026-09-18):
+# DescribeHostedConnections only matched a hosted connection by its parent's
+# LAG/interconnect/connection id, but terraform-provider-aws's aws_dx_hosted_connection
+# resource reads its own just-created connection back by calling this op with the HOSTED
+# connection's OWN ConnectionId (confirmed via TF_LOG=trace), which always returned empty
+# and broke every real `tofu apply`. Fixed: a hosted connection (any with a non-empty
+# ParentConnectionID/LagID/InterconnectID) now also matches on its own ConnectionID.
+# TestDescribeHostedConnections_ByOwnID added (hosted_connections_test.go).
+last_audit_date: 2026-09-20   # was 2026-09-11
 overall: A   # test/integration/directconnect_test.go passes for real (make build-linux && go test
 # -race -run TestIntegration_DirectConnect ./test/integration/...); every gap that could produce
 # real data is closed (cross-service EC2 validation, pkgs/arn.BuildGlobal for dx-gateway, pkgs/page

@@ -288,7 +288,13 @@ func (b *InMemoryBackend) DescribeConnections(connectionID string) []*Connection
 // that have been provisioned on the specified interconnect or link
 // aggregation group (LAG)" -- gopherstack-41bv6: a connection allocated via
 // AllocateConnectionOnInterconnect, which only sets InterconnectID, must
-// match here too).
+// match here too). terraform-provider-aws's FindHostedConnectionByID reads
+// a just-allocated hosted connection back by calling this op with the
+// hosted connection's OWN ConnectionId rather than its parent's, so a
+// hosted connection also matches on its own ID (confirmed against the
+// provider's real read path: apply of aws_dx_hosted_connection sends
+// DescribeHostedConnections{"connectionId":"<the new hosted conn ID>"}
+// and expects it back).
 func (b *InMemoryBackend) DescribeHostedConnections(hostID string) []*Connection {
 	b.mu.RLock("DescribeHostedConnections")
 	defer b.mu.RUnlock()
@@ -296,7 +302,14 @@ func (b *InMemoryBackend) DescribeHostedConnections(hostID string) []*Connection
 	var out []*Connection
 
 	for _, c := range b.connections.Snapshot() {
-		if hostID != "" && (c.ParentConnectionID == hostID || c.LagID == hostID || c.InterconnectID == hostID) {
+		isHosted := c.ParentConnectionID != "" || c.LagID != "" || c.InterconnectID != ""
+		if hostID == "" || !isHosted {
+			continue
+		}
+
+		matches := c.ParentConnectionID == hostID || c.LagID == hostID ||
+			c.InterconnectID == hostID || c.ConnectionID == hostID
+		if matches {
 			out = append(out, c.clone())
 		}
 	}
