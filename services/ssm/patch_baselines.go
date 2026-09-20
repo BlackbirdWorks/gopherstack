@@ -162,7 +162,7 @@ func (b *InMemoryBackend) CreatePatchBaseline(
 	b.mu.Lock("CreatePatchBaseline")
 	defer b.mu.Unlock()
 
-	baselineID := baselineIDPrefix + uuid.NewString()
+	baselineID := baselineIDPrefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:baselineIDHexLen]
 	now := UnixTimeFloat(time.Now())
 
 	bl := PatchBaseline{
@@ -181,6 +181,18 @@ func (b *InMemoryBackend) CreatePatchBaseline(
 		ApprovedPatchesEnableNonSecurity:         input.ApprovedPatchesEnableNonSecurity,
 		CreatedDate:                              now,
 		ModifiedDate:                             now,
+	}
+
+	// Real GetPatchBaseline/CreatePatchBaseline always return ApprovalRules
+	// and GlobalFilters as an (possibly empty) group, never omit the key --
+	// terraform-provider-aws's flattenPatchFilterGroup dereferences it
+	// unconditionally and panics on a nil pointer (patch_baseline.go:486).
+	if bl.ApprovalRules == nil {
+		bl.ApprovalRules = &PatchRuleGroup{PatchRules: []PatchRule{}}
+	}
+
+	if bl.GlobalFilters == nil {
+		bl.GlobalFilters = &PatchFilterGroup{PatchFilters: []PatchFilter{}}
 	}
 
 	b.patchBaselinesStore(region).Put(&bl)

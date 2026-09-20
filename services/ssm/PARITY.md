@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.77.0
-last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (mega-batch-17)
 last_audit_date: 2026-09-19
 overall: A                 # cursor-population sweep (2026-08-29, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns):
                             # audited every List/Describe/Get op that declares a real NextToken (53 of
@@ -526,6 +526,11 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, mega-batch-17)
+
+CreatePatchBaseline left ApprovalRules/GlobalFilters nil (crashed terraform-provider-aws's
+flattenPatchFilterGroup) and used a UUID baseline ID instead of "pb-"+17 hex; both fixed.
 
 ### 2026-09-18: list-summary-shapes sweep (overwidecandidates re-audit)
 

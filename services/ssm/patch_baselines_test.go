@@ -561,6 +561,41 @@ func TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip(t *testing.T) 
 	assert.Equal(t, "custom-repo", out.Sources[0].Name)
 }
 
+// TestCreatePatchBaseline_DefaultsGlobalFiltersAndApprovalRulesNonNil locks in
+// that a baseline created without ApprovalRules/GlobalFilters still gets a
+// non-nil (empty) group for both on the wire. Real GetPatchBaselineOutput
+// always includes both keys; omitting them (the prior behavior, via
+// `omitempty` on a nil pointer) crashed terraform-provider-aws's
+// flattenPatchFilterGroup, which dereferences GlobalFilters unconditionally
+// (patch_baseline.go:486, aws provider v5.100.0).
+func TestCreatePatchBaseline_DefaultsGlobalFiltersAndApprovalRulesNonNil(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreatePatchBaseline", `{"Name": "NoFiltersOrRules", "OperatingSystem": "AMAZON_LINUX_2"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created ssm.CreatePatchBaselineOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	out, err := b.GetPatchBaseline(context.Background(), &ssm.GetPatchBaselineInput{BaselineID: created.BaselineID})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.ApprovalRules, "ApprovalRules must never be nil on the wire")
+	assert.Empty(t, out.ApprovalRules.PatchRules)
+	require.NotNil(t, out.GlobalFilters, "GlobalFilters must never be nil on the wire")
+	assert.Empty(t, out.GlobalFilters.PatchFilters)
+
+	rawRec := doRequest(t, h, "GetPatchBaseline", `{"BaselineId": "`+created.BaselineID+`"}`)
+	require.Equal(t, http.StatusOK, rawRec.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rawRec.Body.Bytes(), &raw))
+	assert.Contains(t, raw, "GlobalFilters", "GlobalFilters key must be present, not omitted")
+	assert.Contains(t, raw, "ApprovalRules", "ApprovalRules key must be present, not omitted")
+}
+
 // TestUpdatePatchBaseline_ApprovedPatchesEnableNonSecurityPointerSemantics locks
 // in that ApprovedPatchesEnableNonSecurity is a *bool (matching
 // aws-sdk-go-v2/service/ssm@v1.73.4's CreatePatchBaselineInput/

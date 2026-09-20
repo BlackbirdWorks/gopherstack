@@ -382,12 +382,16 @@ const (
 	sessionHistoryRetentionSecs = 24 * 60 * 60
 	activationIDPrefix          = "act-"
 	baselineIDPrefix            = "pb-"
-	opsItemIDPrefix             = "oi-"
-	opsMetadataArnTpl           = "arn:aws:ssm:%s:%s:opsmetadata/%s"
-	defaultAccountID            = "123456789012"
-	defaultRegion               = "us-east-1"
-	defaultOpsItemStatus        = "Open"
-	defaultActivationExpiryHrs  = 24
+	// baselineIDHexLen matches real AWS's BaselineId shape: "pb-" followed by
+	// exactly 17 hex characters (terraform-provider-aws's aws_ssm_default_
+	// patch_baseline validates baseline_id against this pattern client-side).
+	baselineIDHexLen           = 17
+	opsItemIDPrefix            = "oi-"
+	opsMetadataArnTpl          = "arn:aws:ssm:%s:%s:opsmetadata/%s"
+	defaultAccountID           = "123456789012"
+	defaultRegion              = "us-east-1"
+	defaultOpsItemStatus       = "Open"
+	defaultActivationExpiryHrs = 24
 )
 const (
 	commandStatusPending    = "Pending"
