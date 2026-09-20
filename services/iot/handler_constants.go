@@ -46,6 +46,7 @@ const (
 	pathIndexingConfig        = "/indexing/config"
 	pathThings                = "/things"
 	pathProvisioningTemplates = "/provisioning-templates"
+	pathJobs                  = "/jobs"
 )
 
 const (

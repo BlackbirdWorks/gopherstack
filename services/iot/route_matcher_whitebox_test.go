@@ -1,6 +1,7 @@
 package iot
 
 import (
+	"net/http"
 	"regexp"
 	"strings"
 	"testing"
@@ -276,7 +277,10 @@ func TestRouteMatcher_ExhaustiveCoverage(t *testing.T) {
 		concrete := pathParamPattern.ReplaceAllString(tmpl, "x")
 
 		reason, isKnownGap := knownUnmatched[tmpl]
-		got := matchIoTPath(concrete)
+		// GET always matches every real path template in this list -- bare
+		// "/jobs" is the only path matchIoTPath treats as method-sensitive
+		// (see matchIoTPath), and GET is its real method (ListJobs).
+		got := matchIoTPath(http.MethodGet, concrete, "")
 
 		if isKnownGap {
 			assert.Falsef(t, got, "%s is listed in knownUnmatchedIoTPathsRaw (%s) but matchIoTPath now matches "+
@@ -289,4 +293,23 @@ func TestRouteMatcher_ExhaustiveCoverage(t *testing.T) {
 			"(handler_routing.go) or, if it genuinely accepts no Tags and is out of scope, "+
 			"add it to knownUnmatchedIoTPathsRaw with a reason", tmpl)
 	}
+}
+
+// TestMatchIoTPath_JobsFamilyDisambiguation is a regression guard for a
+// RouteMatcher prefix collision: Macie2's CreateClassificationJob (POST
+// /jobs) and DescribeClassificationJob (GET /jobs/{jobId}) are
+// byte-for-byte identical (method, path) shapes to IoT's own
+// ListJobs/GetJob. Bare "/jobs" is disambiguated by method (real IoT only
+// has GET there); "/jobs/{jobId}" needs the SigV4 service too, since both
+// services use GET there.
+func TestMatchIoTPath_JobsFamilyDisambiguation(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, matchIoTPath(http.MethodGet, "/jobs", ""), "GET /jobs is IoT's ListJobs")
+	assert.False(t, matchIoTPath(http.MethodPost, "/jobs", ""),
+		"POST /jobs belongs to Macie2 (CreateClassificationJob)")
+	assert.True(t, matchIoTPath(http.MethodPut, "/jobs/j1", ""), "PUT /jobs/{jobId} is IoT's CreateJob")
+	assert.True(t, matchIoTPath(http.MethodGet, "/jobs/j1", "iot"), "GET /jobs/{jobId} signed as iot is IoT's GetJob")
+	assert.False(t, matchIoTPath(http.MethodGet, "/jobs/j1", "macie2"),
+		"GET /jobs/{jobId} signed as macie2 is Macie2's DescribeClassificationJob")
 }

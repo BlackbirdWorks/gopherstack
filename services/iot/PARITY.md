@@ -2,8 +2,8 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.83.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
-last_audit_commit: bfdb308be  # 2026-09-19 terraform-coverage sweep (mega-batch-22, topic rule destination/action fixes); prior: b7c35baea
-last_audit_date: 2026-09-19
+last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: bfdb308be (mega-batch-22)
+last_audit_date: 2026-09-20
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
                        # filter/sort constraints across the certificate, policy, authorizer,
                        # role-alias, stream, and audit-suppression families were never read or
@@ -2285,3 +2285,22 @@ at 0 FAIL. No version bump -- `CACertificate.CertificateMode`,
 struct fields but all `omitempty`, so an old snapshot missing them decodes
 fine (zero value) and a new snapshot read by old code just drops the
 unknown key.
+
+## 2026-09-20 (RouteMatcher prefix collision, found while covering macie2's terraform gaps)
+
+matchIoTPath's method-agnostic "/jobs" match (and the unconditional
+"/jobs/" prefix in matchCoreIoTPathPrimary) swallowed Macie2's POST
+`/jobs` (CreateClassificationJob) and GET `/jobs/{jobId}` (DescribeClassificationJob)
+-- byte-for-byte identical (method, path) shapes to IoT's own
+ListJobs/GetJob, since AWS disambiguates by host and this single-port
+emulator can't. Bare "/jobs" is now gated by method (real IoT only has GET
+there -- CreateJob is PUT /jobs/{jobId}); "/jobs/{jobId}" additionally needs
+the SigV4 signing service, since both services use GET there. Found via a
+real `tofu apply` of a combined macie2 fixture (mega-batch-31), not an
+IoT-specific test. See .claude/memories/route-matcher-prefix-collision.md.
+
+Regression: TestMatchIoTPath_JobsFamilyDisambiguation.
+
+Gates: `go build ./...`, `go vet ./services/iot/...`, `go test -race
+-count=1 ./services/iot/...` (pass), `golangci-lint run ./services/iot/...`
+(0 issues). No persisted field changed, no snapshot version bump.
