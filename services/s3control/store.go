@@ -28,7 +28,14 @@ const (
 	arnFmtOutpostsBucket       = "arn:aws:s3-outposts:%s:%s:outpost/op-00000000/bucket/%s"
 	arnFmtJob                  = "arn:aws:s3:%s:%s:job/%s"
 	// arnFmtMRAPToken is the ARN for MRAP async request tokens; gosec false positive (not a credential).
-	arnFmtMRAPToken         = "arn:aws:s3::%s:async-request/mrap/create/%s" //nolint:gosec // ARN format, not a credential
+	arnFmtMRAPToken = "arn:aws:s3::%s:async-request/mrap/create/%s" //nolint:gosec // ARN format, not a credential
+	// arnFmtMRAPPutPolicyToken is the ARN for MRAP PutMultiRegionAccessPointPolicy
+	// async request tokens. Real SDK's URI segment is hyphenated "put-policy"
+	// (see pathMRAPPutPolicyPrefix), not "put_policy". gosec false positive
+	// (not a credential).
+	arnFmtMRAPPutPolicyToken = "arn:aws:s3::%s:async-request/mrap/put-policy/%s" //nolint:gosec // ARN, not a credential
+	// arnFmtMRAPDeleteToken is the ARN for MRAP DeleteMultiRegionAccessPoint async request tokens.
+	arnFmtMRAPDeleteToken   = "arn:aws:s3::%s:async-request/mrap/delete/%s" //nolint:gosec // ARN format, not a credential
 	arnFmtStorageLensGroup  = "arn:aws:s3:%s:%s:storage-lens-group/%s"
 	arnFmtStorageLensConfig = "arn:aws:s3:%s:%s:storage-lens/%s"
 )

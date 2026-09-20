@@ -1,7 +1,7 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
-last_audit_commit: 6d3b2159e
-last_audit_date: 2026-09-18
+last_audit_commit: 2bc650bf9
+last_audit_date: 2026-09-19
                        # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29
                        # pagination_sweep entry below still holds: every List* backend method
                        # (ListAccessPoints/ListAccessPointsForDirectoryBuckets/ListJobs/
@@ -224,6 +224,18 @@ items_still_open:
     can create is bucket-backed, so both filter values are always byte-identical. Not fixed: a filter that
     can never change the output is dead plumbing, not a real fix. Needs a non-bucket data-source-type
     access point (e.g. S3 Tables) modeled first."
+  - "2026-09-19: aws_s3control_bucket/_lifecycle_configuration/_policy (S3 on Outposts) tried once via
+    real terraform apply and left out. CreateBucket's OutpostsBucket.BucketArn hardcodes a literal
+    op-00000000 outpost segment (bucket.go/arnFmtOutpostsBucket) instead of the caller-supplied
+    outpost_id, and real CreateBucketInput carries no AccountId (already documented on CreateBucket) so
+    the ARN's account segment is whatever accountIDFromRequest resolves to off a header the real op
+    doesn't have -- with skip_requesting_account_id in the test provider that surfaced as literal
+    'default'. terraform-provider-aws's post-create Read then calls GetBucketTagging, which this
+    backend correctly returns as NoSuchTagSetError (documented real AWS behavior, errors.go), but the
+    provider's own error-handling for that path did not tolerate it in this sandbox and the apply
+    failed with 'operation error S3 Control: GetBucketTagging ... NoSuchTagSetError'. Aws_s3control_
+    directory_bucket_access_point_scope (S3 Express One Zone / Local Zone) not attempted: needs a
+    zone-suffixed directory bucket the emulator's S3 side does not model."
 deferred:
   - "AccessGrantsInstance / IdentityCenter association flows: state machine correctness beyond basic CRUD
     (the delete-grants-and-locations-first precondition IS enforced -- see the DeleteAccessGrantsInstance
@@ -239,6 +251,25 @@ leaks: {status: fixed, note: "LEAK FOUND AND FIXED THIS PASS. DeleteMultiRegionA
 ---
 
 ## Notes
+
+### 2026-09-19: terraform mega-batch-21 coverage (10 previously-uncovered resources)
+
+Real terraform apply of access_grant(+_instance/_instance_resource_policy/
+_location), access_point_policy, multi_region_access_point(+_policy),
+object_lambda_access_point(+_policy), and storage_lens_configuration found
+one real bug: PutMultiRegionAccessPointPolicy and the async
+DeleteMultiRegionAccessPoint route each fabricated a
+RequestTokenARN inline (a literal `.../put_policy/1` and `.../delete/1`)
+without ever storing a matching async-request record, so a client that
+polls DescribeMultiRegionAccessPointOperation with that exact ARN after
+either mutation (as terraform-provider-aws does) got NoSuchMultiRegionAccessPoint
+even though the underlying write had already succeeded. Fixed by routing
+both through new CreateMRAPPutPolicyRequest/CreateMRAPDeleteRequest backend
+methods that register a real token in mrapRequests, mirroring
+CreateMultiRegionAccessPoint's existing pattern; also corrected the put-policy
+token's URI segment to the real hyphenated "put-policy" (was "put_policy").
+aws_s3control_bucket and its Outposts-only siblings tried once and left out
+-- see items_still_open.
 
 **Protocol**: REST-XML (`/v20180820/` path-versioned), with `X-Amz-Account-Id` header
 carrying the account ID (there is no path/query account parameter). Error bodies use

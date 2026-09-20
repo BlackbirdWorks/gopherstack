@@ -39,6 +39,55 @@ func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
 	return &cp
 }
 
+// CreateMRAPDeleteRequest registers an async request record for a
+// DeleteMultiRegionAccessPoint call and returns its token ARN, for the same
+// reason as CreateMRAPPutPolicyRequest: a subsequent
+// DescribeMultiRegionAccessPointOperation poll needs a real stored record.
+func (b *InMemoryBackend) CreateMRAPDeleteRequest(accountID, name string) *MultiRegionAccessPointRequest {
+	b.mu.Lock("CreateMRAPDeleteRequest")
+	defer b.mu.Unlock()
+
+	token := b.newID("mrap-token")
+	tokenARN := fmt.Sprintf(arnFmtMRAPDeleteToken, accountID, token)
+
+	req := &MultiRegionAccessPointRequest{
+		AccountID:       accountID,
+		Token:           token,
+		RequestTokenARN: tokenARN,
+		Name:            name,
+	}
+	b.mrapRequests.Put(req)
+
+	cp := *req
+
+	return &cp
+}
+
+// CreateMRAPPutPolicyRequest registers an async request record for a
+// PutMultiRegionAccessPointPolicy call and returns its token ARN, so a
+// subsequent DescribeMultiRegionAccessPointOperation poll against that ARN
+// (the real provider polls every async MRAP mutation to completion) finds a
+// real record instead of a token that was fabricated and never stored.
+func (b *InMemoryBackend) CreateMRAPPutPolicyRequest(accountID, name string) *MultiRegionAccessPointRequest {
+	b.mu.Lock("CreateMRAPPutPolicyRequest")
+	defer b.mu.Unlock()
+
+	token := b.newID("mrap-token")
+	tokenARN := fmt.Sprintf(arnFmtMRAPPutPolicyToken, accountID, token)
+
+	req := &MultiRegionAccessPointRequest{
+		AccountID:       accountID,
+		Token:           token,
+		RequestTokenARN: tokenARN,
+		Name:            name,
+	}
+	b.mrapRequests.Put(req)
+
+	cp := *req
+
+	return &cp
+}
+
 // SetMRAPRegions stores the bucket-region list for an MRAP.
 func (b *InMemoryBackend) SetMRAPRegions(accountID, name string, regions []string) error {
 	b.mu.Lock("SetMRAPRegions")
