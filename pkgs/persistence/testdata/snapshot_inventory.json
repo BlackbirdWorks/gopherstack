@@ -24941,6 +24941,7 @@
       "Project.ProjectID string `json:\"ProjectId\"`",
       "Project.ProjectName string `json:\"ProjectName\"`",
       "Project.ProjectStatus string `json:\"ProjectStatus\"`",
+      "Project.ProvisionedProductID string `json:\"ProvisionedProductId,omitempty\"`",
       "Project.ServiceCatalogProvisioningDetails json.RawMessage `json:\"ServiceCatalogProvisioningDetails,omitempty\"`",
       "Project.Tags map[string]string `json:\"Tags,omitempty\"`",
       "Project.TemplateProviders json.RawMessage `json:\"TemplateProviders,omitempty\"`",

@@ -34,6 +34,7 @@ type Project struct {
 	ProjectID                         string            `json:"ProjectId"`
 	ProjectStatus                     string            `json:"ProjectStatus"`
 	ProjectDescription                string            `json:"ProjectDescription,omitempty"`
+	ProvisionedProductID              string            `json:"ProvisionedProductId,omitempty"`
 	ServiceCatalogProvisioningDetails json.RawMessage   `json:"ServiceCatalogProvisioningDetails,omitempty"`
 	TemplateProviders                 json.RawMessage   `json:"TemplateProviders,omitempty"`
 }
@@ -120,6 +121,7 @@ func (b *InMemoryBackend) CreateProject(ctx context.Context, opts CreateProjectO
 		ProjectID:                         generateID(),
 		ProjectStatus:                     "CreateCompleted",
 		ProjectDescription:                opts.Description,
+		ProvisionedProductID:              "pp-" + generateID(),
 		Tags:                              mergeTags(nil, opts.Tags),
 		ServiceCatalogProvisioningDetails: opts.ServiceCatalogProvisioningDetails,
 		TemplateProviders:                 opts.TemplateProviders,

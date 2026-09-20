@@ -75,6 +75,13 @@ func projectResponseMap(p *Project) map[string]any {
 		resp["ServiceCatalogProvisioningDetails"] = p.ServiceCatalogProvisioningDetails
 	}
 
+	if p.ProvisionedProductID != "" {
+		resp["ServiceCatalogProvisionedProductDetails"] = map[string]any{
+			"ProvisionedProductId":            p.ProvisionedProductID,
+			"ProvisionedProductStatusMessage": "AVAILABLE",
+		}
+	}
+
 	if len(p.TemplateProviders) > 0 {
 		resp["TemplateProviderDetails"] = p.TemplateProviders
 	}
