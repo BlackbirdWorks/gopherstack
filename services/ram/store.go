@@ -28,6 +28,16 @@ const (
 	invitationStatusRejected = "REJECTED"
 	// invitationStatusExpired is the expired status for an invitation.
 	invitationStatusExpired = "EXPIRED"
+	// ramDeletedShareTTL bounds how long a DELETED resource share stays in
+	// b.resourceShares before pruneDeletedResourceSharesLocked evicts it.
+	// GetResourceShare/ListResourceShares already exclude Status==statusDeleted
+	// unconditionally, so nothing depends on the tombstone remaining visible --
+	// kept only so a share deleted moments ago isn't already gone before this
+	// TTL, avoiding surprising churn under concurrent callers. AWS documents no
+	// specific duration; this reuses the 1h window established for this
+	// backend's other delete-waiter tombstones (ec2 c254cd795, ecs 3fa9337a8,
+	// medialive gopherstack-f9w3k).
+	ramDeletedShareTTL = time.Hour
 	// invitationExpiryWindow is how long a PENDING invitation stays acceptable before
 	// it lazily transitions to EXPIRED. AWS RAM user guide: "For shared resource types
 	// not on the [7-day] list... After 12 hours, the invitation expires and the end

@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
-last_audit_commit: 5cb6665a0  # 2026-09-24 EnableSharingWithAwsOrganization Organizations wiring; prior: 1598513da
+last_audit_commit: 2332c3128  # 2026-09-24 DELETED resource share unbounded-growth fix; prior: 5cb6665a0
 last_audit_date: 2026-09-24
 # 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
 # a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
@@ -271,6 +271,21 @@ Gates: `go build ./services/ram/...` clean; `golangci-lint run ./services/ram/..
 ones).
 
 ## Notes
+
+### 2026-09-24 (leak sweep) DELETED resource shares now evicted after 1h
+
+DeleteResourceShare/DeletePolicyBasedShare soft-delete a resource share
+(Status=DELETED) rather than removing it -- GetResourceShare/
+ListResourceShares already exclude Status==DELETED unconditionally, so
+nothing reads the tombstone back, but the row stayed in b.resourceShares
+forever, an unbounded-memory-growth leak in the same class ec2 (c254cd795),
+ecs (3fa9337a8), and medialive (gopherstack-f9w3k) fixed for their own
+delete-waiter tombstones. Added pruneDeletedResourceSharesLocked, called on
+every write path (Create/Update/Delete ResourceShare, Put/DeletePolicyBasedShare),
+evicting a DELETED share ramDeletedShareTTL (1h) past its LastUpdatedTime (no
+new field needed -- Delete already stamps it). No persisted-field change, no
+version bump. Tests: `deleted_resource_share_expiry_test.go` (synctest,
+evicted-after-TTL + kept-within-TTL).
 
 ### 2026-09-24 (parity-sweep) EnableSharingWithAwsOrganization service-linked role
 
