@@ -162,18 +162,25 @@ func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) {
 		b.totalMetrics++ // #60: maintain running total
 	}
 
-	rec.Points = append(rec.Points, d)
+	switch {
+	case len(rec.Points) < cwMaxMetricDataPoints:
+		rec.Points = append(rec.Points, d)
+		// First time the cap is reached, snap the backing array down to
+		// exactly cwMaxMetricDataPoints (append's growth may have rounded
+		// up) so every later datum can slide in place with zero allocation
+		// instead of reallocating a fresh cap-sized slice on every call.
+		if len(rec.Points) == cwMaxMetricDataPoints && cap(rec.Points) != cwMaxMetricDataPoints {
+			fresh := make([]MetricDatum, cwMaxMetricDataPoints)
+			copy(fresh, rec.Points)
+			rec.Points = fresh
+		}
+	default:
+		copy(rec.Points, rec.Points[1:])
+		rec.Points[len(rec.Points)-1] = d
+	}
 
 	if d.Timestamp.After(rec.LastDatapoint) {
 		rec.LastDatapoint = d.Timestamp
-	}
-
-	// Cap data points: copy the tail into a fresh slice so the old backing
-	// array (which may be 2× or larger after repeated appends) can be GC'd.
-	if len(rec.Points) > cwMaxMetricDataPoints {
-		fresh := make([]MetricDatum, cwMaxMetricDataPoints)
-		copy(fresh, rec.Points[len(rec.Points)-cwMaxMetricDataPoints:])
-		rec.Points = fresh
 	}
 }
 
