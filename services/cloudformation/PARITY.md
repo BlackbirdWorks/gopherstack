@@ -1,8 +1,8 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 893408596  # 2026-09-20 mega-batch-37 type-registry ARN fix; prior: 1ecd57d33
-last_audit_date: 2026-09-20  # prior: 2026-09-18
+last_audit_commit: 1598513da  # 2026-09-24 DeleteStack already-gone-child fix; prior: 893408596
+last_audit_date: 2026-09-24  # prior: 2026-09-20
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -32,7 +32,7 @@ overall: A            # This pass closed out all 4 documented gaps and independe
 ops:
   CreateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "CAPABILITY_AUTO_EXPAND no longer wrongly satisfies the IAM-resource capability check (backend_parity.go requireIAMCapability); this pass ALSO fixed the inverse gap -- top-level Transform is now parsed (Template.Transform) and requireAutoExpandCapability gates CAPABILITY_AUTO_EXPAND for macro/SAM-using templates, which was previously never enforced at all"}
   UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: missing UPDATE_FAILED stack event on template parse failure; added pre-flight export-in-use block (validateExportsStillInUse); same CAPABILITY_AUTO_EXPAND gate as CreateStack added this pass. gopherstack-cqy3 (THIS PASS): the stored stack policy was never enforced here at all -- SetStackPolicy stored a policy, GetStackPolicy echoed it back, and nothing in between ever read it, so a Deny on Update:Delete/Update:Replace/Update:Modify did nothing. Now checkStackPolicy (stack_policy.go) evaluates every resource change computeChanges would apply (the same diff CreateChangeSet already computes) against the stack's policy before any state mutation; a denied action fails the whole call atomically. Also now accepts StackPolicyDuringUpdateBody (UpdateStackInput field, api_op_UpdateStack.go:223) as a one-shot override that is never persisted. See gaps: for what this does not cover (NotAction/NotResource, parameter-only diffing) and the families: stack_policy_enforcement entry for the evaluation semantics and their sourcing."}
-  DeleteStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not ErrStackNotFound) per AWS's unmodeled DeleteStack error surface; added export-in-use block (stackExportsInUse). gopherstack-cqy3 sweep: independently re-verified UpdateTerminationProtection IS enforced here (stack.EnableTerminationProtection gate, stacks.go deleteStackLocked) -- this service was NOT one of the five found with settable-and-unenforced termination protection; no change needed"}
+  DeleteStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not ErrStackNotFound) per AWS's unmodeled DeleteStack error surface; added export-in-use block (stackExportsInUse). gopherstack-cqy3 sweep: independently re-verified UpdateTerminationProtection IS enforced here (stack.EnableTerminationProtection gate, stacks.go deleteStackLocked) -- this service was NOT one of the five found with settable-and-unenforced termination protection; no change needed. FIXED 2026-09-24: a child resource already deleted directly through its own service (observed for APIGatewayV2 Integration/Route/Stage) 404'd deleteStackLocked's b.creator.Delete call and left the stack DELETE_FAILED, unlike real CloudFormation which treats a gone resource as already deleted. deleteAPIGatewayV2Integration/Route/Stage now swallow their service's NotFoundException sentinels (ErrIntegrationNotFound/ErrRouteNotFound/ErrStageNotFound/ErrAPINotFound) as success, matching the existing deleteDynamoDBGlobalTable idempotent-delete convention. Other resource types' delete paths were not audited this pass."}
   DescribeStacks: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTerminationProtection: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-cqy3 sweep: verified enforced (see DeleteStack note) -- was missing an ops: table entry despite being routed and correct, now documented"}
   SetStackPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-cqy3: was missing an ops: table entry. Now validates the policy body is well-formed JSON (parseStackPolicyDocument) at set time and rejects malformed input, rather than accepting garbage that would have silently never enforced anything at UpdateStack time. StackPolicyURL is not modeled (this backend has never fetched policies by URL for either Set or Get)"}
@@ -139,6 +139,13 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) DeleteStack already-gone child resource
+
+CI's apigatewayv2 terraform fixture hit DELETE_FAILED when a child
+Integration/Route/Stage was deleted directly before DeleteStack ran. Fixed
+in resources_apigatewayv2.go (see DeleteStack ops note); tested via
+TestDeleteStack_APIGatewayV2ChildAlreadyDeleted.
 
 Protocol: AWS query/XML (`Action=...` form POST, `<FooResponse>` root, `ResponseMetadata>RequestId`).
 Errors always serialize as HTTP 400 with `<ErrorResponse><Error><Code>/<Message></Error></ErrorResponse>`
