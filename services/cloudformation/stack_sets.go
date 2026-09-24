@@ -58,7 +58,7 @@ func (b *InMemoryBackend) CreateStackSet(
 		StackSetName: name,
 		Description:  description,
 		TemplateBody: templateBody,
-		Status:       "ACTIVE",
+		Status:       statusActive,
 		StackSetARN: arn.Build(
 			"cloudformation", b.region, b.accountID, "stackset/"+name+":"+stackSetID,
 		),

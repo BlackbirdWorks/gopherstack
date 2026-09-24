@@ -8,6 +8,7 @@ import (
 
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
@@ -60,6 +61,7 @@ func newDependentServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
 	b.IoT = iotbackend.NewHandler(iotbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), nil)
 	b.Pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.EMR = emrbackend.NewHandler(emrbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.AWSConfig = awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackendWithMeta("000000000000", "us-east-1"))
 
 	return b
 }

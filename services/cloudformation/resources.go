@@ -18,6 +18,7 @@ import (
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
@@ -142,6 +143,7 @@ type ServiceBackends struct {
 	ResilienceHub    ResilienceHubBackend
 	ServiceDiscovery *servicediscoverybackend.Handler
 	CodeDeploy       *codedeploybackend.Handler
+	AWSConfig        *awsconfigbackend.Handler
 	AccountID        string
 	Region           string
 }
@@ -178,6 +180,35 @@ type ResourceCreator struct {
 // NewResourceCreator returns a ResourceCreator backed by the given services.
 func NewResourceCreator(backends *ServiceBackends) *ResourceCreator {
 	return &ResourceCreator{backends: backends}
+}
+
+// resourceCreatorFunc is a per-resource-type create method, expressed as a
+// method expression (e.g. (*ResourceCreator).createIoTPolicy) so a family of
+// same-shaped create* methods can be dispatched from a lookup table instead
+// of a switch -- avoids the family of near-identical "case X: id, err :=
+// rc.createX(...); return id, true, err" switches the dupl linter flags once
+// two families reach the same case count.
+type resourceCreatorFunc func(
+	*ResourceCreator, string, map[string]any, map[string]string, map[string]string,
+) (string, error)
+
+// dispatchCreate looks up resourceType in fns and calls the matching create
+// method, returning handled=false when resourceType isn't in fns.
+func dispatchCreate(
+	rc *ResourceCreator,
+	fns map[string]resourceCreatorFunc,
+	resourceType, logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	fn, ok := fns[resourceType]
+	if !ok {
+		return "", false, nil
+	}
+
+	id, err := fn(rc, logicalID, props, params, physicalIDs)
+
+	return id, true, err
 }
 
 // WithNestedStackCreator sets the callback used to create/delete nested stacks.
@@ -1402,6 +1433,8 @@ func (rc *ResourceCreator) deletePropsBasedResource(
 		return true, rc.deleteAPIGatewayDocumentationPart(props, stackPhysicalIDs, physicalID)
 	case "AWS::ApiGateway::DocumentationVersion":
 		return true, rc.deleteAPIGatewayDocumentationVersion(props, stackPhysicalIDs, physicalID)
+	case resTypeConfigStoredQuery:
+		return true, rc.deleteConfigStoredQuery(props, stackPhysicalIDs)
 	default:
 		return false, nil
 	}
@@ -1941,6 +1974,16 @@ func (rc *ResourceCreator) createSupplementalResource(
 	); ok {
 		return id, true, err
 	}
+	if id, ok, err := rc.createIoTMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createAWSConfigResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
 
 	return "", false, nil
 }
@@ -1985,6 +2028,12 @@ func (rc *ResourceCreator) deleteSupplementalResource(
 		return true, err
 	}
 	if handled, err := rc.deleteAPIGatewayMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteIoTMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteAWSConfigResource(resourceType, physicalID); handled {
 		return true, err
 	}
 

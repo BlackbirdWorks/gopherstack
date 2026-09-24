@@ -1,7 +1,16 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: e74172daa  # 2026-09-24 25 new resource types added: RDS OptionGroup/
+last_audit_commit: 1ba59adde  # 2026-09-24 25 new resource types added: IoT ThingType/
+                               # ThingGroup/Policy/TopicRuleDestination/RoleAlias/Certificate/
+                               # ProvisioningTemplate/Authorizer/DomainConfiguration/
+                               # JobTemplate/Dimension/SecurityProfile/CustomMetric/
+                               # FleetMetric/BillingGroup/MitigationAction/ScheduledAudit
+                               # (17 types); AWS::Config newly wired into the CloudFormation
+                               # backend (ConfigRule/ConfigurationRecorder/DeliveryChannel/
+                               # ConfigurationAggregator/AggregationAuthorization/
+                               # ConformancePack/RemediationConfiguration/StoredQuery, 8
+                               # types) (266 -> 291 supported types); prior: e74172daa  # 2026-09-24 25 new resource types added: RDS OptionGroup/
                                # EventSubscription/GlobalCluster/DBProxyEndpoint, Cognito
                                # UserPoolResourceServer/UserPoolIdentityProvider, SSM
                                # MaintenanceWindowTarget/MaintenanceWindowTask/PatchBaseline/
@@ -18,7 +27,7 @@ last_audit_commit: e74172daa  # 2026-09-24 25 new resource types added: RDS Opti
                                # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
                                # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
                                # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
-last_audit_date: 2026-09-24  # prior: 2026-09-24 (20-type pass earlier same day)
+last_audit_date: 2026-09-24  # prior: 2026-09-24 (25-type IoT/RDS/SSM/CloudWatch/ApiGateway/CloudFront pass earlier same day)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -155,6 +164,51 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) 25 new resource types: 266 -> 291 supported types
+
+Added AWS::IoT::{ThingType,ThingGroup,Policy,TopicRuleDestination,RoleAlias,Certificate,
+ProvisioningTemplate,Authorizer,DomainConfiguration,JobTemplate,Dimension,SecurityProfile,
+CustomMetric,FleetMetric,BillingGroup,MitigationAction,ScheduledAudit} (17 types; Thing and
+TopicRule already existed) and wired AWS::Config into the CloudFormation backend for the first
+time: AWS::Config::{ConfigRule,ConfigurationRecorder,DeliveryChannel,ConfigurationAggregator,
+AggregationAuthorization,ConformancePack,RemediationConfiguration,StoredQuery} (8 types;
+OrganizationConfigRule intentionally excluded -- it targets an AWS Organizations management
+account, a different provisioning model than a single-account stack resource). New files
+resources_iot_more.go, resources_awsconfig.go; AWSConfig added to ServiceBackends/
+BackendsProvider/extractAllServiceBackends (provider.go, resources.go) -- cli.go already had
+GetAWSConfigHandler wired for the dashboard, just not threaded into CloudFormation. Each type's
+Ref/Fn::GetAtt was verified against the CloudFormation Template Reference's "Return values"
+section for that exact type, not assumed from sibling types. Several Refs return a
+backend-generated ID (ThingType/ThingGroup/BillingGroup all return TypeId/GroupId/Id, not the
+name) while their delete operation takes the name -- these look the ID up via the backend's own
+List* call (ListThingTypes/ListThingGroups/ListBillingGroups) rather than needing a logicalID
+side-channel, since Delete() is only ever given physicalID + props, not the logicalID. Two Refs
+are genuinely undocumented in the CloudFormation reference (AWS::Config::StoredQuery has an empty
+Ref section): its resource-type-schema primary identifier is QueryId, so Ref returns that, and
+delete re-reads the required QueryName property via the existing props-based delete dispatcher
+(deletePropsBasedResource) since QueryId doesn't embed it. AWS::Config::AggregationAuthorization's
+Ref is documented as the authorization's own ARN, which conveniently embeds both
+AuthorizedAccountId/AuthorizedAwsRegion, so delete parses them back out of the ARN with no extra
+lookup. Deterministic ARN attributes (e.g. IoT RoleAlias's RoleAliasArn, Config
+ConfigurationAggregator's counter-based ConfigurationAggregatorArn) are computed with the same
+format string the backend's own ARN builder uses (verified by reading it), or, where the backend
+generates the ARN from an internal counter rather than the name, stashed at create time via the
+`physicalIDs[logicalID+"/<AttrName>"]` pattern plus the resolveGetAtt gate in template.go (IoT
+ThingType/ThingGroup/BillingGroup/DomainConfiguration/FleetMetric/MitigationAction, Config
+ConfigRule/ConfigurationAggregator/ConformancePack/StoredQuery). IoT Certificate delete
+deactivates an ACTIVE certificate before deleting (DeleteCertificate rejects ACTIVE, matching real
+AWS IoT); IoT ThingType delete deprecates before deleting for the same reason (real AWS also
+requires deprecation first, though this backend doesn't model the real 5-minute/300-day wait).
+Partial-property gaps (create a real object but skip a subset of its optional nested config,
+matching this file's existing convention of not wiring the CFN `Tags` property on any type):
+IoT SecurityProfile's Behaviors/AlertTargets/MetricsExportConfig/AdditionalMetricsToRetainV2, IoT
+JobTemplate's AbortConfig/TimeoutConfig/JobExecutionsRolloutConfig/JobExecutionsRetryConfig/
+PresignedURLConfig/MaintenanceWindows/DestinationPackageVersions, and IoT DomainConfiguration's
+AuthorizerConfig/ClientCertificateConfig/ServerCertificateConfig (ServerCertificateArns IS wired,
+stashed for its ServerCertificates GetAtt). All 25 have a passing CreateStack ->
+Fn::GetAtt-in-Outputs -> backend-state-assertion -> DeleteStack -> backend-state-gone test
+(resources_iot_more_test.go, resources_awsconfig_test.go).
 
 ### 2026-09-24 (parity-sweep) 25 new resource types: 241 -> 266 supported types
 

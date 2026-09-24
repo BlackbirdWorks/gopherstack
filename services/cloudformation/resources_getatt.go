@@ -53,6 +53,10 @@ func getExtraResourceAttribute(resType, physID, attrName, accountID, region stri
 		return v, true
 	}
 
+	if v, ok := getIoTOrConfigAttribute(resType, physID, attrName, accountID, region); ok {
+		return v, true
+	}
+
 	return getManagedTypesAttribute(resType, physID, attrName, accountID, region)
 }
 
@@ -167,7 +171,7 @@ func kinesisStreamConsumerAttribute(physID, attrName string) string {
 	case "ConsumerStatus":
 		// RegisterStreamConsumer's in-memory model activates consumers
 		// synchronously -- no CREATING transition exists to observe.
-		return "ACTIVE"
+		return statusActive
 	default:
 		return physID
 	}

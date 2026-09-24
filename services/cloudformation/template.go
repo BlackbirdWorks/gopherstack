@@ -37,6 +37,7 @@ const (
 	resTypeStepFunctionsStateMachine = "AWS::StepFunctions::StateMachine"
 	attrNameArn                      = "Arn"
 	attrNameName                     = "Name"
+	statusActive                     = "ACTIVE"
 	fnGetAtt                         = "Fn::GetAtt"
 	// yamlMappingContentStride is the step size when walking a yaml.Node's
 	// Content slice for a MappingNode, which interleaves key/value pairs
@@ -1445,7 +1446,11 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeKinesisStreamConsumer,
 			resTypeRDSDBProxyEndpoint, resTypeCWMetricStream, resTypeSSMResourcePolicy,
 			resTypeCFOriginRequestPolicy, resTypeCFKeyGroup, resTypeCFPublicKey,
-			resTypeCFOAI, resTypeCFKeyValueStore, resTypeCFContinuousDeploymentPolicy:
+			resTypeCFOAI, resTypeCFKeyValueStore, resTypeCFContinuousDeploymentPolicy,
+			resTypeIoTThingType, resTypeIoTThingGroup, resTypeIoTBillingGroup,
+			resTypeIoTDomainConfiguration, resTypeIoTFleetMetric, resTypeIoTMitigationAction,
+			resTypeConfigConfigRule, resTypeConfigConfigurationAggregator, resTypeConfigConformancePack,
+			resTypeConfigStoredQuery:
 			return v
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
@@ -135,6 +136,7 @@ type BackendsProvider interface {
 	GetBackupHandler() service.Registerable
 	GetResilienceHubHandler() service.Registerable
 	GetServiceDiscoveryHandler() service.Registerable
+	GetAWSConfigHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -176,6 +178,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.ResilienceHub, _ = getHandler[ResilienceHubBackend](bp.GetResilienceHubHandler())
 	backends.ServiceDiscovery, _ = getHandler[*servicediscoverybackend.Handler](bp.GetServiceDiscoveryHandler())
 	backends.CodeDeploy, _ = getHandler[*codedeploybackend.Handler](bp.GetCodeDeployHandler())
+	backends.AWSConfig, _ = getHandler[*awsconfigbackend.Handler](bp.GetAWSConfigHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.
