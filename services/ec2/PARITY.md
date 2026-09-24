@@ -3,7 +3,35 @@ service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: 5cb6665a0   # was 30db30dd8
 last_audit_date: 2026-09-24   # was 2026-09-23
-overall: A   # Filter.N sweep, third batch (2026-09-24, chore/parity-sweep-2026-09-18
+overall: A   # Filter.N sweep, fourth batch (2026-09-24, chore/parity-sweep-2026-09-18
+             # branch, continues gopherstack-rwwvt): fixed 16 more of the ~84 ops the third
+             # batch left as items_still_open, prioritised Terraform-facing families as
+             # directed -- DescribeLaunchTemplates (previously applied zero Filters despite
+             # being registered with real ID-lookup logic), the CoIP/local gateway family
+             # (DescribeCoipPools, DescribeLocalGateways, DescribeLocalGatewayVirtualInterfaces,
+             # DescribeLocalGatewayVirtualInterfaceGroups), DescribeVolumeStatus/
+             # VolumesModifications, DescribeMacHosts (cross-referenced against
+             # Backend.DescribeHosts since MacHost itself carries neither filterable field),
+             # DescribeFpgaImages, DescribeImportImageTasks (task-state; also discovered its
+             # filter list flattens under "Filters.N", not the usual "Filter.N" --
+             # parseEC2FilterListKeyed(vals, prefix) now generalizes parseEC2Filters for this),
+             # DescribeInstanceEventWindows, DescribeInstanceCreditSpecifications, and
+             # DescribeLockedSnapshots, plus missing sub-filters on three already-partially-fixed
+             # ops: DescribeImages (owner-id, virtualization-type, tag-key, and the full
+             # block-device-mapping.* family), DescribeSnapshots (description, owner-id,
+             # volume-size, tag-key), and DescribeKeyPairs (tag-key). Also fixed a real,
+             # unrelated bug found while testing DescribeImages' new tag-key filter:
+             # RegisterImage never parsed TagSpecifications at all (every other Create op in
+             # this file does), so a real client's RegisterImage-with-tags call silently
+             # dropped every tag. Corrected one stale items_still_open claim:
+             # DescribeIamInstanceProfileAssociations was listed as "state filter only" but
+             # both its documented filters (instance-id, state) were already implemented;
+             # removed rather than re-fixed. See items_still_open for exact filter names,
+             # unmodeled gaps (DescribeVolumeStatus's action.*/event.* family, FpgaImage's
+             # product-code, VolumeModification's original-iops/MultiAttach fields, etc.), and
+             # the updated ~72-op remaining count.
+             # ---- prior pass's note follows ----
+             # Filter.N sweep, third batch (2026-09-24, chore/parity-sweep-2026-09-18
              # branch, continues gopherstack-rwwvt): fixed 13 more of the ~99 ops the prior
              # pass on this branch left as items_still_open, prioritised Terraform-facing
              # families as directed -- placement groups, EC2 Fleet, spot price history,
@@ -539,6 +567,94 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "Filter.N sweep, fourth batch (2026-09-24, gopherstack-rwwvt sweep, continues the third
+    batch below): fixed 16 more ops -- DescribeLaunchTemplates (launch-template-name,
+    create-time, tag:<key>, tag-key -- all four documented filters, all backed);
+    DescribeCoipPools (coip-pool.local-gateway-route-table-id, coip-pool.pool-id, both
+    backed via CreateCoipPool); DescribeLocalGateways (local-gateway-id, outpost-arn,
+    owner-id, state, all backed via SeedLocalGateway -- this resource family has no Create
+    API, Outpost-provisioned); DescribeLocalGatewayVirtualInterfaces (local-address,
+    local-bgp-asn, local-gateway-id, local-gateway-virtual-interface-id, owner-id,
+    peer-address, peer-bgp-asn, vlan -- all eight documented filters, all backed via
+    SeedLocalGatewayVirtualInterface); DescribeLocalGatewayVirtualInterfaceGroups
+    (local-gateway-id, local-gateway-virtual-interface-group-id,
+    local-gateway-virtual-interface-id, owner-id -- all four, backed via
+    SeedLocalGatewayVirtualInterfaceGroup); DescribeVolumeStatus (availability-zone only --
+    action.*/event.*/volume-status.* documented but this backend runs no real health-check
+    pipeline, VolumeStatus is always the constant 'ok' with no per-event data behind it, left
+    unmodeled); DescribeVolumesModifications (modification-state, original-size,
+    original-volume-type, start-time, target-iops, target-size, target-volume-type,
+    volume-id -- original-iops documented but VolumeModification.OrigIops is never populated
+    by ModifyVolume, originalMultiAttachEnabled/targetMultiAttachEnabled have no backing
+    field at all, both left unmodeled); DescribeMacHosts (availability-zone, instance-type --
+    MacHost itself carries neither field on the wire, cross-referenced against
+    Backend.DescribeHosts by HostID instead of fabricating a match); DescribeFpgaImages
+    (create-time, fpga-image-id, fpga-image-global-id, name, owner-id, shell-version, state,
+    tag:<key>, tag-key -- product-code documented but FpgaImage.ProductCodes is never
+    populated by CreateFpgaImage, left unmodeled); DescribeImportImageTasks (task-state only
+    documented filter -- also discovered this op's Filter list flattens under 'Filters.N' on
+    the wire, not the usual 'Filter.N' (confirmed against the pinned SDK's
+    awsEc2query_serializeOpDocumentDescribeImportImageTasksInput FlatKey call); added
+    parseEC2FilterListKeyed(vals, prefix) so parseEC2Filters(vals) ==
+    parseEC2FilterListKeyed(vals, \"Filter\") and this one op calls the keyed variant
+    directly); DescribeInstanceEventWindows (dedicated-host-id, event-window-name,
+    instance-id, tag:<key>, tag-key, tag-value -- instance-tag/instance-tag-key/
+    instance-tag-value, which filter on an *associated instance's* tags rather than the
+    window's own, left unmodeled as a more involved cross-resource lookup);
+    DescribeInstanceCreditSpecifications (instance-id -- the only documented filter;
+    InstanceId.N already worked, Filter.N did not); DescribeLockedSnapshots (lock-state --
+    the only documented filter). Also added missing sub-filters to three ops a prior pass had
+    already partially fixed: DescribeImages gained owner-id, virtualization-type, tag-key,
+    and the full block-device-mapping.* family (device-name, snapshot-id, volume-type,
+    volume-size, delete-on-termination, encrypted -- all backed via RegisterImage);
+    DescribeSnapshots gained description, owner-id, volume-size, tag-key (all backed via
+    CreateSnapshot); DescribeKeyPairs gained tag-key (key-name/key-pair-id/fingerprint/tag:
+    were already implemented). Found and fixed one real, unrelated bug while testing
+    DescribeImages' new tag-key filter: RegisterImage never parsed TagSpecifications at all
+    (every other Create op in this file does -- CreateFpgaImage, CreateSnapshot, etc.), so a
+    real client's RegisterImage call with tags silently dropped every tag; now parses
+    TagSpecifications and calls Backend.CreateTags, matching the existing CreateImage/
+    CopyImage pattern in handler_image_ops.go/handler_deepdive_ops.go. Corrected one stale
+    claim in the batch-three bullet below: DescribeIamInstanceProfileAssociations was listed
+    as 'state filter only' but both its documented filters (instance-id, state) were already
+    implemented (handler_ec2core.go); removed rather than re-fixed. Confirmed genuinely
+    unreachable (no enumerated Filter.N names on the pinned SDK's doc comment, same treatment
+    as DescribeIpamPools et al.): DescribeTransitGatewayMeteringPolicies ('One or more
+    filters to apply when describing transit gateway metering policies.'), DescribeExportTasks
+    ('the filters for the export tasks.'), DescribeImportSnapshotTasks ('The filters.', no
+    per-name breakdown, unlike its DescribeImportImageTasks sibling). DescribeStaleSecurityGroups
+    and DescribeAddressesAttribute confirmed to have no Filter.N parameter on the wire at all
+    (VpcId + pagination only; AllocationId.N + Attribute only) -- not a gap, nothing to
+    implement. DescribeSecurityGroupRules' documented tag:<key> filter confirmed a real,
+    deliberately-unfixed gap: no write path threads a TagSpecification through
+    AuthorizeSecurityGroupIngress/Egress for the security-group-rule resource type, so a
+    security group rule's tags are never populated to filter against. New code:
+    handler_filters.go gained 12 new applyXxxFilters/xxxMatchesFilter pairs, a shared
+    matchesWildcardTimeFilter(wireTime string, values []string) bool helper (used by the new
+    launch-template/fpga-image create-time filters and refactored into the pre-existing
+    image-usage-report creation-time filter to avoid triplicating the wildcard-match loop),
+    parseEC2FilterListKeyed, a filterKeyOutpostArn constant (goconst: outpost-arn now had
+    three call sites), and imageMatchesBlockDeviceMappingFilter (extracted out of
+    imageMatchesFilter to keep it under cyclop's complexity budget once six new
+    block-device-mapping.* cases were added). New tests, all real aws-sdk-go-v2-client-driven,
+    table-driven, t.Parallel outer+inner, each creating 2+ objects through the real
+    Create/Register/Run/Associate/Lock API and asserting only the matching object(s) come
+    back (LocalGateway/LocalGatewayVirtualInterface(Group) use backend.SeedXxx directly per
+    this family's established no-Create-API convention): realclient_filters_launch_templates_test.go,
+    realclient_filters_local_gateway_family_test.go (4 tests), realclient_filters_volumes_test.go
+    (2 tests), realclient_filters_mac_hosts_test.go, realclient_filters_fpga_images_test.go,
+    realclient_filters_import_image_tasks_test.go, realclient_filters_event_window_test.go,
+    realclient_filters_images_test.go, realclient_filters_snapshots_key_pairs_test.go (2 tests),
+    realclient_filters_instance_credit_locked_snapshots_test.go (2 tests) -- 16 test functions
+    total. (The instance-event-window test file is named realclient_filters_event_window_test.go,
+    not ...instance_event_windows_test.go, because a trailing '_windows_test.go' segment matches
+    Go's GOOS build-constraint filename convention and silently excludes the file on non-Windows
+    builds -- caught only because `go list -f '{{.XTestGoFiles}}'` omitted it.) Gates: gofmt
+    clean; go build ./... and go vet ./services/ec2/... clean; go test -race -count=1
+    ./services/ec2/... pass; golangci-lint run ./services/ec2/... 0 issues (fixed cyclop x1 in
+    imageMatchesFilter, goconst x1 to filterKeyOutpostArn, golines/lll x1 in a new test file --
+    no nolints added); go test ./pkgs/persistence/ pass; parityfmtcheck clean; go.mod/go.sum
+    untouched."
   - "Filter.N ignored on ~84 Describe*/Get* ops (2026-09-24, gopherstack-rwwvt sweep, third
     batch): of the 181 registered EC2 ops the pinned SDK (ec2@v1.329.0) declares as filterable
     (per-op 'Filters []types.Filter', or 'Filter []types.Filter' for the DescribeNatGateways
@@ -597,8 +713,8 @@ items_still_open:
     to the describe request.'), DescribeVerifiedAccessInstances/Endpoints/Groups/TrustProviders'
     own Filter.N ('Filter names and values are case-sensitive.' -- only the scalar params above
     were fixed), and DescribeNetworkInsightsAccessScopes/AccessScopeAnalyses ('There are no
-    supported filters.', verbatim). ~84 remain genuinely unread, prioritised but not reached
-    this pass: the rest of the transit gateway family
+    supported filters.', verbatim). ~72 remain genuinely unread as of the fourth batch above:
+    the rest of the transit gateway family
     (DescribeTransitGatewayMeteringPolicies/PolicyTables/RouteTableAnnouncements -- the latter
     two's SDK/API-reference doc comments give no enumerated filter names at all, a real,
     deliberately-unfixed gap same as DescribeIpamPools et al. below, not merely unreached; and
@@ -606,9 +722,7 @@ items_still_open:
     GetTransitGatewayPolicyTableEntries sub-resource op, same no-enumerated-filters gap);
     DescribeClientVpnConnections audited and CONFIRMED CORRECT (always empty by design -- this
     backend never establishes real client sessions -- not a filter-ignoring bug); the
-    remaining local gateway family (DescribeLocalGateways/LocalGatewayVirtualInterfaceGroups/
-    LocalGatewayVirtualInterfaces -- the three route-table-family ops are now fixed, see
-    above); the bulk of the IPAM Describe*/Get* surface (DescribeIpamPools/Ipams/PoolAllocations/
+    bulk of the IPAM Describe*/Get* surface (DescribeIpamPools/Ipams/PoolAllocations/
     ExternalResourceVerificationTokens/PrefixListResolvers(Targets)/ResourceDiscoveryAssociations/
     Policies and every GetIpamDiscovered*/GetIpamPolicy*/GetIpamPrefixListResolver*/
     GetIpamPoolCidrs/GetIpamResourceCidrs/GetIpamRouteProtectionFindings/
@@ -617,20 +731,17 @@ items_still_open:
     confirmed to give no enumerated Filter.N names either, 'One or more filters for the
     request.'/'The resource discovery association filters.' with no per-name breakdown -- same
     deliberate-gap treatment, not merely unreached); plus a long tail of lower-priority families
-    (DescribeCapacityBlock*, DescribeInstance*/Fleet* sub-ops, DescribeMacHosts/
-    MacModificationTasks, DescribeStoreImageTasks, DescribeReplaceRootVolumeTasks,
+    (DescribeCapacityBlock*, DescribeInstance*/Fleet* sub-ops, MacModificationTasks,
+    DescribeStoreImageTasks, DescribeReplaceRootVolumeTasks,
     DescribeReservedInstancesListings/ReservedInstancesModifications,
-    DescribeScheduledInstances, DescribeSecurityGroupVpcAssociations, DescribeVolumesModifications/
-    VolumeStatus, DescribeVpcBlockPublicAccessExclusions/VpcClassicLink/VpcEncryptionControls,
+    DescribeScheduledInstances, DescribeSecurityGroupVpcAssociations,
+    DescribeVpcBlockPublicAccessExclusions/VpcClassicLink/VpcEncryptionControls,
     DescribeTrafficMirrorFilterRules, DescribeTrunkInterfaceAssociations,
-    DescribeOutpostLags,
-    DescribeIamInstanceProfileAssociations (state filter only -- instance-id/association-id
-    already work per an earlier pass), DescribeCoipPools, DescribeElasticGpus, DescribeExportTasks/
-    ExportImageTasks/ImportImageTasks/ImportSnapshotTasks/FastLaunchImages/FastSnapshotRestores,
-    DescribeStoreImageTasks, DescribeInstanceConnectEndpoints/CreditSpecifications/EventWindows/
-    ImageMetadata/Topology, DescribeSecondaryInterfaces (tag-key only -- everything else already
-    fixed), DescribeLockedSnapshots, DescribeFpgaImages (partially -- see the confirmed-correct
-    note above; some documented filters remain unread), and DescribeAwsNetworkPerformanceMetricSubscriptions/
+    DescribeOutpostLags, DescribeElasticGpus,
+    DescribeExportImageTasks/FastLaunchImages/FastSnapshotRestores,
+    DescribeStoreImageTasks, DescribeInstanceConnectEndpoints/ImageMetadata/Topology,
+    DescribeSecondaryInterfaces (tag-key only -- everything else already
+    fixed), and DescribeAwsNetworkPerformanceMetricSubscriptions/
     DescribeCapacityManagerDataExports/DescribeImageUsageReports (report-id/image-id already
     fixed by an earlier pass; remaining Filters unread). Each of these needs the same treatment as
     this pass's fixes: read the op's SDK doc comment for its documented filter names, cross-check

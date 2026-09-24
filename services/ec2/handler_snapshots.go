@@ -343,6 +343,7 @@ func (h *Handler) handleUnlockSnapshot(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeLockedSnapshots(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SnapshotId")
 	locks := h.Backend.DescribeLockedSnapshots(ids)
+	locks = applySnapshotLockFilters(locks, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

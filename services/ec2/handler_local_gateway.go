@@ -378,6 +378,7 @@ func lgwVifGroupAssocToItem(
 func (h *Handler) handleDescribeLocalGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "LocalGatewayId")
 	lgws := h.Backend.DescribeLocalGateways(ids)
+	lgws = applyLocalGatewayFilters(lgws, parseEC2Filters(vals))
 
 	resp := &describeLocalGatewaysResponse{RequestID: reqID}
 	for _, lg := range lgws {
@@ -393,6 +394,7 @@ func (h *Handler) handleDescribeLocalGatewayVirtualInterfaces(
 ) (any, error) {
 	ids := parseMemberList(vals, "LocalGatewayVirtualInterfaceId")
 	vifs := h.Backend.DescribeLocalGatewayVirtualInterfaces(ids)
+	vifs = applyLocalGatewayVirtualInterfaceFilters(vifs, parseEC2Filters(vals))
 
 	resp := &describeLocalGatewayVirtualInterfacesResponse{RequestID: reqID}
 	for _, vif := range vifs {
@@ -411,6 +413,7 @@ func (h *Handler) handleDescribeLocalGatewayVirtualInterfaceGroups(
 ) (any, error) {
 	ids := parseMemberList(vals, "LocalGatewayVirtualInterfaceGroupId")
 	groups := h.Backend.DescribeLocalGatewayVirtualInterfaceGroups(ids)
+	groups = applyLocalGatewayVirtualInterfaceGroupFilters(groups, parseEC2Filters(vals))
 
 	resp := &describeLocalGatewayVirtualInterfaceGroupsResponse{RequestID: reqID}
 	for _, group := range groups {

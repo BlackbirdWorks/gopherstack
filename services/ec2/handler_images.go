@@ -430,6 +430,12 @@ func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error
 		img.ImageID, hasEnaSupport, vals.Get("EnaSupport") == ec2BooleanTrue, vals.Get("SriovNetSupport"),
 	)
 
+	if tags := parseTagSpecification(vals, "image"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{img.ImageID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &registerImageResponse{
 		RequestID: reqID,
 		ImageID:   img.ImageID,
@@ -493,6 +499,10 @@ func (h *Handler) handleImportImage(vals url.Values, reqID string) (any, error) 
 func (h *Handler) handleDescribeImportImageTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ImportTaskId")
 	tasks := h.Backend.DescribeImportImageTasks(ids)
+	// DescribeImportImageTasksInput flattens its filter list under "Filters",
+	// not "Filter" (api_op_DescribeImportImageTasks.go serializer FlatKey) --
+	// parseEC2Filters would silently read nothing.
+	tasks = applyImportImageTaskFilters(tasks, parseEC2FilterListKeyed(vals, "Filters"))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

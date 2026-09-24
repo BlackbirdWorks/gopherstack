@@ -98,6 +98,7 @@ func (h *Handler) handleModifyVolume(vals url.Values, reqID string) (any, error)
 func (h *Handler) handleDescribeVolumeStatus(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VolumeId")
 	items := h.Backend.DescribeVolumeStatus(ids)
+	items = applyVolumeStatusFilters(items, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -126,6 +127,7 @@ func (h *Handler) handleDescribeVolumeStatus(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribeVolumesModifications(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VolumeId")
 	mods := h.Backend.DescribeVolumesModifications(ids)
+	mods = applyVolumeModificationFilters(mods, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinDefault, ec2PageMaxVolumesModifications, ec2PageMaxVolumesModifications,

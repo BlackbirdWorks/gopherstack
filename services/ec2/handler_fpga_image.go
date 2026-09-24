@@ -246,6 +246,7 @@ func (h *Handler) handleDeleteFpgaImage(vals url.Values, reqID string) (any, err
 func (h *Handler) handleDescribeFpgaImages(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "FpgaImageId")
 	images := h.Backend.DescribeFpgaImages(ids)
+	images = applyFpgaImageFilters(images, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeFpgaImagesResponse{RequestID: reqID}
 	for _, img := range images {

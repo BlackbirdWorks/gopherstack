@@ -51,6 +51,7 @@ const (
 	filterKeyLGWRouteTableID  = "local-gateway-route-table-id"
 	filterKeyVpcEndpointID    = "vpc-endpoint-id"
 	filterKeyProductDesc      = "product-description"
+	filterKeyOutpostArn       = "outpost-arn"
 )
 
 // applyFilterList runs the standard AND-across-names/OR-within-values filter
@@ -398,12 +399,12 @@ func keyPairMatchesFilter(kp *KeyPair, filterName string, values []string, b Bac
 	case "fingerprint":
 		return anyEqual(kp.Fingerprint, values)
 	default:
-		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
-			// Tags are stored under the key pair's Name (its only real,
-			// stable identifier in this backend — see resourceExistsCoreLocked);
-			// this previously looked up "keypair-"+Name, a key nothing ever
-			// wrote to, so the filter silently never matched.
-			return tagMatch(kp.Name, tagKey, values, b)
+		// Tags are stored under the key pair's Name (its only real,
+		// stable identifier in this backend — see resourceExistsCoreLocked);
+		// this previously looked up "keypair-"+Name, a key nothing ever
+		// wrote to, so the filter silently never matched.
+		if handled, ok := matchesTagFilter(kp.Name, filterName, values, b); ok {
+			return handled
 		}
 	}
 
@@ -444,9 +445,15 @@ func snapshotMatchesFilter(s *Snapshot, filterName string, values []string, b Ba
 		want := anyEqual("true", values)
 
 		return s.Encrypted == want
+	case filterKeyDescription:
+		return anyEqual(s.Description, values)
+	case filterKeyOwnerID:
+		return anyEqual(s.OwnerID, values)
+	case "volume-size":
+		return anyEqual(strconv.Itoa(s.VolumeSize), values)
 	default:
-		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
-			return tagMatch(s.SnapshotID, tagKey, values, b)
+		if handled, ok := matchesTagFilter(s.SnapshotID, filterName, values, b); ok {
+			return handled
 		}
 	}
 
@@ -768,13 +775,62 @@ func imageMatchesFilter(a *AMIStub, filterName string, values []string, b Backen
 		return anyEqual(a.RootDeviceName, values)
 	case filterKeyDescription:
 		return anyEqual(a.Description, values)
+	case filterKeyOwnerID:
+		return anyEqual(a.OwnerID, values)
+	case "virtualization-type":
+		return anyEqual(a.VirtualizationType, values)
 	default:
-		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
-			return tagMatch(a.ImageID, tagKey, values, b)
+		if handled, ok := imageMatchesBlockDeviceMappingFilter(a, filterName, values); ok {
+			return handled
+		}
+
+		if handled, ok := matchesTagFilter(a.ImageID, filterName, values, b); ok {
+			return handled
 		}
 	}
 
 	return true
+}
+
+// imageMatchesBlockDeviceMappingFilter handles the documented
+// block-device-mapping.* filter family (device-name, snapshot-id,
+// volume-type, volume-size, delete-on-termination, encrypted). handled is
+// false when filterName isn't one of these six.
+func imageMatchesBlockDeviceMappingFilter(a *AMIStub, filterName string, values []string) (bool, bool) {
+	var field func(ImageBlockDeviceMapping) string
+
+	switch filterName {
+	case "block-device-mapping.device-name":
+		field = func(m ImageBlockDeviceMapping) string { return m.DeviceName }
+	case "block-device-mapping.snapshot-id":
+		field = func(m ImageBlockDeviceMapping) string { return m.SnapshotID }
+	case "block-device-mapping.volume-type":
+		field = func(m ImageBlockDeviceMapping) string { return m.VolumeType }
+	case "block-device-mapping.volume-size":
+		field = func(m ImageBlockDeviceMapping) string { return strconv.Itoa(int(m.VolumeSize)) }
+	case "block-device-mapping.delete-on-termination":
+		field = func(m ImageBlockDeviceMapping) string { return strconv.FormatBool(m.DeleteOnTermination) }
+	case "block-device-mapping.encrypted":
+		field = func(m ImageBlockDeviceMapping) string { return strconv.FormatBool(m.Encrypted) }
+	default:
+		return false, false
+	}
+
+	return imageHasBlockDeviceMapping(a, values, field), true
+}
+
+// imageHasBlockDeviceMapping reports whether any of a's block device
+// mappings has field(mapping) equal to one of values, matching AWS's
+// documented block-device-mapping.* filter behaviour (matches if any mapping
+// in the list matches).
+func imageHasBlockDeviceMapping(a *AMIStub, values []string, field func(ImageBlockDeviceMapping) string) bool {
+	for _, m := range a.BlockDeviceMappings {
+		if anyEqual(field(m), values) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ---- SpotInstanceRequest filters ----
@@ -987,17 +1043,28 @@ func (h *Handler) resolveSecurityGroupNames(names []string, subnetID string) ([]
 // parseEC2Filters parses Filter.N.Name / Filter.N.Value.M from EC2 form values.
 // Returns a map of filter name → list of accepted values (OR semantics per AWS).
 func parseEC2Filters(vals url.Values) map[string][]string {
+	return parseEC2FilterListKeyed(vals, "Filter")
+}
+
+// parseEC2FilterListKeyed parses "<prefix>.N.Name"/"<prefix>.N.Value.M" from
+// EC2 form values. Almost every Describe*/Get* op flattens its filter list
+// member under "Filter" regardless of the Go SDK field's "Filters" name, but
+// a handful (e.g. DescribeImportImageTasks) flatten it under "Filters"
+// instead (confirmed against the pinned SDK's awsEc2query_serializeOpDocument*
+// FlatKey call) -- parseEC2Filters covers the common case; callers for the
+// rare "Filters" ops call this directly.
+func parseEC2FilterListKeyed(vals url.Values, prefix string) map[string][]string {
 	filters := make(map[string][]string)
 
 	for i := 1; ; i++ {
-		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
+		name := vals.Get(fmt.Sprintf("%s.%d.Name", prefix, i))
 		if name == "" {
 			break
 		}
 
 		var values []string
 		for j := 1; ; j++ {
-			v := vals.Get(fmt.Sprintf("Filter.%d.Value.%d", i, j))
+			v := vals.Get(fmt.Sprintf("%s.%d.Value.%d", prefix, i, j))
 			if v == "" {
 				break
 			}
@@ -2076,7 +2143,7 @@ func serviceLinkVirtualInterfaceMatchesFilter(
 		return anyEqual(v.OwnerID, values)
 	case "outpost-lag-id":
 		return anyEqual(v.OutpostLagID, values)
-	case "outpost-arn":
+	case filterKeyOutpostArn:
 		return anyEqual(v.OutpostArn, values)
 	case filterKeyState:
 		return anyEqual(v.ConfigurationState, values)
@@ -2161,6 +2228,27 @@ entryLoop:
 	return out
 }
 
+// matchesWildcardTimeFilter matches a wire-formatted timestamp against filter
+// values that may use the documented "*" day/prefix wildcard suffix (e.g.
+// "2025-11-29*"), falling back to an exact match otherwise.
+func matchesWildcardTimeFilter(wireTime string, values []string) bool {
+	for _, v := range values {
+		if prefix, ok := strings.CutSuffix(v, "*"); ok {
+			if strings.HasPrefix(wireTime, prefix) {
+				return true
+			}
+
+			continue
+		}
+
+		if wireTime == v {
+			return true
+		}
+	}
+
+	return false
+}
+
 func usageReportEntryMatchesFilter(e *UsageReportEntry, filterName string, values []string) bool {
 	switch filterName {
 	case "account-id":
@@ -2172,22 +2260,7 @@ func usageReportEntryMatchesFilter(e *UsageReportEntry, filterName string, value
 		// (handler_image_ops.go) exactly, or an exact-match filter built
 		// from the timestamp this API just returned never matches its own
 		// record.
-		creationTime := e.ReportCreationTime.UTC().Format(time.RFC3339)
-		for _, v := range values {
-			if prefix, ok := strings.CutSuffix(v, "*"); ok {
-				if strings.HasPrefix(creationTime, prefix) {
-					return true
-				}
-
-				continue
-			}
-
-			if creationTime == v {
-				return true
-			}
-		}
-
-		return false
+		return matchesWildcardTimeFilter(e.ReportCreationTime.UTC().Format(time.RFC3339), values)
 	}
 
 	return true
@@ -3552,7 +3625,7 @@ func localGatewayRouteTableMatchesFilter(rt *LocalGatewayRouteTable, filterName 
 		return anyEqual(rt.LocalGatewayRouteTableArn, values)
 	case filterKeyLGWRouteTableID:
 		return anyEqual(rt.LocalGatewayRouteTableID, values)
-	case "outpost-arn":
+	case filterKeyOutpostArn:
 		return anyEqual(rt.OutpostArn, values)
 	case filterKeyOwnerID:
 		return anyEqual(rt.OwnerID, values)
@@ -3682,4 +3755,353 @@ func networkInsightsAnalysisMatchesFilter(a *NetworkInsightsAnalysis, filterName
 	}
 
 	return true
+}
+
+// applyLaunchTemplateFilters supports the DescribeLaunchTemplates filters
+// this backend has data for: create-time, launch-template-name, tag:<key>,
+// tag-key (api_op_DescribeLaunchTemplates.go doc comment lists exactly these
+// four).
+func applyLaunchTemplateFilters(
+	templates []*LaunchTemplate, filters map[string][]string, b Backend,
+) []*LaunchTemplate {
+	return applyFilterList(templates, filters, func(t *LaunchTemplate, name string, values []string) bool {
+		return launchTemplateMatchesFilter(t, name, values, b)
+	})
+}
+
+func launchTemplateMatchesFilter(t *LaunchTemplate, filterName string, values []string, b Backend) bool {
+	if handled, ok := matchesTagFilter(t.ID, filterName, values, b); ok {
+		return handled
+	}
+
+	switch filterName {
+	case "launch-template-name":
+		return anyEqual(t.Name, values)
+	case "create-time":
+		// Must match the wire format handleDescribeLaunchTemplates renders
+		// (time.RFC3339), or an exact-match filter built from this API's own
+		// output would never match its own record.
+		return matchesWildcardTimeFilter(t.CreateTime.Format(time.RFC3339), values)
+	}
+
+	return true
+}
+
+// applyCoipPoolFilters supports the DescribeCoipPools filters this backend
+// has data for: coip-pool.local-gateway-route-table-id, coip-pool.pool-id
+// (api_op_DescribeCoipPools.go doc comment).
+func applyCoipPoolFilters(pools []*CoipPool, filters map[string][]string) []*CoipPool {
+	return applyFilterList(pools, filters, coipPoolMatchesFilter)
+}
+
+func coipPoolMatchesFilter(p *CoipPool, filterName string, values []string) bool {
+	switch filterName {
+	case "coip-pool.local-gateway-route-table-id":
+		return anyEqual(p.LocalGatewayRouteTableID, values)
+	case "coip-pool.pool-id":
+		return anyEqual(p.PoolID, values)
+	}
+
+	return true
+}
+
+// applyLocalGatewayFilters supports the DescribeLocalGateways filters this
+// backend has data for: local-gateway-id, outpost-arn, owner-id, state
+// (api_op_DescribeLocalGateways.go doc comment lists exactly these four).
+func applyLocalGatewayFilters(lgws []*LocalGateway, filters map[string][]string) []*LocalGateway {
+	return applyFilterList(lgws, filters, localGatewayMatchesFilter)
+}
+
+func localGatewayMatchesFilter(lg *LocalGateway, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyLocalGatewayID:
+		return anyEqual(lg.LocalGatewayID, values)
+	case filterKeyOutpostArn:
+		return anyEqual(lg.OutpostArn, values)
+	case filterKeyOwnerID:
+		return anyEqual(lg.OwnerID, values)
+	case filterKeyState:
+		return anyEqual(lg.State, values)
+	}
+
+	return true
+}
+
+// applyLocalGatewayVirtualInterfaceFilters supports the
+// DescribeLocalGatewayVirtualInterfaces filters this backend has data for:
+// local-address, local-bgp-asn, local-gateway-id,
+// local-gateway-virtual-interface-id, owner-id, peer-address, peer-bgp-asn,
+// vlan (api_op_DescribeLocalGatewayVirtualInterfaces.go doc comment lists
+// exactly these eight).
+func applyLocalGatewayVirtualInterfaceFilters(
+	vifs []*LocalGatewayVirtualInterface, filters map[string][]string,
+) []*LocalGatewayVirtualInterface {
+	return applyFilterList(vifs, filters, localGatewayVirtualInterfaceMatchesFilter)
+}
+
+func localGatewayVirtualInterfaceMatchesFilter(
+	vif *LocalGatewayVirtualInterface, filterName string, values []string,
+) bool {
+	switch filterName {
+	case "local-address":
+		return anyEqual(vif.LocalAddress, values)
+	case "local-bgp-asn":
+		return anyEqual(strconv.Itoa(int(vif.LocalBgpAsn)), values)
+	case filterKeyLocalGatewayID:
+		return anyEqual(vif.LocalGatewayID, values)
+	case "local-gateway-virtual-interface-id":
+		return anyEqual(vif.LocalGatewayVirtualInterfaceID, values)
+	case filterKeyOwnerID:
+		return anyEqual(vif.OwnerID, values)
+	case "peer-address":
+		return anyEqual(vif.PeerAddress, values)
+	case "peer-bgp-asn":
+		return anyEqual(strconv.Itoa(int(vif.PeerBgpAsn)), values)
+	case "vlan":
+		return anyEqual(strconv.Itoa(int(vif.Vlan)), values)
+	}
+
+	return true
+}
+
+// applyLocalGatewayVirtualInterfaceGroupFilters supports the
+// DescribeLocalGatewayVirtualInterfaceGroups filters this backend has data
+// for: local-gateway-id, local-gateway-virtual-interface-group-id,
+// local-gateway-virtual-interface-id, owner-id
+// (api_op_DescribeLocalGatewayVirtualInterfaceGroups.go doc comment lists
+// exactly these four).
+func applyLocalGatewayVirtualInterfaceGroupFilters(
+	groups []*LocalGatewayVirtualInterfaceGroup, filters map[string][]string,
+) []*LocalGatewayVirtualInterfaceGroup {
+	return applyFilterList(groups, filters, localGatewayVirtualInterfaceGroupMatchesFilter)
+}
+
+func localGatewayVirtualInterfaceGroupMatchesFilter(
+	g *LocalGatewayVirtualInterfaceGroup, filterName string, values []string,
+) bool {
+	switch filterName {
+	case filterKeyLocalGatewayID:
+		return anyEqual(g.LocalGatewayID, values)
+	case "local-gateway-virtual-interface-group-id":
+		return anyEqual(g.LocalGatewayVirtualInterfaceGroupID, values)
+	case "local-gateway-virtual-interface-id":
+		return anyContains(g.LocalGatewayVirtualInterfaceIDs, values)
+	case filterKeyOwnerID:
+		return anyEqual(g.OwnerID, values)
+	}
+
+	return true
+}
+
+// applyVolumeStatusFilters supports the DescribeVolumeStatus filter this
+// backend has data for: availability-zone (api_op_DescribeVolumeStatus.go
+// doc comment also documents action.*/event.*/volume-status.* filters, but
+// this backend performs no real health-check pipeline -- VolumeStatus is
+// always the constant "ok" with no per-event data behind it, so those stay
+// unmodeled rather than filtering fields nothing ever varies).
+func applyVolumeStatusFilters(items []VolumeStatusItem, filters map[string][]string) []VolumeStatusItem {
+	return applyFilterList(items, filters, func(item VolumeStatusItem, name string, values []string) bool {
+		if name == filterKeyAvailabilityZone {
+			return anyEqual(item.AvailabilityZone, values)
+		}
+
+		return true
+	})
+}
+
+// applyVolumeModificationFilters supports the DescribeVolumesModifications
+// filters this backend has data for: modification-state, original-size,
+// original-volume-type, start-time, target-iops, target-size,
+// target-volume-type, volume-id (api_op_DescribeVolumesModifications.go doc
+// comment). original-iops is documented but VolumeModification.OrigIops is
+// never populated by ModifyVolume; originalMultiAttachEnabled/
+// targetMultiAttachEnabled have no backing field at all -- both left
+// unmodeled rather than fabricating data.
+func applyVolumeModificationFilters(mods []*VolumeModification, filters map[string][]string) []*VolumeModification {
+	return applyFilterList(mods, filters, volumeModificationMatchesFilter)
+}
+
+func volumeModificationMatchesFilter(mod *VolumeModification, filterName string, values []string) bool {
+	switch filterName {
+	case "modification-state":
+		return anyEqual(mod.ModificationState, values)
+	case "original-size":
+		return anyEqual(strconv.Itoa(mod.OrigSize), values)
+	case "original-volume-type":
+		return anyEqual(mod.OrigVolumeType, values)
+	case "start-time":
+		// Must match the wire format handleDescribeVolumesModifications
+		// renders, or an exact-match filter built from this API's own output
+		// would never match its own record.
+		return anyEqual(mod.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"), values)
+	case "target-iops":
+		return anyEqual(strconv.Itoa(mod.TargetIops), values)
+	case "target-size":
+		return anyEqual(strconv.Itoa(mod.TargetSize), values)
+	case "target-volume-type":
+		return anyEqual(mod.TargetVolumeType, values)
+	case filterKeyVolumeID:
+		return anyEqual(mod.VolumeID, values)
+	}
+
+	return true
+}
+
+// applyMacHostFilters supports the DescribeMacHosts filters this backend has
+// data for: availability-zone, instance-type
+// (api_op_DescribeMacHosts.go doc comment). MacHost itself (mac_hosts.go)
+// carries neither field -- it's derived on read from the underlying
+// Dedicated Host, so this cross-references Backend.DescribeHosts by HostID
+// to reach AvailabilityZone/InstanceType instead of fabricating a match.
+func applyMacHostFilters(hosts []*MacHost, filters map[string][]string, b Backend) []*MacHost {
+	if len(filters) == 0 {
+		return hosts
+	}
+
+	byID := make(map[string]*Host, len(hosts))
+	for _, dh := range b.DescribeHosts(nil) {
+		byID[dh.HostID] = dh
+	}
+
+	return applyFilterList(hosts, filters, func(mh *MacHost, name string, values []string) bool {
+		dh := byID[mh.HostID]
+		if dh == nil {
+			return true
+		}
+
+		switch name {
+		case filterKeyAvailabilityZone:
+			return anyEqual(dh.AvailabilityZone, values)
+		case filterKeyInstanceType:
+			return anyEqual(dh.InstanceType, values)
+		}
+
+		return true
+	})
+}
+
+// applyFpgaImageFilters supports the DescribeFpgaImages filters this backend
+// has data for: create-time, fpga-image-id, fpga-image-global-id, name,
+// owner-id, shell-version, state, tag:<key>, tag-key
+// (api_op_DescribeFpgaImages.go doc comment). product-code is documented but
+// FpgaImage.ProductCodes is never populated by CreateFpgaImage, so it stays
+// unmodeled rather than filtering a field nothing ever sets.
+func applyFpgaImageFilters(images []*FpgaImage, filters map[string][]string, b Backend) []*FpgaImage {
+	return applyFilterList(images, filters, func(img *FpgaImage, name string, values []string) bool {
+		return fpgaImageMatchesFilter(img, name, values, b)
+	})
+}
+
+func fpgaImageMatchesFilter(img *FpgaImage, filterName string, values []string, b Backend) bool {
+	if handled, ok := matchesTagFilter(img.FpgaImageID, filterName, values, b); ok {
+		return handled
+	}
+
+	switch filterName {
+	case "fpga-image-id":
+		return anyEqual(img.FpgaImageID, values)
+	case "fpga-image-global-id":
+		return anyEqual(img.FpgaImageGlobalID, values)
+	case "name":
+		return anyEqual(img.Name, values)
+	case filterKeyOwnerID:
+		return anyEqual(img.OwnerID, values)
+	case "shell-version":
+		return anyEqual(img.ShellVersion, values)
+	case filterKeyState:
+		return anyEqual(img.State, values)
+	case "create-time":
+		// Must match toFpgaImageItemXML's wire format (time.RFC3339), or an
+		// exact-match filter built from this API's own output would never
+		// match its own record.
+		return matchesWildcardTimeFilter(img.CreateTime.Format(time.RFC3339), values)
+	}
+
+	return true
+}
+
+// applyImportImageTaskFilters supports the DescribeImportImageTasks filter
+// documented on the wire: task-state, matched against one of active |
+// completed | deleting | deleted (api_op_DescribeImportImageTasks.go doc
+// comment). ImportImage always leaves a task's Status at the constant
+// "completed" (this backend runs imports synchronously), so this only ever
+// keeps or drops entire result sets rather than distinguishing individual
+// tasks -- still real filtering behavior on a real, populated field, not
+// fabricated.
+func applyImportImageTaskFilters(tasks []*ImageImportTask, filters map[string][]string) []*ImageImportTask {
+	return applyFilterList(tasks, filters, func(t *ImageImportTask, name string, values []string) bool {
+		if name == "task-state" {
+			return anyEqual(t.Status, values)
+		}
+
+		return true
+	})
+}
+
+// applyInstanceEventWindowFilters supports the DescribeInstanceEventWindows
+// filters this backend has data for: dedicated-host-id, event-window-name,
+// instance-id, tag:<key>, tag-key, tag-value
+// (api_op_DescribeInstanceEventWindows.go doc comment). instance-tag/
+// instance-tag-key/instance-tag-value (matched against the tags of an
+// *associated instance*, not the event window itself) are documented but
+// left unmodeled -- a real but more involved cross-resource lookup, out of
+// scope for this pass.
+func applyInstanceEventWindowFilters(
+	ews []*InstanceEventWindow, filters map[string][]string, b Backend,
+) []*InstanceEventWindow {
+	return applyFilterList(ews, filters, func(ew *InstanceEventWindow, name string, values []string) bool {
+		return instanceEventWindowMatchesFilter(ew, name, values, b)
+	})
+}
+
+func instanceEventWindowMatchesFilter(ew *InstanceEventWindow, filterName string, values []string, b Backend) bool {
+	if handled, ok := matchesTagFilter(ew.InstanceEventWindowID, filterName, values, b); ok {
+		return handled
+	}
+
+	switch filterName {
+	case "dedicated-host-id":
+		return anyContains(ew.DedicatedHostIDs, values)
+	case "event-window-name":
+		return anyEqual(ew.Name, values)
+	case filterKeyInstanceID:
+		return anyContains(ew.InstanceIDs, values)
+	case "tag-value":
+		for _, v := range b.TagsForResource(ew.InstanceEventWindowID) {
+			if anyEqual(v, values) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return true
+}
+
+// applyInstanceCreditSpecFilters supports the
+// DescribeInstanceCreditSpecifications filter documented on the wire:
+// instance-id (api_op_DescribeInstanceCreditSpecifications.go doc comment
+// lists only this one).
+func applyInstanceCreditSpecFilters(specs []InstanceCreditSpec, filters map[string][]string) []InstanceCreditSpec {
+	return applyFilterList(specs, filters, func(s InstanceCreditSpec, name string, values []string) bool {
+		if name == filterKeyInstanceID {
+			return anyEqual(s.InstanceID, values)
+		}
+
+		return true
+	})
+}
+
+// applySnapshotLockFilters supports the DescribeLockedSnapshots filter
+// documented on the wire: lock-state (api_op_DescribeLockedSnapshots.go doc
+// comment lists only this one).
+func applySnapshotLockFilters(locks []*SnapshotLock, filters map[string][]string) []*SnapshotLock {
+	return applyFilterList(locks, filters, func(l *SnapshotLock, name string, values []string) bool {
+		if name == "lock-state" {
+			return anyEqual(l.LockState, values)
+		}
+
+		return true
+	})
 }

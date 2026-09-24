@@ -312,6 +312,7 @@ func (h *Handler) handleDeleteCoipPool(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeCoipPools(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "PoolId")
 	pools := h.Backend.DescribeCoipPools(ids)
+	pools = applyCoipPoolFilters(pools, parseEC2Filters(vals))
 
 	resp := &describeCoipPoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range pools {

@@ -198,6 +198,7 @@ func (h *Handler) handleDescribeInstanceCreditSpecifications(
 ) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
 	specs := h.Backend.DescribeInstanceCreditSpecifications(ids)
+	specs = applyInstanceCreditSpecFilters(specs, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -656,6 +657,7 @@ func (h *Handler) handleDeleteInstanceEventWindow(vals url.Values, reqID string)
 func (h *Handler) handleDescribeInstanceEventWindows(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceEventWindowId")
 	ews := h.Backend.DescribeInstanceEventWindows(ids)
+	ews = applyInstanceEventWindowFilters(ews, parseEC2Filters(vals), h.Backend)
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinEventWindows, ec2PageMaxEventWindows, ec2PageMaxEventWindows,

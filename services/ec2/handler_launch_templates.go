@@ -180,6 +180,8 @@ func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (
 		}
 	}
 
+	templates = applyLaunchTemplateFilters(templates, parseEC2Filters(vals), h.Backend)
+
 	items := make([]launchTemplateItem, 0, len(templates))
 	for _, template := range templates {
 		items = append(items, launchTemplateItem{
