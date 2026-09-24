@@ -579,6 +579,10 @@ linters:
       # deprecated typed client.
       - path: 'test/terraform/mega_batch9_test.go'
         linters: [ staticcheck ]
+      # Same reasoning: the terraform fixture asserts OpsWorks state (every
+      # "canned" layer type) through the deprecated typed client.
+      - path: 'test/terraform/mega_batch48_test.go'
+        linters: [ staticcheck ]
       # Same reasoning as opsworks/sdk_roundtrip_test.go above -- typed
       # coverage (gopherstack-n3zi).
       - path: 'opsworks/sdk_roundtrip_resource_coverage_test.go'
