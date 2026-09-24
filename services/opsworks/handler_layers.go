@@ -9,18 +9,21 @@ import (
 // handleCreateLayer handles CreateLayer requests.
 func (h *Handler) handleCreateLayer(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
-		StackID              string `json:"StackId"`
-		Type                 string `json:"Type"`
-		Name                 string `json:"Name"`
-		Shortname            string `json:"Shortname"`
+		InstallUpdatesOnBoot *bool             `json:"InstallUpdatesOnBoot"`
+		Attributes           map[string]string `json:"Attributes"`
+		StackID              string            `json:"StackId"`
+		Type                 string            `json:"Type"`
+		Name                 string            `json:"Name"`
+		Shortname            string            `json:"Shortname"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	layer, err := h.Backend.CreateLayer(req.StackID, req.Type, req.Name, req.Shortname, req.InstallUpdatesOnBoot)
+	layer, err := h.Backend.CreateLayer(
+		req.StackID, req.Type, req.Name, req.Shortname, req.InstallUpdatesOnBoot, req.Attributes,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +91,11 @@ func (h *Handler) handleDeleteLayer(_ context.Context, body []byte) (any, error)
 func layersToJSON(layers []*Layer) []map[string]any {
 	result := make([]map[string]any, 0, len(layers))
 	for _, l := range layers {
+		attrs := l.Attributes
+		if attrs == nil {
+			attrs = map[string]string{}
+		}
+
 		result = append(result, map[string]any{
 			keyLayerID:             l.LayerID,
 			keyStackID:             l.StackID,
@@ -97,6 +105,7 @@ func layersToJSON(layers []*Layer) []map[string]any {
 			"Shortname":            l.Shortname,
 			keyCreatedAt:           formatOpsWorksTime(l.CreatedAt),
 			"InstallUpdatesOnBoot": l.InstallUpdatesOnBoot,
+			"Attributes":           attrs,
 		})
 	}
 

@@ -247,6 +247,13 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 			"SubnetId":             i.SubnetID,
 			"Tenancy":              i.Tenancy,
 			"InstallUpdatesOnBoot": i.InstallUpdatesOnBoot,
+			// Always present (never omitted): a real client's resourceInstanceRead
+			// dereferences output.ReportedOs.Family directly with no nil check, so an
+			// absent ReportedOs key (this backend has no agent reporting an OS) panics
+			// terraform-provider-aws's opsworks instance read. Real AWS's ReportedOs
+			// member fields (Family/Name/Version) are themselves optional strings, so
+			// an empty object is a faithful "nothing reported yet" shape.
+			"ReportedOs": map[string]any{},
 		})
 	}
 

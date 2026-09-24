@@ -1,6 +1,7 @@
 package opsworks
 
 import (
+	"maps"
 	"slices"
 	"time"
 
@@ -27,7 +28,7 @@ func isValidLayerType(layerType string) bool {
 // api_op_CreateLayer.go), and Type is restricted to the LayerType enum, not
 // a free string.
 func (b *InMemoryBackend) CreateLayer(
-	stackID, layerType, name, shortname string, installUpdatesOnBoot *bool,
+	stackID, layerType, name, shortname string, installUpdatesOnBoot *bool, attributes map[string]string,
 ) (*Layer, error) {
 	if name == "" || shortname == "" || stackID == "" || !isValidLayerType(layerType) {
 		return nil, ErrValidation
@@ -43,9 +44,16 @@ func (b *InMemoryBackend) CreateLayer(
 	id := uuid.NewString()
 	now := time.Now().UTC()
 
+	var storedAttrs map[string]string
+	if len(attributes) > 0 {
+		storedAttrs = make(map[string]string, len(attributes))
+		maps.Copy(storedAttrs, attributes)
+	}
+
 	l := &storedLayer{
 		CreatedAt:            now,
 		InstallUpdatesOnBoot: installUpdatesOnBoot,
+		Attributes:           storedAttrs,
 		StackID:              stackID,
 		LayerID:              id,
 		Arn:                  b.layerARN(id),

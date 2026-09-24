@@ -20444,6 +20444,7 @@
       "storedInstance.SubnetID string `json:\"subnetId,omitempty\"`",
       "storedInstance.Tenancy string `json:\"tenancy,omitempty\"`",
       "storedLayer.Arn string `json:\"arn\"`",
+      "storedLayer.Attributes map[string]string `json:\"attributes,omitempty\"`",
       "storedLayer.CreatedAt time.Time `json:\"createdAt\"`",
       "storedLayer.InstallUpdatesOnBoot *bool `json:\"installUpdatesOnBoot,omitempty\"`",
       "storedLayer.LayerID string `json:\"layerId\"`",
