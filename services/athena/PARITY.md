@@ -1,8 +1,8 @@
 ---
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: da8db2cd3
-last_audit_date: 2026-09-19  # prior: 2026-09-18
+last_audit_commit: 0c1472972  # 2026-09-23 mega-batch-39 terraform coverage; prior: d522d763f
+last_audit_date: 2026-09-23  # prior: 2026-09-19
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
                        # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
                        # dropped Configuration.EngineConfiguration/MonitoringConfiguration entirely (no
@@ -57,6 +57,10 @@ leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Don
 ---
 
 ## Notes
+
+### 2026-09-23 mega-batch-39 terraform coverage
+
+`aws_athena_database`'s real create flow (StartQueryExecution "create database" DDL, then GetDatabase) failed: execCreateDatabase/execDropDatabase always wrote to Athena's own simulated `b.databases` map, never to the wired Glue backend, while GetDatabase/ListDatabases route a GLUE-type catalog (AwsDataCatalog is one by default) straight to Glue -- so a DDL-created database was invisible. Fixed: both DDL paths now check `isGlueBacked` and call through the (now read+write) `GlueMetadataSource` interface.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

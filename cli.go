@@ -6706,6 +6706,16 @@ func (a *athenaGlueAdapter) GetTables(dbName string) ([]*athenabackend.GlueTable
 	return out, nil
 }
 
+func (a *athenaGlueAdapter) CreateDatabase(name, description string) error {
+	_, err := a.backend.CreateDatabase(gluebackend.DatabaseInput{Name: name, Description: description}, nil)
+
+	return err
+}
+
+func (a *athenaGlueAdapter) DeleteDatabase(name string) error {
+	return a.backend.DeleteDatabase(name)
+}
+
 func athenaGlueDatabase(d *gluebackend.Database) *athenabackend.GlueDatabase {
 	return &athenabackend.GlueDatabase{
 		Name:        d.Name,

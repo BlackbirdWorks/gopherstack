@@ -55,7 +55,14 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 	return nil
 }
 
-// CancelCapacityReservation cancels an active capacity reservation.
+// CancelCapacityReservation cancels an active capacity reservation. Real AWS
+// transitions ACTIVE -> CANCELLING -> CANCELLED asynchronously; this emulator
+// has no ticking mechanism to advance a reservation on its own, so it goes
+// straight to CANCELLED (synchronous, always succeeds -- same emulation
+// choice already made for e.g. StartSchemaMerge). Leaving it at CANCELLING
+// forever previously made terraform-provider-aws's delete waiter
+// (Pending: ACTIVE/CANCELLING, Target: CANCELLED) poll for its full 30-minute
+// default delete timeout on every aws_athena_capacity_reservation destroy.
 func (b *InMemoryBackend) CancelCapacityReservation(name string) error {
 	b.mu.Lock("CancelCapacityReservation")
 	defer b.mu.Unlock()
@@ -65,7 +72,7 @@ func (b *InMemoryBackend) CancelCapacityReservation(name string) error {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
 
-	cr.Status = stateCancelling
+	cr.Status = stateCancelled
 
 	return nil
 }

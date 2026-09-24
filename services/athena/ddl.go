@@ -181,6 +181,10 @@ func (b *InMemoryBackend) execCreateDatabase(query string, ctx QueryExecutionCon
 	b.mu.Lock("execCreateDatabase")
 	defer b.mu.Unlock()
 
+	if b.isGlueBacked(catalog) {
+		return b.execCreateDatabaseGlue(database, ifNotExists)
+	}
+
 	key := databaseKey(catalog, database)
 	if b.databases.Has(key) {
 		if ifNotExists {
@@ -195,6 +199,24 @@ func (b *InMemoryBackend) execCreateDatabase(query string, ctx QueryExecutionCon
 	return stmtOK()
 }
 
+// execCreateDatabaseGlue creates database in the wired Glue backend. Callers
+// must hold b.mu and have already confirmed the target catalog is glue-backed.
+func (b *InMemoryBackend) execCreateDatabaseGlue(database string, ifNotExists bool) statementOutcome {
+	if _, err := b.glueSource.GetDatabase(database); err == nil {
+		if ifNotExists {
+			return stmtOK()
+		}
+
+		return stmtFail(athenaErrTypeEntityFound, "Database %s already exists", database)
+	}
+
+	if err := b.glueSource.CreateDatabase(database, ""); err != nil {
+		return stmtFail(athenaErrTypeSyntax, "%s", err.Error())
+	}
+
+	return stmtOK()
+}
+
 func (b *InMemoryBackend) execDropDatabase(query string, ctx QueryExecutionContext) statementOutcome {
 	name, ifExists := parseDatabaseTarget(query, []string{"DROP DATABASE", "DROP SCHEMA"})
 	if name == "" {
@@ -205,6 +227,22 @@ func (b *InMemoryBackend) execDropDatabase(query string, ctx QueryExecutionConte
 
 	b.mu.Lock("execDropDatabase")
 	defer b.mu.Unlock()
+
+	if b.isGlueBacked(catalog) {
+		if _, err := b.glueSource.GetDatabase(database); err != nil {
+			if ifExists {
+				return stmtOK()
+			}
+
+			return stmtFail(athenaErrTypeEntityMiss, "Database does not exist: %s", database)
+		}
+
+		if err := b.glueSource.DeleteDatabase(database); err != nil {
+			return stmtFail(athenaErrTypeSyntax, "%s", err.Error())
+		}
+
+		return stmtOK()
+	}
 
 	key := databaseKey(catalog, database)
 	if !b.databases.Has(key) {

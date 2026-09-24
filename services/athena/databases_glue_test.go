@@ -12,6 +12,8 @@ import (
 
 var errFakeGlueNotFound = errors.New("fake glue: not found")
 
+var errFakeGlueAlreadyExists = errors.New("fake glue: already exists")
+
 // fakeGlueSource is a minimal athena.GlueMetadataSource test double, standing
 // in for a wired Glue backend without depending on services/glue.
 type fakeGlueSource struct {
@@ -69,6 +71,26 @@ func (f *fakeGlueSource) GetTables(dbName string) ([]*athena.GlueTable, error) {
 	return out, nil
 }
 
+func (f *fakeGlueSource) CreateDatabase(name, description string) error {
+	if _, ok := f.databases[name]; ok {
+		return errFakeGlueAlreadyExists
+	}
+
+	f.databases[name] = &athena.GlueDatabase{Name: name, Description: description}
+
+	return nil
+}
+
+func (f *fakeGlueSource) DeleteDatabase(name string) error {
+	if _, ok := f.databases[name]; !ok {
+		return errFakeGlueNotFound
+	}
+
+	delete(f.databases, name)
+
+	return nil
+}
+
 // TestGlueBackedCatalog_DelegatesToGlue proves that once a GLUE-type
 // DataCatalog's SetGlueMetadataSource is wired, database/table reads come
 // from the wired Glue source rather than Athena's internal simulation. This
@@ -117,6 +139,46 @@ func TestGlueBackedCatalog_DelegatesToGlue(t *testing.T) {
 	// catalog once Glue is wired -- Glue is authoritative for GLUE catalogs.
 	_, err = b.GetDatabase("gluecat", "not-in-glue")
 	require.Error(t, err)
+}
+
+// TestGlueBackedCatalog_DDLRoutesToGlue proves CREATE/DROP DATABASE DDL
+// against a GLUE-type catalog mutates the wired Glue source, not Athena's
+// internal simulation. Before the fix, execCreateDatabase/execDropDatabase
+// always wrote to b.databases regardless of the catalog's Glue wiring, so a
+// database created via "CREATE DATABASE" was invisible to GetDatabase/
+// ListDatabases (both Glue-routed for a wired catalog) -- exactly the
+// failure real aws_athena_database (StartQueryExecution then GetDatabase)
+// hit.
+func TestGlueBackedCatalog_DDLRoutesToGlue(t *testing.T) {
+	t.Parallel()
+
+	b := athena.NewInMemoryBackend("us-east-1", "123456789012")
+	b.SetGlueMetadataSource(newFakeGlueSource())
+
+	qe := runStatement(t, b, "create database `ddl_created_db`;")
+	require.Equal(t, "SUCCEEDED", qe.Status.State)
+
+	db, err := b.GetDatabase(testCatalog, "ddl_created_db")
+	require.NoError(t, err)
+	assert.Equal(t, "ddl_created_db", db.Name)
+
+	// Re-creating without IF NOT EXISTS fails.
+	qe = runStatement(t, b, "create database `ddl_created_db`;")
+	assert.Equal(t, "FAILED", qe.Status.State)
+
+	// IF NOT EXISTS on an existing database succeeds as a no-op.
+	qe = runStatement(t, b, "create database if not exists `ddl_created_db`;")
+	assert.Equal(t, "SUCCEEDED", qe.Status.State)
+
+	qe = runStatement(t, b, "drop database `ddl_created_db`;")
+	require.Equal(t, "SUCCEEDED", qe.Status.State)
+
+	_, err = b.GetDatabase(testCatalog, "ddl_created_db")
+	require.Error(t, err)
+
+	// Dropping a non-existent database without IF EXISTS fails.
+	qe = runStatement(t, b, "drop database `ddl_created_db`;")
+	assert.Equal(t, "FAILED", qe.Status.State)
 }
 
 // TestGlueUnwiredCatalog_FallsBackToSimulation proves the unwired path stays

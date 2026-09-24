@@ -523,7 +523,7 @@ func TestCapacityReservation_Lifecycle(t *testing.T) {
 			},
 		},
 		{
-			name: "cancel_sets_cancelling_status",
+			name: "cancel_sets_cancelled_status",
 			fn: func(t *testing.T, h *athena.Handler) {
 				t.Helper()
 				a1Do(t, h, "CreateCapacityReservation", `{"Name":"res2","TargetDpus":24}`)
@@ -532,7 +532,7 @@ func TestCapacityReservation_Lifecycle(t *testing.T) {
 
 				rec = a1Do(t, h, "GetCapacityReservation", `{"Name":"res2"}`)
 				cr := a1Unmarshal(t, rec)["CapacityReservation"].(map[string]any)
-				assert.Equal(t, "CANCELLING", cr["Status"])
+				assert.Equal(t, "CANCELLED", cr["Status"])
 			},
 		},
 		{
@@ -609,7 +609,7 @@ func TestCreateCapacityReservation_MinDPUs(t *testing.T) {
 	}
 }
 
-func TestCancelCapacityReservation_SetsCancelling(t *testing.T) {
+func TestCancelCapacityReservation_SetsCancelled(t *testing.T) {
 	t.Parallel()
 
 	h := athena.NewHandler(athena.NewInMemoryBackend("", ""))
@@ -623,7 +623,12 @@ func TestCancelCapacityReservation_SetsCancelling(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	m := athenaUnmarshalPass5(t, rec)
 	cr := m["CapacityReservation"].(map[string]any)
-	assert.Equal(t, "CANCELLING", cr["Status"])
+	// Real AWS transitions ACTIVE -> CANCELLING -> CANCELLED asynchronously;
+	// this emulator has no ticking mechanism to advance a reservation on its
+	// own, so it goes straight to CANCELLED. Leaving it at CANCELLING forever
+	// made terraform-provider-aws's delete waiter poll for its full 30-minute
+	// default delete timeout on every real destroy.
+	assert.Equal(t, "CANCELLED", cr["Status"])
 }
 
 func TestDeleteCapacityReservation_AfterCancel(t *testing.T) {
