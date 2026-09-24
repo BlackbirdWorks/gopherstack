@@ -150,6 +150,9 @@ func awsManagedPermARN(name string) string {
 
 // InMemoryBackend is an in-memory store for AWS RAM resources.
 type InMemoryBackend struct {
+	// appConfig is the service.AppContext.Config value from Provider.Init,
+	// resolved lazily to reach the IAM backend -- see cross_service.go.
+	appConfig        any
 	resourceShares   *store.Table[ResourceShare]
 	permissions      *store.Table[Permission]
 	sharePermissions map[string]map[string]int32 // shareARN -> permissionARN -> version

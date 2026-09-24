@@ -41,14 +41,18 @@ resource "aws_ram_resource_share_accepter" "mb49" {
   depends_on = [aws_ram_principal_association.mb49]
 }
 
-# aws_ram_sharing_with_organization is left out: its Read step performs a
-# real cross-service IAM GetRole lookup for the RAM service-linked role
-# (AWSServiceRoleForResourceAccessManager), which real AWS creates as a side
-# effect of EnableAWSServiceAccess/EnableSharingWithAwsOrganization. This
-# backend's RAM service doesn't wire into the IAM backend to seed that role
-# (see PARITY.md items_still_open). Exact provider error: "reading RAM
-# Sharing With Organization (): reading IAM Role
-# (AWSServiceRoleForResourceAccessManager): couldn't find resource".
+# aws_ram_sharing_with_organization is left out: its Read step performs two
+# real cross-service lookups. FIXED 2026-09-24: EnableSharingWithAwsOrganization
+# now creates the RAM service-linked role in the IAM backend (cross_service.go),
+# so the iam:GetRole(AWSServiceRoleForResourceAccessManager) half no longer
+# 404s. STILL OPEN: Read also calls organizations:ListAWSServiceAccessForOrganization
+# and requires "ram.amazonaws.com" to already be an enabled service
+# principal -- real AWS's EnableSharingWithAwsOrganization calls Organizations'
+# EnableAWSServiceAccess(ram.amazonaws.com) as a second side effect this
+# backend doesn't perform, so Read still fails with "Organization service
+# principal (ram.amazonaws.com) not enabled" even inside an
+# aws_organizations_organization. Cross-service Organizations wiring is out
+# of scope for this pass (see services/ram/PARITY.md items_still_open).
 
 ##############################################################################
 # Grafana: a workspace, a license association, a SAML authentication

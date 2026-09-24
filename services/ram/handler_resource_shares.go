@@ -321,6 +321,10 @@ type enableSharingWithAwsOrganizationResponse struct {
 }
 
 func (h *Handler) handleEnableSharingWithAwsOrganization() ([]byte, error) {
+	if err := h.Backend.EnableSharingWithAwsOrganization(); err != nil {
+		return nil, err
+	}
+
 	return json.Marshal(enableSharingWithAwsOrganizationResponse{ReturnValue: true})
 }
 

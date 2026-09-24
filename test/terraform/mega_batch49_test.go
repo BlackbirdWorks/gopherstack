@@ -26,9 +26,9 @@ import (
 // client.
 //
 // aws_ram_sharing_with_organization is intentionally left out of the fixture
-// (see mega-batch-49.tf's comment): its Read performs a real cross-service
-// IAM GetRole lookup for the RAM service-linked role this backend doesn't
-// create.
+// (see mega-batch-49.tf's comment): its Read's IAM GetRole half is now fixed
+// (services/ram/PARITY.md), but it also needs Organizations service-access
+// enablement this backend doesn't perform -- still open.
 func TestTerraform_MegaBatch49(t *testing.T) {
 	t.Parallel()
 
