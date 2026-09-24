@@ -27,8 +27,12 @@ func TestResourceGroupsHandler_GetGroupQuery(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestGetGroupQuery_ReturnsNilForNoQuery verifies nil ResourceQuery is represented.
-func TestGetGroupQuery_ReturnsNilForNoQuery(t *testing.T) {
+// TestGetGroupQuery_ErrorsForConfigurationGroup verifies GetGroupQuery
+// rejects a configuration-type group with BadRequestException, matching real
+// AWS (a real terraform-provider-aws client nil-derefs reading
+// GroupQuery.ResourceQuery.Type when this call wrongly succeeds with a nil
+// ResourceQuery -- see resourceGroupRead in the provider's group.go).
+func TestGetGroupQuery_ErrorsForConfigurationGroup(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
@@ -38,28 +42,21 @@ func TestGetGroupQuery_ReturnsNilForNoQuery(t *testing.T) {
 	})
 
 	rec := doResourceGroupsRequest(t, h, "GetGroupQuery", map[string]any{"Group": "no-query-group"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	groupQuery := out["GroupQuery"].(map[string]any)
-	assert.Equal(t, "no-query-group", groupQuery["GroupName"])
-	// ResourceQuery should be null when not set.
-	_, hasQuery := groupQuery["ResourceQuery"]
-	if hasQuery {
-		assert.Nil(t, groupQuery["ResourceQuery"])
-	}
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestGetGroupQuery_NilForConfigGroup verifies that GetGroupQuery returns a
-// nil ResourceQuery for configuration-based groups (no query set).
-func TestGetGroupQuery_NilForConfigGroup(t *testing.T) {
+// TestGetGroupQuery_ConfigVsQueryGroup verifies that GetGroupQuery succeeds
+// with the query populated for a query-based group, and rejects a
+// configuration-based group with BadRequestException (real AWS never returns
+// a group with a nil ResourceQuery from this call -- see
+// TestGetGroupQuery_ErrorsForConfigurationGroup's doc comment).
+func TestGetGroupQuery_ConfigVsQueryGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name    string
-		wantNil bool
-		body    map[string]any
+		name     string
+		body     map[string]any
+		wantCode int
 	}{
 		{
 			name: "query_group_has_query",
@@ -70,7 +67,7 @@ func TestGetGroupQuery_NilForConfigGroup(t *testing.T) {
 					"Query": `{"TagFilters":[]}`,
 				},
 			},
-			wantNil: false,
+			wantCode: http.StatusOK,
 		},
 		{
 			name: "config_group_no_query",
@@ -78,7 +75,7 @@ func TestGetGroupQuery_NilForConfigGroup(t *testing.T) {
 				"Name":          "cfg-grp",
 				"Configuration": []map[string]any{{"Type": "AWS::ResourceGroups::Generic"}},
 			},
-			wantNil: true,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -91,7 +88,11 @@ func TestGetGroupQuery_NilForConfigGroup(t *testing.T) {
 
 			groupName, _ := tt.body["Name"].(string)
 			rec := doResourceGroupsRequest(t, h, "GetGroupQuery", map[string]any{"Group": groupName})
-			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
 
 			var out struct {
 				GroupQuery struct {
@@ -102,12 +103,7 @@ func TestGetGroupQuery_NilForConfigGroup(t *testing.T) {
 				} `json:"GroupQuery"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-
-			if tt.wantNil {
-				assert.Nil(t, out.GroupQuery.ResourceQuery)
-			} else {
-				assert.NotNil(t, out.GroupQuery.ResourceQuery)
-			}
+			assert.NotNil(t, out.GroupQuery.ResourceQuery)
 		})
 	}
 }

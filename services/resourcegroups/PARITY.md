@@ -1,9 +1,16 @@
 ---
 service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
-last_audit_commit: 4ad783e5c   # HEAD when this manifest was written
-last_audit_date: 2026-09-20
-overall: A            # 2026-09-20 (mega-batch-24/25/26 terraform coverage, cross-service
+last_audit_commit: e13b41148   # 2026-09-24 terraform-coverage sweep; prior: 4ad783e5c
+last_audit_date: 2026-09-24   # prior: 2026-09-20
+overall: A            # 2026-09-24 (mega-batch-51 terraform coverage): a real client
+                      # (terraform-provider-aws) panics with a nil pointer dereference
+                      # creating a Configuration-type aws_resourcegroups_group, because
+                      # GetGroupQuery wrongly returned 200+null instead of
+                      # BadRequestException. Fixed GetGroupQuery/GetGroupConfiguration to
+                      # reject the wrong group type, matching real AWS and the provider's
+                      # own doc comments. See Notes.
+                      # 2026-09-20 (mega-batch-24/25/26 terraform coverage, cross-service
                       # routing fix): isResourceTagsPath (handler.go) matched ANY
                       # /resources/{Arn}/tags path with no ARN-service check -- a real
                       # route-prefix collision (RouteMatcher class) that swallowed
@@ -24,9 +31,9 @@ ops:
   UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Owner wire tag, now includes ApplicationTag; now accepts Owner input field; Criticality range corrected to 1-10 (was 1-5)"}
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now echoes deleted Group (was empty envelope)"}
   ListGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: GroupIdentifiers now include DisplayName/Criticality/Owner; Filters now support the real owner/display-name/criticality GroupFilterName values; invented name-prefix filter removed"}
-  GetGroupQuery: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetGroupQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (2026-09-24): now rejects a configuration-type group (no ResourceQuery) with BadRequestException instead of returning GroupQuery.ResourceQuery=null. Real terraform-provider-aws (internal/service/resourcegroups/group.go resourceGroupRead) relies on this error to detect 'not a query group' -- a nil-checked success response instead panics the provider (nil pointer deref reading ResourceQuery.Type)."}
   UpdateGroupQuery: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetGroupConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: removed fabricated GroupName field, added required Status field"}
+  GetGroupConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: removed fabricated GroupName field, added required Status field. FIXED 2026-09-24: now rejects a query-type group (has a ResourceQuery) with BadRequestException instead of returning an empty Configuration list -- symmetric with GetGroupQuery's fix, matching the real API's documented BadRequestException for 'configuration on a query group'."}
   PutGroupConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects a group with a ResourceQuery (BadRequestException) instead of silently accepting membership writes on a query-based group -- see 'Real bugs fixed this sweep'"}
   UngroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same ResourceQuery-group rejection as GroupResources"}
@@ -54,6 +61,11 @@ leaks: {status: clean, note: "no goroutines/janitors; CancelTagSyncTask fix remo
 ---
 
 ## Notes
+
+### 2026-09-24 terraform-coverage sweep (mega-batch-51)
+
+GetGroupQuery/GetGroupConfiguration wrongly succeeded for the wrong group type, nil-deref
+crashing terraform-provider-aws; now error like real AWS (BadRequestException).
 
 Protocol: **rest-json1**. Every op except `Tag` (PUT), `Untag` (PATCH), and `GetTags`
 (GET) uses POST, including "list"/"search" verbs (`ListGroups` is `POST /groups-list`,

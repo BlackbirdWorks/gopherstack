@@ -190,6 +190,13 @@ func (h *Handler) handleGetGroupQuery(ctx context.Context, in *groupNameInput) (
 		return nil, err
 	}
 
+	if g.ResourceQuery == nil {
+		items, itemsErr := h.Backend.GetGroupConfigurationItems(ctx, g.Name)
+		if itemsErr == nil && len(items) > 0 {
+			return nil, fmt.Errorf("%w: group %s is a configuration-type group and has no query", ErrValidation, g.Name)
+		}
+	}
+
 	return &getGroupQueryOutput{GroupQuery: &groupQueryOutput{
 		GroupName:     g.Name,
 		ResourceQuery: g.ResourceQuery,
@@ -211,6 +218,10 @@ func (h *Handler) handleGetGroupConfiguration(
 	g, err := h.Backend.GetGroup(ctx, in.resolvedName())
 	if err != nil {
 		return nil, err
+	}
+
+	if g.ResourceQuery != nil {
+		return nil, fmt.Errorf("%w: group %s is a query-type group and has no configuration", ErrValidation, g.Name)
 	}
 
 	items, err := h.Backend.GetGroupConfigurationItems(ctx, g.Name)
