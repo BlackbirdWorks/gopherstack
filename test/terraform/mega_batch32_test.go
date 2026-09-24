@@ -53,7 +53,7 @@ func verifyMegaBatch32(ctx context.Context, t *testing.T) {
 	fsOut, err := client.DescribeFileSystems(ctx, &fsxsdk.DescribeFileSystemsInput{})
 	require.NoError(t, err, "DescribeFileSystems should succeed")
 
-	var sawOpenZFS, sawOntap, sawWindows, sawLustre bool
+	var sawOpenZFS, sawOntap, sawWindows, sawPersistentLustre bool
 
 	var ontapFSID, openzfsFSID string
 
@@ -68,15 +68,17 @@ func verifyMegaBatch32(ctx context.Context, t *testing.T) {
 		case fsxtypes.FileSystemTypeWindows:
 			sawWindows = true
 		case fsxtypes.FileSystemTypeLustre:
-			sawLustre = true
-			assert.Equal(t, "PERSISTENT_2", string(fs.LustreConfiguration.DeploymentType))
+			// Other fixtures in the shard create SCRATCH Lustre file systems.
+			if fs.LustreConfiguration.DeploymentType == fsxtypes.LustreDeploymentTypePersistent2 {
+				sawPersistentLustre = true
+			}
 		}
 	}
 
 	assert.True(t, sawOpenZFS, "an OpenZFS file system should be listed")
 	assert.True(t, sawOntap, "an ONTAP file system should be listed")
 	assert.True(t, sawWindows, "a Windows file system should be listed")
-	assert.True(t, sawLustre, "a Lustre file system should be listed")
+	assert.True(t, sawPersistentLustre, "a PERSISTENT_2 Lustre file system should be listed")
 
 	volOut, err := client.DescribeVolumes(ctx, &fsxsdk.DescribeVolumesInput{})
 	require.NoError(t, err, "DescribeVolumes should succeed")
