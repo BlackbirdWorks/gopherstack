@@ -1,7 +1,7 @@
 service: quicksight
 sdk_module: aws-sdk-go-v2/service/quicksight@v1.129.0
-last_audit_commit: 4ad783e5c
-last_audit_date: 2026-09-20 # mega-batch-25 terraform coverage: CreateNamespace/Reset's
+last_audit_commit: 2332c3128  # 2026-09-24 DELETED analysis unbounded-growth fix; prior: 4ad783e5c
+last_audit_date: 2026-09-24 # mega-batch-25 terraform coverage: CreateNamespace/Reset's
                       # default-namespace seed used the ResourceStatus enum's
                       # "CREATION_SUCCESSFUL" for Namespace.CreationStatus instead of the real,
                       # distinct NamespaceStatus enum's "CREATED" -- confirmed against
@@ -342,11 +342,17 @@ items_still_open:
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.
-leaks: {status: clean, note: "no goroutines/timers/janitors found in this service -- it's a synchronous in-memory backend behind a single coarse lockmetrics.RWMutex. DeleteUser's groupMembers cleanup (fixed prior pass) and DeleteGroup's groupMembers cleanup (re-verified this pass, already correct) both cascade-clean group membership rows on delete. DeleteFolder cascade-cleans folderMembers rows the same way. DeleteAgent/DeleteKnowledgeBase/DeleteSpace/DeleteFlow (new this pass) all cascade-clean their tags map entries the same way as every other delete in this backend (see arnCollectorFuncs in tags.go, extended this pass to recognize Agent/KnowledgeBase/Space ARNs so TagResource/UntagResource/ListTagsForResource work on them too). No ghost rows found in any family audited this pass."}
+leaks: {status: clean, note: "no goroutines/timers/janitors found in this service -- it's a synchronous in-memory backend behind a single coarse lockmetrics.RWMutex. DeleteUser's groupMembers cleanup (fixed prior pass) and DeleteGroup's groupMembers cleanup (re-verified this pass, already correct) both cascade-clean group membership rows on delete. DeleteFolder cascade-cleans folderMembers rows the same way. DeleteAgent/DeleteKnowledgeBase/DeleteSpace/DeleteFlow (new this pass) all cascade-clean their tags map entries the same way as every other delete in this backend (see arnCollectorFuncs in tags.go, extended this pass to recognize Agent/KnowledgeBase/Space ARNs so TagResource/UntagResource/ListTagsForResource work on them too). No ghost rows found in any family audited this pass. FIXED 2026-09-24 (leak sweep): DeleteAnalysis's DeletionTime (recovery-window deadline) was computed and returned to the caller but never stored, so a soft-deleted analysis stayed in b.analyses forever -- an unbounded-growth leak in the same class ec2/ecs/medialive/ram/acmpca fixed for their own delete-waiter tombstones. Added storedAnalysis.PermanentDeletionAt (additive field) and pruneDeletedAnalysesLocked, called from CreateAnalysis/DeleteAnalysis."}
 
 ---
 
 ## Notes
+
+### 2026-09-24 (leak sweep) DELETED analyses now evicted after their recovery window
+
+See the leaks-field note above. Additive `permanentDeletionAt` snapshot
+field (no version bump). Tests: `deleted_analysis_expiry_test.go` (synctest,
+evicted-after-window + kept-within-window).
 
 ### 2026-09-18 (gopherstack-21my: per-item field sweep)
 

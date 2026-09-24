@@ -21610,6 +21610,7 @@
       "storedAnalysis.Definition map[string]any `json:\"definition,omitempty\"`",
       "storedAnalysis.LastUpdatedTime time.Time `json:\"lastUpdatedTime\"`",
       "storedAnalysis.Name string `json:\"name\"`",
+      "storedAnalysis.PermanentDeletionAt time.Time `json:\"permanentDeletionAt\"`",
       "storedAnalysis.Permissions []ResourcePermission `json:\"permissions,omitempty\"`",
       "storedAnalysis.Status string `json:\"status\"`",
       "storedAnalysis.ThemeArn string `json:\"themeArn,omitempty\"`",
