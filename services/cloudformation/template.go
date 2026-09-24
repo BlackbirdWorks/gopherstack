@@ -1442,7 +1442,10 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 		switch resType {
 		case resTypeEKSFargateProfile, resTypeEKSAddon, resTypeEKSAccessEntry,
 			resTypeEKSPodIdentityAssociation, resTypeEKSIdentityProviderConfig,
-			resTypeKinesisStreamConsumer:
+			resTypeKinesisStreamConsumer,
+			resTypeRDSDBProxyEndpoint, resTypeCWMetricStream, resTypeSSMResourcePolicy,
+			resTypeCFOriginRequestPolicy, resTypeCFKeyGroup, resTypeCFPublicKey,
+			resTypeCFOAI, resTypeCFKeyValueStore, resTypeCFContinuousDeploymentPolicy:
 			return v
 		}
 	}

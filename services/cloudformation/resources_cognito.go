@@ -2,8 +2,11 @@ package cloudformation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 // ---- Cognito ----
@@ -102,6 +105,14 @@ func (rc *ResourceCreator) createCognitoSupplementalResource(
 		return id, true, err
 	case "AWS::Cognito::UserPoolGroup":
 		id, err := rc.createCognitoUserPoolGroup(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeCognitoUserPoolResourceServer:
+		id, err := rc.createCognitoUserPoolResourceServer(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeCognitoUserPoolIdentityProvider:
+		id, err := rc.createCognitoUserPoolIdentityProvider(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
 	default:
@@ -254,4 +265,129 @@ func (rc *ResourceCreator) deleteCognitoUserPoolGroup(physicalID string) error {
 	}
 
 	return rc.backends.CognitoIDP.Backend.DeleteGroup(userPoolID, groupName)
+}
+
+const (
+	resTypeCognitoUserPoolResourceServer   = "AWS::Cognito::UserPoolResourceServer"
+	resTypeCognitoUserPoolIdentityProvider = "AWS::Cognito::UserPoolIdentityProvider"
+)
+
+// ---- Cognito UserPoolResourceServer ----
+
+func resourceServerScopesProp(
+	props map[string]any, params, physicalIDs map[string]string,
+) []cognitoidpbackend.ResourceServerScope {
+	raw, ok := props["Scopes"].([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make([]cognitoidpbackend.ResourceServerScope, 0, len(raw))
+
+	for _, item := range raw {
+		m, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		out = append(out, cognitoidpbackend.ResourceServerScope{
+			ScopeName:        strProp(m, "ScopeName", params, physicalIDs),
+			ScopeDescription: strProp(m, "ScopeDescription", params, physicalIDs),
+		})
+	}
+
+	return out
+}
+
+func (rc *ResourceCreator) createCognitoUserPoolResourceServer(
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.CognitoIDP == nil {
+		return logicalID + "-stub", nil
+	}
+
+	identifier := strProp(props, "Identifier", params, physicalIDs)
+
+	rs, err := rc.backends.CognitoIDP.Backend.CreateResourceServer(
+		strProp(props, "UserPoolId", params, physicalIDs),
+		identifier,
+		strProp(props, "Name", params, physicalIDs),
+		resourceServerScopesProp(props, params, physicalIDs),
+	)
+	if err != nil {
+		return "", fmt.Errorf("create Cognito user pool resource server %s: %w", identifier, err)
+	}
+
+	return rs.Identifier, nil
+}
+
+// deleteCognitoUserPoolResourceServer needs UserPoolId, a real CFN property
+// not embedded in the resource server's physical ID (its bare Identifier),
+// so it comes from props like deleteEKSAccessEntry.
+func (rc *ResourceCreator) deleteCognitoUserPoolResourceServer(
+	props map[string]any, stackPhysicalIDs map[string]string, physicalID string,
+) error {
+	if rc.backends.CognitoIDP == nil {
+		return nil
+	}
+
+	err := rc.backends.CognitoIDP.Backend.DeleteResourceServer(
+		strProp(props, "UserPoolId", nil, stackPhysicalIDs), physicalID,
+	)
+	if errors.Is(err, cognitoidpbackend.ErrUserPoolNotFound) {
+		return nil
+	}
+
+	return err
+}
+
+// ---- Cognito UserPoolIdentityProvider ----
+
+func (rc *ResourceCreator) createCognitoUserPoolIdentityProvider(
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.CognitoIDP == nil {
+		return logicalID + "-stub", nil
+	}
+
+	providerName := strProp(props, "ProviderName", params, physicalIDs)
+
+	idp, err := rc.backends.CognitoIDP.Backend.CreateIdentityProviderFull(
+		strProp(props, "UserPoolId", params, physicalIDs),
+		providerName,
+		strProp(props, "ProviderType", params, physicalIDs),
+		strMapProp(props, "ProviderDetails", params, physicalIDs),
+		strMapProp(props, "AttributeMapping", params, physicalIDs),
+		strSliceProp(props["IdpIdentifiers"], params, physicalIDs),
+	)
+	if err != nil {
+		return "", fmt.Errorf("create Cognito user pool identity provider %s: %w", providerName, err)
+	}
+
+	return idp.ProviderName, nil
+}
+
+// deleteCognitoUserPoolIdentityProvider needs UserPoolId; see
+// deleteCognitoUserPoolResourceServer.
+func (rc *ResourceCreator) deleteCognitoUserPoolIdentityProvider(
+	props map[string]any, stackPhysicalIDs map[string]string, physicalID string,
+) error {
+	if rc.backends.CognitoIDP == nil {
+		return nil
+	}
+
+	err := rc.backends.CognitoIDP.Backend.DeleteIdentityProvider(
+		strProp(props, "UserPoolId", nil, stackPhysicalIDs), physicalID,
+	)
+	if errors.Is(err, cognitoidpbackend.ErrUserPoolNotFound) {
+		return nil
+	}
+
+	return err
 }

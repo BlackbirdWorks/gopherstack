@@ -129,6 +129,15 @@ func getManagedTypesAttribute(resType, physID, attrName, accountID, region strin
 		}
 
 		return physID, true
+	case resTypeCWInsightRule:
+		// physID is the rule ARN (Ref); RuleName is the "insight-rule/" tail.
+		if attrName == "RuleName" {
+			if idx := strings.LastIndex(physID, "/"); idx >= 0 {
+				return physID[idx+1:], true
+			}
+		}
+
+		return physID, true
 	}
 
 	return "", false

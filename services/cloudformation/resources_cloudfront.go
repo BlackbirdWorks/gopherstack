@@ -26,6 +26,34 @@ func (rc *ResourceCreator) createCloudFrontResource(
 		id, err := rc.createCloudFrontResponseHeadersPolicy(logicalID, props, params, physicalIDs)
 
 		return id, true, err
+	case resTypeCFOriginRequestPolicy:
+		id, err := rc.createCFOriginRequestPolicy(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeCFKeyGroup:
+		id, err := rc.createCFKeyGroup(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeCFPublicKey:
+		id, err := rc.createCFPublicKey(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeCFOAI:
+		id, err := rc.createCFOAI(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::CloudFront::RealtimeLogConfig":
+		id, err := rc.createCFRealtimeLogConfig(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeCFKeyValueStore:
+		id, err := rc.createCFKeyValueStore(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeCFContinuousDeploymentPolicy:
+		id, err := rc.createCFContinuousDeploymentPolicy(logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	default:
 
 		return "", false, nil
@@ -46,6 +74,27 @@ func (rc *ResourceCreator) deleteCloudFrontResource(resourceType, physicalID str
 	case "AWS::CloudFront::ResponseHeadersPolicy":
 
 		return true, rc.deleteCloudFrontResponseHeadersPolicy(physicalID)
+	case resTypeCFOriginRequestPolicy:
+
+		return true, rc.deleteCFOriginRequestPolicy(physicalID)
+	case resTypeCFKeyGroup:
+
+		return true, rc.deleteCFKeyGroup(physicalID)
+	case resTypeCFPublicKey:
+
+		return true, rc.deleteCFPublicKey(physicalID)
+	case resTypeCFOAI:
+
+		return true, rc.deleteCFOAI(physicalID)
+	case "AWS::CloudFront::RealtimeLogConfig":
+
+		return true, rc.deleteCFRealtimeLogConfig(physicalID)
+	case resTypeCFKeyValueStore:
+
+		return true, rc.deleteCFKeyValueStore(physicalID)
+	case resTypeCFContinuousDeploymentPolicy:
+
+		return true, rc.deleteCFContinuousDeploymentPolicy(physicalID)
 	default:
 
 		return false, nil

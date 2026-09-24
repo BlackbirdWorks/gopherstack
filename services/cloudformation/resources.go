@@ -1361,11 +1361,8 @@ func (rc *ResourceCreator) Delete(
 	// AWS::EKS::AccessEntry's Ref is PrincipalArn and
 	// AWS::EKS::PodIdentityAssociation's Ref is the association ID -- neither
 	// embeds ClusterName, so both need props the same way.
-	switch resourceType {
-	case resTypeEKSAccessEntry:
-		return rc.deleteEKSAccessEntry(props, stackPhysicalIDs, physicalID)
-	case resTypeEKSPodIdentityAssociation:
-		return rc.deleteEKSPodIdentityAssociation(props, stackPhysicalIDs, physicalID)
+	if handled, err := rc.deletePropsBasedResource(ctx, resourceType, physicalID, props, stackPhysicalIDs); handled {
+		return err
 	}
 
 	if handled, err := rc.deleteCoreResource(ctx, resourceType, physicalID); handled {
@@ -1373,6 +1370,41 @@ func (rc *ResourceCreator) Delete(
 	}
 
 	return rc.deleteExtendedResource(ctx, resourceType, physicalID, props, stackPhysicalIDs)
+}
+
+// deletePropsBasedResource handles deletion for resource types whose delete
+// call needs the resource's own CFN properties (not just its physical ID),
+// e.g. because a required identifier (WindowId, UserPoolId, RestApiId, ...)
+// is a sibling property rather than embedded in the Ref value.
+func (rc *ResourceCreator) deletePropsBasedResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+	props map[string]any, stackPhysicalIDs map[string]string,
+) (bool, error) {
+	switch resourceType {
+	case resTypeEKSAccessEntry:
+		return true, rc.deleteEKSAccessEntry(props, stackPhysicalIDs, physicalID)
+	case resTypeEKSPodIdentityAssociation:
+		return true, rc.deleteEKSPodIdentityAssociation(props, stackPhysicalIDs, physicalID)
+	case resTypeCognitoUserPoolResourceServer:
+		return true, rc.deleteCognitoUserPoolResourceServer(props, stackPhysicalIDs, physicalID)
+	case resTypeCognitoUserPoolIdentityProvider:
+		return true, rc.deleteCognitoUserPoolIdentityProvider(props, stackPhysicalIDs, physicalID)
+	case resTypeSSMMaintenanceWindowTarget:
+		return true, rc.deleteSSMMaintenanceWindowTarget(ctx, props, stackPhysicalIDs, physicalID)
+	case resTypeSSMMaintenanceWindowTask:
+		return true, rc.deleteSSMMaintenanceWindowTask(ctx, props, stackPhysicalIDs, physicalID)
+	case resTypeSSMResourcePolicy:
+		return true, rc.deleteSSMResourcePolicy(ctx, props, stackPhysicalIDs, physicalID)
+	case resTypeCWAnomalyDetector:
+		return true, rc.deleteCWAnomalyDetector(props, stackPhysicalIDs)
+	case "AWS::ApiGateway::DocumentationPart":
+		return true, rc.deleteAPIGatewayDocumentationPart(props, stackPhysicalIDs, physicalID)
+	case "AWS::ApiGateway::DocumentationVersion":
+		return true, rc.deleteAPIGatewayDocumentationVersion(props, stackPhysicalIDs, physicalID)
+	default:
+		return false, nil
+	}
 }
 
 // deleteCoreResource handles deletion of the original 7 core AWS resource types.
@@ -1889,6 +1921,26 @@ func (rc *ResourceCreator) createSupplementalResource(
 	); ok {
 		return id, true, err
 	}
+	if id, ok, err := rc.createRDSSupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createSSMMoreResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createCloudWatchMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createAPIGatewayMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
 
 	return "", false, nil
 }
@@ -1921,6 +1973,18 @@ func (rc *ResourceCreator) deleteSupplementalResource(
 		return true, err
 	}
 	if handled, err := rc.deleteLambdaSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteRDSSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteSSMMoreResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteCloudWatchMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteAPIGatewayMoreResource(resourceType, physicalID); handled {
 		return true, err
 	}
 

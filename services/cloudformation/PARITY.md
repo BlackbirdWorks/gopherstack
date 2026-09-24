@@ -1,7 +1,18 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 6279d75f6  # 2026-09-24 13 new resource types added (EKS FargateProfile/
+last_audit_commit: e74172daa  # 2026-09-24 25 new resource types added: RDS OptionGroup/
+                               # EventSubscription/GlobalCluster/DBProxyEndpoint, Cognito
+                               # UserPoolResourceServer/UserPoolIdentityProvider, SSM
+                               # MaintenanceWindowTarget/MaintenanceWindowTask/PatchBaseline/
+                               # ResourceDataSync/ResourcePolicy, CloudWatch MetricStream/
+                               # AnomalyDetector/InsightRule, ApiGateway VpcLink/
+                               # ClientCertificate/DocumentationPart/DocumentationVersion,
+                               # CloudFront OriginRequestPolicy/KeyGroup/PublicKey/
+                               # CloudFrontOriginAccessIdentity/RealtimeLogConfig/
+                               # KeyValueStore/ContinuousDeploymentPolicy (241 -> 266
+                               # supported types); prior: 6279d75f6  # 2026-09-24 13 new
+                               # resource types added (EKS FargateProfile/
                                # Addon/AccessEntry/PodIdentityAssociation/IdentityProviderConfig,
                                # StepFunctions StateMachineVersion/StateMachineAlias, Kinesis
                                # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
@@ -144,6 +155,44 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) 25 new resource types: 241 -> 266 supported types
+
+Added AWS::RDS::{OptionGroup,EventSubscription,GlobalCluster,DBProxyEndpoint},
+AWS::Cognito::{UserPoolResourceServer,UserPoolIdentityProvider},
+AWS::SSM::{MaintenanceWindowTarget,MaintenanceWindowTask,PatchBaseline,ResourceDataSync,
+ResourcePolicy}, AWS::CloudWatch::{MetricStream,AnomalyDetector,InsightRule},
+AWS::ApiGateway::{VpcLink,ClientCertificate,DocumentationPart,DocumentationVersion}, and
+AWS::CloudFront::{OriginRequestPolicy,KeyGroup,PublicKey,CloudFrontOriginAccessIdentity,
+RealtimeLogConfig,KeyValueStore,ContinuousDeploymentPolicy} -- the list "skipped for budget" in
+the prior 13-type pass below, minus RDS DBProxyTargetGroup, the four Cognito UserPoolUser*
+types, and CloudFront MonitoringSubscription (still skipped this pass too, see below). Each is
+backed by a real service call (create + delete both mutate real backend state) with Ref/GetAtt
+verified against the CloudFormation Template Reference's "Return values" section for that type
+(new files resources_rds_more.go, resources_ssm_more.go, resources_cloudwatch_more.go,
+resources_apigateway_more.go, resources_cloudfront_more.go, plus two new cases in
+resources_cognito.go). Several types have no documented Fn::GetAtt at all
+(AWS::CloudWatch::AnomalyDetector, AWS::RDS::{OptionGroup,EventSubscription,GlobalCluster},
+AWS::SSM::{PatchBaseline,ResourceDataSync}, AWS::Cognito::UserPool{ResourceServer,
+IdentityProvider}) -- confirmed by reading the actual doc page, not assumed. A few Ref values
+diverge from a naive physical ID and needed the existing "props-based delete" pattern
+(deleteEKSAccessEntry's precedent) because a sibling CFN property (WindowId, UserPoolId,
+RestApiId, Namespace/MetricName/Stat) isn't embedded in the returned Ref: MaintenanceWindowTarget/
+Task, the two new Cognito types, ApiGateway DocumentationPart/DocumentationVersion, and
+CloudWatch AnomalyDetector (delete-only, Ref/GetAtt undocumented so no props-based dispatch
+needed for read paths). SSM::ResourcePolicy's delete additionally needs a live PolicyHash lookup
+(GetResourcePolicies) since AWS's optimistic-concurrency hash is never a CFN property. Still
+skipped (real value uncertain vs. effort, or backend shape mismatch found while implementing):
+RDS::DBProxyTargetGroup (backend models target *registration* against an existing default proxy
+target group, not an independently creatable/deletable CFN resource), Cognito
+UserPoolUser/UserPoolUserToGroupAttachment/UserPoolRiskConfigurationAttachment/
+UserPoolUICustomizationAttachment (each is an admin-mutation style resource with weaker
+CFN-resource semantics), and CloudFront::MonitoringSubscription (keyed by an existing
+Distribution rather than having its own creatable identity). All 25 have a passing
+CreateStack -> Fn::GetAtt-in-Outputs -> backend-state-assertion -> DeleteStack ->
+backend-state-gone test (resources_rds_more_test.go, resources_cognito_more_test.go,
+resources_ssm_more_test.go, resources_cloudwatch_more_test.go, resources_apigateway_more_test.go,
+resources_cloudfront_more_test.go).
 
 ### 2026-09-24 (parity-sweep) 13 new resource types: 228 -> 241 supported types
 
