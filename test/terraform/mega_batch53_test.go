@@ -157,17 +157,19 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
-	attOut, err := client.DescribeTransitGatewayVpcAttachments(ctx, &ec2svc53.DescribeTransitGatewayVpcAttachmentsInput{
-		Filters: []ec2types53.Filter{{Name: aws.String("state"), Values: []string{"available"}}},
-	})
+	tgwOut, err := client.DescribeTransitGateways(ctx, &ec2svc53.DescribeTransitGatewaysInput{})
+	require.NoError(t, err, "DescribeTransitGateways should succeed")
+	tgw := findBy(t, tgwOut.TransitGateways, func(g ec2types53.TransitGateway) bool {
+		return aws.ToString(g.Description) == "mega-batch-53-tgw"
+	}, "the mega-batch-53 transit gateway")
+	tgwID := aws.ToString(tgw.TransitGatewayId)
+
+	attOut, err := client.DescribeTransitGatewayVpcAttachments(ctx, &ec2svc53.DescribeTransitGatewayVpcAttachmentsInput{})
 	require.NoError(t, err, "DescribeTransitGatewayVpcAttachments should succeed")
-	// The mega-batch-53 TGW attachment has exactly 1 subnet (the EKS cluster
-	// uses two subnets directly, not via a TGW attachment, so this is unambiguous).
 	att := findBy(t, attOut.TransitGatewayVpcAttachments, func(a ec2types53.TransitGatewayVpcAttachment) bool {
-		return len(a.SubnetIds) == 1
-	}, "an available TGW VPC attachment with one subnet")
+		return aws.ToString(a.TransitGatewayId) == tgwID && a.State == ec2types53.TransitGatewayAttachmentStateAvailable
+	}, "the available mega-batch-53 TGW VPC attachment")
 	attachmentID := aws.ToString(att.TransitGatewayAttachmentId)
-	tgwID := aws.ToString(att.TransitGatewayId)
 
 	domOut, err := client.DescribeTransitGatewayMulticastDomains(
 		ctx,
