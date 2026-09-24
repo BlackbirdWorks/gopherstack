@@ -6,9 +6,13 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: timestreamwrite
 sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 4ad94a2e4
-last_audit_date: 2026-09-19  # prior: 2026-08-29
-overall: A            # wrapper-key/nested-shape sweep found and fixed one real gap (DataModelConfiguration/RecordVersion never modelled on CreateBatchLoadTask); rest of the surface re-verified clean
+last_audit_commit: e13b41148  # 2026-09-24 terraform-coverage sweep; prior: d522d763f
+last_audit_date: 2026-09-24  # prior: 2026-09-19
+overall: A            # 2026-09-24: fixed a real bug the 2026-08-29 "verified inert" DescribeEndpoints
+                       # note got wrong -- EndpointDiscoveryRequired is unconditional per-operation in
+                       # aws-sdk-go-v2 (not skipped for a custom BaseEndpoint), so the hardcoded
+                       # "localhost" Address broke every real CreateDatabase/WriteRecords/etc. call
+                       # through a real client. See Notes.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -23,7 +27,7 @@ ops:
   ListTables: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler unconditionally required DatabaseName, but ListTablesInput marks no member required (api_op_ListTables.go, timestreamwrite@v1.38.4). Omitting DatabaseName now lists every table across every database (backend iterates b.tables directly instead of the per-database index); a prior test (TestHandler_ListTables_MissingDBName) asserted the wrong 400 and was corrected."}
   DeleteTable: {wire: ok, errors: ok, state: ok, persist: ok}
   WriteRecords: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (2026-09-04, gopherstack-8g5) — records with timestamps outside the memory-store retention window are now rejected via RejectedRecordsException when the table has no magnetic store write path (types/errors.go RejectedRecordsException doc: 'Records with timestamps that lie outside the retention duration of the memory store'); previously always accepted into the memory store regardless of age when EnableMagneticStoreWrites was unset/false. Also: CommonAttributes dimensions overlapping a record's own dimension names are now rejected with ValidationException instead of silently overridden (api_op_WriteRecords.go WriteRecordsInput.CommonAttributes doc: 'Dimensions may not overlap, or a ValidationException will be thrown'). Prior notes retained: negative Version rejected; RejectedRecords shape matches deserializers.go."}
-  DescribeEndpoints: {wire: partial, errors: ok, state: ok, persist: n/a, note: "returns a non-empty Endpoints list (satisfies SDK's hard requirement), but Address is hardcoded \"localhost\" instead of echoing the request Host like the sibling timestreamquery service does. Verified this is inert in practice: aws-sdk-go-v2's DiscoverEndpoint middleware skips the call entirely whenever EndpointSourceCustom is set (i.e. whenever a BaseEndpoint/AWS_ENDPOINT_URL is configured, which all gopherstack/LocalStack clients do), and even when not skipped it only overrides req.URL.Host if the returned host matches the partition's DNS suffix (*.amazonaws.com) — \"localhost\" never qualifies either way. Left unchanged; see gaps."}
+  DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (2026-09-24) — Address now echoes the request's own Host (with an http:// scheme) instead of a hardcoded \"localhost\". The prior note's premise was wrong: EndpointDiscoveryRequired is set unconditionally per-operation (api_op_CreateDatabase.go etc.), not skipped for a custom BaseEndpoint, so every real client call was routed to http://localhost/ (default port 80) and failed with connection refused. Threaded the request Host through ctxval into handleDescribeEndpoints; see timestreamwrite's mediaconvert-style precedent."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: partial, errors: partial, state: ok, persist: ok, note: "real API can return ResourceNotFoundException for an unknown ARN; backend silently no-ops. NOT changed — ListTagsForResource/UntagResource have no-error signatures and existing tests (TestInMemoryBackend_DeleteDatabase_CleansUpTags etc.) deliberately assert empty-not-error after a resource is deleted. Fixing would need a signature change (add error return) rippling through the interface and ~10 call sites for an ambiguous case (AWS's own DeleteDatabase doc says distributed retries may already return either ResourceNotFoundException or success — clients must treat them as equivalent). See gaps."}
   ListTagsForResource: {wire: ok, errors: partial, state: ok, persist: ok, note: "same ResourceNotFoundException gap as UntagResource, same rationale for not changing"}
@@ -41,7 +45,6 @@ items_still_open:
   - "UpdateDatabase does not enforce KmsKeyId as required (real UpdateDatabaseRequest marks it required) — not fixed, conflicts with an existing intentional test that uses empty string to clear the key (bd: file if desired)"
   - "UntagResource/ListTagsForResource never return ResourceNotFoundException for an unknown ARN (real API can) — not fixed, would require an interface signature change and conflicts with existing post-delete cleanup test assertions; AWS's own docs note the two outcomes are meant to be treated as equivalent for DeleteDatabase's ARN-cleanup race anyway (bd: file if desired)"
   - "CreateBatchLoadTask does not validate ReportConfiguration as required, and ClientToken is accepted but not used for idempotent dedup (bd: file if desired)"
-  - "DescribeEndpoints Address is hardcoded \"localhost\" instead of echoing the request Host (sibling timestreamquery does echo it); verified inert for normal custom-endpoint usage, but would matter for tooling that inspects the raw response instead of relying on SDK routing (bd: file if desired, low priority)"
   - "Table.Schema.CompositePartitionKey[].EnforcementInRecord=REQUIRED (2026-08-29 pass, write-only-state FORWARD direction): confirmed real and stored -- validated at CreateTable/UpdateTable time (validateSchemaPartitionKeys) and correctly echoed on Describe -- but never read back by WriteRecords, so a record missing a dimension a table's schema marks REQUIRED is silently accepted instead of rejected. types/types.go's PartitionKey.EnforcementInRecord doc comment ('REQUIRED (dimension key must be specified)') confirms this is meant to gate writes, matching this campaign's 'a dropped request field is a disabled validation until proven otherwise' rule (same class as emr's SessionEnabled/fsx's SourceSnapshotARN). NOT fixed this pass: RejectedRecord.Reason is undocumented free text for this specific cause (the pinned SDK's RejectedRecord doc comment lists duplicate-version, retention-window, and size-limit causes, but not a missing-partition-key case; unlike an error CODE, which must byte-match for a typed client to classify it, Reason's exact wording isn't independently verifiable against the pinned SDK source or docs from this environment) and it's unclear whether the real failure mode is a per-record RejectedRecord vs. a whole-request ValidationException -- implementing enforcement risks fabricating the wire shape rather than confirming it, which this campaign explicitly treats as worse than an honest gap. Flagged for a follow-up pass with live-AWS access to confirm the exact failure shape (bd: file if desired)."
 deferred: []
 reaudit_2026-08-20: >
@@ -114,6 +117,11 @@ reaudit_2026-07-23: >
 ---
 
 ## Notes
+
+### 2026-09-24 terraform-coverage sweep (mega-batch-51)
+
+DescribeEndpoints' Address was hardcoded "localhost"; fixed to echo the request Host --
+endpoint discovery is unconditionally required per-op, not skipped for a custom BaseEndpoint.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

@@ -13,9 +13,17 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// requestHostKey carries the incoming request's Host header so
+// handleDescribeEndpoints can echo back an address the AWS SDK's mandatory
+// endpoint-discovery middleware can actually reach (see handler_endpoints.go).
+//
+//nolint:gochecknoglobals // ctxval key, package-private by construction
+var requestHostKey = ctxval.NewKey[string]("timestreamwrite.requestHost")
 
 const (
 	targetPrefix    = "Timestream_20181101."
@@ -167,6 +175,8 @@ func (h *Handler) ExtractResource(_ *echo.Context) string { return "" }
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		c.SetRequest(c.Request().WithContext(requestHostKey.Set(c.Request().Context(), c.Request().Host)))
+
 		if service.IsCBORRequest(c.Request()) {
 			return h.handleCBOR(c)
 		}
