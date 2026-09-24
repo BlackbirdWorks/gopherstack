@@ -1,7 +1,17 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 1ba59adde  # 2026-09-24 25 new resource types added: IoT ThingType/
+last_audit_commit: 0af53d7f0  # 2026-09-24 28 new resource types added: IAM GroupPolicy/
+                               # RolePolicy/UserPolicy/ServerCertificate, ECR
+                               # PullThroughCacheRule/RegistryPolicy/RepositoryCreationTemplate,
+                               # ElastiCache ParameterGroup/SecurityGroup/GlobalReplicationGroup/
+                               # UserGroup, Neptune DBSubnetGroup/DBClusterParameterGroup/
+                               # DBParameterGroup/GlobalCluster, DocDB DBSubnetGroup/
+                               # DBClusterParameterGroup/GlobalCluster, Backup Framework/
+                               # ReportPlan, Glue Classifier/Registry/Schema/
+                               # SecurityConfiguration/DevEndpoint, CodeBuild ReportGroup,
+                               # Kinesis ResourcePolicy, Lambda ResourcePolicy (291 -> 319
+                               # supported types); prior: 1ba59adde  # 2026-09-24 25 new resource types added: IoT ThingType/
                                # ThingGroup/Policy/TopicRuleDestination/RoleAlias/Certificate/
                                # ProvisioningTemplate/Authorizer/DomainConfiguration/
                                # JobTemplate/Dimension/SecurityProfile/CustomMetric/
@@ -27,7 +37,7 @@ last_audit_commit: 1ba59adde  # 2026-09-24 25 new resource types added: IoT Thin
                                # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
                                # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
                                # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
-last_audit_date: 2026-09-24  # prior: 2026-09-24 (25-type IoT/RDS/SSM/CloudWatch/ApiGateway/CloudFront pass earlier same day)
+last_audit_date: 2026-09-24  # prior: 2026-09-24 (25-type IoT/Config pass earlier same day)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -164,6 +174,67 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) 28 new resource types: 291 -> 319 supported types
+
+Added AWS::IAM::{GroupPolicy,RolePolicy,UserPolicy,ServerCertificate} (4); AWS::ECR::
+{PullThroughCacheRule,RegistryPolicy,RepositoryCreationTemplate} (3); AWS::ElastiCache::
+{ParameterGroup,SecurityGroup,GlobalReplicationGroup,UserGroup} (4); AWS::Neptune::
+{DBSubnetGroup,DBClusterParameterGroup,DBParameterGroup,GlobalCluster} (4); AWS::DocDB::
+{DBSubnetGroup,DBClusterParameterGroup,GlobalCluster} (3); AWS::Backup::{Framework,ReportPlan}
+(2); AWS::Glue::{Classifier,Registry,Schema,SecurityConfiguration,DevEndpoint} (5); and
+AWS::CodeBuild::ReportGroup, AWS::Kinesis::ResourcePolicy, AWS::Lambda::ResourcePolicy (3) --
+28 types total, all against backends already wired into ServiceBackends (no provider.go/
+BackendsProvider changes needed). New files resources_iam_more.go, resources_ecr_more.go,
+resources_elasticache_more.go, resources_neptune_more.go, resources_docdb_more.go,
+resources_backup_more.go, resources_glue_more.go, resources_misc_more.go, plus the shared
+test helper resources_more_resources_test.go; resources.go grew two new dispatch layers
+(createMoreSupplementalResource/deleteMoreSupplementalResource and
+deleteMorePropsBasedResource) purely to keep createSupplementalResource/
+deleteSupplementalResource/deletePropsBasedResource under the cyclop/gocognit limits after
+adding 8 new resource-type groups -- no behavior change to the existing dispatch chain.
+
+Every Ref/Fn::GetAtt was checked against the CloudFormation Template Reference's "Return
+values" section for that exact type (curl + tag-stripped read), not assumed from a sibling
+type. Several are genuinely undocumented and are called out with the primary-identifier
+fallback used instead: AWS::ECR::PullThroughCacheRule has no "Return values" section at all
+(Ref returns EcrRepositoryPrefix); AWS::ECR::RegistryPolicy's section lists only
+Fn::GetAtt RegistryId with no Ref subsection (this backend models one policy per registry, so
+the registry ID is used as the primary identifier); AWS::Glue::Schema's section says
+"Return values Ref" with no elaborating text (the documented Fn::GetAtt Arn value, SchemaArn,
+is used); AWS::Glue::Registry's stated Ref text ("a combination of VersionId|Key|Value") does
+not match this resource's own properties at all and reads as a copy/paste error from another
+page (it is in fact AWS::Glue::SchemaVersionMetadata's real Ref shape) -- the registry name,
+this backend's own primary key, is used instead; AWS::Kinesis::ResourcePolicy's section says
+"Return values Ref" with no elaborating text (the target ResourceArn, this backend's own key,
+is used). AWS::ElastiCache::ParameterGroup and AWS::ElastiCache::SecurityGroup have no name
+property in their CFN schema at all (CloudFormation auto-generates one) -- both generate a
+name from the logical ID, matching this file's existing AWS::ElastiCache::UserGroup precedent
+in the pre-existing resources_extended.go. AWS::DocDB::GlobalCluster's documented
+GlobalClusterResourceId Fn::GetAtt attribute is left unresolved rather than fabricated: this
+backend's GlobalCluster struct has no such field (only GlobalClusterArn, which is stashed).
+
+Delete for AWS::IAM::GroupPolicy/RolePolicy/UserPolicy and AWS::Glue::Schema needs a sibling
+property (the owning group/role/user/registry name) not embedded in the Ref value, so all four
+are wired through the existing deletePropsBasedResource props-based-delete dispatcher (the
+same pattern AWS::Config::StoredQuery already used) rather than the physicalID-only path.
+AWS::Backup::Framework's Ref is the framework ARN but DeleteFramework is name-keyed, so delete
+extracts the name back out of the ARN, mirroring AWS::Backup::BackupVault's own precedent in
+the pre-existing resources_backup.go.
+
+Skipped (backend lacks the op, or the backend doesn't exist in this service's dependency
+graph): AWS::SageMaker::* and AWS::Athena::* (prioritized types from the task brief) --
+neither service backend is wired into CloudFormation's ServiceBackends/BackendsProvider at
+all, and wiring one in requires adding a Get<Service>Handler() method to the BackendsProvider
+interface AND implementing it in cli.go, which sits outside services/cloudformation/ and was
+out of scope for this change (cli.go is also being edited by another agent this session, per
+the task brief, making a concurrent edit there doubly unsafe). AWS::ECR::PublicRepository was
+considered but skipped: this backend's CreateRepository models private ECR only (a different
+AWS service/ARN namespace/attribute shape than ECR Public), and reusing it would misrepresent
+the resource rather than emulate it. AWS::WAFv2::WebACLAssociation and the AWS::MemoryDB::*
+family were left out only to keep this pass's scope bounded to the 20-30 range requested; both
+have real, already-wired backend ops (wafv2.AssociateWebACL/DisassociateWebACL,
+memorydb.Create/DeleteParameterGroup etc.) and are good candidates for a follow-up pass.
 
 ### 2026-09-24 (parity-sweep) 25 new resource types: 266 -> 291 supported types
 

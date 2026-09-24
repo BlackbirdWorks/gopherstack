@@ -1436,7 +1436,7 @@ func (rc *ResourceCreator) deletePropsBasedResource(
 	case resTypeConfigStoredQuery:
 		return true, rc.deleteConfigStoredQuery(props, stackPhysicalIDs)
 	default:
-		return false, nil
+		return rc.deleteMorePropsBasedResource(resourceType, props, stackPhysicalIDs)
 	}
 }
 
@@ -1985,6 +1985,60 @@ func (rc *ResourceCreator) createSupplementalResource(
 		return id, true, err
 	}
 
+	return rc.createMoreSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createMoreSupplementalResource is createSupplementalResource's overflow
+// table for resource type groups added after its own gocognit budget was
+// spent: IAM inline policies/certs, ECR, ElastiCache, Neptune, DocDB,
+// Backup, Glue, and the CodeBuild/Kinesis/Lambda misc group.
+func (rc *ResourceCreator) createMoreSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if id, ok, err := rc.createIAMMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createECRMoreResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createElastiCacheMoreResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createNeptuneMoreResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createDocDBMoreResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createBackupMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createGlueMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createMiscMoreResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
 	return "", false, nil
 }
 
@@ -2034,6 +2088,39 @@ func (rc *ResourceCreator) deleteSupplementalResource(
 		return true, err
 	}
 	if handled, err := rc.deleteAWSConfigResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deleteMoreSupplementalResource(ctx, resourceType, physicalID)
+}
+
+// deleteMoreSupplementalResource is deleteSupplementalResource's overflow
+// table, mirroring createMoreSupplementalResource.
+func (rc *ResourceCreator) deleteMoreSupplementalResource(
+	ctx context.Context, resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteIAMMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteECRMoreResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteElastiCacheMoreResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteNeptuneMoreResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteDocDBMoreResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteBackupMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteGlueMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteMiscMoreResource(ctx, resourceType, physicalID); handled {
 		return true, err
 	}
 
