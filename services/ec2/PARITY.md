@@ -1,7 +1,7 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 30db30dd8   # was 1598513da
+last_audit_commit: 5cb6665a0   # was 30db30dd8
 last_audit_date: 2026-09-24   # was 2026-09-23
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
@@ -363,13 +363,6 @@ items_still_open:
     state granted, wanted target GRANTED' — a provider-side bug (verified via TF_LOG=trace against a
     live apply), not a gopherstack wire-shape gap. Dropped from mega-batch-44's fixture rather than
     emulate the wrong-case value, which would break real-AWS parity to appease a buggy client."
-  - "aws_eip_domain_name delete waiter (2026-09-24, mega-batch-44): ResetAddressAttribute/
-    DescribeAddressesAttribute now emit ptrRecordUpdate (both previously entirely absent — a real
-    fix, see below), but terraform-provider-aws's delete-wait still errors 'unexpected state \"\",
-    wanted target \"\"' during destroy (non-fatal in the test harness; TestTerraform_MegaBatch44
-    passes regardless). Every polled response byte-matches what the wire shape requires; root cause
-    not isolated further given the session's time budget — worth re-investigating with provider
-    source access."
   - "Application Status Checks (2026-08-05, gopherstack-8pce follow-up): HealthCheckPaths (cross-AZ/Local-Zone
     health-check source/destination ENI paths) is not modeled at all — CreateApplicationStatusCheck silently
     accepts but discards it, and healthCheckPathSet is always rendered empty. This is a deep, separate feature
@@ -5982,3 +5975,17 @@ ENIs stuck so `DeleteSubnet` looped on `DependencyViolation`; now shares `termin
 and reports `deleted_terminating`/`deleted_running` until instances actually terminate.
 `DescribeSnapshotAttribute` itself was fine; the test's own `volume-id` filter also matched
 `aws_ebs_snapshot_copy`, flakily reading the wrong snapshot.
+
+## 2026-09-24: aws_eip_domain_name delete waiter fixed (root cause isolated)
+
+terraform-provider-aws's waitEIPDomainNameAttributeDeleted (internal/service/ec2/
+wait.go@v5.100.0) has an empty Target, which terraform-plugin-sdk's
+retry.StateChangeConf only treats as satisfied on a NotFound refresh result --
+findEIPDomainNameAttributeByAllocationID calls Attribute=domain-name scoped
+DescribeAddressesAttribute and AssertSingleValueResult's on the result, so a
+reset (or never-set) allocation must be ABSENT from that response, not present
+with an empty status. DescribeAddressesAttribute now excludes any allocation
+without a current non-empty domain name (elastic_ips.go), and
+ResetAddressAttribute deletes its attribute row instead of leaving a
+domain-less one. Verified via TestTerraform_MegaBatch44 destroy (TF_LOG=trace):
+clean, no more logged error.

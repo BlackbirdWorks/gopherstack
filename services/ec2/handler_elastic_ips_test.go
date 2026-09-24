@@ -26,21 +26,28 @@ func TestAddressAttribute(t *testing.T) { //nolint:paralleltest // existing issu
 	t.Run("reset clears domain name", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.ResetAddressAttribute(addr.AllocationID)
 		require.NoError(t, err)
+		// Real AWS's DescribeAddressesAttribute(Attribute=domain-name) returns
+		// no entry for an allocation with no domain name set -- matching
+		// aws_eip_domain_name's delete waiter, which needs this lookup to
+		// come back NotFound (see DescribeAddressesAttribute's doc comment).
 		attrs := b.DescribeAddressesAttribute([]string{addr.AllocationID})
-		require.Len(t, attrs, 1)
-		assert.Empty(t, attrs[0].DomainName)
-		assert.True(t, attrs[0].PtrRecordUpdated)
+		assert.Empty(t, attrs)
 	})
 }
 
-// TestResetAddressAttribute_HTTP_IncludesPtrRecordUpdate verifies the wire
-// response includes a ptrRecordUpdate element once
-// ModifyAddressAttribute/ResetAddressAttribute has run, with an empty
-// status -- terraform-provider-aws's aws_eip_domain_name create/delete
-// waiters poll for exactly that empty status, and an absent ptrRecordUpdate
-// element previously left the delete waiter polling forever ("waiting for
-// EC2 EIP Domain Name ... delete").
-func TestResetAddressAttribute_HTTP_IncludesPtrRecordUpdate(t *testing.T) {
+// TestResetAddressAttribute_HTTP_DomainNameLifecycle verifies the wire
+// shape at each stage of aws_eip_domain_name's lifecycle. After
+// ModifyAddressAttribute, DescribeAddressesAttribute includes a
+// ptrRecordUpdate element with no status -- terraform-provider-aws's create
+// waiter (waitEIPDomainNameAttributeUpdated) polls for exactly that empty
+// status. After ResetAddressAttribute, DescribeAddressesAttribute must
+// return NO item for the allocation at all: its delete waiter
+// (waitEIPDomainNameAttributeDeleted, internal/service/ec2/wait.go) has an
+// empty Target, which terraform-plugin-sdk's retry.StateChangeConf only
+// satisfies on a NotFound refresh result -- an item with an empty
+// PtrRecordUpdate.Status previously produced "unexpected state ”, wanted
+// target ”" instead of completing.
+func TestResetAddressAttribute_HTTP_DomainNameLifecycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -57,21 +64,28 @@ func TestResetAddressAttribute_HTTP_IncludesPtrRecordUpdate(t *testing.T) {
 	assert.Contains(t, modifyResp, "<ptrRecordUpdate>")
 	assert.NotContains(t, modifyResp, "<status>")
 
+	descAfterModify, err := ec2.ExportDispatch(h, url.Values{
+		"Action":         {"DescribeAddressesAttribute"},
+		"AllocationId.1": {addr.AllocationID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, descAfterModify, "<ptrRecordUpdate>")
+	assert.NotContains(t, descAfterModify, "<status>")
+
 	resetResp, err := ec2.ExportDispatch(h, url.Values{
 		"Action":       {"ResetAddressAttribute"},
 		"AllocationId": {addr.AllocationID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resetResp, "<ptrRecordUpdate>")
-	assert.NotContains(t, resetResp, "<status>")
+	assert.Contains(t, resetResp, addr.AllocationID)
 
-	descResp, err := ec2.ExportDispatch(h, url.Values{
+	descAfterReset, err := ec2.ExportDispatch(h, url.Values{
 		"Action":         {"DescribeAddressesAttribute"},
 		"AllocationId.1": {addr.AllocationID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, descResp, "<ptrRecordUpdate>")
-	assert.NotContains(t, descResp, "<status>")
+	assert.NotContains(t, descAfterReset, addr.AllocationID,
+		"a reset allocation must be absent from the response, not present with an empty status")
 }
 
 // ---- Instance ---- //nolint:godot // existing issue.

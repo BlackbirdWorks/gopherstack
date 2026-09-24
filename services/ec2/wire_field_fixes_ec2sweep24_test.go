@@ -32,6 +32,7 @@ package ec2_test
 //     DescribeMovingAddresses.
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -330,8 +331,18 @@ func TestDescribeAddressesAttribute_Pagination_RealClient(t *testing.T) {
 
 	_, client := newTestBackendAndClient(t)
 
-	for range ec2sweep24SeedCount {
-		_, err := client.AllocateAddress(t.Context(), &ec2sdk.AllocateAddressInput{})
+	// A domain-name must actually be set on each allocation: real AWS's
+	// DescribeAddressesAttribute only returns an entry for an allocation
+	// that currently carries the domain-name attribute (see
+	// services/ec2/elastic_ips.go's DescribeAddressesAttribute doc comment).
+	for i := range ec2sweep24SeedCount {
+		allocOut, err := client.AllocateAddress(t.Context(), &ec2sdk.AllocateAddressInput{})
+		require.NoError(t, err)
+
+		_, err = client.ModifyAddressAttribute(t.Context(), &ec2sdk.ModifyAddressAttributeInput{
+			AllocationId: allocOut.AllocationId,
+			DomainName:   aws.String(fmt.Sprintf("ec2sweep24-%d.example.com", i)),
+		})
 		require.NoError(t, err)
 	}
 

@@ -143,6 +143,17 @@ func (b *InMemoryBackend) DescribeAddresses(allocationIDs []string) []*Address {
 }
 
 // DescribeAddressesAttribute returns domain-name attributes for Elastic IPs.
+//
+// Real AWS scopes this by the requested Attribute (only "domain-name" is
+// modeled) and only returns an entry for allocations that currently carry
+// that attribute: terraform-provider-aws's findEIPDomainNameAttributeByAllocationID
+// (internal/service/ec2/find.go) calls tfresource.AssertSingleValueResult on
+// the result set and treats zero rows as NotFound. aws_eip_domain_name's
+// delete waiter (waitEIPDomainNameAttributeDeleted, internal/service/ec2/wait.go)
+// has an empty Target, which the SDK's retry.StateChangeConf only satisfies
+// on a nil (NotFound) refresh result -- so an allocation whose domain name
+// has been reset (or never set) must be excluded here, not returned with an
+// empty PtrRecord.
 func (b *InMemoryBackend) DescribeAddressesAttribute(allocationIDs []string) []AddressAttribute {
 	b.mu.RLock("DescribeAddressesAttribute")
 	defer b.mu.RUnlock()
@@ -157,15 +168,18 @@ func (b *InMemoryBackend) DescribeAddressesAttribute(allocationIDs []string) []A
 		if len(filter) > 0 && !filter[addr.AllocationID] {
 			continue
 		}
-		attr := AddressAttribute{
-			AllocationID: addr.AllocationID,
-			PublicIP:     addr.PublicIP,
+
+		stored, ok := b.addressAttributes.Get(addr.AllocationID)
+		if !ok || stored.DomainName == "" {
+			continue
 		}
-		if stored, ok := b.addressAttributes.Get(addr.AllocationID); ok {
-			attr.DomainName = stored.DomainName
-			attr.PtrRecordUpdated = stored.PtrRecordUpdated
-		}
-		out = append(out, attr)
+
+		out = append(out, AddressAttribute{
+			AllocationID:     addr.AllocationID,
+			PublicIP:         addr.PublicIP,
+			DomainName:       stored.DomainName,
+			PtrRecordUpdated: stored.PtrRecordUpdated,
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].AllocationID < out[j].AllocationID })
 
@@ -208,15 +222,14 @@ func (b *InMemoryBackend) ResetAddressAttribute(allocationID string) (*Address, 
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
-	// Keep a (domain-less) attribute record rather than deleting it outright:
-	// aws_eip_domain_name's create/delete waiters poll DescribeAddressesAttribute
-	// for an empty PtrRecordUpdate.Status, and an absent record left the wire
-	// response with no ptrRecordUpdate element at all.
-	b.addressAttributes.Put(&AddressAttribute{
-		AllocationID:     allocationID,
-		PublicIP:         addr.PublicIP,
-		PtrRecordUpdated: true,
-	})
+	// Delete the attribute record rather than leaving a domain-less one: real
+	// AWS's DescribeAddressesAttribute(Attribute=domain-name) only returns
+	// allocations that currently carry the attribute, and
+	// aws_eip_domain_name's delete waiter (waitEIPDomainNameAttributeDeleted,
+	// terraform-provider-aws internal/service/ec2/wait.go) needs that lookup
+	// to come back NotFound to complete -- see DescribeAddressesAttribute's
+	// doc comment.
+	b.addressAttributes.Delete(allocationID)
 
 	cp := *addr
 

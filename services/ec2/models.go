@@ -67,14 +67,10 @@ type AddressAttribute struct {
 	AllocationID string `json:"allocationID,omitempty"`
 	PublicIP     string `json:"publicIP,omitempty"`
 	DomainName   string `json:"domainName,omitempty"`
-	// PtrRecordUpdated is set once ModifyAddressAttribute/ResetAddressAttribute
-	// has run at least once for this allocation. Real AWS's PtrRecordUpdate.Status
-	// is a transient PENDING marker while the PTR change propagates and reads
-	// back empty ("") once applied; terraform-provider-aws's create/delete
-	// waiters for aws_eip_domain_name poll for exactly that empty status. This
-	// backend applies the change synchronously, so status is always empty --
-	// PtrRecordUpdated only controls whether the wire response's
-	// ptrRecordUpdate wrapper is present at all.
+	// PtrRecordUpdated controls whether the wire response's ptrRecordUpdate
+	// wrapper is present. This backend applies PTR changes synchronously, so
+	// PtrRecordUpdate.Status is always empty (the settled value
+	// terraform-provider-aws's aws_eip_domain_name create waiter polls for).
 	PtrRecordUpdated bool `json:"ptrRecordUpdated,omitempty"`
 }
 

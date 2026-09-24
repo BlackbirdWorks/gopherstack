@@ -96,18 +96,14 @@ type resetAddressAttributeResponse struct {
 func (h *Handler) handleResetAddressAttribute(vals url.Values, reqID string) (any, error) {
 	allocationID := vals.Get("AllocationId")
 
-	if _, err := h.Backend.ResetAddressAttribute(allocationID); err != nil {
+	addr, err := h.Backend.ResetAddressAttribute(allocationID)
+	if err != nil {
 		return nil, err
-	}
-
-	address := addressAttributeItem{AllocationID: allocationID}
-	if attrs := h.Backend.DescribeAddressesAttribute([]string{allocationID}); len(attrs) == 1 {
-		address = toAddressAttributeItem(attrs[0])
 	}
 
 	return &resetAddressAttributeResponse{
 		RequestID: reqID,
-		Address:   address,
+		Address:   addressAttributeItem{AllocationID: addr.AllocationID, PublicIP: addr.PublicIP},
 	}, nil
 }
 
