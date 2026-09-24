@@ -1,6 +1,6 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
-last_audit_commit: 5c20d9fd7
+last_audit_commit: 5cb6665a0  # 2026-09-24 input-security-group/multiplex delete soft-delete fix; prior: 5c20d9fd7
 last_audit_date: 2026-09-24
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
@@ -1690,3 +1690,16 @@ Gates: `go build ./...`, `go vet ./services/medialive/...`, `go test -race
 --new-from-rev=HEAD ./services/medialive/...` (0 issues). No backend
 struct fields changed, no `pkgs/persistence` impact, no version bump.
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-24: DeleteInputSecurityGroup/DeleteMultiplex soft-delete (destroy-waiter fix)
+
+Both ops hard-removed their row, so terraform-provider-aws's delete waiters
+(waitInputSecurityGroupDeleted, waitMultiplexDeleted -- both Pending: [],
+Target: [that resource's real DELETED enum value], no custom NotFoundChecks)
+treated the resulting NotFound as transient and errored after polling instead
+of completing: those waiters need the resource to keep describing as
+State=="DELETED", not disappear. Both now flip State to DELETED in place and
+keep the row (DeleteMultiplex previously did both: set State=DELETED, then
+immediately deleted the row anyway). Verified via
+TestTerraform_MegaBatch49 destroy (TF_LOG=trace): both resources destroy
+clean now, no more logged errors.

@@ -78,7 +78,12 @@ func (b *InMemoryBackend) UpdateMultiplex(
 	return m.toMultiplex(), nil
 }
 
-// DeleteMultiplex deletes a Multiplex.
+// DeleteMultiplex marks a Multiplex DELETED rather than removing it
+// outright: terraform-provider-aws's delete waiter (waitMultiplexDeleted,
+// internal/service/medialive/multiplex.go) polls DescribeMultiplex for
+// State=="DELETED" with a non-empty Target, so a NotFound response here is
+// treated as transient and retried rather than as the completion signal --
+// an outright removal left the waiter erroring instead of completing.
 func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error) {
 	b.mu.Lock("DeleteMultiplex")
 	defer b.mu.Unlock()
@@ -93,7 +98,6 @@ func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error
 	}
 
 	m.State = stateDeleted
-	b.multiplexes.Delete(multiplexID)
 
 	return m.toMultiplex(), nil
 }

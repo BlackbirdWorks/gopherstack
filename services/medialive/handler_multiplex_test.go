@@ -127,14 +127,20 @@ func TestMultiplex_CRUD(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Len(t, listResp["multiplexes"], 1)
 
-	// Delete
+	// Delete: real AWS's DeleteMultiplex marks the multiplex DELETED rather
+	// than removing it outright -- terraform-provider-aws's delete waiter
+	// (waitMultiplexDeleted) polls DescribeMultiplex for State=="DELETED",
+	// not for NotFound.
 	rec = doRequest(t, h, http.MethodDelete, "/prod/multiplexes/"+multiplexID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, medialive.MultiplexCount(h.Backend.(*medialive.InMemoryBackend)))
+	assert.Equal(t, 1, medialive.MultiplexCount(h.Backend.(*medialive.InMemoryBackend)))
 
-	// Describe deleted returns 404
+	// Describe still finds it, now DELETED.
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+multiplexID, nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var describeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+	assert.Equal(t, "DELETED", describeResp["state"])
 }
 
 func TestMultiplex_StartStop(t *testing.T) {

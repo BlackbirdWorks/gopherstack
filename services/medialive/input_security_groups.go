@@ -68,16 +68,23 @@ func (b *InMemoryBackend) UpdateInputSecurityGroup(
 	return g.toGroup(), nil
 }
 
-// DeleteInputSecurityGroup deletes an input security group.
+// DeleteInputSecurityGroup marks an input security group DELETED rather
+// than removing it outright: terraform-provider-aws's delete waiter
+// (waitInputSecurityGroupDeleted, internal/service/medialive/input_security_group.go)
+// polls DescribeInputSecurityGroup for State=="DELETED" with a non-empty
+// Target, so a NotFound response here is treated as transient and retried
+// rather than as the completion signal -- an outright removal left the
+// waiter erroring "couldn't find resource" instead of completing.
 func (b *InMemoryBackend) DeleteInputSecurityGroup(groupID string) error {
 	b.mu.Lock("DeleteInputSecurityGroup")
 	defer b.mu.Unlock()
 
-	if !b.inputSecurityGroups.Has(groupID) {
+	g, ok := b.inputSecurityGroups.Get(groupID)
+	if !ok {
 		return fmt.Errorf("%w: inputSecurityGroup %s not found", ErrNotFound, groupID)
 	}
 
-	b.inputSecurityGroups.Delete(groupID)
+	g.State = stateDeleted
 
 	return nil
 }
