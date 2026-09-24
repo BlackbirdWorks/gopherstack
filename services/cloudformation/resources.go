@@ -445,6 +445,14 @@ func (rc *ResourceCreator) createPlatformResources(
 		)
 
 		return physID, true, err
+	case "AWS::StepFunctions::StateMachineVersion":
+		physID, err := rc.createSFNStateMachineVersion(props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::StepFunctions::StateMachineAlias":
+		physID, err := rc.createSFNStateMachineAlias(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case resTypeLogGroup:
 		physID, err := rc.createCloudWatchLogGroup(ctx, logicalID, props, params, physicalIDs)
 
@@ -660,6 +668,9 @@ func (rc *ResourceCreator) createDataPlatformResource(
 	case "AWS::Kinesis::Stream":
 
 		return rc.createKinesisStream(ctx, logicalID, props, params, physicalIDs)
+	case resTypeKinesisStreamConsumer:
+
+		return rc.createKinesisStreamConsumer(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::CloudWatch::Alarm":
 
 		return rc.createCloudWatchAlarm(logicalID, props, params, physicalIDs)
@@ -839,6 +850,22 @@ func (rc *ResourceCreator) createContainerResource(
 		physID, err := rc.createECSService(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
+	case "AWS::ECS::CapacityProvider":
+		physID, err := rc.createECSCapacityProvider(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ECS::ClusterCapacityProviderAssociations":
+		physID, err := rc.createECSClusterCapacityProviderAssociations(props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeECSTaskSet:
+		physID, err := rc.createECSTaskSet(props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ECS::PrimaryTaskSet":
+		physID, err := rc.createECSPrimaryTaskSet(props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::ECR::Repository":
 		physID, err := rc.createECRRepository(ctx, logicalID, props, params, physicalIDs)
 
@@ -893,7 +920,10 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 		physID, err := rc.createOpenSearchDomain(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::Firehose::DeliveryStream":
+	case resTypeFirehoseDeliveryStream, resTypeFirehoseDeliveryStreamAlias:
+		// AWS::KinesisFirehose::DeliveryStream is the real CFN type name (the CFN
+		// spec has no "AWS::Firehose::DeliveryStream"); the old name is kept as an
+		// alias since existing tests/templates in this repo use it.
 		physID, err := rc.createFirehoseDeliveryStream(
 			ctx,
 			logicalID,
@@ -978,6 +1008,26 @@ func (rc *ResourceCreator) createPhase3InfraResource(
 		return physID, true, err
 	case "AWS::EKS::Nodegroup":
 		physID, err := rc.createEKSNodegroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEKSFargateProfile:
+		physID, err := rc.createEKSFargateProfile(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEKSAddon:
+		physID, err := rc.createEKSAddon(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEKSAccessEntry:
+		physID, err := rc.createEKSAccessEntry(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEKSPodIdentityAssociation:
+		physID, err := rc.createEKSPodIdentityAssociation(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEKSIdentityProviderConfig:
+		physID, err := rc.createEKSIdentityProviderConfig(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::EFS::FileSystem":
@@ -1308,6 +1358,16 @@ func (rc *ResourceCreator) Delete(
 		return rc.deleteSDInstance(props, stackPhysicalIDs, physicalID)
 	}
 
+	// AWS::EKS::AccessEntry's Ref is PrincipalArn and
+	// AWS::EKS::PodIdentityAssociation's Ref is the association ID -- neither
+	// embeds ClusterName, so both need props the same way.
+	switch resourceType {
+	case resTypeEKSAccessEntry:
+		return rc.deleteEKSAccessEntry(props, stackPhysicalIDs, physicalID)
+	case resTypeEKSPodIdentityAssociation:
+		return rc.deleteEKSPodIdentityAssociation(props, stackPhysicalIDs, physicalID)
+	}
+
 	if handled, err := rc.deleteCoreResource(ctx, resourceType, physicalID); handled {
 		return err
 	}
@@ -1413,6 +1473,12 @@ func (rc *ResourceCreator) deletePlatformResource(
 	case resTypeStepFunctionsStateMachine:
 
 		return true, rc.deleteStepFunctionsStateMachine(ctx, physicalID)
+	case "AWS::StepFunctions::StateMachineVersion":
+
+		return true, rc.deleteSFNStateMachineVersion(physicalID)
+	case "AWS::StepFunctions::StateMachineAlias":
+
+		return true, rc.deleteSFNStateMachineAlias(physicalID)
 	case resTypeLogGroup:
 
 		return true, rc.deleteCloudWatchLogGroup(ctx, physicalID)
@@ -1586,10 +1652,11 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 	resourceType, physicalID string,
 	props map[string]any,
 ) error {
-	switch resourceType {
-	case "AWS::Kinesis::Stream":
+	if handled, err := rc.deleteKinesisFamilyResource(ctx, resourceType, physicalID); handled {
+		return err
+	}
 
-		return rc.deleteKinesisStream(ctx, physicalID)
+	switch resourceType {
 	case "AWS::CloudWatch::Alarm", "AWS::CloudWatch::CompositeAlarm":
 
 		return rc.deleteCloudWatchAlarm(physicalID)
@@ -1694,6 +1761,29 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 	case "AWS::OpenSearch::Domain":
 
 		return true, rc.deleteOpenSearchDomain(physicalID)
+	}
+
+	return rc.deleteECSDeploymentResource(resourceType, physicalID)
+}
+
+// deleteECSDeploymentResource handles AWS::ECS::CapacityProvider,
+// ClusterCapacityProviderAssociations, TaskSet, and PrimaryTaskSet deletions
+// (split out of deleteComputeStorageResource to keep its cyclomatic complexity down).
+func (rc *ResourceCreator) deleteECSDeploymentResource(resourceType, physicalID string) (bool, error) {
+	switch resourceType {
+	case "AWS::ECS::CapacityProvider":
+
+		return true, rc.deleteECSCapacityProvider(physicalID)
+	case "AWS::ECS::ClusterCapacityProviderAssociations":
+
+		return true, rc.deleteECSClusterCapacityProviderAssociations(physicalID)
+	case resTypeECSTaskSet:
+
+		return true, rc.deleteECSTaskSet(physicalID)
+	case "AWS::ECS::PrimaryTaskSet":
+		// No independent lifecycle to tear down: it only points at a task
+		// set the sibling AWS::ECS::TaskSet resource already owns deletion of.
+		return true, nil
 	default:
 
 		return false, nil
@@ -1704,7 +1794,7 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 // Cognito, extended EC2, and phase-3 data/managed service resource deletions.
 func (rc *ResourceCreator) deleteAppNetworkResource(ctx context.Context, physicalID, resourceType string) error {
 	switch resourceType {
-	case "AWS::Firehose::DeliveryStream":
+	case resTypeFirehoseDeliveryStream, resTypeFirehoseDeliveryStreamAlias:
 
 		return rc.deleteFirehoseDeliveryStream(ctx, physicalID)
 	case "AWS::Route53Resolver::ResolverEndpoint":
@@ -1860,6 +1950,12 @@ func (rc *ResourceCreator) deleteContainerPlatformResource(
 		return true, rc.deleteEKSCluster(physicalID)
 	case "AWS::EKS::Nodegroup":
 		return true, rc.deleteEKSNodegroup(physicalID)
+	case resTypeEKSFargateProfile:
+		return true, rc.deleteEKSFargateProfile(physicalID)
+	case resTypeEKSAddon:
+		return true, rc.deleteEKSAddon(physicalID)
+	case resTypeEKSIdentityProviderConfig:
+		return true, rc.deleteEKSIdentityProviderConfig(physicalID)
 	case "AWS::EFS::FileSystem":
 		return true, rc.deleteEFSFileSystem(ctx, physicalID)
 	case "AWS::EFS::MountTarget":

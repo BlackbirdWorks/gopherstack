@@ -1434,6 +1434,19 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 		}
 	}
 
+	// EKS FargateProfile/Addon/AccessEntry/PodIdentityAssociation/IdentityProviderConfig
+	// ARNs (and PodIdentityAssociation's ExternalId) embed a backend-generated ID
+	// getResourceAttribute can't derive purely from physID -- stashed at create time,
+	// see createEKSFargateProfile et al.
+	if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+		switch resType {
+		case resTypeEKSFargateProfile, resTypeEKSAddon, resTypeEKSAccessEntry,
+			resTypeEKSPodIdentityAssociation, resTypeEKSIdentityProviderConfig,
+			resTypeKinesisStreamConsumer:
+			return v
+		}
+	}
+
 	return getResourceAttribute(resType, physID, attrName, ctx.accountID, ctx.region)
 }
 

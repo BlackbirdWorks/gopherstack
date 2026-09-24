@@ -45,11 +45,42 @@ func getExtraResourceAttribute(resType, physID, attrName, accountID, region stri
 		return physID, true
 	}
 
+	if v, ok := getStreamingResourceAttribute(resType, physID, attrName, accountID, region); ok {
+		return v, true
+	}
+
 	if v, ok := getServiceDiscoveryAttribute(resType, physID, attrName, accountID, region); ok {
 		return v, true
 	}
 
 	return getManagedTypesAttribute(resType, physID, attrName, accountID, region)
+}
+
+// getStreamingResourceAttribute derives Fn::GetAtt attribute values for
+// Kinesis/Firehose/ECS TaskSet types (split out of getExtraResourceAttribute
+// to keep its cyclomatic complexity down).
+func getStreamingResourceAttribute(resType, physID, attrName, accountID, region string) (string, bool) {
+	switch resType {
+	case resTypeKinesisStreamConsumer:
+		return kinesisStreamConsumerAttribute(physID, attrName), true
+	case resTypeFirehoseDeliveryStream, resTypeFirehoseDeliveryStreamAlias:
+		if attrName == attrNameArn {
+			return arn.Build("firehose", region, accountID, "deliverystream/"+physID), true
+		}
+
+		return physID, true
+	case resTypeECSTaskSet:
+		if attrName == "Id" {
+			if _, _, id, ok := taskSetInfoFromARN(physID); ok {
+				return id, true
+			}
+		}
+
+		return physID, true
+	default:
+
+		return "", false
+	}
 }
 
 // getServiceDiscoveryAttribute derives Fn::GetAtt attribute values for
@@ -101,6 +132,36 @@ func getManagedTypesAttribute(resType, physID, attrName, accountID, region strin
 	}
 
 	return "", false
+}
+
+// kinesisStreamConsumerAttribute derives StreamARN/ConsumerName from a consumer
+// ARN of the form "<streamARN>/consumer/<name>:<timestamp>" -- ConsumerARN
+// (the physID/Ref value) already covers the Arn-shaped attrs.
+func kinesisStreamConsumerAttribute(physID, attrName string) string {
+	const marker = "/consumer/"
+
+	idx := strings.LastIndex(physID, marker)
+	if idx < 0 {
+		return physID
+	}
+
+	switch attrName {
+	case "StreamARN":
+		return physID[:idx]
+	case "ConsumerName":
+		name := physID[idx+len(marker):]
+		if colon := strings.LastIndex(name, ":"); colon >= 0 {
+			return name[:colon]
+		}
+
+		return name
+	case "ConsumerStatus":
+		// RegisterStreamConsumer's in-memory model activates consumers
+		// synchronously -- no CREATING transition exists to observe.
+		return "ACTIVE"
+	default:
+		return physID
+	}
 }
 
 // arnResourceTail returns the final colon-delimited segment of an ARN (the resource name).

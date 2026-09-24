@@ -1,14 +1,13 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 05eeb3af7  # 2026-09-24 20 new resource types added (CodeDeploy
-                               # Application/DeploymentConfig/DeploymentGroup; EC2 DHCPOptions,
-                               # VPCDHCPOptionsAssociation, EIPAssociation, EgressOnlyInternetGateway,
-                               # CustomerGateway, CarrierGateway, InstanceConnectEndpoint, ClientVpn
-                               # Endpoint/TargetNetworkAssociation/AuthorizationRule/Route, IPAM/
-                               # IPAMScope/IPAMPool/IPAMPoolCidr, CapacityReservation, Host);
-                               # prior: e13b41148
-last_audit_date: 2026-09-24  # prior: 2026-09-24 (16-type pass earlier same day)
+last_audit_commit: 6279d75f6  # 2026-09-24 13 new resource types added (EKS FargateProfile/
+                               # Addon/AccessEntry/PodIdentityAssociation/IdentityProviderConfig,
+                               # StepFunctions StateMachineVersion/StateMachineAlias, Kinesis
+                               # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
+                               # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
+                               # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
+last_audit_date: 2026-09-24  # prior: 2026-09-24 (20-type pass earlier same day)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -145,6 +144,28 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) 13 new resource types: 228 -> 241 supported types
+
+Added AWS::EKS::{FargateProfile,Addon,AccessEntry,PodIdentityAssociation,IdentityProviderConfig},
+AWS::StepFunctions::{StateMachineVersion,StateMachineAlias}, AWS::Kinesis::StreamConsumer, and
+AWS::ECS::{CapacityProvider,ClusterCapacityProviderAssociations,TaskSet,PrimaryTaskSet}, each
+backed by a real service call with Ref/GetAtt verified against the CloudFormation docs (see
+resources_eks.go, resources_stepfunctions.go, resources_kinesis_more.go, resources_ecs_more.go).
+Fixed a real bug found along the way: `AWS::Firehose::DeliveryStream` isn't a real CFN type name
+(the CFN spec only has `AWS::KinesisFirehose::DeliveryStream`) and its Ref returned the delivery
+stream ARN instead of the documented stream name; now the real type name is supported (old name
+kept as an alias for existing tests/templates), Ref returns the name, and Arn is a proper GetAtt
+attribute (resources_firehose.go, resources_getatt.go). Skipped for this pass (budget): RDS
+{OptionGroup,EventSubscription,GlobalCluster,DBProxyEndpoint,DBProxyTargetGroup}, Cognito
+UserPool{ResourceServer,IdentityProvider,User,UserToGroupAttachment,RiskConfigurationAttachment,
+UICustomizationAttachment}, SSM {MaintenanceWindowTarget,MaintenanceWindowTask,PatchBaseline,
+ResourceDataSync,ResourcePolicy}, CloudWatch {MetricStream,AnomalyDetector,InsightRule},
+ApiGateway {VpcLink,ClientCertificate,DocumentationPart,DocumentationVersion}, CloudFront
+{OriginRequestPolicy,KeyGroup,PublicKey,CloudFrontOriginAccessIdentity,RealtimeLogConfig,
+KeyValueStore,MonitoringSubscription,ContinuousDeploymentPolicy}, and the AWS::Config::* family
+(would need AWSConfig wired into ServiceBackends first) -- all have real backend support to build
+on, none were started.
 
 ### 2026-09-24 (parity-sweep) 20 new resource types: 220 -> 240 supported types
 
