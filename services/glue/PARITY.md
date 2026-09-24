@@ -196,6 +196,15 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
 
 ## Notes
 
+### 2026-09-24 unbounded-growth sweep: job run and crawl history never pruned
+
+b.jobRuns[jobName] and b.crawlHistory[crawlerName] grew without bound --
+every StartJobRun/StartCrawler call appended, nothing ever evicted. AWS Glue
+documents job run and crawler run history as retained for 90 days; added
+pruneOldJobRunsLocked (jobs.go) and pruneOldCrawlHistoryLocked (crawlers.go),
+both run lazily on the next StartJobRun/StartCrawler call for the affected
+job/crawler. See janitor_run_history_test.go.
+
 ### 2026-09-19: terraform mega-batch-20 coverage (registry/schema ARN identity + tags)
 
 Real terraform apply of registry, schema, ml_transform, table_optimizer,

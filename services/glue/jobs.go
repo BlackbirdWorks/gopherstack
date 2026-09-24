@@ -412,6 +412,7 @@ func (b *InMemoryBackend) StartJobRunWithOptions(
 		NotificationProperty:  ov.notification,
 		SecurityConfiguration: opts.SecurityConfiguration,
 	}
+	b.pruneOldJobRunsLocked(jobName, now)
 	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)
 
 	// Schedule STARTING→RUNNING→SUCCEEDED transitions.
@@ -463,6 +464,39 @@ func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
 	}
 
 	return nil, ErrNotFound
+}
+
+// pruneOldJobRunsLocked evicts terminal job runs older than runHistoryRetention
+// from b.jobRuns[jobName], preventing unbounded growth from repeated StartJobRun
+// calls. Must be called with b.mu held (write).
+func (b *InMemoryBackend) pruneOldJobRunsLocked(jobName string, now time.Time) {
+	runs := b.jobRuns[jobName]
+	if len(runs) == 0 {
+		return
+	}
+
+	cutoff := float64(now.Add(-runHistoryRetention).Unix())
+
+	kept := runs[:0]
+	for _, run := range runs {
+		if isTerminalJobRunState(run.JobRunState) && run.CompletedOn > 0 && run.CompletedOn < cutoff {
+			continue
+		}
+
+		kept = append(kept, run)
+	}
+
+	b.jobRuns[jobName] = kept
+}
+
+// isTerminalJobRunState reports whether state is a terminal JobRun state.
+func isTerminalJobRunState(state string) bool {
+	switch state {
+	case stateSucceeded, stateFailed, stateStopped, stateTimeout, stateError:
+		return true
+	default:
+		return false
+	}
 }
 
 // GetJobRuns returns all runs for a job.

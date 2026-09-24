@@ -435,6 +435,7 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 	c.LastUpdated = float64(now.Unix())
 
 	b.crawlerReadyAt[name] = now.Add(crawlerTransitionDelay)
+	b.pruneOldCrawlHistoryLocked(name, now)
 	b.crawlHistory[name] = append(b.crawlHistory[name], &CrawlHistoryEntry{
 		CrawlID:   "cr-" + uuid.NewString()[:8],
 		State:     "RUNNING",
@@ -542,6 +543,29 @@ func (b *InMemoryBackend) finishCrawlHistoryLocked(name, state string, tablesCre
 			tablesCreated,
 		)
 	}
+}
+
+// pruneOldCrawlHistoryLocked evicts finished crawl-history entries older than
+// runHistoryRetention from b.crawlHistory[name], preventing unbounded growth
+// from repeated StartCrawler calls. Must be called with b.mu held (write).
+func (b *InMemoryBackend) pruneOldCrawlHistoryLocked(name string, now time.Time) {
+	hist := b.crawlHistory[name]
+	if len(hist) == 0 {
+		return
+	}
+
+	cutoff := float64(now.Add(-runHistoryRetention).Unix())
+
+	kept := hist[:0]
+	for _, entry := range hist {
+		if entry.EndTime > 0 && entry.EndTime < cutoff {
+			continue
+		}
+
+		kept = append(kept, entry)
+	}
+
+	b.crawlHistory[name] = kept
 }
 
 // ListCrawls returns the crawl history for a crawler, newest first.
