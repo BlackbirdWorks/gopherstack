@@ -744,7 +744,11 @@ func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix())
 }
 
-const ramMaxResults = 100
+// ramMaxResults is RAM's documented MaxResults ceiling (e.g. ListResources'
+// MaxResults doc comment/API reference: "Valid Range: Minimum value of 1.
+// Maximum value of 500."), shared by every RAM list operation that pages
+// through ramPaginate.
+const ramMaxResults = 500
 
 // ramParseNextToken decodes an opaque NextToken string to a slice start index.
 // Tokens are base64-encoded offsets; a plain-integer fallback handles any

@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
-last_audit_commit: b1905140e                    # HEAD when this manifest was written
-last_audit_date: 2026-09-18
+last_audit_commit: 5c20d9fd7
+last_audit_date: 2026-09-24
 # 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
 # a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
 # ops whose Input/Output declare NextToken. Found genuinely clean: all 12 real paginated ops
@@ -104,6 +104,8 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore; versioned backendSnapshot (ramSnapshotVersion) with store.Registry-backed tables for resourceShares/permissions/invitations/replaceWorks plus raw sharePermissions/associations fields. The new replaceWorks table (ReplacePermissionAssociations work items) is registered like the other three 'clean' tables (identity-carrying ID field) and round-trips through the existing registry.SnapshotAll/RestoreAll machinery with no bespoke persistence.go changes needed. Confirmed via existing persistence_test.go coverage (unchanged, still green) -- did not add a dedicated persistence round-trip test for replaceWorks specifically since it's exercised through the same generic registry path as every other store.Table."}
 gaps: []
 items_still_open:
+  - "aws_ram_sharing_with_organization (mega-batch-49, 2026-09-24): terraform-provider-aws's Read performs a real cross-service IAM GetRole lookup for the RAM service-linked role (AWSServiceRoleForResourceAccessManager), which real AWS creates as a side effect of enabling org sharing. This backend's EnableSharingWithAwsOrganization is a pure ack (see ops table) and doesn't wire into the IAM backend to seed that role, so the resource's apply fails with 'reading IAM Role (AWSServiceRoleForResourceAccessManager): couldn't find resource'. Fixable via the same siblingServices cross-service pattern services/grafana/cross_service.go already uses to reach the IAM backend; left out of mega-batch-49's fixture, not attempted this pass (time-boxed)."
+  - "FIXED (mega-batch-48/49, 2026-09-24): ramMaxResults was hardcoded to 100 for every paginated list op sharing ramPaginate; real ListResources (and siblings) document 'Valid Range: Minimum value of 1. Maximum value of 500.' A real client sending MaxResults:500 (e.g. terraform-provider-aws's aws_ram_resource_share_accepter, which always requests 500) 400'd with InvalidParameterException. Bumped to 500."
   - "gopherstack-kvyy (2026-09-11): Glue's PutResourcePolicy(EnableHybrid=TRUE) with any cross-account Principal.AWS grant is treated as the trigger for creating a RAM CREATED_FROM_POLICY resource share. Real AWS documents CREATED_FROM_POLICY generically as 'when you attach a resource-based policy to a resource', and the Glue/Lake-Formation-specific path is actually mediated by Lake Formation's own cross-account grant flow, not a literal 'any cross-account Glue policy triggers a RAM share' rule -- disclosed as broader than real Lake-Formation-mediated Glue sharing since Glue has no other concrete, emulatable wire path to the general mechanism. Revisit if a narrower, Lake-Formation-grant-shaped trigger becomes emulatable."
   - "gopherstack-kvyy (2026-09-11): PromoteResourceShareCreatedFromPolicy's UnmatchedPolicyPermissionException is not modeled -- it requires simulating 'no existing customer-managed permission exactly matches' the derived policy-based permission, out of scope for this pass."
 deferred:
@@ -856,3 +858,11 @@ Gates: `go build ./...` clean (whole module). `go vet ./services/ram/...` clean.
 `golangci-lint run --new-from-rev=HEAD ./services/ram/...` 0 issues. No persisted struct
 fields added -- no `snapshot_inventory.json` change, no version bump. `items_still_open`
 unchanged (no listed gap was touched by this pass).
+
+## 2026-09-24 (mega-batch-48/49): ramMaxResults 100 -> 500
+
+`ramPaginate`'s shared MaxResults ceiling was capping every list op at 100;
+`ListResources`'s API reference documents a valid range up to 500, and
+terraform-provider-aws's `aws_ram_resource_share_accepter` sends exactly that,
+400'ing against the old cap. See `items_still_open` for the full note and the
+`aws_ram_sharing_with_organization` gap left out this pass.
