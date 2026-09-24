@@ -113,6 +113,58 @@ func TestTGWConnect(t *testing.T) { //nolint:paralleltest // existing issue.
 	)
 }
 
+// TestTGWConnectPeer_TransitGatewayAddressFallback verifies TransitGatewayAddress falls back to the
+// first host address of InsideCidrBlocks when the transit gateway has no TransitGatewayCidrBlocks.
+func TestTGWConnectPeer_TransitGatewayAddressFallback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                    string
+		explicitAddress         string
+		tgwCidrBlocks           []string
+		insideCidrBlocks        []string
+		wantTransitGatewayEmpty bool
+	}{
+		{
+			name:             "no_tgw_cidr_falls_back_to_inside_cidr",
+			insideCidrBlocks: []string{"169.254.100.0/29"},
+		},
+		{
+			name:             "explicit_address_wins",
+			explicitAddress:  "169.254.50.1",
+			insideCidrBlocks: []string{"169.254.100.0/29"},
+		},
+		{
+			name:                    "no_tgw_cidr_no_inside_cidr_stays_empty",
+			wantTransitGatewayEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			conn, err := b.CreateTransitGatewayConnect("tgw-attach-transport-"+tt.name, "tgw-"+tt.name)
+			require.NoError(t, err)
+
+			peer, err := b.CreateTransitGatewayConnectPeer(
+				conn.TransitGatewayAttachmentID, "1.2.3.4", tt.explicitAddress, tt.insideCidrBlocks,
+			)
+			require.NoError(t, err)
+
+			switch {
+			case tt.explicitAddress != "":
+				assert.Equal(t, tt.explicitAddress, peer.TransitGatewayAddress)
+			case tt.wantTransitGatewayEmpty:
+				assert.Empty(t, peer.TransitGatewayAddress)
+			default:
+				assert.Equal(t, "169.254.100.1", peer.TransitGatewayAddress)
+			}
+		})
+	}
+}
+
 // ---- TransitGatewayPrefixListReference ----.
 
 // ---- TransitGatewayPrefixListReference ----.

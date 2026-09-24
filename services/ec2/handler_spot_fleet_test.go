@@ -149,6 +149,25 @@ func TestHandlerDescribeSpotFleetRequests_AfterCreate(t *testing.T) {
 	)
 }
 
+// TestHandlerDescribeSpotFleetRequests_SpotPriceAlwaysPresent verifies <spotPrice> is always present:
+// terraform's hashLaunchSpecification (ec2_spot_fleet_request.go:2088) type-asserts it with no ok-check.
+func TestHandlerDescribeSpotFleetRequests_SpotPriceAlwaysPresent(t *testing.T) {
+	t.Parallel()
+	h := newEC2SpotFleetHandler()
+
+	createRec := spotFleetForm(t, h, minimalSpotFleetForm())
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	vals := url.Values{}
+	vals.Set("Version", "2016-11-15")
+	vals.Set("Action", "DescribeSpotFleetRequests")
+
+	rec := spotFleetForm(t, h, vals.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<spotPrice></spotPrice>",
+		"spotPrice must be present (even empty) or the real SDK client nil-panics decoding it into a map")
+}
+
 // ---- CancelSpotFleetRequests ----
 
 func TestHandlerCancelSpotFleetRequests(t *testing.T) {

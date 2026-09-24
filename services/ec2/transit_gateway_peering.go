@@ -204,6 +204,11 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 	if transitGatewayAddress == "" {
 		transitGatewayAddress = b.firstTGWCidrHostAddressLocked(conn.TransitGatewayID)
 	}
+	if transitGatewayAddress == "" && len(insideCidrBlocks) > 0 {
+		// Real Connect peers auto-assign the GRE tunnel endpoint from InsideCidrBlocks when the
+		// TGW has no TransitGatewayCidrBlocks; terraform's find/waiter treats empty as incomplete.
+		transitGatewayAddress = firstCIDRHostAddress(insideCidrBlocks[0])
+	}
 
 	id := "tgw-connect-peer-" + uuid.New().String()[:8]
 	peer := &TransitGatewayConnectPeer{
@@ -228,7 +233,13 @@ func (b *InMemoryBackend) firstTGWCidrHostAddressLocked(tgwID string) string {
 		return ""
 	}
 
-	_, network, err := net.ParseCIDR(tgw.Options.TransitGatewayCidrBlocks[0])
+	return firstCIDRHostAddress(tgw.Options.TransitGatewayCidrBlocks[0])
+}
+
+// firstCIDRHostAddress returns the first host address (network address + 1)
+// of an IPv4 CIDR block, or "" if cidr doesn't parse as IPv4.
+func firstCIDRHostAddress(cidr string) string {
+	_, network, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return ""
 	}

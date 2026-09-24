@@ -409,6 +409,8 @@ type spotFleetIamInstanceProfileItem struct {
 	Name string `xml:"name,omitempty"`
 }
 
+// SpotPrice has no omitempty: terraform's hashLaunchSpecification (ec2_spot_fleet_request.go:2088)
+// does an unguarded type assertion with no ok-check; omitting the element panicked the provider.
 type spotFleetLaunchSpecItem struct {
 	IamInstanceProfile spotFleetIamInstanceProfileItem `xml:"iamInstanceProfile"`
 	Placement          spotFleetPlacementItem          `xml:"placement"`
@@ -416,7 +418,7 @@ type spotFleetLaunchSpecItem struct {
 	InstanceType       string                          `xml:"instanceType,omitempty"`
 	SubnetID           string                          `xml:"subnetId,omitempty"`
 	KeyName            string                          `xml:"keyName,omitempty"`
-	SpotPrice          string                          `xml:"spotPrice,omitempty"`
+	SpotPrice          string                          `xml:"spotPrice"`
 	WeightedCapacity   string                          `xml:"weightedCapacity,omitempty"`
 	Monitoring         spotFleetMonitoringItem         `xml:"monitoring"`
 	EbsOptimized       bool                            `xml:"ebsOptimized"`

@@ -360,11 +360,10 @@ func (b *InMemoryBackend) CancelSpotFleetRequests(
 		prevState := fleet.SpotFleetRequestState
 
 		if terminateInstances {
+			// terminateInstanceLocked actually removes the DeleteOnTermination ENI;
+			// a lingering ENI blocks DeleteSubnet's dependency check forever.
 			for _, instID := range fleet.InstanceIDs {
-				if inst, exists := b.instances.Get(instID); exists {
-					inst.State = StateTerminated
-					inst.TerminatedAt = time.Now().UTC()
-				}
+				_, _ = b.terminateInstanceLocked(instID)
 			}
 
 			fleet.SpotFleetRequestState = SpotFleetStateCancelled

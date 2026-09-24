@@ -395,7 +395,10 @@ func (h *Handler) handleAllocateIpamPoolCidr(vals url.Values, reqID string) (any
 		vals.Get("IpamPoolId"),
 		vals.Get("Cidr"),
 		netmaskLen,
-		IpamAllocationOptions{Description: vals.Get("Description")},
+		IpamAllocationOptions{
+			Description: vals.Get("Description"),
+			PreviewOnly: vals.Get("PreviewNextCidr") == ec2BooleanTrue,
+		},
 	)
 	if err != nil {
 		return nil, err

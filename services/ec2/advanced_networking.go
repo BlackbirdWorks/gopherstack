@@ -379,6 +379,9 @@ type IpamAllocationOptions struct {
 	ResourceType  string
 	ResourceID    string
 	ResourceOwner string
+	// PreviewOnly marks a PreviewNextCidr=true call: computes the next CIDR without
+	// recording it, so it doesn't consume pool space or appear in GetIpamPoolAllocations.
+	PreviewOnly bool
 }
 
 // IpamResourceDiscovery represents an IPAM resource discovery, which scans a set of operating

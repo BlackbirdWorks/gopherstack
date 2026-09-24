@@ -6015,3 +6015,35 @@ always omitted the `transitGatewayAttachment` sub-object real AWS always
 includes when a reference targets an attachment, which is exactly what
 `aws_ec2_transit_gateway_prefix_list_reference`'s Read/Terraform diff checks.
 Now the handler reads and stores it like Modify does.
+
+## mega-batch-54 terraform coverage (2026-09-24)
+
+Three real bugs found while wiring up terraform fixtures for previously-uncovered
+resource types, all confirmed via `TF_LOG=debug` against a real
+terraform-provider-aws 5.100.0 client:
+
+- `AllocateIpamPoolCidr`'s `PreviewNextCidr` flag was silently ignored -- every
+  preview call recorded a real allocation, consuming pool space and leaking into
+  `GetIpamPoolAllocations` (`aws_vpc_ipam_preview_next_cidr`). Fixed:
+  `PreviewOnly` skips the write.
+- `CreateTransitGatewayConnectPeer` left `TransitGatewayAddress` empty when the
+  parent transit gateway had no `TransitGatewayCidrBlocks` configured; real
+  Connect peers always auto-assign one from `InsideCidrBlocks`. A peer without
+  it reads as incomplete to the provider's find function, which retries until
+  its create waiter times out.
+- `CancelSpotFleetRequests(terminateInstances=true)` flipped instance state
+  directly instead of calling `terminateInstanceLocked`, so the
+  `DeleteOnTermination` ENI created by `spawnFleetInstanceLocked` was never
+  released -- it lingers in the subnet and blocks `DeleteSubnet`'s dependency
+  check indefinitely. Fixed and covered by
+  `TestCancelSpotFleetRequests_WithTerminate_ReleasesNetworkInterfaces`, but
+  `aws_spot_fleet_request` was still dropped from the mega-batch-54 fixture:
+  even with the ENI leak fixed, terraform's own delete waiter ("waiting for
+  EC2 Spot Fleet Request ... active instance count to reach 0") never
+  converged within several minutes in local testing -- likely the async
+  instance-termination janitor doesn't sweep fast enough relative to the
+  provider's poll cadence. Left open for a follow-up rather than fixed here.
+
+Gates: `go build ./...`, `go vet ./services/ec2/...`, `go test -race -count=1
+./services/ec2/...`, `golangci-lint run ./services/ec2/...` -- all clean. No
+persisted-struct fields changed; no version bump.
