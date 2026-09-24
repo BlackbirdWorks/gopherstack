@@ -311,18 +311,26 @@ func rawPathSegments(r *http.Request) []string {
 	}
 
 	rawPath = strings.TrimPrefix(rawPath, "/")
-	parts := strings.Split(rawPath, "/")
 
-	segments := make([]string, 0, len(parts))
+	// Manual scan instead of strings.Split: avoids the intermediate parts
+	// slice allocation on every matcher call.
+	segments := make([]string, 0, strings.Count(rawPath, "/")+1)
 
-	for _, p := range parts {
-		if p == "" {
+	for rawPath != "" {
+		seg := rawPath
+		if i := strings.IndexByte(rawPath, '/'); i >= 0 {
+			seg, rawPath = rawPath[:i], rawPath[i+1:]
+		} else {
+			rawPath = ""
+		}
+
+		if seg == "" {
 			continue
 		}
 
-		decoded, err := url.PathUnescape(p)
+		decoded, err := url.PathUnescape(seg)
 		if err != nil {
-			decoded = p
+			decoded = seg
 		}
 
 		segments = append(segments, decoded)

@@ -168,17 +168,24 @@ func matchRoute(table []route, method string, segs []string) (route, routeParams
 }
 
 func matchPattern(pattern, segs []string) (routeParams, bool) {
-	params := make(routeParams, len(pattern))
-
+	// Reject on literal-segment mismatch before allocating params: matchRoute
+	// calls this for every same-length, same-method route in the table, and
+	// most calls (other services' requests) fail here.
 	for i, p := range pattern {
 		if strings.HasPrefix(p, ":") {
-			params[p[1:]] = segs[i]
-
 			continue
 		}
 
 		if p != segs[i] {
 			return nil, false
+		}
+	}
+
+	params := make(routeParams, len(pattern))
+
+	for i, p := range pattern {
+		if strings.HasPrefix(p, ":") {
+			params[p[1:]] = segs[i]
 		}
 	}
 
@@ -309,18 +316,26 @@ func rawPathSegments(r *http.Request) []string {
 	}
 
 	rawPath = strings.TrimPrefix(rawPath, "/")
-	parts := strings.Split(rawPath, "/")
 
-	segments := make([]string, 0, len(parts))
+	// Manual scan instead of strings.Split: avoids the intermediate parts
+	// slice allocation on every matcher call.
+	segments := make([]string, 0, strings.Count(rawPath, "/")+1)
 
-	for _, p := range parts {
-		if p == "" {
+	for rawPath != "" {
+		seg := rawPath
+		if i := strings.IndexByte(rawPath, '/'); i >= 0 {
+			seg, rawPath = rawPath[:i], rawPath[i+1:]
+		} else {
+			rawPath = ""
+		}
+
+		if seg == "" {
 			continue
 		}
 
-		decoded, err := url.PathUnescape(p)
+		decoded, err := url.PathUnescape(seg)
 		if err != nil {
-			decoded = p
+			decoded = seg
 		}
 
 		segments = append(segments, decoded)
