@@ -15,19 +15,24 @@ import (
 const identityProviderTransitionDelay = 100 * time.Millisecond
 
 // AssociateIdentityProviderConfig associates an identity provider configuration with a cluster.
+// It also creates and stores an Update record (transitioning InProgress ->
+// Successful like every other async EKS op) so a caller polling DescribeUpdate
+// for the returned ID finds it; previously no Update was ever stored, so a
+// real client polling on the fabricated ID it got back always saw
+// ResourceNotFoundException.
 func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	clusterName, configType, name string,
 	params, requiredClaims, kv map[string]string,
-) (*IdentityProviderConfig, error) {
+) (*IdentityProviderConfig, *Update, error) {
 	b.mu.Lock("AssociateIdentityProviderConfig")
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
 	if _, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name)); ok {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"%w: identity provider config %s already exists in cluster %s",
 			ErrAlreadyExists,
 			name,
@@ -71,9 +76,20 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 		}
 	})
 
+	u := &Update{
+		ID:          stableID(clusterName + "/idp-update/" + name + "/" + time.Now().String()),
+		ClusterName: clusterName,
+		Status:      statusInProgress,
+		Type:        opAssociateIdentityProviderConfig,
+		Params:      []UpdateParam{{Type: "IdentityProviderConfig", Value: name}},
+		CreatedAt:   time.Now().UTC(),
+	}
+	b.storeUpdateLocked(u)
+	b.scheduleUpdateTransition(clusterName, u.ID)
+
 	cp := *cfg
 
-	return &cp, nil
+	return &cp, u.clone(), nil
 }
 
 // DescribeIdentityProviderConfig returns an identity provider config by name.
@@ -125,17 +141,22 @@ func (b *InMemoryBackend) ListIdentityProviderConfigs(clusterName string) ([]map
 }
 
 // DisassociateIdentityProviderConfig removes an identity provider config from a cluster.
-func (b *InMemoryBackend) DisassociateIdentityProviderConfig(clusterName, name string) error {
+func (b *InMemoryBackend) DisassociateIdentityProviderConfig(clusterName, name string) (*Update, error) {
 	b.mu.Lock("DisassociateIdentityProviderConfig")
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
 	cfg, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name))
 	if !ok {
-		return fmt.Errorf("%w: identity provider config %s not found in cluster %s", ErrNotFound, name, clusterName)
+		return nil, fmt.Errorf(
+			"%w: identity provider config %s not found in cluster %s",
+			ErrNotFound,
+			name,
+			clusterName,
+		)
 	}
 
 	if cfg.Tags != nil {
@@ -144,5 +165,16 @@ func (b *InMemoryBackend) DisassociateIdentityProviderConfig(clusterName, name s
 
 	b.identityProviderConfigs.Delete(identityProviderConfigKey(clusterName, name))
 
-	return nil
+	u := &Update{
+		ID:          stableID(clusterName + "/idp-disassociate/" + name + "/" + time.Now().String()),
+		ClusterName: clusterName,
+		Status:      statusInProgress,
+		Type:        opDisassociateIdentityProviderConfig,
+		Params:      []UpdateParam{{Type: "IdentityProviderConfig", Value: name}},
+		CreatedAt:   time.Now().UTC(),
+	}
+	b.storeUpdateLocked(u)
+	b.scheduleUpdateTransition(clusterName, u.ID)
+
+	return u.clone(), nil
 }

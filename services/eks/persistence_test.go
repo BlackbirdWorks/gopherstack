@@ -52,7 +52,7 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.AssociateIdentityProviderConfig(
+	_, _, err = b.AssociateIdentityProviderConfig(
 		"c1", "oidc", "idp1", map[string]string{"issuerUrl": "https://x"}, nil, nil,
 	)
 	require.NoError(t, err)
@@ -138,13 +138,20 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	require.Len(t, subs, 1)
 	assert.Equal(t, "sub1", subs[0].Name)
 
+	// Two updates now persist: UpdateClusterVersion's VersionUpdate, and
+	// AssociateIdentityProviderConfig's own real (no longer fabricated,
+	// see gopherstack-mb53) AssociateIdentityProviderConfig update.
 	updateIDs, err := b2.ListUpdates("c1")
 	require.NoError(t, err)
-	require.Len(t, updateIDs, 1)
+	require.Len(t, updateIDs, 2)
 
-	upd, err := b2.DescribeUpdate("c1", updateIDs[0])
-	require.NoError(t, err)
-	assert.Equal(t, "VersionUpdate", upd.Type)
+	gotTypes := make([]string, len(updateIDs))
+	for i, id := range updateIDs {
+		upd, describeErr := b2.DescribeUpdate("c1", id)
+		require.NoError(t, describeErr)
+		gotTypes[i] = upd.Type
+	}
+	assert.ElementsMatch(t, []string{"VersionUpdate", "AssociateIdentityProviderConfig"}, gotTypes)
 
 	assert.Equal(t, 1, b2.ClusterCount())
 	assert.Equal(t, 1, b2.NodegroupCount())

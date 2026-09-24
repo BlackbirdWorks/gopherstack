@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -126,7 +125,7 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 		in.ClientRequestToken,
 		body,
 		func() (int, any, error) {
-			cfg, err := h.Backend.AssociateIdentityProviderConfig(
+			cfg, update, err := h.Backend.AssociateIdentityProviderConfig(
 				clusterName, "oidc", in.Oidc.IdentityProviderConfigName, params, in.Oidc.RequiredClaims, in.Tags,
 			)
 			if err != nil {
@@ -135,8 +134,8 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 
 			return http.StatusOK, map[string]any{
 				keyUpdate: map[string]any{
-					"id":           uuid.NewString()[:8],
-					keyStatusField: statusInProgress,
+					"id":           update.ID,
+					keyStatusField: update.Status,
 					keyType:        opAssociateIdentityProviderConfig,
 					keyClusterName: clusterName,
 				},
@@ -240,15 +239,17 @@ func (h *Handler) handleDisassociateIdentityProviderConfig(c *echo.Context, clus
 		body,
 		func() (int, any, error) {
 			name := in.IdentityProviderConfig.Name
-			if err := h.Backend.DisassociateIdentityProviderConfig(clusterName, name); err != nil {
+
+			update, err := h.Backend.DisassociateIdentityProviderConfig(clusterName, name)
+			if err != nil {
 				return 0, nil, err
 			}
 
 			return http.StatusOK, map[string]any{
 				keyUpdate: map[string]any{
-					"id":           uuid.NewString()[:8],
-					keyStatusField: statusInProgress,
-					keyType:        "DisassociateIdentityProviderConfig",
+					"id":           update.ID,
+					keyStatusField: update.Status,
+					keyType:        opDisassociateIdentityProviderConfig,
 					keyClusterName: clusterName,
 				},
 			}, nil

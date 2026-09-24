@@ -410,7 +410,7 @@ func (rc *ResourceCreator) createEKSIdentityProviderConfig(
 
 	kv := tagListProp(props, params, physicalIDs)
 
-	cfg, err := rc.backends.EKS.Backend.AssociateIdentityProviderConfig(
+	cfg, _, err := rc.backends.EKS.Backend.AssociateIdentityProviderConfig(
 		clusterName, configType, name, oidcParams, requiredClaims, kv,
 	)
 	if err != nil {
@@ -434,7 +434,7 @@ func (rc *ResourceCreator) deleteEKSIdentityProviderConfig(physicalID string) er
 		return nil
 	}
 
-	err := rc.backends.EKS.Backend.DisassociateIdentityProviderConfig(parts[0], parts[2])
+	_, err := rc.backends.EKS.Backend.DisassociateIdentityProviderConfig(parts[0], parts[2])
 	if errors.Is(err, eksbackend.ErrNotFound) {
 		return nil
 	}

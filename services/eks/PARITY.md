@@ -1221,3 +1221,23 @@ clean; `go test -race -count=1 -p 2 ./services/eks/...` and
 `./pkgs/persistence/...` both `ok`; `golangci-lint run --concurrency 2
 --new-from-rev=HEAD ./services/eks/...` 0 issues; `go run ./cmd/paritylint`
 0 FAIL.
+
+## 2026-09-24: mega-batch-53 fixture fix -- Associate/DisassociateIdentityProviderConfig never stored a real Update record (gopherstack-mb53)
+
+Both ops fabricated a random 8-hex-char `id` for the `update` object in their
+response and never persisted it via `storeUpdateLocked`/`scheduleUpdateTransition`
+(the pattern every other async EKS op -- `UpdateClusterVersion`,
+`AssociateEncryptionConfig`, addon/nodegroup updates -- already follows). A
+client polling `DescribeUpdate` on that ID (as `terraform-provider-aws`'s
+`aws_eks_identity_provider_config` create/delete waiter does) always got
+`ResourceNotFoundException` and never converged. Both ops now build and store
+a real `*Update` (`Type` = `AssociateIdentityProviderConfig` /
+`DisassociateIdentityProviderConfig`, `InProgress` -> `Successful` on the same
+100ms transition delay as every sibling op) and return its real ID.
+`AssociateIdentityProviderConfig`'s signature grew a `*Update` return value;
+the one non-test caller (`services/cloudformation/resources_eks.go`, owned by
+a different concurrent pass) was given the minimal 2-line fix to keep the
+module building -- see this session's report for that exception.
+
+Note: `AssociateEncryptionConfig` has the identical fabricated-ID bug and is
+NOT fixed here -- out of scope for this pass, left for a follow-up.
