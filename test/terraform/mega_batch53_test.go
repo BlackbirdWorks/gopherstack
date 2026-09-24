@@ -164,7 +164,10 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 	}, "the mega-batch-53 transit gateway")
 	tgwID := aws.ToString(tgw.TransitGatewayId)
 
-	attOut, err := client.DescribeTransitGatewayVpcAttachments(ctx, &ec2svc53.DescribeTransitGatewayVpcAttachmentsInput{})
+	attOut, err := client.DescribeTransitGatewayVpcAttachments(
+		ctx,
+		&ec2svc53.DescribeTransitGatewayVpcAttachmentsInput{},
+	)
 	require.NoError(t, err, "DescribeTransitGatewayVpcAttachments should succeed")
 	att := findBy(t, attOut.TransitGatewayVpcAttachments, func(a ec2types53.TransitGatewayVpcAttachment) bool {
 		return aws.ToString(a.TransitGatewayId) == tgwID &&
