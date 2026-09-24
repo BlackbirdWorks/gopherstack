@@ -34,6 +34,6 @@ func TestResourceCreator_Extra_EC2Volume(t *testing.T) {
 	got := cloudformation.GetResourceAttribute("AWS::EC2::Volume", volPhys, "VolumeId", "000000000000", "us-east-1")
 	assert.Equal(t, volPhys, got)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::EC2::Volume", volPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::EC2::Volume", volPhys, nil, nil))
 	assert.Empty(t, ec2b.DescribeVolumes([]string{volPhys}))
 }

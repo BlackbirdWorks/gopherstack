@@ -29,6 +29,6 @@ func TestResourceCreator_SSM_MaintenanceWindow_CreateDelete(t *testing.T) {
 	assert.NotEmpty(t, physID)
 	assert.Contains(t, physID, "mw-")
 
-	err = rc.Delete(t.Context(), "AWS::SSM::MaintenanceWindow", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::SSM::MaintenanceWindow", physID, nil, nil)
 	require.NoError(t, err)
 }

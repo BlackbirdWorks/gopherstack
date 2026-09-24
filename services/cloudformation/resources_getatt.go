@@ -19,7 +19,7 @@ func getExtraResourceAttribute(resType, physID, attrName, accountID, region stri
 
 		return physID, true
 	case resTypeStepFunctionsActivity:
-		if attrName == "Name" {
+		if attrName == attrNameName {
 			return arnResourceTail(physID), true
 		}
 
@@ -37,9 +37,42 @@ func getExtraResourceAttribute(resType, physID, attrName, accountID, region stri
 		}
 
 		return physID, true
+	case resTypeLogsDestination:
+		if attrName == attrNameArn {
+			return logsDestinationArn(physID, accountID, region), true
+		}
+
+		return physID, true
+	}
+
+	if v, ok := getServiceDiscoveryAttribute(resType, physID, attrName, accountID, region); ok {
+		return v, true
 	}
 
 	return getManagedTypesAttribute(resType, physID, attrName, accountID, region)
+}
+
+// getServiceDiscoveryAttribute derives Fn::GetAtt attribute values for
+// AWS::ServiceDiscovery::* types (split out of getExtraResourceAttribute to
+// keep its cyclomatic complexity down).
+func getServiceDiscoveryAttribute(resType, physID, attrName, accountID, region string) (string, bool) {
+	switch resType {
+	case resTypeSDPrivateDNSNamespace, resTypeSDHTTPNamespace, resTypeSDPublicDNSNamespace:
+		if attrName == attrNameArn {
+			return sdNamespaceArn(physID, accountID, region), true
+		}
+
+		return physID, true
+	case resTypeSDService:
+		if attrName == attrNameArn {
+			return sdServiceArn(physID, accountID, region), true
+		}
+
+		return physID, true
+	default:
+
+		return "", false
+	}
 }
 
 // getManagedTypesAttribute derives Fn::GetAtt attribute values for the

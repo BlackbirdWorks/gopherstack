@@ -73,7 +73,7 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			err = rc2.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc2.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}

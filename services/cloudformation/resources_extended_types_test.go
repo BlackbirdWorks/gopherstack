@@ -96,7 +96,7 @@ func TestResourceNameFromARN(t *testing.T) {
 				require.NoError(t, err)
 
 				// Delete using the ARN form (physID) to confirm extraction works.
-				err = rc.Delete(t.Context(), "AWS::Scheduler::Schedule", physID, nil)
+				err = rc.Delete(t.Context(), "AWS::Scheduler::Schedule", physID, nil, nil)
 				require.NoError(t, err)
 
 				return
@@ -119,7 +119,7 @@ func TestResourceNameFromARN(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, physID, schedName)
 
-			err = rc.Delete(t.Context(), "AWS::Scheduler::Schedule", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::Scheduler::Schedule", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -164,7 +164,7 @@ func TestStreamNameFromARN(t *testing.T) {
 				deleteID = tt.input // pass plain name so fallback branch is hit
 			}
 
-			err = rc.Delete(t.Context(), "AWS::Kinesis::Stream", deleteID, nil)
+			err = rc.Delete(t.Context(), "AWS::Kinesis::Stream", deleteID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -332,7 +332,7 @@ func TestResourceCreator_AdditionalTypes_NilBackends(t *testing.T) {
 			assert.NotEmpty(t, physID)
 
 			// Delete should also be a no-op without a backend.
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -560,7 +560,7 @@ func TestResourceCreator_AdditionalTypes_RealBackends(t *testing.T) {
 				assert.NotEmpty(t, physID)
 			}
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, tt.props)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, tt.props, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -586,9 +586,9 @@ func TestResourceCreator_CognitoUserPoolWithClient(t *testing.T) {
 	require.NotEmpty(t, clientPhysID)
 
 	// Delete pool — should also clean up the client.
-	err = rc.Delete(ctx, "AWS::Cognito::UserPool", poolID, nil)
+	err = rc.Delete(ctx, "AWS::Cognito::UserPool", poolID, nil, nil)
 	require.NoError(t, err)
 
 	// Attempting to delete the client again should either succeed (already gone) or fail gracefully.
-	_ = rc.Delete(ctx, "AWS::Cognito::UserPoolClient", clientPhysID, nil)
+	_ = rc.Delete(ctx, "AWS::Cognito::UserPoolClient", clientPhysID, nil, nil)
 }

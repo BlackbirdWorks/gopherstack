@@ -47,7 +47,7 @@ func TestResourceCreator_Lambda_NilBackend(t *testing.T) {
 			rc := cloudformation.NewResourceCreator(backends)
 
 			if tt.isDelete {
-				err := rc.Delete(t.Context(), "AWS::Lambda::Function", tt.physID, nil)
+				err := rc.Delete(t.Context(), "AWS::Lambda::Function", tt.physID, nil, nil)
 				require.NoError(t, err)
 
 				return
@@ -120,7 +120,7 @@ func TestResourceCreator_EC2Resources(t *testing.T) {
 				assert.NotEmpty(t, physID)
 			}
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, props)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, props, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -164,16 +164,16 @@ func TestResourceCreator_EC2SubnetAndRouteTable(t *testing.T) {
 	assert.NotEmpty(t, routePhysID)
 
 	// Delete in reverse order.
-	err = rc.Delete(t.Context(), "AWS::EC2::Route", routePhysID, nil)
+	err = rc.Delete(t.Context(), "AWS::EC2::Route", routePhysID, nil, nil)
 	require.NoError(t, err)
 
-	err = rc.Delete(t.Context(), "AWS::EC2::RouteTable", rtID, nil)
+	err = rc.Delete(t.Context(), "AWS::EC2::RouteTable", rtID, nil, nil)
 	require.NoError(t, err)
 
-	err = rc.Delete(t.Context(), "AWS::EC2::Subnet", subnetID, nil)
+	err = rc.Delete(t.Context(), "AWS::EC2::Subnet", subnetID, nil, nil)
 	require.NoError(t, err)
 
-	err = rc.Delete(t.Context(), "AWS::EC2::VPC", vpcID, nil)
+	err = rc.Delete(t.Context(), "AWS::EC2::VPC", vpcID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -215,7 +215,7 @@ func TestResourceCreator_LambdaESM_RealBackend(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, esmID)
 
-	err = rc.Delete(t.Context(), "AWS::Lambda::EventSourceMapping", esmID, nil)
+	err = rc.Delete(t.Context(), "AWS::Lambda::EventSourceMapping", esmID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -250,7 +250,7 @@ func TestResourceCreator_LambdaAlias_RealBackend(t *testing.T) {
 	assert.NotEmpty(t, aliasARN)
 	assert.Contains(t, aliasARN, "prod")
 
-	err = rc.Delete(t.Context(), "AWS::Lambda::Alias", aliasARN, nil)
+	err = rc.Delete(t.Context(), "AWS::Lambda::Alias", aliasARN, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -282,7 +282,7 @@ func TestResourceCreator_LambdaVersion_RealBackend(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, versionARN)
 
-	err = rc.Delete(t.Context(), "AWS::Lambda::Version", versionARN, nil)
+	err = rc.Delete(t.Context(), "AWS::Lambda::Version", versionARN, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -353,16 +353,16 @@ func TestResourceCreator_APIGatewaySubResources(t *testing.T) {
 	assert.NotEmpty(t, stagePhysID)
 
 	// Delete.
-	err = rc.Delete(t.Context(), "AWS::ApiGateway::Stage", stagePhysID, nil)
+	err = rc.Delete(t.Context(), "AWS::ApiGateway::Stage", stagePhysID, nil, nil)
 	require.NoError(t, err)
 
-	err = rc.Delete(t.Context(), "AWS::ApiGateway::Deployment", deployPhysID, nil)
+	err = rc.Delete(t.Context(), "AWS::ApiGateway::Deployment", deployPhysID, nil, nil)
 	require.NoError(t, err)
 
-	err = rc.Delete(t.Context(), "AWS::ApiGateway::Method", methodPhysID, nil)
+	err = rc.Delete(t.Context(), "AWS::ApiGateway::Method", methodPhysID, nil, nil)
 	require.NoError(t, err)
 
-	err = rc.Delete(t.Context(), "AWS::ApiGateway::Resource", resourcePhysID, nil)
+	err = rc.Delete(t.Context(), "AWS::ApiGateway::Resource", resourcePhysID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -419,7 +419,7 @@ func TestResourceCreator_LambdaPermission_RealBackend(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
-			err = rc.Delete(t.Context(), "AWS::Lambda::Permission", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::Lambda::Permission", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -475,7 +475,7 @@ func TestResourceCreator_ECSServiceCreateDelete(t *testing.T) {
 	require.NotEmpty(t, svcARN)
 
 	// Delete service.
-	err = rc.Delete(ctx, "AWS::ECS::Service", svcARN, nil)
+	err = rc.Delete(ctx, "AWS::ECS::Service", svcARN, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -497,6 +497,6 @@ func TestResourceCreator_EC2Instance_CreateDelete(t *testing.T) {
 	assert.NotEmpty(t, physID)
 	assert.Contains(t, physID, "i-", "EC2 instance physical ID should look like an instance ID")
 
-	err = rc.Delete(t.Context(), "AWS::EC2::Instance", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::EC2::Instance", physID, nil, nil)
 	require.NoError(t, err)
 }

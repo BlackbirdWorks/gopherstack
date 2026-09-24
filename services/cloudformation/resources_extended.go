@@ -1024,10 +1024,13 @@ func (rc *ResourceCreator) createSQSQueuePolicy(
 			continue
 		}
 
-		_ = rc.backends.SQS.Backend.SetQueueAttributes(&sqsbackend.SetQueueAttributesInput{
+		err := rc.backends.SQS.Backend.SetQueueAttributes(&sqsbackend.SetQueueAttributesInput{
 			QueueURL:   queueURL,
 			Attributes: map[string]string{"Policy": policyDocument},
 		})
+		if err != nil {
+			return "", fmt.Errorf("set SQS QueuePolicy on %s: %w", queueURL, err)
+		}
 	}
 
 	return physID, nil

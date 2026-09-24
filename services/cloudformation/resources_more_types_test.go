@@ -158,7 +158,7 @@ func TestResourceCreator_MoreTypes_NilBackends(t *testing.T) {
 			assert.NotEmpty(t, physID)
 
 			// Delete should also be a no-op without a backend.
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -301,7 +301,7 @@ func TestResourceCreator_MoreTypes_RealBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}

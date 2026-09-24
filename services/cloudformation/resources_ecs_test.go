@@ -61,7 +61,7 @@ func TestDeleteECRRepository_EmptyOnDelete(t *testing.T) {
 
 			pushImageToRepo(t, backends, "repo-"+tt.name)
 
-			err = rc.Delete(ctx, "AWS::ECR::Repository", arn, tt.props)
+			err = rc.Delete(ctx, "AWS::ECR::Repository", arn, tt.props, nil)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, ecrbackend.ErrRepositoryNotEmpty)

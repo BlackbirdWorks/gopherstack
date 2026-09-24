@@ -46,6 +46,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
@@ -132,6 +133,7 @@ type BackendsProvider interface {
 	GetELBv2Handler() service.Registerable
 	GetBackupHandler() service.Registerable
 	GetResilienceHubHandler() service.Registerable
+	GetServiceDiscoveryHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -171,6 +173,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.Backup, _ = getHandler[*backupbackend.Handler](bp.GetBackupHandler())
 	backends.BedrockRuntime, _ = getHandler[*bedrockruntime.Handler](bp.GetBedrockRuntimeHandler())
 	backends.ResilienceHub, _ = getHandler[ResilienceHubBackend](bp.GetResilienceHubHandler())
+	backends.ServiceDiscovery, _ = getHandler[*servicediscoverybackend.Handler](bp.GetServiceDiscoveryHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

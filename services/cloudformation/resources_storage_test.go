@@ -61,7 +61,7 @@ func TestResourceCreator_S3Bucket(t *testing.T) {
 			}
 
 			if tt.doDelete {
-				err = rc.Delete(t.Context(), "AWS::S3::Bucket", physID, tt.props)
+				err = rc.Delete(t.Context(), "AWS::S3::Bucket", physID, tt.props, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -176,7 +176,7 @@ func TestResourceCreator_DynamoDBTable(t *testing.T) {
 			assert.Equal(t, tt.wantPhysID, physID)
 
 			if tt.doDelete {
-				err = rc.Delete(t.Context(), "AWS::DynamoDB::Table", physID, tt.props)
+				err = rc.Delete(t.Context(), "AWS::DynamoDB::Table", physID, tt.props, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -251,7 +251,7 @@ func TestResourceCreator_SQSQueue(t *testing.T) {
 			}
 
 			if tt.doDelete {
-				err = rc.Delete(t.Context(), "AWS::SQS::Queue", physID, tt.props)
+				err = rc.Delete(t.Context(), "AWS::SQS::Queue", physID, tt.props, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -302,7 +302,7 @@ func TestResourceCreator_SNSTopic(t *testing.T) {
 			assert.Contains(t, physID, tt.wantContains)
 
 			if tt.doDelete {
-				err = rc.Delete(t.Context(), "AWS::SNS::Topic", physID, tt.props)
+				err = rc.Delete(t.Context(), "AWS::SNS::Topic", physID, tt.props, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -356,7 +356,7 @@ func TestResourceCreator_KinesisStream(t *testing.T) {
 				assert.Contains(t, physID, tt.wantContains)
 			}
 
-			err = rc.Delete(t.Context(), "AWS::Kinesis::Stream", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::Kinesis::Stream", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -385,7 +385,7 @@ func TestResourceCreator_SNSSubscription(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, subARN)
 
-	err = rc.Delete(t.Context(), "AWS::SNS::Subscription", subARN, nil)
+	err = rc.Delete(t.Context(), "AWS::SNS::Subscription", subARN, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -424,7 +424,7 @@ func TestResourceCreator_EventBus(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
-			err = rc.Delete(t.Context(), "AWS::Events::EventBus", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::Events::EventBus", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -450,7 +450,7 @@ func TestResourceCreator_S3BucketPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, bucketName, physID)
 
-	err = rc.Delete(t.Context(), "AWS::S3::BucketPolicy", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::S3::BucketPolicy", physID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -474,7 +474,7 @@ func TestResourceCreator_SQSQueuePolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 
-	err = rc.Delete(t.Context(), "AWS::SQS::QueuePolicy", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::SQS::QueuePolicy", physID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -486,7 +486,7 @@ func TestResourceCreator_DeleteSNSSubscription_NilBackend(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	err := rc.Delete(t.Context(), "AWS::SNS::Subscription",
-		"arn:aws:sns:us-east-1:000000000000:topic:sub-id", nil)
+		"arn:aws:sns:us-east-1:000000000000:topic:sub-id", nil, nil)
 	require.NoError(t, err)
 }
 
@@ -497,7 +497,7 @@ func TestResourceCreator_DeleteS3BucketPolicy_NilBackend(t *testing.T) {
 	backends.S3 = nil
 	rc := cloudformation.NewResourceCreator(backends)
 
-	err := rc.Delete(t.Context(), "AWS::S3::BucketPolicy", "my-bucket", nil)
+	err := rc.Delete(t.Context(), "AWS::S3::BucketPolicy", "my-bucket", nil, nil)
 	require.NoError(t, err)
 }
 
@@ -519,6 +519,6 @@ func TestResourceCreator_DeleteS3BucketPolicy_RealBackend(t *testing.T) {
 		}, nil, nil)
 	require.NoError(t, err)
 
-	err = rc.Delete(t.Context(), "AWS::S3::BucketPolicy", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::S3::BucketPolicy", physID, nil, nil)
 	require.NoError(t, err)
 }

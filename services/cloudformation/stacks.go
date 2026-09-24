@@ -119,6 +119,8 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 		liveIDs = append(liveIDs, logicalID)
 	}
 
+	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
+
 	for _, logicalID := range reverseDependencyOrder(liveIDs, stack.TemplateBody) {
 		res := b.resources[stack.StackID][logicalID]
 		b.addEvent(
@@ -131,7 +133,7 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 			"",
 		)
 		if res.DeletionPolicy != deletionPolicyRetain && res.DeletionPolicy != deletionPolicySnapshot {
-			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); delErr != nil {
 				failedLogicalIDs = append(failedLogicalIDs, fmt.Sprintf("%s: %v", logicalID, delErr))
 				b.addEvent(
 					stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
@@ -608,6 +610,7 @@ func (b *InMemoryBackend) rollbackCreateResources(
 	retainExceptOnCreate bool,
 ) bool {
 	ok := true
+	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
 
 	for _, v := range slices.Backward(created) {
 		logicalID := v
@@ -629,7 +632,7 @@ func (b *InMemoryBackend) rollbackCreateResources(
 		keepsPolicy := res.DeletionPolicy == deletionPolicyRetain || res.DeletionPolicy == deletionPolicySnapshot
 		retained := keepsPolicy && !retainExceptOnCreate
 		if !retained {
-			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); delErr != nil {
 				ok = false
 				b.addEvent(
 					stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
@@ -1079,6 +1082,7 @@ func (b *InMemoryBackend) deleteStaleResources(
 	stale = reverseDependencyOrder(stale, oldTemplateBody)
 
 	ok := true
+	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
 
 	for _, logicalID := range stale {
 		res := b.resources[stack.StackID][logicalID]
@@ -1092,7 +1096,7 @@ func (b *InMemoryBackend) deleteStaleResources(
 			"",
 		)
 		if res.DeletionPolicy != deletionPolicyRetain && res.DeletionPolicy != deletionPolicySnapshot {
-			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); delErr != nil {
 				ok = false
 				b.addEvent(
 					stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
@@ -1136,6 +1140,7 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 	)
 
 	rollbackOK := true
+	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
 
 	for _, logicalID := range created {
 		res, exists := b.resources[stack.StackID][logicalID]
@@ -1153,7 +1158,7 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 			"",
 		)
 
-		if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+		if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); delErr != nil {
 			rollbackOK = false
 			b.addEvent(
 				stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,

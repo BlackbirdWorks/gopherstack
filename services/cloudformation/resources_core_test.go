@@ -79,7 +79,7 @@ func TestResourceCreator_NilBackends(t *testing.T) {
 			rc := cloudformation.NewResourceCreator(nil)
 
 			if tt.isDelete {
-				err := rc.Delete(t.Context(), tt.resourceType, tt.physID, tt.props)
+				err := rc.Delete(t.Context(), tt.resourceType, tt.physID, tt.props, nil)
 				require.NoError(t, err)
 
 				return
@@ -135,7 +135,7 @@ func TestResourceCreator_UnknownType(t *testing.T) {
 			rc := cloudformation.NewResourceCreator(backends)
 
 			if tt.isDelete {
-				err := rc.Delete(t.Context(), tt.resourceType, tt.physID, tt.props)
+				err := rc.Delete(t.Context(), tt.resourceType, tt.physID, tt.props, nil)
 				require.NoError(t, err)
 
 				return
@@ -381,10 +381,10 @@ func TestResourceCreator_ExtendedTypes(t *testing.T) {
 
 			// delete test (skip for default_stub since it uses a generic type)
 			if tt.resourceType != "AWS::Whatever::Thing" {
-				err = rc.Delete(t.Context(), tt.resourceType, physID, tt.props)
+				err = rc.Delete(t.Context(), tt.resourceType, physID, tt.props, nil)
 				require.NoError(t, err)
 			} else {
-				err = rc.Delete(t.Context(), tt.resourceType, "whatever-id", nil)
+				err = rc.Delete(t.Context(), tt.resourceType, "whatever-id", nil, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -435,7 +435,7 @@ func TestResourceCreator_CloudWatchAlarm(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhysID, physID)
 
-			err = rc.Delete(t.Context(), "AWS::CloudWatch::Alarm", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::CloudWatch::Alarm", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -484,7 +484,7 @@ func TestResourceCreator_Route53HostedZone(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			err = rc.Delete(t.Context(), "AWS::Route53::HostedZone", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::Route53::HostedZone", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -513,7 +513,7 @@ func TestResourceCreator_Route53RecordSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, recordPhysID)
 
-	err = rc.Delete(t.Context(), "AWS::Route53::RecordSet", recordPhysID, nil)
+	err = rc.Delete(t.Context(), "AWS::Route53::RecordSet", recordPhysID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -562,7 +562,7 @@ func TestResourceCreator_ElastiCacheCacheCluster(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhysID, physID)
 
-			err = rc.Delete(t.Context(), "AWS::ElastiCache::CacheCluster", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::ElastiCache::CacheCluster", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -611,7 +611,7 @@ func TestResourceCreator_SchedulerSchedule(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
-			err = rc.Delete(t.Context(), "AWS::Scheduler::Schedule", physID, nil)
+			err = rc.Delete(t.Context(), "AWS::Scheduler::Schedule", physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -815,7 +815,7 @@ func TestResourceCreator_NewTypes_NilBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.logicalID, "stub physID should contain logicalID")
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}

@@ -218,7 +218,7 @@ func TestResourceCreator_SupplementalTypes_NilBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props))
+			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props, nil))
 		})
 	}
 }
@@ -350,7 +350,7 @@ func TestResourceCreator_SupplementalTypes_RealBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}

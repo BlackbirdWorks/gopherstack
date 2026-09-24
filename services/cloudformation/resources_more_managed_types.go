@@ -98,9 +98,9 @@ func tagListFromSlice(raw []any, params, physicalIDs map[string]string) map[stri
 	return out
 }
 
-// tagListProp decodes props[key] as the standard array-of-{Key,Value} Tags shape.
-func tagListProp(props map[string]any, key string, params, physicalIDs map[string]string) map[string]string {
-	raw, ok := props[key].([]any)
+// tagListProp decodes props["Tags"] as the standard array-of-{Key,Value} Tags shape.
+func tagListProp(props map[string]any, params, physicalIDs map[string]string) map[string]string {
+	raw, ok := props["Tags"].([]any)
 	if !ok {
 		return nil
 	}
@@ -211,7 +211,7 @@ func (rc *ResourceCreator) createEC2VPCEndpoint(
 		return "", fmt.Errorf("create EC2 VPCEndpoint: %w", err)
 	}
 
-	if tags := tagListProp(props, "Tags", params, physicalIDs); len(tags) > 0 {
+	if tags := tagListProp(props, params, physicalIDs); len(tags) > 0 {
 		_ = rc.backends.EC2.Backend.CreateTags([]string{ep.ID}, tags)
 	}
 
@@ -487,7 +487,7 @@ func (rc *ResourceCreator) createRDSDBProxy(
 		return "", fmt.Errorf("create RDS DBProxy %s: %w", name, err)
 	}
 
-	if tags := tagListProp(props, "Tags", params, physicalIDs); len(tags) > 0 {
+	if tags := tagListProp(props, params, physicalIDs); len(tags) > 0 {
 		rdsTags := make([]rdsbackend.Tag, 0, len(tags))
 		for k, v := range tags {
 			rdsTags = append(rdsTags, rdsbackend.Tag{Key: k, Value: v})

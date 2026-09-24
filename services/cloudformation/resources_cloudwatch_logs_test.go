@@ -35,7 +35,7 @@ func TestResourceCreator_Extra_LogsResources(t *testing.T) {
 	require.Len(t, streams, 1)
 	assert.Equal(t, "app-logs", streams[0].LogStreamName)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::Logs::LogStream", streamPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Logs::LogStream", streamPhys, nil, nil))
 	streams, _, err = cw.DescribeLogStreams(ctx, group, "", "", "", false, 0)
 	require.NoError(t, err)
 	assert.Empty(t, streams)
@@ -57,7 +57,7 @@ func TestResourceCreator_Extra_LogsResources(t *testing.T) {
 	require.Len(t, filters, 1)
 	assert.Equal(t, "errors", filters[0].FilterName)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::Logs::MetricFilter", mfPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Logs::MetricFilter", mfPhys, nil, nil))
 	filters, _, err = cw.DescribeMetricFilters(ctx, group, "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, filters)
@@ -73,7 +73,7 @@ func TestResourceCreator_Extra_LogsResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, defs, 1)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::Logs::QueryDefinition", qdPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Logs::QueryDefinition", qdPhys, nil, nil))
 	defs, _, err = cw.DescribeQueryDefinitions("", 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, defs)

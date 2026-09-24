@@ -55,6 +55,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
@@ -137,9 +138,10 @@ type ServiceBackends struct {
 	// ResilienceHub is declared as a local interface, not a concrete
 	// *resiliencehub.Handler, to avoid an import cycle -- see
 	// ResilienceHubBackend's doc comment in resources_resiliencehub.go.
-	ResilienceHub ResilienceHubBackend
-	AccountID     string
-	Region        string
+	ResilienceHub    ResilienceHubBackend
+	ServiceDiscovery *servicediscoverybackend.Handler
+	AccountID        string
+	Region           string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
@@ -534,6 +536,18 @@ func (rc *ResourceCreator) createIAMCoreResource(
 		physID, err := rc.createIAMOIDCProvider(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
+	case resTypeIAMAccessKey:
+		physID, err := rc.createIAMAccessKey(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeIAMServiceLinkedRole:
+		physID, err := rc.createIAMServiceLinkedRole(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeIAMUserToGroupAddition:
+		physID, err := rc.createIAMUserToGroupAddition(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	default:
 
 		return "", false, nil
@@ -598,6 +612,36 @@ func (rc *ResourceCreator) createEC2CoreResource(
 		return physID, true, err
 	default:
 
+		return rc.createEC2TGWResource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createEC2TGWResource handles AWS::EC2::TransitGateway* resource creation
+// (split out of createEC2CoreResource to keep its cyclomatic complexity down).
+func (rc *ResourceCreator) createEC2TGWResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case resTypeEC2TransitGateway:
+		physID, err := rc.createEC2TransitGateway(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEC2TGWAttachment:
+		physID, err := rc.createEC2TGWAttachment(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEC2TGWRouteTable:
+		physID, err := rc.createEC2TGWRouteTable(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEC2TGWRoute:
+		physID, err := rc.createEC2TGWRoute(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+
 		return "", false, nil
 	}
 }
@@ -626,24 +670,15 @@ func (rc *ResourceCreator) createDataPlatformResource(
 	case resTypeRoute53RecordSet:
 
 		return rc.createRoute53RecordSet(logicalID, props, params, physicalIDs)
+	case resTypeRoute53RecordSetGroup:
+
+		return rc.createRoute53RecordSetGroup(logicalID, props, params, physicalIDs)
 	case "AWS::Route53::HealthCheck":
 
 		return rc.createRoute53HealthCheck(logicalID, props, params, physicalIDs)
-	case "AWS::ElastiCache::CacheCluster":
-
-		return rc.createElastiCacheCacheCluster(ctx, logicalID, props, params, physicalIDs)
-	case "AWS::ElastiCache::ReplicationGroup":
-
-		return rc.createElastiCacheReplicationGroup(ctx, logicalID, props, params, physicalIDs)
-	case "AWS::ElastiCache::SubnetGroup":
-
-		return rc.createElastiCacheSubnetGroup(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::SNS::Subscription":
 
 		return rc.createSNSSubscription(logicalID, props, params, physicalIDs)
-	case "AWS::SQS::QueuePolicy":
-
-		return rc.createSQSQueuePolicy(logicalID, props, params, physicalIDs)
 	case "AWS::S3::BucketPolicy":
 
 		return rc.createS3BucketPolicy(ctx, logicalID, props, params, physicalIDs)
@@ -651,8 +686,72 @@ func (rc *ResourceCreator) createDataPlatformResource(
 
 		return rc.createSchedulerSchedule(ctx, logicalID, props, params, physicalIDs)
 	default:
+		if physID, handled, err := rc.createElastiCacheResource(
+			ctx, logicalID, resourceType, props, params, physicalIDs,
+		); handled {
+			return physID, err
+		}
+
+		if physID, handled, err := rc.createQueueTopicPolicyResource(
+			logicalID, resourceType, props, params, physicalIDs,
+		); handled {
+			return physID, err
+		}
 
 		return rc.createNewServiceResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createElastiCacheResource handles AWS::ElastiCache::* resource creation
+// (split out of createDataPlatformResource to keep its cyclomatic complexity down).
+func (rc *ResourceCreator) createElastiCacheResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::ElastiCache::CacheCluster":
+		physID, err := rc.createElastiCacheCacheCluster(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ElastiCache::ReplicationGroup":
+		physID, err := rc.createElastiCacheReplicationGroup(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ElastiCache::SubnetGroup":
+		physID, err := rc.createElastiCacheSubnetGroup(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+
+		return "", false, nil
+	}
+}
+
+// createQueueTopicPolicyResource handles SQS/SNS policy resource creation
+// (split out of createDataPlatformResource to keep its cyclomatic complexity down).
+func (rc *ResourceCreator) createQueueTopicPolicyResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::SQS::QueuePolicy":
+		physID, err := rc.createSQSQueuePolicy(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeSQSQueueInlinePolicy:
+		physID, err := rc.createSQSQueueInlinePolicy(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeSNSTopicInlinePolicy:
+		physID, err := rc.createSNSTopicInlinePolicy(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+
+		return "", false, nil
 	}
 }
 
@@ -1145,10 +1244,24 @@ func (rc *ResourceCreator) Update(
 }
 
 // Delete deletes a resource by type and physical ID.
+// stackPhysicalIDsSnapshot builds a logicalID -> physicalID map from a
+// stack's live resources, letting Delete resolve a {"Ref": "OtherResource"}
+// property to the real physical ID (see deleteSDInstance / deleteIAMAccessKey
+// / deleteIAMUserToGroupAddition).
+func stackPhysicalIDsSnapshot(resources map[string]*StackResource) map[string]string {
+	out := make(map[string]string, len(resources))
+	for logicalID, res := range resources {
+		out[logicalID] = res.PhysicalID
+	}
+
+	return out
+}
+
 func (rc *ResourceCreator) Delete(
 	ctx context.Context,
 	resourceType, physicalID string,
 	props map[string]any,
+	stackPhysicalIDs map[string]string,
 ) error {
 	if rc == nil {
 		return nil
@@ -1183,11 +1296,21 @@ func (rc *ResourceCreator) Delete(
 		return nil
 	}
 
+	// AWS::ServiceDiscovery::Instance needs its own props (ServiceId) that
+	// aren't threaded through the prop-less create*Resource chain below --
+	// same reason IAM::AccessKey/UserToGroupAddition are special-cased.
+	// stackPhysicalIDs (a snapshot of every logical ID -> physical ID in the
+	// stack) lets a {"Ref": "OtherResource"} property resolve to the real
+	// physical ID here, not just the logical ID literal.
+	if resourceType == resTypeSDInstance {
+		return rc.deleteSDInstance(props, stackPhysicalIDs, physicalID)
+	}
+
 	if handled, err := rc.deleteCoreResource(ctx, resourceType, physicalID); handled {
 		return err
 	}
 
-	return rc.deleteExtendedResource(ctx, resourceType, physicalID, props)
+	return rc.deleteExtendedResource(ctx, resourceType, physicalID, props, stackPhysicalIDs)
 }
 
 // deleteCoreResource handles deletion of the original 7 core AWS resource types.
@@ -1228,12 +1351,13 @@ func (rc *ResourceCreator) deleteExtendedResource(
 	ctx context.Context,
 	resourceType, physicalID string,
 	props map[string]any,
+	stackPhysicalIDs map[string]string,
 ) error {
 	if handled, err := rc.deleteInfraResource(ctx, resourceType, physicalID); handled {
 		return err
 	}
 
-	return rc.deleteServiceResource(ctx, resourceType, physicalID, props)
+	return rc.deleteServiceResource(ctx, resourceType, physicalID, props, stackPhysicalIDs)
 }
 
 // deleteInfraResource handles Lambda, EventBridge, StepFunctions, Logs, and APIGateway deletions.
@@ -1317,7 +1441,17 @@ func (rc *ResourceCreator) deleteServiceResource(
 	ctx context.Context,
 	resourceType, physicalID string,
 	props map[string]any,
+	stackPhysicalIDs map[string]string,
 ) error {
+	// These two IAM types need the resource's props (UserName / GroupName+Users)
+	// that aren't threaded through the prop-less deleteIAMEC2Resource chain.
+	switch resourceType {
+	case resTypeIAMAccessKey:
+		return rc.deleteIAMAccessKey(props, stackPhysicalIDs, physicalID)
+	case resTypeIAMUserToGroupAddition:
+		return rc.deleteIAMUserToGroupAddition(props, stackPhysicalIDs)
+	}
+
 	if handled, err := rc.deleteIAMEC2Resource(resourceType, physicalID); handled {
 		return err
 	}
@@ -1355,6 +1489,9 @@ func (rc *ResourceCreator) deleteIAMCoreResource(resourceType, physicalID string
 	case resTypeIAMOIDCProvider:
 
 		return true, rc.deleteIAMOIDCProvider(physicalID)
+	case resTypeIAMServiceLinkedRole:
+
+		return true, rc.deleteIAMServiceLinkedRole(physicalID)
 	default:
 
 		return false, nil
@@ -1399,6 +1536,28 @@ func (rc *ResourceCreator) deleteEC2CoreResource(resourceType, physicalID string
 		return true, rc.deleteEC2VPCEndpoint(physicalID)
 	default:
 
+		return rc.deleteEC2TGWResource(resourceType, physicalID)
+	}
+}
+
+// deleteEC2TGWResource handles AWS::EC2::TransitGateway* resource deletion
+// (split out of deleteEC2CoreResource to keep its cyclomatic complexity down).
+func (rc *ResourceCreator) deleteEC2TGWResource(resourceType, physicalID string) (bool, error) {
+	switch resourceType {
+	case resTypeEC2TransitGateway:
+
+		return true, rc.deleteEC2TransitGateway(physicalID)
+	case resTypeEC2TGWAttachment:
+
+		return true, rc.deleteEC2TGWAttachment(physicalID)
+	case resTypeEC2TGWRouteTable:
+
+		return true, rc.deleteEC2TGWRouteTable(physicalID)
+	case resTypeEC2TGWRoute:
+
+		return true, rc.deleteEC2TGWRoute(physicalID)
+	default:
+
 		return false, nil
 	}
 }
@@ -1408,7 +1567,7 @@ func (rc *ResourceCreator) deleteRoute53Resource(resourceType, physicalID string
 	switch resourceType {
 	case resTypeRoute53HostedZone:
 		return rc.deleteRoute53HostedZone(physicalID)
-	case resTypeRoute53RecordSet:
+	case resTypeRoute53RecordSet, resTypeRoute53RecordSetGroup:
 		return nil // record sets are deleted with the hosted zone
 	default:
 		return rc.deleteRoute53HealthCheck(physicalID)
@@ -1429,7 +1588,7 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 	case "AWS::CloudWatch::Alarm", "AWS::CloudWatch::CompositeAlarm":
 
 		return rc.deleteCloudWatchAlarm(physicalID)
-	case resTypeRoute53HostedZone, resTypeRoute53RecordSet, "AWS::Route53::HealthCheck":
+	case resTypeRoute53HostedZone, resTypeRoute53RecordSet, resTypeRoute53RecordSetGroup, "AWS::Route53::HealthCheck":
 
 		return rc.deleteRoute53Resource(resourceType, physicalID)
 	case "AWS::ElastiCache::CacheCluster":
@@ -1444,9 +1603,12 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 	case "AWS::SNS::Subscription":
 
 		return rc.deleteSNSSubscription(physicalID)
-	case "AWS::SQS::QueuePolicy":
+	case "AWS::SQS::QueuePolicy", resTypeSQSQueueInlinePolicy:
 
 		return nil // queue policies are soft resources; deletion is a no-op
+	case resTypeSNSTopicInlinePolicy:
+
+		return nil // topic policy is an attribute on the topic; removed with the topic
 	case "AWS::S3::BucketPolicy":
 
 		return rc.deleteS3BucketPolicy(ctx, physicalID)
@@ -2537,7 +2699,60 @@ func (rc *ResourceCreator) createExtraResource(
 		return id, true, err
 	}
 
+	if id, ok, err := rc.createServiceDiscoveryResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
 	return rc.createExtraPlatformResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createServiceDiscoveryResource handles AWS::ServiceDiscovery::* resource creation.
+func (rc *ResourceCreator) createServiceDiscoveryResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case resTypeSDPrivateDNSNamespace:
+		id, err := rc.createSDPrivateDNSNamespace(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeSDHTTPNamespace:
+		id, err := rc.createSDHTTPNamespace(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeSDPublicDNSNamespace:
+		id, err := rc.createSDPublicDNSNamespace(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeSDService:
+		id, err := rc.createSDService(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeSDInstance:
+		id, err := rc.createSDInstance(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+
+		return "", false, nil
+	}
+}
+
+// deleteServiceDiscoveryResource handles AWS::ServiceDiscovery::* resource
+// deletions (excluding Instance, which is special-cased in Delete for props access).
+func (rc *ResourceCreator) deleteServiceDiscoveryResource(resourceType, physicalID string) (bool, error) {
+	switch resourceType {
+	case resTypeSDPrivateDNSNamespace, resTypeSDHTTPNamespace, resTypeSDPublicDNSNamespace:
+
+		return true, rc.deleteSDNamespace(physicalID)
+	case resTypeSDService:
+
+		return true, rc.deleteSDService(physicalID)
+	default:
+
+		return false, nil
+	}
 }
 
 // deleteExtraResource handles deletion for phase-5 resource types.
@@ -2578,6 +2793,10 @@ func (rc *ResourceCreator) deleteExtraResource(
 	}
 
 	if handled, err := rc.deleteResilienceHubSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteServiceDiscoveryResource(resourceType, physicalID); handled {
 		return true, err
 	}
 

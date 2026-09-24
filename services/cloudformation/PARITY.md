@@ -1,9 +1,11 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 7dd3443d5  # 2026-09-24 topoSortResources now infers dependencies from
-                               # Ref/Fn::GetAtt/Fn::Sub, not just DependsOn (create AND delete
-                               # order, CreateStack/UpdateStack/DeleteStack); prior: d67382029
+last_audit_commit: e13b41148  # 2026-09-24 16 new resource types added (EC2 TransitGateway
+                               # family, IAM AccessKey/ServiceLinkedRole/UserToGroupAddition,
+                               # ServiceDiscovery namespaces/Service/Instance, Route53::
+                               # RecordSetGroup, Logs::Destination, SQS/SNS InlinePolicy);
+                               # prior: 7dd3443d5
 last_audit_date: 2026-09-24  # prior: 2026-09-20
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
@@ -141,6 +143,32 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) 16 new resource types: 192 -> 208 supported types
+
+Added AWS::EC2::{TransitGateway,TransitGatewayAttachment,TransitGatewayRouteTable,
+TransitGatewayRoute}, AWS::IAM::{AccessKey,ServiceLinkedRole,UserToGroupAddition},
+AWS::ServiceDiscovery::{PrivateDnsNamespace,HttpNamespace,PublicDnsNamespace,Service,Instance}
+(wired the servicediscovery backend into ServiceBackends/BackendsProvider -- CLI already had
+GetServiceDiscoveryHandler), AWS::Route53::RecordSetGroup, AWS::Logs::Destination, and
+AWS::SQS::QueueInlinePolicy / AWS::SNS::TopicInlinePolicy, each provisioning through its real
+service backend with Ref/GetAtt verified against the CloudFormation docs (see
+resources_more_managed_types2.go, resources_servicediscovery.go). Fixed a real cross-type bug
+found along the way: AWS::IAM::User/Group's Ref returns an ARN in this backend, so a template's
+`{"Ref": "MyUser"}` feeding an AccessKey's UserName or a UserToGroupAddition's GroupName/Users
+arrived as an ARN where IAM's own APIs need a bare name -- createIAMAccessKey/
+createIAMUserToGroupAddition now unwrap it (iamNameFromRefValue). Also found and fixed a
+delete-time correctness gap that predates this pass: ResourceCreator.Delete only ever received
+a resource's raw (unresolved) Properties, so a `{"Ref": "OtherResource"}` property read during
+deletion (IAM AccessKey's UserName, UserToGroupAddition's GroupName/Users, ServiceDiscovery
+Instance's ServiceId) resolved to the referenced resource's *logical* ID instead of its physical
+ID. Delete's signature now also takes a `stackPhysicalIDs` snapshot (built by its 4 callers in
+stacks.go from the stack's live StackResources) so these Refs resolve correctly; this is a
+general fix, not scoped to the 3 new callers. Skipped for this pass (budget): AWS::CodeDeploy::*
+(3 types, backend exists but not yet wired into ServiceBackends), AWS::EKS::{FargateProfile,Addon}
+(2 types). Census of all still-missing AWS::<emulated-service>::* types, from the real
+CloudFormationResourceSpecification.json, at scratchpad census/cfn_types_missing.json
+(1057 missing, rough commonality-ranked).
 
 ### 2026-09-24 topoSortResources infers dependencies from Ref/Fn::GetAtt/Fn::Sub, not just DependsOn
 

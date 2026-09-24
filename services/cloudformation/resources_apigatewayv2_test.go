@@ -44,9 +44,9 @@ func TestResourceCreator_Extra_APIGatewayV2Children(t *testing.T) {
 	require.Len(t, routes, 1)
 	assert.Equal(t, "GET /items", routes[0].RouteKey)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Route", routePhys, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Integration", intPhys, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Authorizer", authPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Route", routePhys, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Integration", intPhys, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Authorizer", authPhys, nil, nil))
 
 	routes, err = apigw.GetRoutes(apiID)
 	require.NoError(t, err)

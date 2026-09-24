@@ -92,7 +92,7 @@ func TestResourceCreator_CustomResource_DeleteEvent(t *testing.T) {
 		map[string]any{
 			"ServiceToken": "arn:aws:lambda:us-east-1:000000000000:function:cfn-fn",
 			"Color":        "red",
-		})
+		}, nil)
 	require.NoError(t, err)
 
 	select {

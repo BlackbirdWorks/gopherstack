@@ -36,6 +36,7 @@ const splitSep = "\x00"
 const (
 	resTypeStepFunctionsStateMachine = "AWS::StepFunctions::StateMachine"
 	attrNameArn                      = "Arn"
+	attrNameName                     = "Name"
 	fnGetAtt                         = "Fn::GetAtt"
 	// yamlMappingContentStride is the step size when walking a yaml.Node's
 	// Content slice for a MappingNode, which interleaves key/value pairs
@@ -1405,6 +1406,29 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 
 	// Custom resource Data outputs are stored in physicalIDs as "logicalID/Key".
 	if resType == cfnTypeCustomResource || strings.HasPrefix(resType, "Custom::") {
+		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+			return v
+		}
+	}
+
+	// IAM::AccessKey's SecretAccessKey is only ever known at creation time
+	// (real AWS's own documented behavior); it is stashed the same way as
+	// custom-resource Data outputs -- see createIAMAccessKey.
+	if resType == resTypeIAMAccessKey && attrName == "SecretAccessKey" {
+		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+			return v
+		}
+	}
+
+	// ServiceDiscovery DNS namespaces' HostedZoneId and Service's Name are
+	// backend-computed values getExtraResourceAttribute (a pure function of
+	// physID/type) can't derive -- stashed the same way, see
+	// stashSDHostedZoneID / createSDService.
+	sdSideChannelAttr := (resType == resTypeSDPrivateDNSNamespace || resType == resTypeSDPublicDNSNamespace) &&
+		attrName == "HostedZoneId"
+	sdSideChannelAttr = sdSideChannelAttr || (resType == resTypeSDService && attrName == attrNameName)
+
+	if sdSideChannelAttr {
 		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
 			return v
 		}
