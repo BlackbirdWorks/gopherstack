@@ -580,6 +580,7 @@ func runTGWPrefixListAndMeteringPolicy(t *testing.T, backend *ec2.InMemoryBacken
 		t.Context(), &ec2sdk.CreateTransitGatewayPrefixListReferenceInput{
 			TransitGatewayRouteTableId: aws.String(rt.RouteTableID),
 			PrefixListId:               aws.String(pl.PrefixListID),
+			TransitGatewayAttachmentId: aws.String(att1.TransitGatewayAttachmentID),
 		},
 	)
 	require.NoError(t, err)
@@ -588,6 +589,17 @@ func runTGWPrefixListAndMeteringPolicy(t *testing.T, backend *ec2.InMemoryBacken
 		t,
 		pl.PrefixListID,
 		aws.ToString(createRefOut.TransitGatewayPrefixListReference.PrefixListId),
+	)
+	// gopherstack-mb53: TransitGatewayAttachmentId was silently dropped on
+	// create, so this sub-object never appeared on the wire even though the
+	// request carried it.
+	require.NotNil(t, createRefOut.TransitGatewayPrefixListReference.TransitGatewayAttachment)
+	assert.Equal(
+		t,
+		att1.TransitGatewayAttachmentID,
+		aws.ToString(
+			createRefOut.TransitGatewayPrefixListReference.TransitGatewayAttachment.TransitGatewayAttachmentId,
+		),
 	)
 
 	getRefsOut, err := client.GetTransitGatewayPrefixListReferences(
@@ -1805,7 +1817,7 @@ func runSingletonsC(t *testing.T, backend *ec2.InMemoryBackend, client *ec2sdk.C
 	require.NoError(t, err)
 	pl, err := backend.CreateManagedPrefixList("slice26-delref-pl", "IPv4", 10, nil)
 	require.NoError(t, err)
-	_, err = backend.CreateTransitGatewayPrefixListReference(rt2.RouteTableID, pl.PrefixListID, false)
+	_, err = backend.CreateTransitGatewayPrefixListReference(rt2.RouteTableID, pl.PrefixListID, "", false)
 	require.NoError(t, err)
 
 	delRefOut, err := client.DeleteTransitGatewayPrefixListReference(

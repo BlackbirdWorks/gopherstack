@@ -48,7 +48,7 @@ func TestNetworkInterfacePermissions(t *testing.T) { //nolint:paralleltest // ex
 			"INSTANCE-ATTACH",
 		)
 		require.NoError(t, err)
-		assert.Equal(t, "granted", perm.State)
+		assert.Equal(t, "GRANTED", perm.State)
 	})
 
 	t.Run("describe returns created permission", func(t *testing.T) { //nolint:paralleltest // existing issue.

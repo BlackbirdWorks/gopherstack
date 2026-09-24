@@ -1617,7 +1617,7 @@ type Backend interface {
 
 	// ---- batch4: TGW PrefixListRef ----
 	CreateTransitGatewayPrefixListReference(
-		routeTableID, prefixListID string,
+		routeTableID, prefixListID, attachmentID string,
 		blackhole bool,
 	) (*TransitGatewayPrefixListReference, error)
 	DeleteTransitGatewayPrefixListReference(

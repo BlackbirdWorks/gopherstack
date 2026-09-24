@@ -428,9 +428,10 @@ func (h *Handler) handleCreateTransitGatewayPrefixListReference(
 ) (any, error) {
 	routeTableID := vals.Get("TransitGatewayRouteTableId")
 	prefixListID := vals.Get("PrefixListId")
+	attachmentID := vals.Get("TransitGatewayAttachmentId")
 	blackhole := vals.Get("Blackhole") == ec2BooleanTrue
 
-	ref, err := h.Backend.CreateTransitGatewayPrefixListReference(routeTableID, prefixListID, blackhole)
+	ref, err := h.Backend.CreateTransitGatewayPrefixListReference(routeTableID, prefixListID, attachmentID, blackhole)
 	if err != nil {
 		return nil, err
 	}

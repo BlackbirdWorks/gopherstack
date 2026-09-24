@@ -296,7 +296,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnectPeers(
 
 // CreateTransitGatewayPrefixListReference creates a TGW prefix list reference.
 func (b *InMemoryBackend) CreateTransitGatewayPrefixListReference(
-	routeTableID, prefixListID string,
+	routeTableID, prefixListID, attachmentID string,
 	blackhole bool,
 ) (*TransitGatewayPrefixListReference, error) {
 	if routeTableID == "" || prefixListID == "" {
@@ -312,6 +312,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPrefixListReference(
 	ref := &TransitGatewayPrefixListReference{
 		PrefixListID:               prefixListID,
 		TransitGatewayRouteTableID: routeTableID,
+		TransitGatewayAttachmentID: attachmentID,
 		State:                      stateAvailable,
 		Blackhole:                  blackhole,
 	}

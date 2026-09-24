@@ -5989,3 +5989,29 @@ without a current non-empty domain name (elastic_ips.go), and
 ResetAddressAttribute deletes its attribute row instead of leaving a
 domain-less one. Verified via TestTerraform_MegaBatch44 destroy (TF_LOG=trace):
 clean, no more logged error.
+
+## 2026-09-24: mega-batch-53 fixture fixes -- NetworkInterfacePermission state casing, ImportSnapshot backing record, TGW prefix list reference attachment ID
+
+`CreateNetworkInterfacePermission`'s `State` was written lowercase ("granted"),
+matching the Go SDK's `NetworkInterfacePermissionStateCode` constant name but
+not the real wire value: `terraform-provider-aws`'s
+`aws_network_interface_permission` create waiter polls for literal `GRANTED`
+(confirmed via the compiled provider binary's string table, which carries
+`GRANTED`/`REVOKING`/`REVOKED` uppercase alongside `PENDING`) and looped
+forever against the lowercase value. Now uppercase.
+
+`ImportSnapshot` completed its task with `Status: "completed"` but never
+created a backing `Snapshot` record and never set the task's `SnapshotId`, so
+`aws_ebs_snapshot_import`'s post-create `DescribeSnapshots` read always found
+nothing. Now synthesizes a real `Snapshot` (state `completed`, 8 GiB default,
+owner/encryption/KMS key carried through) and links it via
+`SnapshotImportTask.SnapshotID`.
+
+`CreateTransitGatewayPrefixListReference` silently dropped
+`TransitGatewayAttachmentId` -- never read from the request, never passed to
+the backend, never stored -- even though `ModifyTransitGatewayPrefixListReference`
+already threaded it correctly. `GetTransitGatewayPrefixListReferences` then
+always omitted the `transitGatewayAttachment` sub-object real AWS always
+includes when a reference targets an attachment, which is exactly what
+`aws_ec2_transit_gateway_prefix_list_reference`'s Read/Terraform diff checks.
+Now the handler reads and stores it like Modify does.

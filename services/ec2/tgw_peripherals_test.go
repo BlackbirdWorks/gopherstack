@@ -620,7 +620,7 @@ func TestTGWPeripherals_ModifyPrefixListReference(t *testing.T) {
 
 	bk := newTestBackend()
 
-	ref, err := bk.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", false)
+	ref, err := bk.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", "", false)
 	require.NoError(t, err)
 	assert.False(t, ref.Blackhole)
 

@@ -98,12 +98,13 @@ const (
 
 // Misc formerly-batch2 constants.
 const (
-	defaultEBSKmsKeyAlias    = "alias/aws/ebs"
-	stateImageUnblocked      = "unblocked"
-	stateImageBlockNew       = "block-new-sharing"
-	stateDefaultCredit       = "standard"
-	addressTransferOfferDays = 3
-	addressFamilyIPv4        = "ipv4"
+	defaultEBSKmsKeyAlias          = "alias/aws/ebs"
+	defaultImportedSnapshotSizeGiB = 8
+	stateImageUnblocked            = "unblocked"
+	stateImageBlockNew             = "block-new-sharing"
+	stateDefaultCredit             = "standard"
+	addressTransferOfferDays       = 3
+	addressFamilyIPv4              = "ipv4"
 )
 
 // VpcEndpointConnectionNotification tracks a VPC endpoint connection notification.

@@ -120,11 +120,16 @@ func TestTGWPrefixListReference(t *testing.T) { //nolint:paralleltest // existin
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	t.Run("create reference", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", false)
+		ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", "tgw-attach-111", false)
 		require.NoError(t, err)
 		assert.Equal(t, "pl-abc123", ref.PrefixListID)
 		assert.Equal(t, "available", ref.State)
 		assert.False(t, ref.Blackhole)
+		// gopherstack-mb53: TransitGatewayAttachmentId was silently dropped on
+		// create (never read from the request, never stored), so
+		// aws_ec2_transit_gateway_prefix_list_reference's TransitGatewayAttachment
+		// sub-object never appeared on the wire.
+		assert.Equal(t, "tgw-attach-111", ref.TransitGatewayAttachmentID)
 	})
 
 	t.Run("get references for route table", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -254,7 +259,7 @@ func TestTGW_PrefixListRefCRUD(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", false)
+	ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "pl-abc123", ref.PrefixListID)
 	assert.Equal(t, "tgw-rtb-111", ref.TransitGatewayRouteTableID)

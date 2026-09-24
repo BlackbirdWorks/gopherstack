@@ -218,6 +218,46 @@ func TestSnapshotRecycleBin(t *testing.T) { //nolint:paralleltest // existing is
 	})
 }
 
+// TestImportSnapshotBacksRealSnapshot covers gopherstack-mb53: ImportSnapshot
+// previously completed a task with no SnapshotID and no backing Snapshot
+// record, so a client's post-import DescribeSnapshots read always found
+// nothing even though the task reported Status "completed".
+func TestImportSnapshotBacksRealSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		kmsKeyID  string
+		encrypted bool
+	}{
+		{name: "unencrypted"},
+		{name: "encrypted with default key", encrypted: true},
+		{name: "encrypted with explicit key", encrypted: true, kmsKeyID: "alias/custom"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+			task, err := b.ImportSnapshot("import test", tc.encrypted, tc.kmsKeyID)
+			require.NoError(t, err)
+			require.NotEmpty(t, task.SnapshotID, "task must carry the id of a real backing snapshot")
+
+			snaps, err := b.DescribeSnapshots([]string{task.SnapshotID})
+			require.NoError(t, err)
+			require.Len(t, snaps, 1, "the imported snapshot must be describable by the task's SnapshotID")
+			assert.Equal(t, "completed", snaps[0].State)
+			assert.Equal(t, tc.encrypted, snaps[0].Encrypted)
+
+			tasks := b.DescribeImportSnapshotTasks([]string{task.ImportTaskID})
+			require.Len(t, tasks, 1)
+			assert.Equal(t, task.SnapshotID, tasks[0].SnapshotID)
+		})
+	}
+}
+
 func TestRestoreSnapshotTier(t *testing.T) { //nolint:paralleltest // existing issue.
 	t.Run("restore from archive to standard", func(t *testing.T) {
 		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")

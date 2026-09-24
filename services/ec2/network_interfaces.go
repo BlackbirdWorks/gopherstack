@@ -465,7 +465,8 @@ func (b *InMemoryBackend) CreateNetworkInterfacePermission(
 		AwsAccountID:       awsAccountID,
 		AwsService:         awsService,
 		Permission:         permission,
-		State:              "granted",
+		// Uppercase despite the SDK enum; terraform-provider-aws waits for "GRANTED".
+		State: "GRANTED",
 	}
 	b.niPermissions.Put(perm)
 

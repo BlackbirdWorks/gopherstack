@@ -513,12 +513,31 @@ func (b *InMemoryBackend) ImportSnapshot(
 		kmsKeyID = defaultEBSKmsKeyAlias
 	}
 
+	// Real AWS backs a completed import task with an actual EBS snapshot
+	// (DescribeImportSnapshotTasks.SnapshotTaskDetail.SnapshotId); previously
+	// this task completed with no SnapshotID and no matching Snapshot record,
+	// so aws_ebs_snapshot_import's post-create DescribeSnapshots read always
+	// found nothing.
+	snap := &Snapshot{
+		SnapshotID:  newSnapshotID(),
+		Description: description,
+		State:       stateCompleted,
+		Progress:    "100%",
+		StartTime:   time.Now().UTC(),
+		VolumeSize:  defaultImportedSnapshotSizeGiB,
+		Encrypted:   encrypted,
+		KmsKeyID:    kmsKeyID,
+		OwnerID:     b.AccountID,
+	}
+	b.snapshots.Put(snap)
+
 	task := &SnapshotImportTask{
 		ImportTaskID: "import-snap-" + uuid.New().String()[:8],
 		Description:  description,
 		Status:       stateTaskCompleted,
 		Encrypted:    encrypted,
 		KmsKeyID:     kmsKeyID,
+		SnapshotID:   snap.SnapshotID,
 	}
 	b.snapshotImportTasks.Put(task)
 
