@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: fsx
 sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
-last_audit_commit: 22b4f068c
+last_audit_commit: 6bc42ba0b
 last_audit_date: 2026-09-20
 overall: A            # genuine wire-format + error-code bugs found and fixed
                       # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
@@ -809,3 +809,12 @@ Gates: `go build ./...`, `go vet`, `gofmt -l`, `go test -race -count=1
 clean. `go test ./pkgs/persistence/ -run TestSnapshotVersionGuard` passes
 with no version bump (fsxVolumeIDHexLen is a generation-time constant, not a
 persisted field).
+
+## 2026-09-20 gopherstack-jtf4s: destroy hang is the provider, not us
+
+DeleteFileSystem/DescribeFileSystems already round-trip a typed
+`FileSystemNotFound` correctly; the hang is v5.100.0's
+`waitFileSystemDeleted` hardcoded `Delay: 10 * time.Minute`
+(`internal/service/fsx/lustre_file_system.go`, shared by all 4 FSx types)
+firing before its first poll. Applied `mega-batch-32.tf`'s `timeouts {
+delete = "5s" }` workaround to `fixtures/fsx/lustre.tf` too.
