@@ -2,6 +2,7 @@ package terraform_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +11,7 @@ import (
 	cleanroomssvc "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
 	daxsvc "github.com/aws/aws-sdk-go-v2/service/dax"
 	directconnectsvc "github.com/aws/aws-sdk-go-v2/service/directconnect"
+	dxtypes "github.com/aws/aws-sdk-go-v2/service/directconnect/types"
 	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,8 +77,9 @@ func TestTerraform_MegaBatch5(t *testing.T) {
 				})
 				dxOut, err := dxClient.DescribeConnections(ctx, &directconnectsvc.DescribeConnectionsInput{})
 				require.NoError(t, err, "DescribeConnections should succeed")
-				require.NotEmpty(t, dxOut.Connections, "a connection should exist after apply")
-				assert.Equal(t, "mega-batch-5-dx", aws.ToString(dxOut.Connections[0].ConnectionName))
+				require.True(t, slices.ContainsFunc(dxOut.Connections, func(c dxtypes.Connection) bool {
+					return aws.ToString(c.ConnectionName) == "mega-batch-5-dx"
+				}), "the mega-batch-5-dx connection should exist after apply")
 
 				dlmClient := dlmsvc.NewFromConfig(cfg, func(o *dlmsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)

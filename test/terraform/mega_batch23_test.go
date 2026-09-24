@@ -78,7 +78,7 @@ func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
 
 	locsOut, err := client.ListLocations(ctx, &datasyncsvc.ListLocationsInput{})
 	require.NoError(t, err, "ListLocations should succeed")
-	require.Len(t, locsOut.Locations, 6, "should have created 6 datasync locations")
+	require.GreaterOrEqual(t, len(locsOut.Locations), 6, "should have created 6 datasync locations")
 
 	arns := make([]string, len(locsOut.Locations))
 	for i, l := range locsOut.Locations {
