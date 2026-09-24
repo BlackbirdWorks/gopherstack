@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
+	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -107,14 +110,14 @@ func TestEncryptionConfig_Replace_Not_Append(t *testing.T) {
 	first := []eks.EncryptionConfig{
 		{Provider: map[string]string{"keyArn": "arn:aws:kms:us-east-1:123:key/k1"}, Resources: []string{"secrets"}},
 	}
-	result, err := b.AssociateEncryptionConfig("c1", first)
+	result, _, err := b.AssociateEncryptionConfig("c1", first)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 
 	second := []eks.EncryptionConfig{
 		{Provider: map[string]string{"keyArn": "arn:aws:kms:us-east-1:123:key/k2"}, Resources: []string{"secrets"}},
 	}
-	result2, err := b.AssociateEncryptionConfig("c1", second)
+	result2, _, err := b.AssociateEncryptionConfig("c1", second)
 	require.NoError(t, err)
 	// Must replace, not append — exactly 1 entry.
 	require.Len(t, result2, 1, "AssociateEncryptionConfig must replace the stored config, not append")
@@ -229,7 +232,7 @@ func TestEncryptionConfig_NoKeyArn_Accepted(t *testing.T) {
 	cfg := []eks.EncryptionConfig{
 		{Provider: map[string]string{"keyArn": ""}, Resources: []string{"secrets"}},
 	}
-	_, err = b.AssociateEncryptionConfig("c1", cfg)
+	_, _, err = b.AssociateEncryptionConfig("c1", cfg)
 	require.NoError(t, err)
 }
 
@@ -641,7 +644,7 @@ func TestKMS_Resources_Field_RoundTrip(t *testing.T) {
 			Resources: []string{"secrets"},
 		},
 	}
-	result, err := b.AssociateEncryptionConfig("kms-resources", cfg)
+	result, _, err := b.AssociateEncryptionConfig("kms-resources", cfg)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	assert.Equal(t, []string{"secrets"}, result[0].Resources)
@@ -659,7 +662,7 @@ func TestKMS_MultiResource_Accepted(t *testing.T) {
 			Resources: []string{"secrets", "configmaps"},
 		},
 	}
-	result, err := b.AssociateEncryptionConfig("kms-multi", cfg)
+	result, _, err := b.AssociateEncryptionConfig("kms-multi", cfg)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"secrets", "configmaps"}, result[0].Resources)
 }
@@ -1061,4 +1064,73 @@ func TestEKS_CancelUpdate(t *testing.T) {
 		_, err = b.CancelUpdate("cancel-direct", "u1")
 		assert.ErrorIs(t, err, eks.ErrInvalidRequest)
 	})
+}
+
+// TestAssociateEncryptionConfig_StoresDescribableUpdate covers gopherstack-yiy60:
+// AssociateEncryptionConfig fabricated a random Update ID that was never
+// stored, so a client polling DescribeUpdate on it (as
+// terraform-provider-aws's aws_eks_cluster encryption-config waiter does)
+// always got ResourceNotFoundException. Same bug class and fix as
+// Associate/DisassociateIdentityProviderConfig (gopherstack-mb53,
+// bc048ddf0).
+func TestAssociateEncryptionConfig_StoresDescribableUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		clusterName      string
+		encryptionConfig []ekstypes.EncryptionConfig
+	}{
+		{
+			name:        "with_kms_key",
+			clusterName: "enc-update-cluster-1",
+			encryptionConfig: []ekstypes.EncryptionConfig{
+				{
+					Provider:  &ekstypes.Provider{KeyArn: aws.String("arn:aws:kms:us-east-1:123456789012:key/abc")},
+					Resources: []string{"secrets"},
+				},
+			},
+		},
+		{
+			name:        "without_kms_key",
+			clusterName: "enc-update-cluster-2",
+			encryptionConfig: []ekstypes.EncryptionConfig{
+				{Provider: &ekstypes.Provider{}, Resources: []string{"secrets"}},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+			client := newTestEKSClient(t, eks.NewHandler(backend))
+			ctx := t.Context()
+
+			_, err := client.CreateCluster(ctx, &ekssdk.CreateClusterInput{
+				Name:               aws.String(tc.clusterName),
+				RoleArn:            aws.String("arn:aws:iam::123456789012:role/eks-role"),
+				ResourcesVpcConfig: &ekstypes.VpcConfigRequest{SubnetIds: []string{"subnet-abc123"}},
+			})
+			require.NoError(t, err)
+
+			out, err := client.AssociateEncryptionConfig(ctx, &ekssdk.AssociateEncryptionConfigInput{
+				ClusterName:      aws.String(tc.clusterName),
+				EncryptionConfig: tc.encryptionConfig,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, out.Update)
+			require.NotNil(t, out.Update.Id)
+			assert.NotEmpty(t, *out.Update.Id)
+
+			described, err := client.DescribeUpdate(ctx, &ekssdk.DescribeUpdateInput{
+				Name:     aws.String(tc.clusterName),
+				UpdateId: out.Update.Id,
+			})
+			require.NoError(t, err, "DescribeUpdate must find the update AssociateEncryptionConfig reported")
+			assert.Equal(t, *out.Update.Id, aws.ToString(described.Update.Id))
+			assert.Equal(t, ekstypes.UpdateTypeAssociateEncryptionConfig, described.Update.Type)
+		})
+	}
 }

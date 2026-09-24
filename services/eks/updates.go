@@ -1,6 +1,7 @@
 package eks
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -33,23 +34,27 @@ func (b *InMemoryBackend) scheduleUpdateTransition(clusterName, updateID string)
 }
 
 // AssociateEncryptionConfig associates encryption configuration with a cluster.
-// Each call replaces the stored configuration rather than appending.
+// Each call replaces the stored configuration rather than appending. It also
+// creates and stores a real Update record (InProgress -> Successful on the
+// same transition delay as every sibling async op) so a caller polling
+// DescribeUpdate on the returned ID finds it, the same fix applied to
+// Associate/DisassociateIdentityProviderConfig (gopherstack-mb53).
 func (b *InMemoryBackend) AssociateEncryptionConfig(
 	clusterName string,
 	configs []EncryptionConfig,
-) ([]EncryptionConfig, error) {
+) ([]EncryptionConfig, *Update, error) {
 	b.mu.Lock("AssociateEncryptionConfig")
 	defer b.mu.Unlock()
 
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
 	for _, cfg := range configs {
 		if keyARN, hasKey := cfg.Provider["keyArn"]; hasKey && keyARN != "" {
 			if !isKMSARN(keyARN) {
-				return nil, fmt.Errorf("%w: provider.keyArn %q is not a valid KMS key ARN", ErrValidation, keyARN)
+				return nil, nil, fmt.Errorf("%w: provider.keyArn %q is not a valid KMS key ARN", ErrValidation, keyARN)
 			}
 		}
 	}
@@ -62,7 +67,23 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 	result := make([]EncryptionConfig, len(stored))
 	copy(result, stored)
 
-	return result, nil
+	encryptionConfigJSON, err := json.Marshal(result)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal encryption config: %w", err)
+	}
+
+	u := &Update{
+		ID:          stableID(clusterName + "/encryption-config-update/" + time.Now().String()),
+		ClusterName: clusterName,
+		Status:      statusInProgress,
+		Type:        opAssociateEncryptionConfig,
+		Params:      []UpdateParam{{Type: "EncryptionConfig", Value: string(encryptionConfigJSON)}},
+		CreatedAt:   time.Now().UTC(),
+	}
+	b.storeUpdateLocked(u)
+	b.scheduleUpdateTransition(clusterName, u.ID)
+
+	return result, u.clone(), nil
 }
 
 // isKMSARN returns true when s begins with the KMS ARN prefix.

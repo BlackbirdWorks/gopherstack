@@ -44,7 +44,7 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
+	_, _, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
 		{
 			Provider:  map[string]string{"keyArn": "arn:aws:kms:us-east-1:123456789012:key/abc"},
 			Resources: []string{"secrets"},
@@ -138,12 +138,13 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	require.Len(t, subs, 1)
 	assert.Equal(t, "sub1", subs[0].Name)
 
-	// Two updates now persist: UpdateClusterVersion's VersionUpdate, and
-	// AssociateIdentityProviderConfig's own real (no longer fabricated,
-	// see gopherstack-mb53) AssociateIdentityProviderConfig update.
+	// Three updates now persist: UpdateClusterVersion's VersionUpdate,
+	// AssociateIdentityProviderConfig's update (gopherstack-mb53), and
+	// AssociateEncryptionConfig's own real (no longer fabricated,
+	// gopherstack-yiy60) update.
 	updateIDs, err := b2.ListUpdates("c1")
 	require.NoError(t, err)
-	require.Len(t, updateIDs, 2)
+	require.Len(t, updateIDs, 3)
 
 	gotTypes := make([]string, len(updateIDs))
 	for i, id := range updateIDs {
@@ -151,7 +152,9 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 		require.NoError(t, describeErr)
 		gotTypes[i] = upd.Type
 	}
-	assert.ElementsMatch(t, []string{"VersionUpdate", "AssociateIdentityProviderConfig"}, gotTypes)
+	assert.ElementsMatch(
+		t, []string{"VersionUpdate", "AssociateIdentityProviderConfig", "AssociateEncryptionConfig"}, gotTypes,
+	)
 
 	assert.Equal(t, 1, b2.ClusterCount())
 	assert.Equal(t, 1, b2.NodegroupCount())
@@ -273,7 +276,7 @@ func TestPersistenceRoundTrip_AddonCapabilityEncryptionConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Associate encryption config.
-	_, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
+	_, _, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
 		{Provider: map[string]string{"keyArn": "arn:aws:kms:us-east-1:123:key/abc"}, Resources: []string{"secrets"}},
 	})
 	require.NoError(t, err)
