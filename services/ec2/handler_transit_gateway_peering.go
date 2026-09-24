@@ -245,6 +245,7 @@ func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
 ) (any, error) {
 	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	atts := h.Backend.DescribeTransitGatewayPeeringAttachments(ids)
+	atts = applyTGWPeeringAttachmentFilters(atts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeTransitGatewayPeeringAttachmentsResponse{RequestID: reqID}
 	for _, att := range atts {
@@ -333,6 +334,7 @@ type deleteTransitGatewayConnectResponse struct {
 func (h *Handler) handleDescribeTransitGatewayConnects(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	conns := h.Backend.DescribeTransitGatewayConnects(ids)
+	conns = applyTGWConnectFilters(conns, parseEC2Filters(vals))
 
 	resp := &describeTransitGatewayConnectsResponse{RequestID: reqID}
 	for _, conn := range conns {
@@ -408,6 +410,7 @@ func (h *Handler) handleDescribeTransitGatewayConnectPeers(
 ) (any, error) {
 	ids := parseMemberList(vals, "TransitGatewayConnectPeerIds")
 	peers := h.Backend.DescribeTransitGatewayConnectPeers(ids)
+	peers = applyTGWConnectPeerFilters(peers, parseEC2Filters(vals))
 
 	resp := &describeTransitGatewayConnectPeersResponse{RequestID: reqID}
 	for _, peer := range peers {
@@ -475,6 +478,8 @@ func (h *Handler) handleGetTransitGatewayPrefixListReferences(
 	if err != nil {
 		return nil, err
 	}
+
+	refs = applyTGWPrefixListRefFilters(refs, parseEC2Filters(vals))
 
 	resp := &getTransitGatewayPrefixListReferencesResponse{RequestID: reqID}
 	for _, ref := range refs {

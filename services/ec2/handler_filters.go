@@ -40,7 +40,58 @@ const (
 	filterKeyIsDefault        = "is-default"
 	filterKeyTransitGatewayID = "transit-gateway-id"
 	filterKeyTagKey           = "tag-key"
+	filterKeyTGWAttachmentID  = "transit-gateway-attachment-id"
+	filterKeyServiceID        = "service-id"
+	filterKeyDestinationCidr  = "destination-cidr"
+	filterKeyPrefixListID     = "prefix-list-id"
 )
+
+// applyFilterList runs the standard AND-across-names/OR-within-values filter
+// loop shared by every applyXxxFilters function below, so each one only has
+// to supply its own per-item matcher instead of repeating the loop body.
+func applyFilterList[T any](
+	items []T, filters map[string][]string, matches func(item T, name string, values []string) bool,
+) []T {
+	if len(filters) == 0 {
+		return items
+	}
+
+	out := items[:0:0]
+
+itemLoop:
+	for _, item := range items {
+		for name, values := range filters {
+			if !matches(item, name, values) {
+				continue itemLoop
+			}
+		}
+
+		out = append(out, item)
+	}
+
+	return out
+}
+
+// matchesTGWResourceFilter matches the resource-id/resource-type/
+// transit-gateway-attachment-id filters shared by GetTransitGatewayRouteTableAssociations,
+// GetTransitGatewayRouteTablePropagations, and
+// GetTransitGatewayMulticastDomainAssociations. handled is false when
+// filterName isn't one of these three, so callers can fall through to their
+// own additional filters.
+func matchesTGWResourceFilter(
+	filterName string, values []string, resourceID, resourceType, attachmentID string,
+) (bool, bool) {
+	switch filterName {
+	case filterKeyResourceID:
+		return anyEqual(resourceID, values), true
+	case filterKeyResourceType:
+		return anyEqual(resourceType, values), true
+	case filterKeyTGWAttachmentID:
+		return anyEqual(attachmentID, values), true
+	}
+
+	return false, false
+}
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
 func tagMatch(resourceID string, tagKey string, values []string, b Backend) bool {
@@ -1164,7 +1215,7 @@ plLoop:
 	for _, pl := range lists {
 		for name, values := range filters {
 			switch name {
-			case "prefix-list-id":
+			case filterKeyPrefixListID:
 				if !anyEqual(pl.PrefixListID, values) {
 					continue plLoop
 				}
@@ -1212,7 +1263,7 @@ func managedPrefixListMatchesFilter(pl *ManagedPrefixList, filterName string, va
 	switch filterName {
 	case filterKeyOwnerID:
 		return anyEqual(pl.OwnerID, values)
-	case "prefix-list-id":
+	case filterKeyPrefixListID:
 		return anyEqual(pl.PrefixListID, values)
 	case "prefix-list-name":
 		return anyEqual(pl.PrefixListName, values)
@@ -2743,6 +2794,475 @@ func ipamResourceDiscoveryMatchesFilter(d *IpamResourceDiscovery, filterName str
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
 			return tagMatch(d.IpamResourceDiscoveryID, tagKey, values, b)
 		}
+	}
+
+	return true
+}
+
+// ---- Transit Gateway Connect filters ----
+
+// applyTGWConnectFilters supports the DescribeTransitGatewayConnects filters
+// this backend has data for: options.protocol, state,
+// transit-gateway-attachment-id, transit-gateway-id,
+// transport-transit-gateway-attachment-id (api_op_DescribeTransitGatewayConnects.go
+// doc comment; this op documents no tag:/tag-key filter).
+func applyTGWConnectFilters(conns []*TransitGatewayConnect, filters map[string][]string) []*TransitGatewayConnect {
+	return applyFilterList(conns, filters, tgwConnectMatchesFilter)
+}
+
+func tgwConnectMatchesFilter(c *TransitGatewayConnect, filterName string, values []string) bool {
+	switch filterName {
+	case "options.protocol":
+		return anyEqual(c.Protocol, values)
+	case filterKeyState:
+		return anyEqual(c.State, values)
+	case filterKeyTGWAttachmentID:
+		return anyEqual(c.TransitGatewayAttachmentID, values)
+	case filterKeyTransitGatewayID:
+		return anyEqual(c.TransitGatewayID, values)
+	case "transport-transit-gateway-attachment-id":
+		return anyEqual(c.TransportTransitGatewayAttachmentID, values)
+	}
+
+	return true
+}
+
+// applyTGWConnectPeerFilters supports the DescribeTransitGatewayConnectPeers
+// filters this backend has data for: state, transit-gateway-attachment-id,
+// transit-gateway-connect-peer-id (api_op_DescribeTransitGatewayConnectPeers.go
+// doc comment; this op documents no tag:/tag-key filter).
+func applyTGWConnectPeerFilters(
+	peers []*TransitGatewayConnectPeer, filters map[string][]string,
+) []*TransitGatewayConnectPeer {
+	return applyFilterList(peers, filters, tgwConnectPeerMatchesFilter)
+}
+
+func tgwConnectPeerMatchesFilter(p *TransitGatewayConnectPeer, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyState:
+		return anyEqual(p.State, values)
+	case filterKeyTGWAttachmentID:
+		return anyEqual(p.TransitGatewayAttachmentID, values)
+	case "transit-gateway-connect-peer-id":
+		return anyEqual(p.TransitGatewayConnectPeerID, values)
+	}
+
+	return true
+}
+
+// ---- Transit Gateway Multicast Domain filters ----
+
+// applyTGWMulticastDomainFilters supports the
+// DescribeTransitGatewayMulticastDomains filters this backend has data for:
+// state, transit-gateway-id, transit-gateway-multicast-domain-id
+// (api_op_DescribeTransitGatewayMulticastDomains.go doc comment; this op
+// documents no tag:/tag-key filter).
+func applyTGWMulticastDomainFilters(
+	domains []*TransitGatewayMulticastDomain, filters map[string][]string,
+) []*TransitGatewayMulticastDomain {
+	return applyFilterList(domains, filters, tgwMulticastDomainMatchesFilter)
+}
+
+func tgwMulticastDomainMatchesFilter(d *TransitGatewayMulticastDomain, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyState:
+		return anyEqual(d.State, values)
+	case filterKeyTransitGatewayID:
+		return anyEqual(d.TransitGatewayID, values)
+	case "transit-gateway-multicast-domain-id":
+		return anyEqual(d.ID, values)
+	}
+
+	return true
+}
+
+// applyTGWMulticastDomainAssociationFilters supports the
+// GetTransitGatewayMulticastDomainAssociations filters this backend has data
+// for: resource-id, resource-type, state, subnet-id,
+// transit-gateway-attachment-id (api_op_GetTransitGatewayMulticastDomainAssociations.go
+// doc comment).
+func applyTGWMulticastDomainAssociationFilters(
+	assocs []*TransitGatewayMulticastDomainAssociation, filters map[string][]string,
+) []*TransitGatewayMulticastDomainAssociation {
+	return applyFilterList(assocs, filters, tgwMulticastDomainAssociationMatchesFilter)
+}
+
+func tgwMulticastDomainAssociationMatchesFilter(
+	a *TransitGatewayMulticastDomainAssociation, filterName string, values []string,
+) bool {
+	if matched, handled := matchesTGWResourceFilter(
+		filterName, values, a.ResourceID, a.ResourceType, a.TransitGatewayAttachmentID,
+	); handled {
+		return matched
+	}
+
+	switch filterName {
+	case filterKeyState:
+		return anyEqual(a.State, values)
+	case filterKeySubnetID:
+		return anyEqual(a.SubnetID, values)
+	}
+
+	return true
+}
+
+// ---- Transit Gateway Peering Attachment filters ----
+
+// applyTGWPeeringAttachmentFilters supports the
+// DescribeTransitGatewayPeeringAttachments filters this backend has data
+// for: local-owner-id, remote-owner-id, state, tag:<key>, tag-key,
+// transit-gateway-attachment-id, transit-gateway-id
+// (api_op_DescribeTransitGatewayPeeringAttachments.go doc comment).
+func applyTGWPeeringAttachmentFilters(
+	atts []*TransitGatewayPeeringAttachment, filters map[string][]string, b Backend,
+) []*TransitGatewayPeeringAttachment {
+	return applyFilterList(atts, filters, func(a *TransitGatewayPeeringAttachment, name string, values []string) bool {
+		return tgwPeeringAttachmentMatchesFilter(a, name, values, b)
+	})
+}
+
+func tgwPeeringAttachmentMatchesFilter(
+	a *TransitGatewayPeeringAttachment, filterName string, values []string, b Backend,
+) bool {
+	switch filterName {
+	case filterKeyTGWAttachmentID:
+		return anyEqual(a.TransitGatewayAttachmentID, values)
+	case "local-owner-id":
+		return anyEqual(a.RequesterOwnerID, values)
+	case "remote-owner-id":
+		return anyEqual(a.AccepterOwnerID, values)
+	case filterKeyState:
+		return anyEqual(a.State, values)
+	case filterKeyTransitGatewayID:
+		return anyEqual(a.RequesterTransitGatewayID, values)
+	case filterKeyTagKey:
+		for k := range b.TagsForResource(a.TransitGatewayAttachmentID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(a.TransitGatewayAttachmentID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// ---- Transit Gateway route table / attachment propagation & association filters ----
+
+// applyTGWAttachmentPropagationFilters supports the
+// GetTransitGatewayAttachmentPropagations filters this backend has data for:
+// transit-gateway-route-table-id (api_op_GetTransitGatewayAttachmentPropagations.go
+// doc comment).
+func applyTGWAttachmentPropagationFilters(
+	props []*TransitGatewayAttachmentPropagation, filters map[string][]string,
+) []*TransitGatewayAttachmentPropagation {
+	return applyFilterList(props, filters, tgwAttachmentPropagationMatchesFilter)
+}
+
+func tgwAttachmentPropagationMatchesFilter(
+	p *TransitGatewayAttachmentPropagation, filterName string, values []string,
+) bool {
+	if filterName == "transit-gateway-route-table-id" {
+		return anyEqual(p.TransitGatewayRouteTableID, values)
+	}
+
+	return true
+}
+
+// applyTGWPrefixListRefFilters supports the GetTransitGatewayPrefixListReferences
+// filters this backend has data for: attachment.transit-gateway-attachment-id,
+// is-blackhole, prefix-list-id, state (api_op_GetTransitGatewayPrefixListReferences.go
+// doc comment). attachment.resource-id, attachment.resource-type, and
+// prefix-list-owner-id are documented but unmodeled.
+func applyTGWPrefixListRefFilters(
+	refs []*TransitGatewayPrefixListReference, filters map[string][]string,
+) []*TransitGatewayPrefixListReference {
+	return applyFilterList(refs, filters, tgwPrefixListRefMatchesFilter)
+}
+
+func tgwPrefixListRefMatchesFilter(r *TransitGatewayPrefixListReference, filterName string, values []string) bool {
+	switch filterName {
+	case "attachment.transit-gateway-attachment-id":
+		return anyEqual(r.TransitGatewayAttachmentID, values)
+	case "is-blackhole":
+		want := anyEqual("true", values)
+
+		return r.Blackhole == want
+	case filterKeyPrefixListID:
+		return anyEqual(r.PrefixListID, values)
+	case filterKeyState:
+		return anyEqual(r.State, values)
+	}
+
+	return true
+}
+
+// applyTGWRTAssociationFilters supports the GetTransitGatewayRouteTableAssociations
+// filters this backend has data for: resource-type, transit-gateway-attachment-id
+// (api_op_GetTransitGatewayRouteTableAssociations.go doc comment). resource-id
+// is documented and modeled (TransitGatewayRouteTableAssociation.ResourceID)
+// but AssociateTransitGatewayRouteTable never populates it (unlike
+// EnableTransitGatewayRouteTablePropagation, which does), so it stays
+// unimplemented rather than filtering against a field nothing ever sets.
+func applyTGWRTAssociationFilters(
+	assocs []*TransitGatewayRouteTableAssociation, filters map[string][]string,
+) []*TransitGatewayRouteTableAssociation {
+	return applyFilterList(assocs, filters, tgwRTAssociationMatchesFilter)
+}
+
+func tgwRTAssociationMatchesFilter(a *TransitGatewayRouteTableAssociation, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyResourceType:
+		return anyEqual(a.ResourceType, values)
+	case filterKeyTGWAttachmentID:
+		return anyEqual(a.TransitGatewayAttachmentID, values)
+	}
+
+	return true
+}
+
+// applyTGWRTPropagationFilters supports the GetTransitGatewayRouteTablePropagations
+// filters this backend has data for: resource-id, resource-type,
+// transit-gateway-attachment-id (api_op_GetTransitGatewayRouteTablePropagations.go
+// doc comment).
+func applyTGWRTPropagationFilters(
+	props []*TransitGatewayRouteTablePropagation, filters map[string][]string,
+) []*TransitGatewayRouteTablePropagation {
+	return applyFilterList(props, filters, tgwRTPropagationMatchesFilter)
+}
+
+func tgwRTPropagationMatchesFilter(p *TransitGatewayRouteTablePropagation, filterName string, values []string) bool {
+	if matched, handled := matchesTGWResourceFilter(
+		filterName, values, p.ResourceID, p.ResourceType, p.TransitGatewayAttachmentID,
+	); handled {
+		return matched
+	}
+
+	return true
+}
+
+// ---- VPC Endpoint Connection / Notification / Service Configuration / Permission filters ----
+
+// applyVpcEndpointConnectionFilters supports the DescribeVpcEndpointConnections
+// filters this backend has data for: service-id, vpc-endpoint-id,
+// vpc-endpoint-state (api_op_DescribeVpcEndpointConnections.go doc comment).
+// ip-address-type, vpc-endpoint-owner, and vpc-endpoint-region are documented
+// but unmodeled.
+func applyVpcEndpointConnectionFilters(
+	conns []*VpcEndpointConnection, filters map[string][]string,
+) []*VpcEndpointConnection {
+	return applyFilterList(conns, filters, vpcEndpointConnectionMatchesFilter)
+}
+
+func vpcEndpointConnectionMatchesFilter(c *VpcEndpointConnection, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyServiceID:
+		return anyEqual(c.ServiceID, values)
+	case "vpc-endpoint-id":
+		return anyEqual(c.VpcEndpointID, values)
+	case "vpc-endpoint-state":
+		return anyEqual(c.State, values)
+	}
+
+	return true
+}
+
+// applyVpcEndpointConnNotifFilters supports the
+// DescribeVpcEndpointConnectionNotifications filters this backend has data
+// for: connection-notification-arn, connection-notification-id,
+// connection-notification-state, connection-notification-type, service-id,
+// vpc-endpoint-id (api_op_DescribeVpcEndpointConnectionNotifications.go doc
+// comment).
+func applyVpcEndpointConnNotifFilters(
+	notifs []*VpcEndpointConnectionNotification, filters map[string][]string,
+) []*VpcEndpointConnectionNotification {
+	return applyFilterList(notifs, filters, vpcEndpointConnNotifMatchesFilter)
+}
+
+func vpcEndpointConnNotifMatchesFilter(
+	n *VpcEndpointConnectionNotification, filterName string, values []string,
+) bool {
+	switch filterName {
+	case "connection-notification-arn":
+		return anyEqual(n.ConnectionNotificationARN, values)
+	case "connection-notification-id":
+		return anyEqual(n.ConnectionNotificationID, values)
+	case "connection-notification-state":
+		return anyEqual(n.ConnectionNotificationState, values)
+	case "connection-notification-type":
+		return anyEqual(n.ConnectionNotificationType, values)
+	case filterKeyServiceID:
+		return anyEqual(n.ServiceID, values)
+	case "vpc-endpoint-id":
+		return anyEqual(n.VpcEndpointID, values)
+	}
+
+	return true
+}
+
+// applyVpcEndpointServiceConfigFilters supports the
+// DescribeVpcEndpointServiceConfigurations filters this backend has data
+// for: service-id, service-name, service-state, tag:<key>, tag-key
+// (api_op_DescribeVpcEndpointServiceConfigurations.go doc comment).
+// supported-ip-address-types is documented but unmodeled.
+func applyVpcEndpointServiceConfigFilters(
+	cfgs []*VpcEndpointServiceConfig, filters map[string][]string, b Backend,
+) []*VpcEndpointServiceConfig {
+	return applyFilterList(cfgs, filters, func(c *VpcEndpointServiceConfig, name string, values []string) bool {
+		return vpcEndpointServiceConfigMatchesFilter(c, name, values, b)
+	})
+}
+
+func vpcEndpointServiceConfigMatchesFilter(
+	c *VpcEndpointServiceConfig, filterName string, values []string, b Backend,
+) bool {
+	switch filterName {
+	case "service-name":
+		return anyEqual(c.ServiceName, values)
+	case filterKeyServiceID:
+		return anyEqual(c.ServiceID, values)
+	case "service-state":
+		return anyEqual(c.ServiceState, values)
+	case filterKeyTagKey:
+		for k := range b.TagsForResource(c.ServiceID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(c.ServiceID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyVpcEndpointServicePermissionFilters supports the
+// DescribeVpcEndpointServicePermissions filters this backend has data for:
+// principal, principal-type (api_op_DescribeVpcEndpointServicePermissions.go
+// doc comment).
+func applyVpcEndpointServicePermissionFilters(principals []string, filters map[string][]string) []string {
+	return applyFilterList(principals, filters, vpcEndpointServicePermissionMatchesFilter)
+}
+
+func vpcEndpointServicePermissionMatchesFilter(principal string, filterName string, values []string) bool {
+	switch filterName {
+	case "principal":
+		return anyEqual(principal, values)
+	case "principal-type":
+		return anyEqual(principalTypeFor(principal), values)
+	}
+
+	return true
+}
+
+// ---- Client VPN Authorization Rule / Route / Target Network filters ----
+
+// applyClientVpnAuthRuleFilters supports the
+// DescribeClientVpnAuthorizationRules filters this backend has data for:
+// description, destination-cidr (api_op_DescribeClientVpnAuthorizationRules.go
+// doc comment). group-id is documented and modeled (ClientVpnAuthRule.GroupID)
+// but AuthorizeClientVpnIngress never reads a GroupId off the wire to
+// populate it (every rule is created with AccessAll: true), so it stays
+// unimplemented rather than filtering against a field nothing ever sets.
+func applyClientVpnAuthRuleFilters(
+	rules []ClientVpnAuthRule, filters map[string][]string,
+) []ClientVpnAuthRule {
+	return applyFilterList(rules, filters, clientVpnAuthRuleMatchesFilter)
+}
+
+func clientVpnAuthRuleMatchesFilter(r ClientVpnAuthRule, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyDescription:
+		return anyEqual(r.Description, values)
+	case filterKeyDestinationCidr:
+		return anyEqual(r.Cidr, values)
+	}
+
+	return true
+}
+
+// applyClientVpnRouteFilters supports the DescribeClientVpnRoutes filters
+// this backend has data for: destination-cidr, origin, target-subnet
+// (api_op_DescribeClientVpnRoutes.go doc comment).
+func applyClientVpnRouteFilters(routes []ClientVpnRoute, filters map[string][]string) []ClientVpnRoute {
+	return applyFilterList(routes, filters, clientVpnRouteMatchesFilter)
+}
+
+func clientVpnRouteMatchesFilter(r ClientVpnRoute, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyDestinationCidr:
+		return anyEqual(r.DestinationCidr, values)
+	case "origin":
+		return anyEqual(r.Origin, values)
+	case "target-subnet":
+		return anyEqual(r.TargetSubnet, values)
+	}
+
+	return true
+}
+
+// applyClientVpnTargetNetworkFilters supports the
+// DescribeClientVpnTargetNetworks filters this backend has data for:
+// association-id, target-network-id, vpc-id
+// (api_op_DescribeClientVpnTargetNetworks.go doc comment).
+func applyClientVpnTargetNetworkFilters(
+	networks []*ClientVpnTargetNetwork, filters map[string][]string,
+) []*ClientVpnTargetNetwork {
+	return applyFilterList(networks, filters, clientVpnTargetNetworkMatchesFilter)
+}
+
+func clientVpnTargetNetworkMatchesFilter(n *ClientVpnTargetNetwork, filterName string, values []string) bool {
+	switch filterName {
+	case "association-id":
+		return anyEqual(n.AssociationID, values)
+	case "target-network-id":
+		return anyEqual(n.SubnetID, values)
+	case filterKeyVPCID:
+		return anyEqual(n.VPCID, values)
+	}
+
+	return true
+}
+
+// ---- Dedicated Host filters ----
+
+// applyHostFilters supports the DescribeHosts filters this backend has data
+// for: auto-placement, availability-zone, instance-type, state, tag-key
+// (api_op_DescribeHosts.go doc comment). client-token and host-reservation-id
+// are documented but unmodeled.
+func applyHostFilters(hosts []*Host, filters map[string][]string, b Backend) []*Host {
+	return applyFilterList(hosts, filters, func(host *Host, name string, values []string) bool {
+		return hostMatchesFilter(host, name, values, b)
+	})
+}
+
+func hostMatchesFilter(host *Host, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "auto-placement":
+		return anyEqual(host.AutoPlacement, values)
+	case filterKeyAvailabilityZone:
+		return anyEqual(host.AvailabilityZone, values)
+	case filterKeyInstanceType:
+		return anyEqual(host.InstanceType, values)
+	case filterKeyState:
+		return anyEqual(host.State, values)
+	case filterKeyTagKey:
+		for k := range b.TagsForResource(host.HostID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
 	}
 
 	return true

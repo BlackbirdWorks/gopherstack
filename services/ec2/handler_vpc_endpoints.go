@@ -143,6 +143,7 @@ func (h *Handler) handleDescribeVpcEndpointConnectionNotifications(
 	}
 
 	notifs := h.Backend.DescribeVpcEndpointConnectionNotifications(ids)
+	notifs = applyVpcEndpointConnNotifFilters(notifs, parseEC2Filters(vals))
 
 	resp := &describeVpcEndpointConnectionNotificationsResponse{RequestID: reqID}
 	for _, n := range notifs {
@@ -192,8 +193,9 @@ func (h *Handler) handleModifyVpcEndpointConnectionNotification(
 }
 
 func (h *Handler) handleDescribeVpcEndpointConnections(vals url.Values, reqID string) (any, error) {
-	serviceIDs := parseEC2Filters(vals)["service-id"]
-	conns := h.Backend.DescribeVpcEndpointConnections(serviceIDs)
+	filters := parseEC2Filters(vals)
+	conns := h.Backend.DescribeVpcEndpointConnections(filters[filterKeyServiceID])
+	conns = applyVpcEndpointConnectionFilters(conns, filters)
 
 	resp := &describeVpcEndpointConnectionsResponse{RequestID: reqID}
 	for _, c := range conns {
@@ -297,6 +299,7 @@ func (h *Handler) handleDescribeVpcEndpointServicePermissions(
 ) (any, error) {
 	serviceID := vals.Get("ServiceId")
 	principals := h.Backend.DescribeVpcEndpointServicePermissions(serviceID)
+	principals = applyVpcEndpointServicePermissionFilters(principals, parseEC2Filters(vals))
 
 	resp := &describeVpcEndpointServicePermissionsResponse{RequestID: reqID}
 	for _, p := range principals {

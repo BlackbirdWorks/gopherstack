@@ -40,6 +40,7 @@ func (h *Handler) handleDescribeVpcEndpointServiceConfigurations(
 ) (any, error) {
 	ids := parseMemberList(vals, "ServiceId")
 	cfgs := h.Backend.DescribeVpcEndpointServiceConfigurations(ids)
+	cfgs = applyVpcEndpointServiceConfigFilters(cfgs, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeVpcEndpointServiceConfigurationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

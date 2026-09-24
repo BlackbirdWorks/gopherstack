@@ -621,6 +621,7 @@ func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error
 	// pins "released/unknown host id -> empty result, no error" (gopherstack-ggu4a:
 	// verified, not the silent-omission bug for this particular op).
 	hosts := h.Backend.DescribeHosts(ids)
+	hosts = applyHostFilters(hosts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeHostsResponse{
 		Xmlns:     ec2XMLNS,
