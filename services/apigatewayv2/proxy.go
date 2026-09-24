@@ -183,6 +183,11 @@ func (h *Handler) wsReadLoop(c *echo.Context, conn *websocket.Conn, apiID, conne
 		}
 
 		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+			// Inbound frames count as activity for PruneIdle, same as real API Gateway.
+			if h.managementAPI != nil {
+				_ = h.managementAPI.TouchConnection(connectionID)
+			}
+
 			routeKey := routeKeyDefault
 
 			var payload map[string]any

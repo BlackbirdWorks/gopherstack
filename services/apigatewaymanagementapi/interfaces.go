@@ -28,6 +28,8 @@ type StorageBackend interface {
 	GetTimeline(connectionID string) []LifecycleEvent
 	// PingConnection refreshes LastActiveAt without storing payload data.
 	PingConnection(connectionID string) error
+	// TouchConnection refreshes LastActiveAt without recording a lifecycle event.
+	TouchConnection(connectionID string) error
 	// Broadcast posts data to every active connection and returns the count delivered.
 	Broadcast(data []byte) (int, error)
 	// PruneIdle removes connections idle longer than threshold.

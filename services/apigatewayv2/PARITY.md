@@ -388,6 +388,13 @@ deferred:
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
 
+## Notes (2026-09-24 inbound-activity fix)
+
+wsReadLoop never refreshed the connection's LastActiveAt in
+apigatewaymanagementapi, so a client sending frames but never receiving a
+PostToConnection was wrongly evicted by that service's idle janitor after 10
+minutes. Now calls the new TouchConnection per inbound frame.
+
 ## Notes (2026-09-19 gopherstack-op3e census)
 
 cmd/routecollisions flags ecr (Docker Registry v2, registry enabled) and
