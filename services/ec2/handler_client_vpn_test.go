@@ -54,7 +54,7 @@ func TestClientVpnEndpoint(t *testing.T) { //nolint:paralleltest // existing iss
 	})
 
 	t.Run("create route", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.CreateClientVpnRoute(epID, "0.0.0.0/0", "default route"))
+		require.NoError(t, b.CreateClientVpnRoute(epID, "0.0.0.0/0", "", "default route"))
 		routes, err := b.DescribeClientVpnRoutes(epID)
 		require.NoError(t, err)
 		require.Len(t, routes, 1)
@@ -62,7 +62,7 @@ func TestClientVpnEndpoint(t *testing.T) { //nolint:paralleltest // existing iss
 	})
 
 	t.Run("delete route", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteClientVpnRoute(epID, "0.0.0.0/0"))
+		require.NoError(t, b.DeleteClientVpnRoute(epID, "0.0.0.0/0", ""))
 		routes, err := b.DescribeClientVpnRoutes(epID)
 		require.NoError(t, err)
 		assert.Empty(t, routes)
@@ -250,7 +250,7 @@ func TestClientVPN_RoutesXMLElementName(t *testing.T) {
 	ep, err := b.CreateClientVpnEndpoint("10.0.0.0/22", "test vpn", nil)
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateClientVpnRoute(ep.ClientVpnEndpointID, "0.0.0.0/0", "default"))
+	require.NoError(t, b.CreateClientVpnRoute(ep.ClientVpnEndpointID, "0.0.0.0/0", "", "default"))
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
 		"Action":              {"DescribeClientVpnRoutes"},

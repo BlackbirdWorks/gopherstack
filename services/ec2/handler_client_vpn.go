@@ -385,8 +385,9 @@ type createClientVpnRouteResponse struct {
 func (h *Handler) handleCreateClientVpnRoute(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	cidr := vals.Get("DestinationCidrBlock")
+	targetSubnet := vals.Get("TargetVpcSubnetId")
 	description := vals.Get("Description")
-	if err := h.Backend.CreateClientVpnRoute(endpointID, cidr, description); err != nil {
+	if err := h.Backend.CreateClientVpnRoute(endpointID, cidr, targetSubnet, description); err != nil {
 		return nil, err
 	}
 
@@ -405,7 +406,8 @@ type deleteClientVpnRouteResponse struct {
 func (h *Handler) handleDeleteClientVpnRoute(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	cidr := vals.Get("DestinationCidrBlock")
-	if err := h.Backend.DeleteClientVpnRoute(endpointID, cidr); err != nil {
+	targetSubnet := vals.Get("TargetVpcSubnetId")
+	if err := h.Backend.DeleteClientVpnRoute(endpointID, cidr, targetSubnet); err != nil {
 		return nil, err
 	}
 

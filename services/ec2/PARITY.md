@@ -637,6 +637,21 @@ items_still_open:
     against what this backend's struct actually stores, add an applyXxxFilters/xxxMatchesFilter
     pair to handler_filters.go for only the filters with real backing data, and wire it into the
     handler after any existing requireAllIDsPresent check."
+  - "DescribeVpnConnections transit-gateway-id filter (2026-09-24, MegaBatch45 CI-regression
+    fix + filter-population audit): removed. VpnConnection.TransitGatewayID is a real,
+    modeled field (ModifyVpnConnection clears it when moving a connection onto a
+    VpnGatewayId), but CreateVpnConnection only ever accepts CustomerGatewayId +
+    VpnGatewayId -- it never reads a TransitGatewayId off the wire, so the field is never
+    populated on create and the filter could never match a live connection. Same audit
+    fixed the sibling bug this filter's presence masked: CreateClientVpnRoute never read
+    TargetVpcSubnetId either, so DescribeClientVpnRoutes' target-subnet filter (added by
+    commit 9f1633435) never matched -- that one broke terraform/TestTerraform_MegaBatch45
+    (aws_ec2_client_vpn_route's create waiter polls DescribeClientVpnRoutes by
+    destination-cidr + target-subnet) and is now fixed: TargetVpcSubnetId is read in
+    handleCreateClientVpnRoute/handleDeleteClientVpnRoute and stored on
+    ClientVpnRoute.TargetSubnet. The rest of the same three commits'
+    (15bb3bca9/9f1633435/e69438d14) new filter cases were re-audited field-by-field against
+    their Create paths and all populate correctly; this was the only false claim found."
   - "aws_network_interface_permission (2026-09-24, mega-batch-44): CreateNetworkInterfacePermission
     correctly returns the real AWS wire value PermissionState.State='granted' (lowercase, matching
     ec2@v1.329.0 types.NetworkInterfacePermissionStateCode), but terraform-provider-aws's own create

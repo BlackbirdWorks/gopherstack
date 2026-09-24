@@ -87,8 +87,8 @@ func TestRealClient_DescribeClientVpnRoutesFilters(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, backend.CreateClientVpnRoute(ep.ClientVpnEndpointID, "10.5.0.0/24", "route-1"))
-	require.NoError(t, backend.CreateClientVpnRoute(ep.ClientVpnEndpointID, "10.6.0.0/24", "route-2"))
+	require.NoError(t, backend.CreateClientVpnRoute(ep.ClientVpnEndpointID, "10.5.0.0/24", "", "route-1"))
+	require.NoError(t, backend.CreateClientVpnRoute(ep.ClientVpnEndpointID, "10.6.0.0/24", "", "route-2"))
 
 	tests := []struct {
 		name    string
@@ -131,6 +131,42 @@ func TestRealClient_DescribeClientVpnRoutesFilters(t *testing.T) {
 			assert.ElementsMatch(t, tt.want, got)
 		})
 	}
+}
+
+// TestRealClient_ClientVpnRoute_TargetSubnetFilter covers the regression
+// fixed by gopherstack MegaBatch45: CreateClientVpnRoute previously dropped
+// TargetVpcSubnetId, so a route could never be found by destination-cidr
+// plus target-subnet filters together.
+func TestRealClient_ClientVpnRoute_TargetSubnetFilter(t *testing.T) {
+	t.Parallel()
+
+	backend := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ec2.NewHandler(backend)
+	client := newTestEC2Client(t, h)
+
+	ep, err := backend.CreateClientVpnEndpointWithOptions(
+		"10.30.0.0/22", "cvpn-target-subnet", nil, ec2.ClientVpnEndpointOptions{},
+	)
+	require.NoError(t, err)
+
+	_, err = client.CreateClientVpnRoute(t.Context(), &ec2sdk.CreateClientVpnRouteInput{
+		ClientVpnEndpointId:  aws.String(ep.ClientVpnEndpointID),
+		DestinationCidrBlock: aws.String("0.0.0.0/0"),
+		TargetVpcSubnetId:    aws.String("subnet-target"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeClientVpnRoutes(t.Context(), &ec2sdk.DescribeClientVpnRoutesInput{
+		ClientVpnEndpointId: aws.String(ep.ClientVpnEndpointID),
+		Filters: []types.Filter{
+			{Name: aws.String("destination-cidr"), Values: []string{"0.0.0.0/0"}},
+			{Name: aws.String("target-subnet"), Values: []string{"subnet-target"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Routes, 1)
+	assert.Equal(t, "0.0.0.0/0", aws.ToString(out.Routes[0].DestinationCidr))
+	assert.Equal(t, "subnet-target", aws.ToString(out.Routes[0].TargetSubnet))
 }
 
 // TestRealClient_DescribeClientVpnTargetNetworksFilters covers

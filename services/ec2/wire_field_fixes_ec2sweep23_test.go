@@ -61,7 +61,7 @@ func TestDescribeClientVpnRoutes_Pagination_RealClient(t *testing.T) {
 
 	for i := range ec2sweep23SeedCount {
 		require.NoError(t, b.CreateClientVpnRoute(
-			ep.ClientVpnEndpointID, "192.168."+strconv.Itoa(i)+".0/24", "sweep23",
+			ep.ClientVpnEndpointID, "192.168."+strconv.Itoa(i)+".0/24", "", "sweep23",
 		))
 	}
 

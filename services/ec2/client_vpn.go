@@ -333,7 +333,7 @@ func (b *InMemoryBackend) DescribeClientVpnTargetNetworks(endpointID string) ([]
 
 // CreateClientVpnRoute creates a route for a Client VPN endpoint.
 func (b *InMemoryBackend) CreateClientVpnRoute(
-	endpointID, destinationCidr, description string,
+	endpointID, destinationCidr, targetSubnet, description string,
 ) error {
 	if endpointID == "" || destinationCidr == "" {
 		return fmt.Errorf("%w: ClientVpnEndpointId and DestinationCidrBlock are required", ErrInvalidParameter)
@@ -352,13 +352,16 @@ func (b *InMemoryBackend) CreateClientVpnRoute(
 		Status:          stateActive,
 		Description:     description,
 		Origin:          "add-route",
+		TargetSubnet:    targetSubnet,
 	})
 
 	return nil
 }
 
-// DeleteClientVpnRoute removes a route from a Client VPN endpoint.
-func (b *InMemoryBackend) DeleteClientVpnRoute(endpointID, destinationCidr string) error {
+// DeleteClientVpnRoute removes a route from a Client VPN endpoint. Real AWS
+// keys a route by (endpoint, destination CIDR, target subnet); targetSubnet
+// is optional on delete, so an empty value matches on destination CIDR alone.
+func (b *InMemoryBackend) DeleteClientVpnRoute(endpointID, destinationCidr, targetSubnet string) error {
 	if endpointID == "" || destinationCidr == "" {
 		return fmt.Errorf("%w: ClientVpnEndpointId and DestinationCidrBlock are required", ErrInvalidParameter)
 	}
@@ -374,6 +377,11 @@ func (b *InMemoryBackend) DeleteClientVpnRoute(endpointID, destinationCidr strin
 	var kept []ClientVpnRoute
 	for _, r := range ep.Routes {
 		if r.DestinationCidr != destinationCidr {
+			kept = append(kept, r)
+
+			continue
+		}
+		if targetSubnet != "" && r.TargetSubnet != targetSubnet {
 			kept = append(kept, r)
 		}
 	}

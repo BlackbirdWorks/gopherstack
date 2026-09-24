@@ -553,7 +553,7 @@ func (rc *ResourceCreator) createEC2ClientVpnRoute(
 	cidr := strProp(props, "DestinationCidrBlock", params, physicalIDs)
 	desc := strProp(props, "Description", params, physicalIDs)
 
-	if err := rc.backends.EC2.Backend.CreateClientVpnRoute(endpointID, cidr, desc); err != nil {
+	if err := rc.backends.EC2.Backend.CreateClientVpnRoute(endpointID, cidr, "", desc); err != nil {
 		return "", fmt.Errorf("create client VPN route: %w", err)
 	}
 
@@ -570,7 +570,7 @@ func (rc *ResourceCreator) deleteEC2ClientVpnRoute(physicalID string) error {
 		return nil
 	}
 
-	err := rc.backends.EC2.Backend.DeleteClientVpnRoute(endpointID, cidr)
+	err := rc.backends.EC2.Backend.DeleteClientVpnRoute(endpointID, cidr, "")
 	if errors.Is(err, ec2backend.ErrClientVpnEndpointNotFound) {
 		return nil
 	}

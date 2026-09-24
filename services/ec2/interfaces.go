@@ -1558,8 +1558,8 @@ type Backend interface {
 	AssociateClientVpnTargetNetwork(endpointID, subnetID string) (string, error)
 	DisassociateClientVpnTargetNetwork(endpointID, assocID string) error
 	DescribeClientVpnTargetNetworks(endpointID string) ([]*ClientVpnTargetNetwork, error)
-	CreateClientVpnRoute(endpointID, destinationCidr, description string) error
-	DeleteClientVpnRoute(endpointID, destinationCidr string) error
+	CreateClientVpnRoute(endpointID, destinationCidr, targetSubnet, description string) error
+	DeleteClientVpnRoute(endpointID, destinationCidr, targetSubnet string) error
 	DescribeClientVpnRoutes(endpointID string) ([]ClientVpnRoute, error)
 	AuthorizeClientVpnIngress(endpointID, cidr, description string) error
 	RevokeClientVpnIngress(endpointID, cidr string) error

@@ -2474,10 +2474,13 @@ func clientVpnEndpointMatchesFilter(ep *ClientVpnEndpoint, filterName string, va
 
 // applyVpnConnectionFilters supports the DescribeVpnConnections filters this
 // backend has data for: customer-gateway-id, state, option.static-routes-only,
-// type, vpn-connection-id, vpn-gateway-id, transit-gateway-id, tag:<key>,
-// tag-key (api_op_DescribeVpnConnections.go doc comment).
+// type, vpn-connection-id, vpn-gateway-id, tag:<key>, tag-key
+// (api_op_DescribeVpnConnections.go doc comment).
 // customer-gateway-configuration, route.destination-cidr-block, and bgp-asn
 // are documented but unmodeled or unsuitable for equality filtering.
+// transit-gateway-id is documented but unmodeled: CreateVpnConnection only
+// ever attaches to a VpnGatewayId, never a TransitGatewayId, so
+// VpnConnection.TransitGatewayID is never populated (PARITY.md).
 func applyVpnConnectionFilters(
 	conns []*VpnConnection, filters map[string][]string, b Backend,
 ) []*VpnConnection {
@@ -2513,8 +2516,6 @@ func vpnConnectionMatchesFilter(c *VpnConnection, filterName string, values []st
 		return anyEqual(c.CustomerGatewayID, values)
 	case "vpn-gateway-id":
 		return anyEqual(c.VpnGatewayID, values)
-	case filterKeyTransitGatewayID:
-		return anyEqual(c.TransitGatewayID, values)
 	case "option.static-routes-only":
 		want := anyEqual("true", values)
 
