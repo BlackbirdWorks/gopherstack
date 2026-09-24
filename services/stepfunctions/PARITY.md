@@ -1,8 +1,8 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
-last_audit_commit: 4a7682d1e  # 2026-09-19 required-output-members re-check (gopherstack-r80d); prior: 6ea4f5153
-last_audit_date: 2026-09-19
+last_audit_commit: 88924fa3b  # 2026-09-24 perf sweep: ListExecutions/ListExecutionsByMapRun sort-pointers-then-copy-page; prior: 4a7682d1e
+last_audit_date: 2026-09-24
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
                        # ("Parity 4" efc42cbc, "Go refactoring 2" 9d7e36e0) landed on
@@ -466,6 +466,13 @@ leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execut
 ---
 
 ## Notes
+
+### 2026-09-24 perf sweep
+
+ListExecutions/ListExecutionsByMapRun value-copied+sorted every matching
+execution on every call; now sort `[]*Execution` and copy only the
+returned page. `BenchmarkListExecutions_5000`: 2379754ns/1629201B ->
+400580ns/164389B (3-run medians); golden test pins order unchanged.
 
 ### 2026-09-19 (required-output-members re-check, gopherstack-r80d)
 

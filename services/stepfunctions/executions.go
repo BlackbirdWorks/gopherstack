@@ -643,28 +643,38 @@ func (b *InMemoryBackend) ListExecutions(
 		execs = b.executionsByStateMachine.Get(stateMachineArn)
 	}
 
+	// Distributed Map child executions share their parent's StateMachineArn
+	// (AWS's ItemProcessor is nested ASL, not a separately registered state
+	// machine), but AWS only surfaces them via ListExecutions(mapRunArn=...),
+	// never in the default stateMachineArn-scoped listing -- see
+	// ListExecutionsByMapRun.
+	ptrs := make([]*Execution, 0, len(execs))
+
+	for _, exec := range execs {
+		if exec.MapRunArn == "" {
+			ptrs = append(ptrs, exec)
+		}
+	}
+
+	// Sort pointers, not values: StartDate (like MapRunArn above) is
+	// guarded by b.mu alone, so this needs no extra lock. Only history
+	// needs historyMu, and only the page actually returned gets copied
+	// below -- avoids an O(total executions) struct-copy+sort on every call
+	// to a state machine that has accumulated far more history than any
+	// single page will ever return.
+	sort.Slice(ptrs, func(i, j int) bool { return ptrs[i].StartDate > ptrs[j].StartDate })
+
+	pagePtrs, token := paginate(ptrs, nextToken, maxResults)
+
 	// See the comment in DescribeExecution: whole-struct copies of *Execution
 	// touch history, which appendHistory writes under historyMu rather than
 	// b.mu's write lock, so copying it here needs the same guard.
-	all := make([]Execution, 0, len(execs))
+	page := make([]Execution, len(pagePtrs))
 	b.historyMu.RLock()
-	for _, exec := range execs {
-		// Distributed Map child executions share their parent's
-		// StateMachineArn (AWS's ItemProcessor is nested ASL, not a
-		// separately registered state machine), but AWS only surfaces them
-		// via ListExecutions(mapRunArn=...), never in the default
-		// stateMachineArn-scoped listing -- see ListExecutionsByMapRun.
-		if exec.MapRunArn != "" {
-			continue
-		}
-
-		all = append(all, *exec)
+	for i, exec := range pagePtrs {
+		page[i] = *exec
 	}
 	b.historyMu.RUnlock()
-
-	sort.Slice(all, func(i, j int) bool { return all[i].StartDate > all[j].StartDate })
-
-	page, token := paginate(all, nextToken, maxResults)
 
 	return page, token, nil
 }
@@ -687,23 +697,30 @@ func (b *InMemoryBackend) ListExecutionsByMapRun(
 
 	execs := b.executionsByMapRun.Get(mapRunARN)
 
+	ptrs := make([]*Execution, 0, len(execs))
+
+	for _, exec := range execs {
+		if statusFilter == "" || exec.Status == statusFilter {
+			ptrs = append(ptrs, exec)
+		}
+	}
+
+	// See ListExecutions: sort pointers (Status/StartDate need only b.mu),
+	// then value-copy just the returned page under historyMu instead of
+	// every execution attributed to this map run.
+	sort.Slice(ptrs, func(i, j int) bool { return ptrs[i].StartDate > ptrs[j].StartDate })
+
+	pagePtrs, token := paginate(ptrs, nextToken, maxResults)
+
 	// See the comment in DescribeExecution: whole-struct copies of *Execution
 	// touch history, which appendHistory writes under historyMu rather than
 	// b.mu's write lock, so copying it here needs the same guard.
-	all := make([]Execution, 0, len(execs))
+	page := make([]Execution, len(pagePtrs))
 	b.historyMu.RLock()
-	for _, exec := range execs {
-		if statusFilter != "" && exec.Status != statusFilter {
-			continue
-		}
-
-		all = append(all, *exec)
+	for i, exec := range pagePtrs {
+		page[i] = *exec
 	}
 	b.historyMu.RUnlock()
-
-	sort.Slice(all, func(i, j int) bool { return all[i].StartDate > all[j].StartDate })
-
-	page, token := paginate(all, nextToken, maxResults)
 
 	return page, token, nil
 }

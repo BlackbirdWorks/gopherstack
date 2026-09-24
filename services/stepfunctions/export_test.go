@@ -127,6 +127,19 @@ func (b *InMemoryBackend) SetExecutionStopDateForTest(execARN string, stopDate f
 	}
 }
 
+// SetExecutionStartDateForTest directly sets the StartDate of an execution,
+// so tests can pin a deterministic ListExecutions order without depending on
+// wall-clock timing (executions started within the same second otherwise
+// tie on StartDate, and their relative order is unspecified).
+func (b *InMemoryBackend) SetExecutionStartDateForTest(execARN string, startDate float64) {
+	b.mu.Lock("SetExecutionStartDateForTest")
+	defer b.mu.Unlock()
+
+	if exec, ok := b.executions.Get(execARN); ok {
+		exec.StartDate = startDate
+	}
+}
+
 // PendingTaskQueueLenForTest returns the number of entries in the pending task
 // queue for the given activity ARN, or -1 if the queue does not exist.
 func (b *InMemoryBackend) PendingTaskQueueLenForTest(activityARN string) int {
