@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // synthesizeDomainControllerDNSIPAddr deterministically derives a plausible
@@ -142,7 +140,7 @@ func (b *InMemoryBackend) UpdateNumberOfDomainControllers(
 
 	// Add controllers if desired > current.
 	for i := current; i < desiredNumber; i++ {
-		id := fmt.Sprintf("dc-%s", uuid.NewString()[:10])
+		id := newHexID("dc-")
 
 		var subnetID string
 		if len(subnetIDs) > 0 {

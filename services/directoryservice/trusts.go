@@ -2,11 +2,8 @@ package directoryservice
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // CreateTrust creates a trust relationship.
@@ -27,7 +24,7 @@ func (b *InMemoryBackend) CreateTrust(
 		selectiveAuth = string(SelectiveAuthDisabled)
 	}
 
-	id := fmt.Sprintf("t-%s", uuid.NewString()[:10])
+	id := newHexID("t-")
 	now := time.Now().UTC()
 	b.trustPut(&storedTrust{
 		region:               region,

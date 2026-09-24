@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -295,12 +296,23 @@ func (b *InMemoryBackend) updateInfoEntriesStoreRO(region string) map[string][]*
 	return map[string][]*storedUpdateInfo{}
 }
 
+// newHexID returns prefix + 10 lowercase hex characters, matching the real
+// Directory Service ID formats ("d-XXXXXXXXXX", "s-XXXXXXXXXX", ...:
+// terraform-provider-aws validates directory_id client-side against
+// ^d-[0-9a-f]{10}$ and rejects anything else ("Invalid Attribute Value
+// Match"). Taking the first 10 characters of a raw UUID string (as this used
+// to do) lands on that UUID's own "-" separator (positions 8/13/18/23), so
+// the ID always failed that check.
+func newHexID(prefix string) string {
+	return prefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:10]
+}
+
 func (b *InMemoryBackend) newDirectoryID() string {
-	return fmt.Sprintf("d-%s", uuid.NewString()[:10])
+	return newHexID("d-")
 }
 
 func (b *InMemoryBackend) newSnapshotID() string {
-	return fmt.Sprintf("s-%s", uuid.NewString()[:10])
+	return newHexID("s-")
 }
 
 func (b *InMemoryBackend) defaultAlias(directoryID string) string {
