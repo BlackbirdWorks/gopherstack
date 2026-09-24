@@ -1,12 +1,14 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: e13b41148  # 2026-09-24 16 new resource types added (EC2 TransitGateway
-                               # family, IAM AccessKey/ServiceLinkedRole/UserToGroupAddition,
-                               # ServiceDiscovery namespaces/Service/Instance, Route53::
-                               # RecordSetGroup, Logs::Destination, SQS/SNS InlinePolicy);
-                               # prior: 7dd3443d5
-last_audit_date: 2026-09-24  # prior: 2026-09-20
+last_audit_commit: 05eeb3af7  # 2026-09-24 20 new resource types added (CodeDeploy
+                               # Application/DeploymentConfig/DeploymentGroup; EC2 DHCPOptions,
+                               # VPCDHCPOptionsAssociation, EIPAssociation, EgressOnlyInternetGateway,
+                               # CustomerGateway, CarrierGateway, InstanceConnectEndpoint, ClientVpn
+                               # Endpoint/TargetNetworkAssociation/AuthorizationRule/Route, IPAM/
+                               # IPAMScope/IPAMPool/IPAMPoolCidr, CapacityReservation, Host);
+                               # prior: e13b41148
+last_audit_date: 2026-09-24  # prior: 2026-09-24 (16-type pass earlier same day)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -143,6 +145,11 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) 20 new resource types: 220 -> 240 supported types
+
+Added 3 AWS::CodeDeploy::* types (wired codedeploy into ServiceBackends) and 17 AWS::EC2::* types
+(DHCPOptions, EIPAssociation, EgressOnlyIGW, CustomerGateway, CarrierGateway, InstanceConnectEndpoint, ClientVpn family, IPAM family, CapacityReservation, Host), each real-backend; see resources_codedeploy.go / resources_ec2_more.go.
 
 ### 2026-09-24 (parity-sweep) 16 new resource types: 192 -> 208 supported types
 

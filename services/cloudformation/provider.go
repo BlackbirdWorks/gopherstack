@@ -15,6 +15,7 @@ import (
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
@@ -174,6 +175,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.BedrockRuntime, _ = getHandler[*bedrockruntime.Handler](bp.GetBedrockRuntimeHandler())
 	backends.ResilienceHub, _ = getHandler[ResilienceHubBackend](bp.GetResilienceHubHandler())
 	backends.ServiceDiscovery, _ = getHandler[*servicediscoverybackend.Handler](bp.GetServiceDiscoveryHandler())
+	backends.CodeDeploy, _ = getHandler[*codedeploybackend.Handler](bp.GetCodeDeployHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

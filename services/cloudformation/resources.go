@@ -24,6 +24,7 @@ import (
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
@@ -140,6 +141,7 @@ type ServiceBackends struct {
 	// ResilienceHubBackend's doc comment in resources_resiliencehub.go.
 	ResilienceHub    ResilienceHubBackend
 	ServiceDiscovery *servicediscoverybackend.Handler
+	CodeDeploy       *codedeploybackend.Handler
 	AccountID        string
 	Region           string
 }
@@ -642,7 +644,7 @@ func (rc *ResourceCreator) createEC2TGWResource(
 		return physID, true, err
 	default:
 
-		return "", false, nil
+		return rc.createEC2MoreResource(logicalID, resourceType, props, params, physicalIDs)
 	}
 }
 
@@ -1443,13 +1445,16 @@ func (rc *ResourceCreator) deleteServiceResource(
 	props map[string]any,
 	stackPhysicalIDs map[string]string,
 ) error {
-	// These two IAM types need the resource's props (UserName / GroupName+Users)
-	// that aren't threaded through the prop-less deleteIAMEC2Resource chain.
+	// These types need the resource's props (UserName / GroupName+Users /
+	// ApplicationName) that aren't threaded through the prop-less
+	// deleteIAMEC2Resource chain.
 	switch resourceType {
 	case resTypeIAMAccessKey:
 		return rc.deleteIAMAccessKey(props, stackPhysicalIDs, physicalID)
 	case resTypeIAMUserToGroupAddition:
 		return rc.deleteIAMUserToGroupAddition(props, stackPhysicalIDs)
+	case resTypeCodeDeployDeploymentGroup:
+		return rc.deleteCodeDeployDeploymentGroup(props, stackPhysicalIDs, physicalID)
 	}
 
 	if handled, err := rc.deleteIAMEC2Resource(resourceType, physicalID); handled {
@@ -1558,7 +1563,7 @@ func (rc *ResourceCreator) deleteEC2TGWResource(resourceType, physicalID string)
 		return true, rc.deleteEC2TGWRoute(physicalID)
 	default:
 
-		return false, nil
+		return rc.deleteEC2MoreResource(resourceType, physicalID)
 	}
 }
 
@@ -2703,6 +2708,10 @@ func (rc *ResourceCreator) createExtraResource(
 		return id, true, err
 	}
 
+	if id, ok, err := rc.createCodeDeployResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
 	return rc.createExtraPlatformResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
@@ -2797,6 +2806,10 @@ func (rc *ResourceCreator) deleteExtraResource(
 	}
 
 	if handled, err := rc.deleteServiceDiscoveryResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteCodeDeployResource(resourceType, physicalID); handled {
 		return true, err
 	}
 
