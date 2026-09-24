@@ -182,8 +182,10 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 		},
 	)
 	require.NoError(t, err, "DescribeTransitGatewayMulticastDomains should succeed")
-	require.NotEmpty(t, domOut.TransitGatewayMulticastDomains)
-	domainID := aws.ToString(domOut.TransitGatewayMulticastDomains[0].TransitGatewayMulticastDomainId)
+	dom := findBy(t, domOut.TransitGatewayMulticastDomains, func(d ec2types53.TransitGatewayMulticastDomain) bool {
+		return aws.ToString(d.TransitGatewayId) == tgwID
+	}, "the mega-batch-53 multicast domain")
+	domainID := aws.ToString(dom.TransitGatewayMulticastDomainId)
 
 	mcastAssocOut, err := client.GetTransitGatewayMulticastDomainAssociations(
 		ctx, &ec2svc53.GetTransitGatewayMulticastDomainAssociationsInput{
