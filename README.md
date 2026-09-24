@@ -554,7 +554,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Athena](services/athena/README.md) | A | 25 | 4 gaps; 1 deferred |
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 8 gaps; 2 deferred |
-| [EMR](services/emr/README.md) | A | 65 | 2 gaps; 7 structural gaps |
+| [EMR](services/emr/README.md) | A | 65 | 1 gap; 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 2 gaps |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 7 gaps |
 | [Glue](services/glue/README.md) | A | 59 | 9 gaps; 6 deferred |
@@ -582,7 +582,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 7 gaps; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 116 | 6 gaps |
-| [Shield](services/shield/README.md) | A | 36 | 2 gaps; 3 deferred |
+| [Shield](services/shield/README.md) | A | 36 | 4 gaps; 3 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 6 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 2 gaps; 2 structural gaps |
 | [WAFv2](services/wafv2/README.md) | A | 59 | 3 gaps; 1 structural gap |
@@ -593,7 +593,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 2 gaps |
-| [Directory Service](services/directoryservice/README.md) | A | 80 | 9 gaps; 2 deferred |
+| [Directory Service](services/directoryservice/README.md) | A | 80 | 10 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 37 | 7 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
