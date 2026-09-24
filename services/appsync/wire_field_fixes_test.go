@@ -74,7 +74,7 @@ func TestSourceApiAssociation_StatusWireKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, assocOut.SourceApiAssociation)
-	assert.Equal(t, appsynctypes.SourceApiAssociationStatusMergeScheduled,
+	assert.Equal(t, appsynctypes.SourceApiAssociationStatusMergeSuccess,
 		assocOut.SourceApiAssociation.SourceApiAssociationStatus)
 
 	getOut, err := client.GetSourceApiAssociation(t.Context(), &appsyncsdk.GetSourceApiAssociationInput{
@@ -82,7 +82,7 @@ func TestSourceApiAssociation_StatusWireKey(t *testing.T) {
 		AssociationId:       assocOut.SourceApiAssociation.AssociationId,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, appsynctypes.SourceApiAssociationStatusMergeScheduled,
+	assert.Equal(t, appsynctypes.SourceApiAssociationStatusMergeSuccess,
 		getOut.SourceApiAssociation.SourceApiAssociationStatus)
 
 	// NOTE: the real SourceApiAssociationSummary item type (used by

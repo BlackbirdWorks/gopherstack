@@ -1,8 +1,8 @@
 ---
 service: appsync
 sdk_module: aws-sdk-go-v2/service/appsync@v1.60.0
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: ed6ef1a53
-last_audit_date: 2026-09-19  # prior: 2026-09-19
+last_audit_commit: 0c1472972  # 2026-09-23 mega-batch-39 terraform coverage; prior: d522d763f
+last_audit_date: 2026-09-23  # prior: 2026-09-19
 overall: A            # 2026-09-04 (gopherstack-2yo): DeleteGraphqlApi's cascade-delete (issue #842) missed two ghost-row classes -- SourceAPIAssociation rows (either SourceAPIID or MergedAPIID matching the deleted API) and the APIAssociation/DomainName.APIID link created by AssociateApi -- both outlived the API indefinitely, so Get/ListSourceApiAssociations and GetApiAssociation kept returning associations pointing at a deleted API forever. Fixed for real (cascadeDeleteAPIAssociations); regression tests added. Also fixed: CreateApiKey's default expiry was wrong (365 days; real SDK doc says 7) and Create/UpdateApiKey's two AppSync-specific error codes (ApiKeyLimitExceededException, ApiKeyValidityOutOfBoundsException) were never actually surfaced -- both collapsed into a generic BadRequestException, and an out-of-bounds custom expiry was silently clamped into range instead of rejected. Also disclosed (not fixed, structural): GetIntrospectionSchema's format/includeDirectives were silently ignored, same missing-SDL<->JSON-converter class already disclosed for ListTypes/GetType/ListTypesByAssociation but not previously called out for this op. Grade held at A.
                       # 2026-07-24: systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
                       # 2026-07-31: pkgs/sdkcheck reverse check found ExecuteGraphQL wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal data-plane scaffolding. Grade held at A: a documentation defect, not a served-client bug.
@@ -50,8 +50,8 @@ ops:
   # correctly audited (see deferred note below on VTL/JS execution scope).
   AssociateApi: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateApi: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateMergedGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: SourceApiAssociation.AssociationStatus wire key fixed, see GetSourceApiAssociation note"}
-  AssociateSourceGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: same SourceApiAssociation status-key fix as AssociateMergedGraphqlApi"}
+  AssociateMergedGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: SourceApiAssociation.AssociationStatus wire key fixed, see GetSourceApiAssociation note. 2026-09-23: mergedApiId/sourceApiId ARN forms now round-trip (see AssociateSourceGraphqlApi note); initial status now MERGE_SUCCESS not MERGE_SCHEDULED"}
+  AssociateSourceGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: same SourceApiAssociation status-key fix as AssociateMergedGraphqlApi. 2026-09-23 (mega-batch-39): two real bugs found via terraform-provider-aws. (1) The response's mergedApiId/mergedApiArn were populated inconsistently -- SourceAPIARN/MergedAPIARN were never set at all, and the provider's own create-waiter polls GetSourceApiAssociation using the ARN, not the ID, so every real apply failed with \"input member mergedApiIdentifier must not be empty\". Fixed: buildSourceAssoc now sets both ARNs. (2) An ARN identifier in the mergedApiIdentifier/sourceApiIdentifier URI label contains \"/\", which the SDK percent-encodes but net/http decodes before routing sees it, splitting the ARN across extra path segments (same class apiIDFromResourceARN already works around for /v1/tags/{resourceArn}); added normalizeAPIFamilySegs to collapse it back for the mergedApis/sourceApis path families. Also: the association's initial AssociationStatus was MERGE_SCHEDULED, but terraform-provider-aws's waiter polls {MERGE_IN_PROGRESS,MERGE_SCHEDULED}->MERGE_SUCCESS and never calls StartSchemaMerge itself -- real AssociateSourceGraphqlApi merges synchronously, so a real association is already MERGE_SUCCESS on return. Fixed; wire_field_fixes_test.go's TestSourceApiAssociation_StatusWireKey updated to match."}
   DisassociateMergedGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateSourceGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSourceApiAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: SourceApiAssociation.AssociationStatus was wired to the wrong key, \"associationStatus\" -- a sibling-trap copy from the genuinely-different ApiAssociation type (domain-name associations), which really does use that plain key. Real key is \"sourceApiAssociationStatus\" (deserializers.go:16488); a real client's typed field was always empty. Fixed; also added the real (never-populated, since merges here always succeed) sourceApiAssociationStatusDetail member"}
@@ -136,6 +136,10 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 ---
 
 ## Notes
+
+### 2026-09-23 mega-batch-39 terraform coverage
+
+Real bugs from a real terraform apply of source_api_association/api_cache/domain_name/function/type: missing SourceAPIARN/MergedAPIARN on SourceAPIAssociation broke the provider's ARN-based create-waiter; ARN identifiers in mergedApis/sourceApis URIs were never re-joined after net/http's percent-decoding split them; initial AssociationStatus was MERGE_SCHEDULED instead of MERGE_SUCCESS. All fixed for real; see AssociateSourceGraphqlApi note.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 
