@@ -77,6 +77,15 @@ const (
 	channelPlacementGroupStateDeleting   = "DELETING"
 
 	channelEngineVersion = "AVCHD-1.0.0"
+
+	// medialiveDeletedTTL bounds how long a DELETED InputSecurityGroup or
+	// Multiplex stays describable before being pruned. terraform-provider-aws's
+	// delete waiters (waitInputSecurityGroupDeleted, waitMultiplexDeleted)
+	// need the DELETED state to remain visible briefly, but AWS documents no
+	// specific duration for either -- this reuses the 1h window already
+	// established for this backend's other delete-waiter tombstones (ec2
+	// c254cd795, ecs 3fa9337a8).
+	medialiveDeletedTTL = time.Hour
 )
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.

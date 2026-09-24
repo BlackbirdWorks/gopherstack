@@ -3,11 +3,24 @@ package medialive
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // --- Multiplex operations ---
+
+// pruneDeletedMultiplexesLocked evicts Multiplexes that have sat DELETED
+// past medialiveDeletedTTL, so terraform-driven create/delete churn doesn't
+// grow this table unbounded in a long-running emulator. Caller must hold the
+// write lock.
+func (b *InMemoryBackend) pruneDeletedMultiplexesLocked(now time.Time) {
+	for _, m := range b.multiplexes.All() {
+		if m.State == stateDeleted && !m.DeletedAt.IsZero() && now.Sub(m.DeletedAt) >= medialiveDeletedTTL {
+			b.multiplexes.Delete(m.ID)
+		}
+	}
+}
 
 // CreateMultiplex creates a new Multiplex.
 func (b *InMemoryBackend) CreateMultiplex(
@@ -38,15 +51,20 @@ func (b *InMemoryBackend) CreateMultiplex(
 	b.mu.Lock("CreateMultiplex")
 	defer b.mu.Unlock()
 
+	b.pruneDeletedMultiplexesLocked(b.now())
 	b.multiplexes.Put(m)
 
 	return m.toMultiplex(), nil
 }
 
-// DescribeMultiplex returns a Multiplex by ID.
+// DescribeMultiplex returns a Multiplex by ID. Takes the write lock (not
+// RLock) because it lazily prunes expired DELETED entries -- see
+// pruneDeletedMultiplexesLocked.
 func (b *InMemoryBackend) DescribeMultiplex(multiplexID string) (*Multiplex, error) {
-	b.mu.RLock("DescribeMultiplex")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeMultiplex")
+	defer b.mu.Unlock()
+
+	b.pruneDeletedMultiplexesLocked(b.now())
 
 	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
@@ -63,6 +81,8 @@ func (b *InMemoryBackend) UpdateMultiplex(
 ) (*Multiplex, error) {
 	b.mu.Lock("UpdateMultiplex")
 	defer b.mu.Unlock()
+
+	b.pruneDeletedMultiplexesLocked(b.now())
 
 	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
@@ -88,6 +108,8 @@ func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error
 	b.mu.Lock("DeleteMultiplex")
 	defer b.mu.Unlock()
 
+	b.pruneDeletedMultiplexesLocked(b.now())
+
 	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
@@ -98,17 +120,22 @@ func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error
 	}
 
 	m.State = stateDeleted
+	m.DeletedAt = b.now()
 
 	return m.toMultiplex(), nil
 }
 
-// ListMultiplexes returns a paginated list of multiplexes.
+// ListMultiplexes returns a paginated list of multiplexes. Takes the write
+// lock (not RLock) because it lazily prunes expired DELETED entries -- see
+// pruneDeletedMultiplexesLocked.
 func (b *InMemoryBackend) ListMultiplexes(
 	maxResults int,
 	nextToken string,
 ) ([]*MultiplexSummary, string, error) {
-	b.mu.RLock("ListMultiplexes")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListMultiplexes")
+	defer b.mu.Unlock()
+
+	b.pruneDeletedMultiplexesLocked(b.now())
 
 	all := b.multiplexes.All()
 

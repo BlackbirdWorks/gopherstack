@@ -137,6 +137,10 @@ func (i *storedInput) toSummary() *InputSummary {
 }
 
 type storedInputSecurityGroup struct {
+	// DeletedAt is when State became DELETED; pruneDeletedInputSecurityGroupsLocked
+	// evicts the group medialiveDeletedTTL past this point. Zero when State
+	// is not DELETED.
+	DeletedAt      time.Time         `json:"deletedAt"`
 	Tags           map[string]string `json:"tags"`
 	ARN            string            `json:"arn"`
 	ID             string            `json:"id"`
@@ -238,6 +242,10 @@ type storedMultiplexSettings struct {
 
 // Tags and Programs (maps) first, then slice, then strings, then value struct: reduces GC pointer scan.
 type storedMultiplex struct {
+	// DeletedAt is when State became DELETED; pruneDeletedMultiplexesLocked
+	// evicts the multiplex medialiveDeletedTTL past this point. Zero when
+	// State is not DELETED.
+	DeletedAt         time.Time                          `json:"deletedAt"`
 	Tags              map[string]string                  `json:"tags"`
 	Programs          map[string]*storedMultiplexProgram `json:"programs"`
 	ARN               string                             `json:"arn"`

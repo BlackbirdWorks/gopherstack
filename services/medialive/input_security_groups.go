@@ -3,11 +3,24 @@ package medialive
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // --- InputSecurityGroup operations ---
+
+// pruneDeletedInputSecurityGroupsLocked evicts InputSecurityGroups that have
+// sat DELETED past medialiveDeletedTTL, so terraform-driven create/delete
+// churn doesn't grow this table unbounded in a long-running emulator. Caller
+// must hold the write lock.
+func (b *InMemoryBackend) pruneDeletedInputSecurityGroupsLocked(now time.Time) {
+	for _, g := range b.inputSecurityGroups.All() {
+		if g.State == stateDeleted && !g.DeletedAt.IsZero() && now.Sub(g.DeletedAt) >= medialiveDeletedTTL {
+			b.inputSecurityGroups.Delete(g.ID)
+		}
+	}
+}
 
 // CreateInputSecurityGroup creates a new input security group.
 func (b *InMemoryBackend) CreateInputSecurityGroup(
@@ -29,15 +42,20 @@ func (b *InMemoryBackend) CreateInputSecurityGroup(
 	b.mu.Lock("CreateInputSecurityGroup")
 	defer b.mu.Unlock()
 
+	b.pruneDeletedInputSecurityGroupsLocked(b.now())
 	b.inputSecurityGroups.Put(g)
 
 	return g.toGroup(), nil
 }
 
-// DescribeInputSecurityGroup returns an input security group by ID.
+// DescribeInputSecurityGroup returns an input security group by ID. Takes
+// the write lock (not RLock) because it lazily prunes expired DELETED
+// entries -- see pruneDeletedInputSecurityGroupsLocked.
 func (b *InMemoryBackend) DescribeInputSecurityGroup(groupID string) (*InputSecurityGroup, error) {
-	b.mu.RLock("DescribeInputSecurityGroup")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeInputSecurityGroup")
+	defer b.mu.Unlock()
+
+	b.pruneDeletedInputSecurityGroupsLocked(b.now())
 
 	g, ok := b.inputSecurityGroups.Get(groupID)
 	if !ok {
@@ -54,6 +72,8 @@ func (b *InMemoryBackend) UpdateInputSecurityGroup(
 ) (*InputSecurityGroup, error) {
 	b.mu.Lock("UpdateInputSecurityGroup")
 	defer b.mu.Unlock()
+
+	b.pruneDeletedInputSecurityGroupsLocked(b.now())
 
 	g, ok := b.inputSecurityGroups.Get(groupID)
 	if !ok {
@@ -79,23 +99,30 @@ func (b *InMemoryBackend) DeleteInputSecurityGroup(groupID string) error {
 	b.mu.Lock("DeleteInputSecurityGroup")
 	defer b.mu.Unlock()
 
+	b.pruneDeletedInputSecurityGroupsLocked(b.now())
+
 	g, ok := b.inputSecurityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: inputSecurityGroup %s not found", ErrNotFound, groupID)
 	}
 
 	g.State = stateDeleted
+	g.DeletedAt = b.now()
 
 	return nil
 }
 
 // ListInputSecurityGroups returns a paginated list of input security groups.
+// Takes the write lock (not RLock) because it lazily prunes expired DELETED
+// entries -- see pruneDeletedInputSecurityGroupsLocked.
 func (b *InMemoryBackend) ListInputSecurityGroups(
 	maxResults int,
 	nextToken string,
 ) ([]*InputSecurityGroupSummary, string, error) {
-	b.mu.RLock("ListInputSecurityGroups")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListInputSecurityGroups")
+	defer b.mu.Unlock()
+
+	b.pruneDeletedInputSecurityGroupsLocked(b.now())
 
 	all := b.inputSecurityGroups.All()
 

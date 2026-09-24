@@ -1,6 +1,6 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
-last_audit_commit: 5cb6665a0  # 2026-09-24 input-security-group/multiplex delete soft-delete fix; prior: 5c20d9fd7
+last_audit_commit: 2332c3128  # 2026-09-24 DELETED input-security-group/multiplex TTL eviction; prior: 5cb6665a0
 last_audit_date: 2026-09-24
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
@@ -873,6 +873,17 @@ leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirm
 ---
 
 ## Notes
+
+**2026-09-24 (gopherstack-f9w3k, DELETED-tombstone TTL eviction):** the
+soft-delete fix below (DeleteInputSecurityGroup/DeleteMultiplex) kept the
+DELETED row forever, an unbounded-memory-growth leak in the same class ec2
+(c254cd795) and ecs (3fa9337a8) fixed for their own delete-waiter
+tombstones. Both InputSecurityGroup and Multiplex now stamp `DeletedAt` on
+delete and lazily evict `medialiveDeletedTTL` (1h) past it, on the next
+Create/Describe/Update/Delete/List call for that resource. Additive
+`deletedAt` snapshot field (inventory updated, no version bump). Tests:
+`deleted_resource_expiry_test.go` (synctest, evicted-after-TTL +
+kept-within-TTL for both resources).
 
 **2026-09-24 (mega-batch-49):** FIXED MultiplexProgramSettings.ServiceDescriptor/
 VideoSettings -- both are optional real members (`*MultiplexProgramServiceDescriptor`/
