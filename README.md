@@ -468,7 +468,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps |
 | [Batch](services/batch/README.md) | A | 45 | 8 gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 13 gaps; 2 structural gaps; 8 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 12 gaps; 2 structural gaps; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 13 gaps |
 | [Lambda](services/lambda/README.md) | A | — | 10 families; 2 gaps |
 
@@ -574,7 +574,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ACM](services/acm/README.md) | A | 39 | 7 gaps; 3 deferred |
-| [ACM PCA](services/acmpca/README.md) | A | 23 | 7 gaps |
+| [ACM PCA](services/acmpca/README.md) | A | 23 | 6 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 5 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps |
 | [Inspector](services/inspector2/README.md) | A | 13 | 8 gaps; 1 deferred |
@@ -619,7 +619,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 3 gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 5 gaps; 1 deferred |
 | [Organizations](services/organizations/README.md) | A | 63 | 7 gaps |
-| [Resource Access Manager](services/ram/README.md) | A | 36 | 4 gaps; 3 deferred |
+| [Resource Access Manager](services/ram/README.md) | A | 36 | 5 gaps; 3 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 3 gaps; 1 deferred |
 | [Systems Manager](services/ssm/README.md) | A | 105 | 30 gaps |
