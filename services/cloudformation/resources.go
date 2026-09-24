@@ -2057,6 +2057,11 @@ func (rc *ResourceCreator) createMoreSupplementalResource(
 	); ok {
 		return id, true, err
 	}
+	if id, ok, err := rc.createMemoryDBResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
 
 	return "", false, nil
 }
@@ -2149,6 +2154,9 @@ func (rc *ResourceCreator) deleteMoreSupplementalResource(
 		return true, err
 	}
 	if handled, err := rc.deleteWAFv2AssociationResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteMemoryDBResource(ctx, resourceType, physicalID); handled {
 		return true, err
 	}
 

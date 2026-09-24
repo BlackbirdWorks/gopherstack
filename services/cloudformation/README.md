@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 12 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -26,7 +26,6 @@
 - RollbackStack is a status-only stub (flips StackStatus, replays nothing) and drops RoleARN/RetainExceptOnCreate both — same missing rollback machinery as the UpdateStack line above (gopherstack-xhu2t; re-verified 2026-09-18)
 - ListResourceScanRelatedResources ignores MaxResults/NextToken and always returns an empty list — this backend computes no cross-resource relationship graph for a scan, so there's nothing to paginate over (gopherstack-xhu2t; re-verified 2026-09-18)
 - ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped — no multi-version type catalog exists for them to gate (RegisterType stores one version per type, ActivateType hardcodes VersionID "00000001"; same class as SetTypeConfiguration above) (gopherstack-xhu2t; re-verified 2026-09-18)
-- AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster} remain unwired: memorydb.StorageBackend's Create{ParameterGroup,SubnetGroup,User,ACL,Cluster} all take an unexported *memorydb.createXRequest struct type (models_parameter_groups.go et al.), which services/cloudformation cannot name or construct from outside the memorydb package — a structural blocker, not a scope choice (the AddXInternal seeding helpers exist but bypass real parameter validation and would be a disguised stub, not a real create). Fixing this needs an exported request/options type added to services/memorydb itself, out of this pass's services/cloudformation-only scope (2026-09-24)
 
 ## More
 

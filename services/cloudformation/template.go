@@ -1456,7 +1456,8 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeSageMakerCodeRepository, resTypeSageMakerDomain, resTypeSageMakerPipeline,
 			resTypeSageMakerModelPackageGroup, resTypeSageMakerFeatureGroup, resTypeSageMakerProject,
 			resTypeSageMakerWorkteam, resTypeSageMakerImage, resTypeSageMakerImageVersion,
-			resTypeAthenaNamedQuery, resTypeAthenaCapacityReservation:
+			resTypeAthenaNamedQuery, resTypeAthenaCapacityReservation,
+			resTypeMemoryDBCluster:
 			return v
 		}
 	}

@@ -181,11 +181,61 @@ items_still_open:
   - "RollbackStack is a status-only stub (flips StackStatus, replays nothing) and drops RoleARN/RetainExceptOnCreate both — same missing rollback machinery as the UpdateStack line above (gopherstack-xhu2t; re-verified 2026-09-18)"
   - "ListResourceScanRelatedResources ignores MaxResults/NextToken and always returns an empty list — this backend computes no cross-resource relationship graph for a scan, so there's nothing to paginate over (gopherstack-xhu2t; re-verified 2026-09-18)"
   - "ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped — no multi-version type catalog exists for them to gate (RegisterType stores one version per type, ActivateType hardcodes VersionID \"00000001\"; same class as SetTypeConfiguration above) (gopherstack-xhu2t; re-verified 2026-09-18)"
-  - "AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster} remain unwired: memorydb.StorageBackend's Create{ParameterGroup,SubnetGroup,User,ACL,Cluster} all take an unexported *memorydb.createXRequest struct type (models_parameter_groups.go et al.), which services/cloudformation cannot name or construct from outside the memorydb package — a structural blocker, not a scope choice (the AddXInternal seeding helpers exist but bypass real parameter validation and would be a disguised stub, not a real create). Fixing this needs an exported request/options type added to services/memorydb itself, out of this pass's services/cloudformation-only scope (2026-09-24)"
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep, wave 9): AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster} -- 5 new resource types: 339 -> 344 supported types
+
+Unblocks the wave-8 skip note below: `services/memorydb/exports.go` gained
+`ExportedCreateClusterRequest`/`ExportedCreateACLRequest`/
+`ExportedCreateSubnetGroupRequest`/`ExportedCreateUserRequest`/
+`ExportedCreateParameterGroupRequest` (type aliases for the previously
+package-private `create*Request` structs -- most already existed there for
+external tests; added `ExportedTagEntry`, `ExportedUpdateParameterGroupRequest`,
+and `ExportedParameterNameValueEntry` to round out the set). Aliases, not new
+types, so `InMemoryBackend.Create*` keeps its exact validated code path and
+the memorydb handler's own behavior is unchanged; `go test ./services/memorydb/...`
+stayed green with no handler edits. `services/cloudformation/resources_memorydb.go`
+(new) adds AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster}, calling
+`rc.backends.MemoryDB.Backend.Create*` directly through those aliases -- the
+MemoryDB backend was already wired into `ServiceBackends`/`BackendsProvider`
+(provider.go) by an earlier, unrelated pass, so no provider.go edit was needed
+this time.
+
+Ref for all five types is the resource ARN (curl'd the CloudFormation Template
+Reference's Return values section for each -- none of the five pages has a
+separate "Ref" subsection; the ARN GetAtt entry's own text states "Ref returns
+the ARN of the ..." for every one). GetAtt: ParameterGroup/SubnetGroup/User/ACL
+each add only `ARN` (SubnetGroup/User/ACL/User's is spelled `ARN`/`Arn`
+per-page, immaterial since physicalID already equals the ARN and any
+unmatched attrName falls back to physID); SubnetGroup also has
+`SupportedNetworkTypes`, hardcoded `"ipv4"` since the backend's own
+`defaultSupportedNetworkTypes` is a fixed constant, never per-resource state;
+ACL/User also have `Status`, hardcoded `"active"` since CreateACL/CreateUser
+always set that status constant synchronously (no lifecycle overlay). Cluster
+additionally documents `ClusterEndpoint.Address`, `ClusterEndpoint.Port`,
+`ParameterGroupStatus`, and `Status` -- all backend-computed at create time,
+so stashed into `physicalIDs[logicalID+"/<Attr>"]` the same way EKS/SageMaker
+side-channel attrs are (added `resTypeMemoryDBCluster` to the stashed-attribute
+type gate in `resolveGetAtt`, template.go). Delete is name-keyed same as the
+wave-8 SageMaker/Athena ARN types, so `sagemakerNameFromARN` (already generic,
+just an ARN-tail extractor) is reused rather than duplicated.
+
+`resources_memorydb_test.go` (new): one table-driven `TestCreateStack_MemoryDBTypes`
+(5 subtests, each `t.Parallel()`) driving a real CreateStack -> Fn::GetAtt ->
+DeleteStack -> `Describe*` round trip per type through the real
+`aws-sdk-go-v2/service/cloudformation` client, asserting the memorydb backend
+object exists after create and is gone after delete.
+
+Skipped: `AWS::MemoryDB::MultiRegionCluster` is a real, separately-documented
+CloudFormation resource type but was out of this pass's five-type mandate
+(ParameterGroup/SubnetGroup/User/ACL/Cluster) -- a scope choice, not a
+structural blocker, left for a follow-up. `AWS::MemoryDB::MultiRegionParameterGroup`
+is not a CloudFormation resource type AWS publishes at all (its template-reference
+URL redirects to the TemplateReference index rather than resolving to a page)
+-- structurally out of scope, not a gap.
 
 ### 2026-09-24 (parity-sweep, wave 8) 20 new resource types: 319 -> 339 supported types
 

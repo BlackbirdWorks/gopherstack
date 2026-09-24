@@ -57,7 +57,44 @@ func getExtraResourceAttribute(resType, physID, attrName, accountID, region stri
 		return v, true
 	}
 
-	return getManagedTypesAttribute(resType, physID, attrName, accountID, region)
+	return getManagedTypesOrMemoryDBAttribute(resType, physID, attrName, accountID, region)
+}
+
+// getManagedTypesOrMemoryDBAttribute chains getManagedTypesAttribute and
+// getMemoryDBGetAttAttribute so getExtraResourceAttribute's tail stays a
+// single plain call (keeping it under the cyclop budget).
+func getManagedTypesOrMemoryDBAttribute(resType, physID, attrName, accountID, region string) (string, bool) {
+	if v, ok := getManagedTypesAttribute(resType, physID, attrName, accountID, region); ok {
+		return v, true
+	}
+
+	return getMemoryDBGetAttAttribute(resType, physID, attrName)
+}
+
+// getMemoryDBGetAttAttribute derives Fn::GetAtt attribute values for the
+// AWS::MemoryDB::* types added in resources_memorydb.go (split out of
+// getExtraResourceAttribute to keep its cyclomatic complexity down).
+func getMemoryDBGetAttAttribute(resType, physID, attrName string) (string, bool) {
+	switch resType {
+	case resTypeMemoryDBSubnetGroup:
+		// SupportedNetworkTypes is a fixed constant, not per-resource state
+		// (defaultSupportedNetworkTypes in services/memorydb/handler_subnet_groups.go).
+		if attrName == "SupportedNetworkTypes" {
+			return "ipv4", true
+		}
+
+		return physID, true
+	case resTypeMemoryDBACL, resTypeMemoryDBUser:
+		// CreateACL/CreateUser always set Status to the "active" constant
+		// synchronously (services/memorydb/{acls,users}.go); no lifecycle overlay.
+		if attrName == "Status" {
+			return "active", true
+		}
+
+		return physID, true
+	default:
+		return "", false
+	}
 }
 
 // getStreamingResourceAttribute derives Fn::GetAtt attribute values for
