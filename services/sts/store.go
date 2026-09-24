@@ -100,6 +100,10 @@ type InMemoryBackend struct {
 	// Only messages signed with this key are accepted by DecodeAuthorizationMessage,
 	// matching AWS behaviour where only STS-issued encoded messages can be decoded.
 	authMsgSigningKey [authMsgHMACSize]byte
+
+	// insertsSinceSweep counts storeSession calls since the last opportunistic
+	// eviction sweep; guarded by mu (see maybeEvictExpiredSessions).
+	insertsSinceSweep int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the default account ID.
@@ -251,11 +255,20 @@ func isSessionExpired(s *SessionInfo) bool {
 }
 
 // sessionEvictThreshold is the session count above which inserting a new session
-// triggers an opportunistic sweep of expired sessions. This bounds the sessions
+// arms the opportunistic sweep of expired sessions. This bounds the sessions
 // map even when the background janitor is disabled or runs at a long interval,
-// while keeping the common (small) case allocation-free. The threshold is high
-// enough that the O(n) sweep amortizes cheaply.
+// while keeping the common (small) case allocation-free.
 const sessionEvictThreshold = 256
+
+// sessionEvictSweepInterval is how many armed inserts elapse between actual
+// opportunistic sweeps. Once armed, storeSession keeps inserting at O(1); the
+// O(n) Range scan only runs every sessionEvictSweepInterval calls, so a
+// long-running server sitting above sessionEvictThreshold doesn't re-scan the
+// whole table on every single credential-issuing call. Expired sessions are
+// never actually returned in the meantime -- LookupSession and
+// ValidateSessionCredential already filter/delete on access -- so this only
+// changes how promptly memory is reclaimed, not correctness.
+const sessionEvictSweepInterval = 64
 
 // evictExpiredSessionsLocked removes all expired sessions from the table.
 // The caller must hold b.mu.
@@ -275,17 +288,26 @@ func (b *InMemoryBackend) evictExpiredSessionsLocked() {
 	}
 }
 
-// maybeEvictExpiredSessions acquires its own lock and sweeps expired sessions when
-// the session count is at or above sessionEvictThreshold. It runs in a separate
+// maybeEvictExpiredSessions acquires its own lock and, once the session count
+// is at or above sessionEvictThreshold, sweeps expired sessions every
+// sessionEvictSweepInterval calls (see its doc comment). It runs in a separate
 // critical section from storeSession so that session creation (O(1) map insert)
 // is never blocked by an O(n) sweep.
 func (b *InMemoryBackend) maybeEvictExpiredSessions() {
 	b.mu.Lock("EvictExpiredSessions")
 	defer b.mu.Unlock()
 
-	if b.sessions.Len() >= sessionEvictThreshold {
-		b.evictExpiredSessionsLocked()
+	if b.sessions.Len() < sessionEvictThreshold {
+		return
 	}
+
+	b.insertsSinceSweep++
+	if b.insertsSinceSweep < sessionEvictSweepInterval {
+		return
+	}
+
+	b.insertsSinceSweep = 0
+	b.evictExpiredSessionsLocked()
 }
 
 // storeSession registers a new session under its access key ID and increments
@@ -410,6 +432,7 @@ func (b *InMemoryBackend) Reset() {
 		defer b.mu.Unlock()
 
 		b.registry.ResetAll()
+		b.insertsSinceSweep = 0
 	}()
 
 	b.cntAssumeRole.Store(0)
