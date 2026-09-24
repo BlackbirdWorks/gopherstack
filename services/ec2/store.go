@@ -460,7 +460,10 @@ type InMemoryBackend struct {
 	fleetHistory             map[string][]FleetHistoryRecord
 	// fleetTombstones is the same tombstone pattern as tgwRouteTableTombstones,
 	// for DeleteFleets' delete waiter.
-	fleetTombstones                    map[string]*Fleet
+	fleetTombstones map[string]*Fleet
+	// vpnConnectionTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for DeleteVpnConnection's delete waiter.
+	vpnConnectionTombstones            map[string]*VpnConnection
 	networkInsightsPaths               *store.Table[NetworkInsightsPath]
 	networkInsightsAnalyses            *store.Table[NetworkInsightsAnalysis]
 	networkInsightsAccessScopes        *store.Table[NetworkInsightsAccessScope]
@@ -648,6 +651,7 @@ func initCoreExtraMaps(b *InMemoryBackend) {
 	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
 	b.fleetHistory = make(map[string][]FleetHistoryRecord)
 	b.fleetTombstones = make(map[string]*Fleet)
+	b.vpnConnectionTombstones = make(map[string]*VpnConnection)
 	b.snapshotTiers = make(map[string]string)
 	b.snapshotAttributes = make(map[string]map[string]string)
 	b.sgVpcAssociations = make(map[string]map[string]string)

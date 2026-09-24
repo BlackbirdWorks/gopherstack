@@ -1,8 +1,8 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 22b4f068c   # was d57ca880a
-last_audit_date: 2026-09-20   # was 2026-09-19
+last_audit_commit: d1ed0e39b   # was 22b4f068c
+last_audit_date: 2026-09-23   # was 2026-09-20
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
              # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
@@ -591,6 +591,11 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-09-23 (gopherstack-54bv0): VPN connection delete tombstone
+
+DeleteVpnConnection now keeps a tombstone (same pattern as TGW route
+tables/fleets) so a by-ID DescribeVpnConnections still sees "deleted" state.
 
 ### 2026-09-19 mega-batch-11/12 terraform coverage: default-VPC route table/DHCP options, spot status, AMI root device, TGW/fleet delete tombstones
 
