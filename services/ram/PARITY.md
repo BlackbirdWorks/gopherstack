@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
-last_audit_commit: 1598513da  # 2026-09-24 EnableSharingWithAwsOrganization SLR wiring; prior: 5c20d9fd7
+last_audit_commit: 5cb6665a0  # 2026-09-24 EnableSharingWithAwsOrganization Organizations wiring; prior: 1598513da
 last_audit_date: 2026-09-24
 # 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
 # a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
@@ -104,7 +104,8 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore; versioned backendSnapshot (ramSnapshotVersion) with store.Registry-backed tables for resourceShares/permissions/invitations/replaceWorks plus raw sharePermissions/associations fields. The new replaceWorks table (ReplacePermissionAssociations work items) is registered like the other three 'clean' tables (identity-carrying ID field) and round-trips through the existing registry.SnapshotAll/RestoreAll machinery with no bespoke persistence.go changes needed. Confirmed via existing persistence_test.go coverage (unchanged, still green) -- did not add a dedicated persistence round-trip test for replaceWorks specifically since it's exercised through the same generic registry path as every other store.Table."}
 gaps: []
 items_still_open:
-  - "aws_ram_sharing_with_organization (2026-09-24, follow-up to this pass's SLR fix): terraform-provider-aws's Read also calls organizations:ListAWSServiceAccessForOrganization and requires ram.amazonaws.com to be an enabled service principal there. Real AWS's EnableSharingWithAwsOrganization calls Organizations' EnableAWSServiceAccess(ram.amazonaws.com) as a second side effect this backend doesn't perform, so Read still fails ('Organization service principal (ram.amazonaws.com) not enabled') even inside an aws_organizations_organization. Needs a second cross-service hook into services/organizations; out of scope for this pass (kept out of test/terraform/fixtures/mega-batch-49.tf)."
+  - "aws_ram_sharing_with_organization (2026-09-24): FIXED in code -- EnableSharingWithAwsOrganization (services/ram/cross_service.go) now also calls the Organizations backend's EnableAWSServiceAccess('ram.amazonaws.com'), matching real AWS's second side effect; when no organization exists, Organizations' ErrOrgNotFound (AWSOrganizationsNotInUseException) is mapped to ram's own ErrOperationNotPermitted, since that exception isn't declared on EnableSharingWithAwsOrganization (ram@v1.39.4 deserializers.go only declares OperationNotPermittedException/ServerInternalException/ServiceUnavailableException) -- see cross_service_test.go. STILL kept out of test/terraform/fixtures/mega-batch-49.tf: services/organizations' Organization is a per-backend singleton (CreateOrganization returns ErrOrgAlreadyExists if b.org != nil), mega-batch-48.tf's fixture already creates one, and every mega-batch test runs t.Parallel() against the same shared emulator (test/terraform/terraform_test.go) -- so mega-batch-49 could not safely create its own aws_organizations_organization (would race/conflict with batch 48's), nor safely depend on reading batch 48's org via a data source (apply order between parallel tests is not guaranteed). Revisit only if the harness gains per-test emulator isolation."
+  - "aws_ram_resource_share_accepter destroy (2026-09-24, mega-batch-49): destroy logs 'waiting for RAM Resource Share (...) disassociate: unexpected state ACTIVE, wanted target ''' after DisassociateResourceShare succeeds -- a terraform-provider-aws bug, not a gopherstack gap (verified via TF_LOG=trace plus reading internal/service/ram/resource_share_accepter.go@v5.100.0): waitResourceShareOwnedBySelfDisassociated's Pending list is enum.Slice(types.ResourceShareAssociationStatusAssociated) = ['ASSOCIATED'], but its Refresh (statusResourceShareOwnerSelf) reports the resource SHARE's own Status field (a different enum: PENDING/ACTIVE/FAILED/DELETING/DELETED) -- 'ASSOCIATED' can never match a ResourceShareStatus value, so the waiter errors as soon as it polls an owner-still-ACTIVE share, which is exactly the state after only a principal disassociates (the owner's own share is untouched). This would misfire against real AWS identically; not something to emulate around. Same pattern as ec2/PARITY.md's aws_network_interface_permission entry."
   - "FIXED (mega-batch-48/49, 2026-09-24): ramMaxResults was hardcoded to 100 for every paginated list op sharing ramPaginate; real ListResources (and siblings) document 'Valid Range: Minimum value of 1. Maximum value of 500.' A real client sending MaxResults:500 (e.g. terraform-provider-aws's aws_ram_resource_share_accepter, which always requests 500) 400'd with InvalidParameterException. Bumped to 500."
   - "gopherstack-kvyy (2026-09-11): Glue's PutResourcePolicy(EnableHybrid=TRUE) with any cross-account Principal.AWS grant is treated as the trigger for creating a RAM CREATED_FROM_POLICY resource share. Real AWS documents CREATED_FROM_POLICY generically as 'when you attach a resource-based policy to a resource', and the Glue/Lake-Formation-specific path is actually mediated by Lake Formation's own cross-account grant flow, not a literal 'any cross-account Glue policy triggers a RAM share' rule -- disclosed as broader than real Lake-Formation-mediated Glue sharing since Glue has no other concrete, emulatable wire path to the general mechanism. Revisit if a narrower, Lake-Formation-grant-shaped trigger becomes emulatable."
   - "gopherstack-kvyy (2026-09-11): PromoteResourceShareCreatedFromPolicy's UnmatchedPolicyPermissionException is not modeled -- it requires simulating 'no existing customer-managed permission exactly matches' the derived policy-based permission, out of scope for this pass."
@@ -873,3 +874,16 @@ unchanged (no listed gap was touched by this pass).
 terraform-provider-aws's `aws_ram_resource_share_accepter` sends exactly that,
 400'ing against the old cap. See `items_still_open` for the full note and the
 `aws_ram_sharing_with_organization` gap left out this pass.
+
+## 2026-09-24: EnableSharingWithAwsOrganization enables RAM in Organizations; resource_share_accepter destroy bug isolated
+
+cross_service.go's EnableSharingWithAwsOrganization now also enables
+"ram.amazonaws.com" in the wired Organizations backend (EnableAWSServiceAccess),
+mapping a no-organization ErrOrgNotFound to ram's own ErrOperationNotPermitted
+(the modeled fit on EnableSharingWithAwsOrganization's own declared error set).
+Kept out of mega-batch-49.tf: Organizations' org is a per-backend singleton and
+every mega-batch test runs t.Parallel() against one shared emulator, so a second
+fixture creating/depending on an org would race mega-batch-48's. Also isolated
+(not fixed, not a gopherstack gap): aws_ram_resource_share_accepter's destroy
+error is a terraform-provider-aws waiter bug (wrong enum in its Pending list).
+See items_still_open for both.

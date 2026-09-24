@@ -6,6 +6,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
 // ramSLRAWSServiceName is the AWS service principal RAM's service-linked
@@ -32,6 +33,7 @@ const (
 // the pattern this file follows.
 type siblingServices interface {
 	GetIAMHandler() service.Registerable
+	GetOrganizationsHandler() service.Registerable
 }
 
 // SetAppConfig records the service.AppContext.Config value Provider.Init
@@ -63,28 +65,70 @@ func (b *InMemoryBackend) iamBackend() (iambackend.StorageBackend, bool) {
 	return h.Backend, true
 }
 
+// organizationsBackend returns the emulator's Organizations backend, if wired.
+func (b *InMemoryBackend) organizationsBackend() (organizationsbackend.StorageBackend, bool) {
+	s, ok := b.siblings()
+	if !ok {
+		return nil, false
+	}
+
+	h, ok := s.GetOrganizationsHandler().(*organizationsbackend.Handler)
+	if !ok || h == nil {
+		return nil, false
+	}
+
+	return h.Backend, true
+}
+
 // EnableSharingWithAwsOrganization creates the RAM service-linked role in
 // the IAM backend, matching real AWS: enabling org sharing creates
 // AWSServiceRoleForResourceAccessManager as a side effect (this is what
 // terraform-provider-aws's aws_ram_sharing_with_organization Read looks up
 // via iam:GetRole). Idempotent: a role that already exists (e.g. a second
 // EnableSharingWithAwsOrganization call) is left untouched, not an error.
+//
+// It also enables "ram.amazonaws.com" as a trusted service principal in the
+// Organizations backend -- real AWS's EnableSharingWithAwsOrganization does
+// this as a second side effect, which is what
+// organizations:ListAWSServiceAccessForOrganization then lists and what
+// terraform-provider-aws's aws_ram_sharing_with_organization Read also
+// checks. When no organization exists, Organizations' EnableAWSServiceAccess
+// returns ErrOrgNotFound (AWSOrganizationsNotInUseException) -- but that
+// exception isn't declared on RAM's own EnableSharingWithAwsOrganization
+// (ram@v1.39.4 deserializers.go's awsRestjson1_deserializeOpErrorEnableSharingWithAwsOrganization
+// declares only OperationNotPermittedException, ServerInternalException and
+// ServiceUnavailableException), so this maps it to
+// OperationNotPermittedException -- the modeled fit, matching the real
+// requirement that the operation "must [be] call[ed] ... from ... the
+// organization's management account" (EnableSharingWithAwsOrganizationInput
+// doc comment), which cannot hold when there is no organization.
 func (b *InMemoryBackend) EnableSharingWithAwsOrganization() error {
-	iamBk, ok := b.iamBackend()
+	if iamBk, ok := b.iamBackend(); ok {
+		role, roleErr := iamBk.CreateRole(ramSLRRoleName, ramSLRPath, ramSLRTrustPolicy(), "")
+		switch {
+		case roleErr == nil:
+			if attachErr := iamBk.AttachRolePolicy(role.RoleName, ramSLRManagedPolicyARN); attachErr != nil {
+				return attachErr
+			}
+		case !errors.Is(roleErr, iambackend.ErrRoleAlreadyExists):
+			return roleErr
+		}
+	}
+
+	orgBk, ok := b.organizationsBackend()
 	if !ok {
 		return nil
 	}
 
-	role, err := iamBk.CreateRole(ramSLRRoleName, ramSLRPath, ramSLRTrustPolicy(), "")
-	if err != nil {
-		if errors.Is(err, iambackend.ErrRoleAlreadyExists) {
-			return nil
+	if err := orgBk.EnableAWSServiceAccess(ramSLRAWSServiceName); err != nil {
+		if errors.Is(err, organizationsbackend.ErrOrgNotFound) {
+			return ErrOperationNotPermitted
 		}
 
 		return err
 	}
 
-	return iamBk.AttachRolePolicy(role.RoleName, ramSLRManagedPolicyARN)
+	return nil
 }
 
 // ramSLRTrustPolicy returns the AssumeRolePolicyDocument real AWS attaches

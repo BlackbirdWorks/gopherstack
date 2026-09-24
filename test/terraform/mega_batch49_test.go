@@ -26,9 +26,12 @@ import (
 // client.
 //
 // aws_ram_sharing_with_organization is intentionally left out of the fixture
-// (see mega-batch-49.tf's comment): its Read's IAM GetRole half is now fixed
-// (services/ram/PARITY.md), but it also needs Organizations service-access
-// enablement this backend doesn't perform -- still open.
+// (see mega-batch-49.tf's comment): EnableSharingWithAwsOrganization now
+// performs both cross-service side effects its Read depends on (IAM GetRole,
+// Organizations ListAWSServiceAccessForOrganization -- services/ram/PARITY.md),
+// but this fixture can't safely create or depend on an Organization: it's a
+// per-backend singleton and every mega-batch test runs against the same
+// shared emulator in parallel.
 func TestTerraform_MegaBatch49(t *testing.T) {
 	t.Parallel()
 

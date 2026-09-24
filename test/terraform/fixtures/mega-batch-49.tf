@@ -41,18 +41,18 @@ resource "aws_ram_resource_share_accepter" "mb49" {
   depends_on = [aws_ram_principal_association.mb49]
 }
 
-# aws_ram_sharing_with_organization is left out: its Read step performs two
-# real cross-service lookups. FIXED 2026-09-24: EnableSharingWithAwsOrganization
-# now creates the RAM service-linked role in the IAM backend (cross_service.go),
-# so the iam:GetRole(AWSServiceRoleForResourceAccessManager) half no longer
-# 404s. STILL OPEN: Read also calls organizations:ListAWSServiceAccessForOrganization
-# and requires "ram.amazonaws.com" to already be an enabled service
-# principal -- real AWS's EnableSharingWithAwsOrganization calls Organizations'
-# EnableAWSServiceAccess(ram.amazonaws.com) as a second side effect this
-# backend doesn't perform, so Read still fails with "Organization service
-# principal (ram.amazonaws.com) not enabled" even inside an
-# aws_organizations_organization. Cross-service Organizations wiring is out
-# of scope for this pass (see services/ram/PARITY.md items_still_open).
+# aws_ram_sharing_with_organization is left out. FIXED in code 2026-09-24:
+# EnableSharingWithAwsOrganization (services/ram/cross_service.go) now creates
+# the RAM service-linked role in IAM AND enables "ram.amazonaws.com" in
+# Organizations, so both cross-service lookups this resource's Read performs
+# (iam:GetRole, organizations:ListAWSServiceAccessForOrganization) would
+# succeed. Still left out of THIS fixture: services/organizations' Organization
+# is a per-backend singleton (CreateOrganization errors if one already exists),
+# mega-batch-48.tf already creates one, and every mega-batch test runs
+# t.Parallel() against the same shared emulator -- a second
+# aws_organizations_organization here would race batch 48's, and depending on
+# batch 48's org via a data source isn't safe either since parallel test apply
+# order isn't guaranteed. See services/ram/PARITY.md items_still_open.
 
 ##############################################################################
 # Grafana: a workspace, a license association, a SAML authentication
