@@ -503,6 +503,16 @@ func unsupportedAccountFilterType(form url.Values) string {
 	}
 }
 
+// parseStackInstanceAccounts returns the union of the legacy top-level
+// Accounts list and DeploymentTargets.Accounts (cloudformation@v1.76.1
+// serializers.go:6382, awsAwsquery_serializeDocumentDeploymentTargets). The
+// aws_cloudformation_stack_instances resource only ever sends the latter for
+// an explicit account list; previously it was dropped, so no instance was
+// created for the requested accounts.
+func parseStackInstanceAccounts(form url.Values) []string {
+	return append(parseMemberList(form, "Accounts."), parseMemberList(form, "DeploymentTargets.Accounts.")...)
+}
+
 // stackInstancesOp is CreateStackInstances or DeleteStackInstances -- same
 // request shape (accounts/OU targets/regions in, an operation ID out).
 type stackInstancesOp func(
@@ -528,7 +538,7 @@ func (h *Handler) handleStackInstancesOp(
 		return h.xmlError(c, "ValidationError",
 			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
 	}
-	accounts := parseMemberList(form, "Accounts.")
+	accounts := parseStackInstanceAccounts(form)
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
 	opID, err := op(c.Request().Context(), name, accounts, ouIDs, regions)
@@ -587,7 +597,7 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 		return h.xmlError(c, "ValidationError",
 			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
 	}
-	accounts := parseMemberList(form, "Accounts.")
+	accounts := parseStackInstanceAccounts(form)
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
 	opID, err := h.Backend.UpdateStackInstances(name, accounts, ouIDs, regions)

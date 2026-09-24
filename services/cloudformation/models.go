@@ -379,10 +379,11 @@ type RegisteredType struct {
 
 // TypeRegistrationRecord holds the state of a type registration request.
 type TypeRegistrationRecord struct {
-	Token    string
-	TypeName string
-	TypeArn  string
-	Status   string // COMPLETE / IN_PROGRESS / FAILED
+	Token     string
+	TypeName  string
+	TypeArn   string
+	VersionID string
+	Status    string // COMPLETE / IN_PROGRESS / FAILED
 }
 
 // Publisher holds publisher registration info.

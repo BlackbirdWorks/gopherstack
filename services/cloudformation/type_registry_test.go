@@ -78,7 +78,7 @@ func TestTypeRegistry(t *testing.T) {
 	// SetTypeDefaultVersion
 	rec = postForm(t, h, url.Values{
 		"Action":    []string{"SetTypeDefaultVersion"},
-		"Arn":       []string{"arn:aws:cloudformation:::type/resource/MyOrg::MyService::MyResource"},
+		"Arn":       []string{"arn:aws:cloudformation:us-east-1:000000000000:type/resource/MyOrg-MyService-MyResource"},
 		"VersionId": []string{"00000002"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -115,7 +115,7 @@ func TestTypeRegistry(t *testing.T) {
 	// DeregisterType
 	rec = postForm(t, h, url.Values{
 		"Action": []string{"DeregisterType"},
-		"Arn":    []string{"arn:aws:cloudformation:::type/resource/MyOrg::MyService::MyResource"},
+		"Arn":    []string{"arn:aws:cloudformation:us-east-1:000000000000:type/resource/MyOrg-MyService-MyResource"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 

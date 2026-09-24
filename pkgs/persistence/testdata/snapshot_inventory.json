@@ -4536,6 +4536,7 @@
       "TypeRegistrationRecord.Token string",
       "TypeRegistrationRecord.TypeArn string",
       "TypeRegistrationRecord.TypeName string",
+      "TypeRegistrationRecord.VersionID string",
       "backendSnapshot.AccountID string `json:\"accountID\"`",
       "backendSnapshot.ChangeSets map[string]map[string]*ChangeSet `json:\"changeSets\"`",
       "backendSnapshot.Events map[string][]StackEvent `json:\"events\"`",

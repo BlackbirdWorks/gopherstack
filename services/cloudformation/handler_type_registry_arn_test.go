@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,7 +26,8 @@ func TestTypeRegistry_IdentifyByArn(t *testing.T) {
 
 		client := newTestHandlerAndClient(t)
 		typeName := "AWS::VC2G::DeactivateByArn"
-		typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
+		hyphenated := strings.ReplaceAll(typeName, "::", "-")
+		typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/" + hyphenated
 
 		_, err := client.ActivateType(t.Context(), &cfnsdk.ActivateTypeInput{
 			TypeName: aws.String(typeName),
@@ -49,7 +51,8 @@ func TestTypeRegistry_IdentifyByArn(t *testing.T) {
 
 		client := newTestHandlerAndClient(t)
 		typeName := "AWS::VC2G::ActivateByArn"
-		typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
+		hyphenated := strings.ReplaceAll(typeName, "::", "-")
+		typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/" + hyphenated
 
 		_, err := client.ActivateType(t.Context(), &cfnsdk.ActivateTypeInput{
 			TypeName: aws.String(typeName),

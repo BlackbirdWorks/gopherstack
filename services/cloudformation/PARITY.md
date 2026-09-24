@@ -1,8 +1,8 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 1ecd57d33
-last_audit_date: 2026-09-18
+last_audit_commit: 893408596  # 2026-09-20 mega-batch-37 type-registry ARN fix; prior: 1ecd57d33
+last_audit_date: 2026-09-20  # prior: 2026-09-18
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -1575,3 +1575,29 @@ PercentageCompleted`, `ListStackSets.AutoDeployment`/`ManagedExecution`/
 Re-adjudicated `items_still_open`: fixed `CreateChangeSet`'s dropped
 `ResourceTypes`/`DisableValidation` (threaded into `ExecuteChangeSet`, like
 `Capabilities`); the other 10 entries are confirmed-accurate, tightened.
+
+## 2026-09-20: Type Registry ARN shape (mega-batch-37 coverage, `aws_cloudformation_type`)
+
+Real type ARNs are account/region-scoped with `::` hyphenated
+(`arn:aws:cloudformation:<region>:<account>:type/resource/Vendor-Svc-Type`);
+this backend built a bare `arn:aws:cloudformation:::type/resource/` + the raw
+`::`-separated name, which fails `terraform-provider-aws`'s own ARN parser
+("expected 4 resource parts"). Fixed via a single `buildTypeARN` helper used
+everywhere a type ARN was hand-formatted (`RegisterType`, `ActivateType`,
+`DeactivateType`, `DeregisterType`, `PublishType`,
+`BatchDescribeTypeConfigurations`, `ListTypeVersions`, `DescribeType`).
+`DescribeTypeRegistration`'s `TypeVersionArn` previously duplicated `TypeArn`
+verbatim (the prior 2026-09-13 fix populated the field but not with a real
+per-version value) — now genuinely distinct (`TypeArn + "/" + versionID`,
+matching real `TypeVersionSummary.Arn`). `SetTypeDefaultVersion` only accepted
+identification by `Arn`; `aws_cloudformation_type`'s create path always
+identifies by `TypeName` instead, so it 404'd immediately after every
+register — added the same `Arn`-or-`TypeName` fallback the other type-registry
+ops already had. `DescribeType` also now accepts a version-suffixed `Arn`
+(stripping and resolving `/<versionId>`), since the resource's `Read` re-reads
+by the `TypeVersionArn` it stored as `id`. Proven end-to-end by
+`TestTerraform_MegaBatch37` (real `aws_cloudformation_type` apply) and unit
+tests `TestDescribeType_Registered/lookup_by_version-suffixed_ARN_after_RegisterType`
+plus the updated ARN literals across `type_registry_test.go`,
+`type_registry_feature_test.go`, `deregister_type_version_test.go`,
+`empty_result_element_test.go`, `handler_type_registry_arn_test.go`.

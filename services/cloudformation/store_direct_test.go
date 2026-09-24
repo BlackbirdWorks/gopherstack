@@ -207,10 +207,12 @@ func TestTypeManagement_RegisterAndList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
-	regStatus, regTypeArn, err := b.DescribeTypeRegistration(token)
+	regStatus, regTypeArn, regTypeVersionArn, err := b.DescribeTypeRegistration(token)
 	require.NoError(t, err)
 	assert.NotEmpty(t, regStatus)
 	assert.NotEmpty(t, regTypeArn)
+	assert.NotEmpty(t, regTypeVersionArn)
+	assert.NotEqual(t, regTypeArn, regTypeVersionArn, "TypeVersionArn should be distinct from TypeArn")
 
 	types, err := b.ListTypes("", "", 0, "")
 	require.NoError(t, err)

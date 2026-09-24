@@ -147,7 +147,7 @@ func TestRealClient_StackManagementAndResourceScans(t *testing.T) {
 			assert.Equal(t, types.RegistrationStatusComplete, descOut.ProgressStatus)
 			require.NotNil(t, descOut.TypeArn,
 				"real AWS: TypeArn is populated once ProgressStatus reaches COMPLETE")
-			assert.Contains(t, aws.ToString(descOut.TypeArn), "S11Company::S11Service::S11Type")
+			assert.Contains(t, aws.ToString(descOut.TypeArn), "S11Company-S11Service-S11Type")
 
 			testOut, err := client.TestType(ctx, &cfnsdk.TestTypeInput{
 				TypeName: aws.String("S11Company::S11Service::S11Type"),

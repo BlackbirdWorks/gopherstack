@@ -317,7 +317,8 @@ func (h *Handler) handlePublishType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleSetTypeDefaultVersion(form url.Values, c *echo.Context) error {
-	if err := h.Backend.SetTypeDefaultVersion(form.Get("Arn"), form.Get("VersionId")); err != nil {
+	err := h.Backend.SetTypeDefaultVersion(form.Get("Arn"), form.Get("TypeName"), form.Get("VersionId"))
+	if err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
 	type result struct{}
@@ -527,19 +528,16 @@ func (h *Handler) handleListTypeRegistrations(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Context) error {
-	status, typeArn, err := h.Backend.DescribeTypeRegistration(form.Get("RegistrationToken"))
+	status, typeArn, typeVersionArn, err := h.Backend.DescribeTypeRegistration(form.Get("RegistrationToken"))
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
 	type result struct {
 		ProgressStatus string `xml:"ProgressStatus"`
 		TypeArn        string `xml:"TypeArn,omitempty"`
-		// TypeVersionArn is a real, distinct DescribeTypeRegistrationOutput
-		// member (the ARN of this specific registered version, vs TypeArn's
-		// ARN of the extension as a whole -- api_op_DescribeTypeRegistration.go)
-		// that was previously declared nowhere and never emitted. This
-		// backend doesn't model a separate per-version ARN suffix, so it
-		// shares TypeArn's value rather than fabricating one.
+		// TypeVersionArn is the ARN of this specific registered version,
+		// distinct from TypeArn's ARN of the extension as a whole
+		// (api_op_DescribeTypeRegistration.go).
 		TypeVersionArn string `xml:"TypeVersionArn,omitempty"`
 	}
 	type response struct {
@@ -553,7 +551,7 @@ func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Contex
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{ProgressStatus: status, TypeArn: typeArn, TypeVersionArn: typeArn},
+			Result:    result{ProgressStatus: status, TypeArn: typeArn, TypeVersionArn: typeVersionArn},
 			RequestID: uuid.New().String(),
 		},
 	)
