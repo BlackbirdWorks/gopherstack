@@ -756,7 +756,11 @@ type Service struct {
 	// DrainDeadline is when a Status of DRAINING resolves to INACTIVE,
 	// lazily applied by sweepServiceTransitionsLocked. Zero when Status is
 	// not DRAINING.
-	DrainDeadline                 time.Time                      `json:"drainDeadline"`
+	DrainDeadline time.Time `json:"drainDeadline"`
+	// InactiveAt is when Status became INACTIVE; sweepServiceTransitionsLocked
+	// evicts the service inactiveServiceTTL past this point. Zero when Status
+	// is not INACTIVE.
+	InactiveAt                    time.Time                      `json:"inactiveAt"`
 	HealthCheckGracePeriodSeconds *int                           `json:"healthCheckGracePeriodSeconds,omitempty"`
 	ServiceConnectConfiguration   *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
 	DeploymentConfiguration       *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`

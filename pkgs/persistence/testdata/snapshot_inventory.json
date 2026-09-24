@@ -10444,6 +10444,7 @@
       "Service.DrainDeadline time.Time `json:\"drainDeadline\"`",
       "Service.EnableExecuteCommand bool `json:\"enableExecuteCommand,omitempty\"`",
       "Service.HealthCheckGracePeriodSeconds *int `json:\"healthCheckGracePeriodSeconds,omitempty\"`",
+      "Service.InactiveAt time.Time `json:\"inactiveAt\"`",
       "Service.LaunchType string `json:\"launchType,omitempty\"`",
       "Service.LoadBalancers []LoadBalancer `json:\"loadBalancers,omitempty\"`",
       "Service.Monitoring *MonitoringConfiguration `json:\"monitoring,omitempty\"`",

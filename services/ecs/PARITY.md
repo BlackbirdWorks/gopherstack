@@ -1,7 +1,7 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.96.0
-last_audit_commit: 1598513da  # 2026-09-24 DeleteService DRAINING->INACTIVE lifecycle fix; prior: d1ed0e39b
+last_audit_commit: 30db30dd8  # 2026-09-24 INACTIVE service TTL eviction fix; prior: 1598513da
 last_audit_date: 2026-09-24  # prior: 2026-09-20
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
@@ -85,10 +85,23 @@ items_still_open:
   - "awslogs LogConfiguration (gopherstack-sv5q, gopherstack-jnct) streams real CloudWatch Logs via ContainerLogs. One approximation remains open: with no awslogs-stream-prefix set, real ECS names the stream after the Docker-assigned container ID (unavailable before the container exists); this backend substitutes the task ID instead -- an own-choice approximation, not SDK-pinned."
 deferred:
   - "Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) -- the richer blue/green fields remain unmodeled (same underlying reason ContinueServiceDeployment is deferred: blue/green lifecycle is not modeled at all in this backend)."
-leaks: {status: clean, note: "Prior 'found' status was stale documentation -- that leak (DeleteService's ServiceDeployment-map entry) was already fixed in the same prior sweep that wrote the note; the status field just never got flipped back to clean. Re-verified clean this sweep. Two NEW leaks found and fixed this sweep: (1) DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows, and purgeDaemonsLocked deleted from daemonRevisions by the wrong key so it silently matched nothing -- both fixed via deleteDaemonAncillaryLocked. (2) resourceTags side-map ghost rows were never cleaned up on delete for clusters/services/container-instances/task-sets/task-definitions/express-gateway-services -- fixed via deleteResourceTagsLocked. See Notes for full writeup and proof tests. Reconciler, janitor, lifecycle stepper, and docker_runner (re-audited this sweep) remain clean."}
+leaks: {status: clean, note: "Prior 'found' status was stale documentation -- that leak (DeleteService's ServiceDeployment-map entry) was already fixed in the same prior sweep that wrote the note; the status field just never got flipped back to clean. Re-verified clean this sweep. Two NEW leaks found and fixed this sweep: (1) DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows, and purgeDaemonsLocked deleted from daemonRevisions by the wrong key so it silently matched nothing -- both fixed via deleteDaemonAncillaryLocked. (2) resourceTags side-map ghost rows were never cleaned up on delete for clusters/services/container-instances/task-sets/task-definitions/express-gateway-services -- fixed via deleteResourceTagsLocked. See Notes for full writeup and proof tests. Reconciler, janitor, lifecycle stepper, and docker_runner (re-audited this sweep) remain clean. NEW (2026-09-24): the DRAINING->INACTIVE fix below (552b2bb5a) never removed an INACTIVE service from b.services -- unbounded growth for any workload that repeatedly creates/deletes same-named services. Fixed: Service now carries InactiveAt, and sweepServiceTransitionsLocked evicts an INACTIVE service inactiveServiceTTL (1h, citing api_op_DeleteService.go's 'INACTIVE services may be cleaned up and purged ... return a ServiceNotFoundException' -- no duration documented, reused ec2's terminated-instance 1h) past that point; DescribeServices on an evicted service now returns a MISSING failure, matching real AWS. See TestDeleteService_InactiveServiceEvictedAfterTTL, TestDeleteService_InactiveServiceKeptWithinTTL."}
 ---
 
 ## Notes
+
+### 2026-09-24: INACTIVE services now evicted after a TTL (unbounded-growth fix)
+
+The DRAINING->INACTIVE lifecycle below (552b2bb5a) kept every INACTIVE
+service in b.services forever -- unbounded growth for any workload that
+repeatedly deletes and recreates same-named services (e.g. terraform
+destroy/apply loops). Service gained InactiveAt; sweepServiceTransitionsLocked
+now evicts an INACTIVE service inactiveServiceTTL (1h -- api_op_DeleteService.go
+documents eventual purging with no specific duration, so this reuses ec2's
+terminated-instance 1h) after the DRAINING->INACTIVE transition. Describing an
+evicted service now returns a MISSING failure, matching real AWS's documented
+ServiceNotFoundException. See TestDeleteService_InactiveServiceEvictedAfterTTL,
+TestDeleteService_InactiveServiceKeptWithinTTL.
 
 ### 2026-09-24 (parity-sweep) DeleteService DRAINING/INACTIVE lifecycle
 

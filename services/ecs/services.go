@@ -154,17 +154,30 @@ func (b *InMemoryBackend) resolveServiceTaskDefinitionArnLocked(taskDefinition s
 }
 
 // sweepServiceTransitionsLocked advances services past their modeled DRAINING
-// deadline to INACTIVE. This backend has no background goroutine for service
-// deletion lifecycle, so the transition is lazily evaluated here at the top
-// of every op that reads or gates on service status -- the same pattern
+// deadline to INACTIVE, then evicts services that have sat INACTIVE past
+// inactiveServiceTTL. This backend has no background goroutine for service
+// deletion lifecycle, so both transitions are lazily evaluated here at the
+// top of every op that reads or gates on service status -- the same pattern
 // services/dax/clusters.go's sweepClusterTransitionsLocked uses. Caller must
 // hold the write lock.
 func (b *InMemoryBackend) sweepServiceTransitionsLocked(now time.Time) {
+	var evict []*Service
+
 	for _, svc := range b.services.All() {
 		if svc.Status == statusDraining && !svc.DrainDeadline.IsZero() && !now.Before(svc.DrainDeadline) {
 			svc.Status = statusInactive
 			svc.DrainDeadline = time.Time{}
+			svc.InactiveAt = now
 		}
+
+		if svc.Status == statusInactive && !svc.InactiveAt.IsZero() && now.Sub(svc.InactiveAt) >= inactiveServiceTTL {
+			evict = append(evict, svc)
+		}
+	}
+
+	for _, svc := range evict {
+		b.services.Delete(servicesKeyFn(svc))
+		delete(b.serviceIndex, svcRef{cluster: clusterKey(svc.ClusterArn), name: svc.ServiceName})
 	}
 }
 

@@ -36,6 +36,16 @@ const (
 	// sweepServiceTransitionsLocked settles it at INACTIVE, matching
 	// services/dax's clusterTransitionDelay lazy-deadline pattern.
 	serviceDrainDelay = time.Second
+
+	// inactiveServiceTTL is how long an INACTIVE service stays describable
+	// before sweepServiceTransitionsLocked evicts it, preventing unbounded
+	// growth of b.services in a long-running emulator. api_op_DeleteService.go
+	// (ecs@v1.96.0): "in the future, INACTIVE services may be cleaned up and
+	// purged from Amazon ECS record keeping, and DescribeServices calls on
+	// those services return a ServiceNotFoundException error" -- no duration
+	// is documented, so this reuses services/ec2's terminated-instance TTL of
+	// one hour as a stand-in.
+	inactiveServiceTTL = time.Hour
 )
 
 // compile-time assertion.
