@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
-last_audit_commit: 49cff86c4
-last_audit_date: 2026-09-19
+last_audit_commit: 0c1472972  # 2026-09-24 mega-batch-39 terraform coverage; prior: 49cff86c4
+last_audit_date: 2026-09-24  # prior: 2026-09-19
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -18,7 +18,7 @@ ops:
   DescribeResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModified epoch seconds; now also emits ExpectedResourceOwnerAccount/VerificationStatus/HybridAccessEnabled/WithFederation/WithPrivilegedAccess"}
   ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as DescribeResource; gopherstack-4ly2 wrapper-key sweep: FilterConditionList (RESOURCE_ARN/ROLE_ARN/LAST_MODIFIED, all 11 ComparisonOperator values) was never even parsed into the wire request struct, so every registered resource always came back regardless of the filter -- now honored (resources.go matchesFilterConditions)"}
   GrantPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Condition now accepted/persisted; entry.LastUpdated stamped on every grant/merge; Resource union extended (see families below)"}
-  RevokePermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "Condition now accepted; LastUpdated stamped on partial revoke"}
+  RevokePermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "Condition now accepted; LastUpdated stamped on partial revoke. 2026-09-24 (mega-batch-39): revoking a principal/resource/permission combination that no longer exists silently returned success instead of the real InvalidInputException (\"No permissions revoked. Grantee has no...\"). terraform-provider-aws's resourcePermissionsDelete deliberately revokes twice and treats getting exactly that error on the second call as its confirmation the delete completed; a silent nil looked like a second successful revoke, which its retry loop can't tell apart from \"not deleted yet\", eventually calling helper/retry's RetryableError(nil) -- a documented terraform-plugin-sdk misuse surfacing as \"empty retryable error received. This is a bug with the Terraform AWS Provider\" and hanging every aws_lakeformation_permissions destroy for the provider's full delete-retry timeout. Fixed: revoking a nonexistent (or already-revoked) grant now returns that InvalidInputException."}
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "WIRE-BREAKING BUG FIXED: request filtered by a flat ResourceArn string; the real ListPermissionsInput has no ResourceArn field at all -- it filters by a nested Resource object (same shape as Grant/RevokePermissions). A real aws-sdk-go-v2 client's ListPermissions call would never have matched anything against the old gopherstack shape. Response PrincipalResourcePermissions now wire-encodes LastUpdated as epoch seconds (permissionEntryWire) and includes Condition/LastUpdatedBy."}
   BatchGrantPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: entries now use BatchPermissionsRequestEntry with the real API's required Id field (previously entirely absent -- BatchFailureEntry.RequestEntry had no way to correlate back to the caller's request); also now applies the same PermissionsWithGrantOption-subset validation GrantPermissions does, per-entry"}
   BatchRevokePermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "same Id-field fix as BatchGrantPermissions"}
@@ -150,6 +150,10 @@ Gates: `go build ./services/lakeformation/...`, `go vet ./services/lakeformation
 ---
 
 ## Notes
+
+### 2026-09-24 mega-batch-39 terraform coverage
+
+RevokePermissions on an already-revoked (or never-granted) principal/resource/permission silently returned success instead of the real InvalidInputException, hanging every `aws_lakeformation_permissions` destroy in the provider's own delete-confirmation retry loop. Fixed; see the RevokePermissions ops note above.
 
 **2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1 sweep):** 2 tier-1 undeclared request
 fields, both recorded as a missing feature, 0 fixed: `ListPermissions.CatalogId` and
