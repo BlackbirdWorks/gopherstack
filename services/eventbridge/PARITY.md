@@ -2,7 +2,7 @@
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
-last_audit_commit: 6020fa871
+last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal replays evicted after 1h; prior: 6020fa871
 last_audit_date: 2026-09-24
 overall: A
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
@@ -122,6 +122,19 @@ leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery
 ---
 
 ## Notes
+
+### 2026-09-24 (leak sweep) terminal replays now evicted after 1h
+
+CancelReplay/scheduleReplayWorker transitioned a replay to COMPLETED/
+CANCELLED but kept the row in b.replays forever, the same unbounded-memory-
+growth leak class already fixed for ec2/ecs/ram/acmpca/quicksight/medialive.
+AWS documents no retention for replay history and has no DeleteReplay op, so
+this reuses the 1h TTL convention established for those fixes. Added
+`replayTerminalTTL` and `pruneStaleReplaysLocked`, called on every
+start/cancel/complete path, evicting a terminal replay past ReplayEndTime
+(already stamped on both transitions). No new field, no persisted-field
+change, no version bump. Tests: `replay_expiry_test.go` (synctest,
+evicted-after-TTL + kept-within-TTL).
 
 ### 2026-09-24 event bus Policy was a bare statement array, not an IAM document
 

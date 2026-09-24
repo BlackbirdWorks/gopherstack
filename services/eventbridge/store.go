@@ -19,6 +19,15 @@ const (
 	replayStateCancelling = "CANCELLING"
 	replayStateCancelled  = "CANCELLED"
 	replayStateCompleted  = "COMPLETED"
+
+	// replayTerminalTTL bounds how long a COMPLETED/CANCELLED replay stays in
+	// b.replays before pruneStaleReplaysLocked evicts it. AWS documents no
+	// specific retention for replay history and has no DeleteReplay op, but a
+	// long-running emulator still needs a bound on terraform-driven
+	// start/cancel churn; reuses the 1h window established for this
+	// backend's other delete-waiter tombstones (ram ramDeletedShareTTL, ec2
+	// c254cd795, ecs 3fa9337a8, medialive gopherstack-f9w3k).
+	replayTerminalTTL = time.Hour
 )
 
 // regionContextKey is the context key for the per-request AWS region.
