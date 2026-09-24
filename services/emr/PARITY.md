@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: a5efc2c05
-last_audit_date: 2026-09-19  # prior: 2026-09-19
+last_audit_commit: 0c1472972  # terraform-coverage pass: InstanceTypeConfigs modeled (closes gopherstack-dqd8 item below); prior: d522d763f
+last_audit_date: 2026-09-23  # prior: 2026-09-19
 overall: A                # 2026-09-04 (gopherstack-s1m six-bug-pattern sweep): checked all nine named delete/
                            # cancel/remove ops (TerminateJobFlows, RemoveTags, RemoveAutoScalingPolicy,
                            # RemoveManagedScalingPolicy, DeleteSecurityConfiguration, DeleteStudio,
@@ -141,7 +141,7 @@ ops:
   CancelSteps: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed enum: SUBMITTED/FAILED (was fabricated SUCCESS/QUEUED); added Reason"}
   AddInstanceGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   ListInstanceGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-28 field-diff (gopherstack-6flj/21my, deserializers.go's awsAwsjson11_deserializeDocumentInstanceGroup): EbsBlockDevices/EbsOptimized/CustomAmiId/ShrinkPolicy/group-level AutoScalingPolicy-at-creation-time/ConfigurationsVersion/LastSuccessfullyAppliedConfigurations(Version) are all real InstanceGroup members this backend omits -- confirmed genuine omission, not accept-and-drop: InstanceGroupSpec (AddInstanceGroups/RunJobFlow's inline group input) has no corresponding fields either, so nothing is silently discarded, the feature is simply unbuilt end-to-end. See structural_gaps."}
-  ModifyInstanceGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  ModifyInstanceGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-23 -- ClusterId is optional on the real API (*string) but was required here, 404ing aws_emr_instance_group's Delete (real terraform-provider-aws omits it, since instance group IDs are unique on their own -- there is no real DeleteInstanceGroup op, only resize-to-zero via this op). Now falls back to resolving the instance group by ID alone across all clusters when ClusterId is empty."}
   AddInstanceFleet: {wire: ok, errors: ok, state: ok, persist: ok}
   ListInstanceFleets: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyInstanceFleet: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised no-op -- looked up the fleet and returned nil without applying TargetOnDemandCapacity/TargetSpotCapacity; now mutates"}
@@ -215,7 +215,6 @@ families:
   error-mapping: {status: ok, note: "EMR's real error model has exactly two exception types (InvalidRequestException 400, InternalServerException 500) per aws-sdk-go-v2/service/emr/types/errors.go; the deserializeError switch matches __type against these two strings verbatim. Fixed handleError, which returned the non-existent 'ValidationException' for ErrInvalidParameter and 'InternalFailure' for the default/500 case -- neither would deserialize into a typed exception a real client checks with errors.As."}
 gaps: []
 items_still_open:
-  - "ListInstances synthesized fleet instances leave InstanceType blank: InstanceFleet (unlike InstanceGroup) only tracks aggregate TargetOnDemandCapacity/TargetSpotCapacity/Provisioned* counts, not a per-instance-type breakdown -- AddInstanceFleet's real wire input accepts InstanceTypeConfigs (a weighted list of candidate instance types) but gopherstack's InstanceFleetSpec never captured it at all, a pre-existing gap larger than this pass's ListInstances-synthesis scope. This IS buildable (thread InstanceTypeConfigs through AddInstanceFleet/RunJobFlow's inline fleet spec, pick a type per synthesized instance) but was left out of this pass to stay in scope; leaving InstanceType blank rather than inventing a plausible-looking type avoids fabricating data the backend doesn't have. (bd: gopherstack-dqd8)"
   - "AutoTerminationPolicy.IdleTimeout (real, emr@v1.64.4 types/types.go:114-122: \"Specifies the amount of idle time in seconds after which the cluster automatically terminates. You can specify a minimum of 60 seconds and a maximum of 604800 seconds (seven days).\") is accepted, bounds-validated, persisted, and echoed back verbatim (PutAutoTerminationPolicy/RunJobFlow), but the janitor never evaluates it to trigger termination (gopherstack-cxp3, 2026-09-06). Unlike KeepJobFlowAliveWhenNoSteps (fixed this pass, see below), IdleTimeout is not fixable from state this backend already tracks: the SDK doc comment defines only the timeout duration, never what 'idle' means (no active steps? no active YARN application? no active interactive session -- Session, sessions.go?), and this backend has no last-activity timestamp of any kind on a cluster -- effectiveStepStatus's PENDING->COMPLETED promotion is a pure function of a step's own CreationDateTime, not a cluster-level 'went idle at T' event. Wiring termination against an invented idle definition (e.g. reusing the ALL_STEPS_COMPLETED signal below, but on a timer) would mean guessing AWS's real activity model rather than reading it off the pinned SDK, which is the exact failure mode this campaign avoids elsewhere (see PutAutoScalingPolicy/PutManagedScalingPolicy precedent). Left NOT-WIRED as a verified negative; would need either a documented idle definition or a deliberate, disclosed approximation before implementing."
 structural_gaps:
   - "CancelSteps.StepCancellationOption (reqfieldiff tier-1, 2026-09-18) is not read: it
@@ -235,6 +234,13 @@ session-termination-cascade: {status: ok, note: "2026-07-25: terminateSingle (cl
 ---
 
 ## Notes
+
+### 2026-09-23: terraform coverage sweep (closes gopherstack-dqd8 InstanceTypeConfigs item)
+
+InstanceFleetSpec now captures InstanceTypeConfigs end-to-end (AddInstanceFleet,
+RunJobFlow's inline fleet spec); ListInstances synthesizes InstanceType from it.
+ModifyInstanceGroups no longer requires ClusterId (real API: `*string`, optional) --
+was 404ing aws_emr_instance_group's Delete, which real terraform-provider-aws omits it on.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

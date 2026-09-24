@@ -705,23 +705,49 @@ type ClusterSummary struct {
 
 // InstanceFleet represents an EMR instance fleet returned by AddInstanceFleet.
 type InstanceFleet struct {
-	Status                      InstanceFleetStatus `json:"Status"`
-	ID                          string              `json:"Id"`
-	Name                        string              `json:"Name"`
-	InstanceFleetType           string              `json:"InstanceFleetType"`
-	TargetOnDemandCapacity      int                 `json:"TargetOnDemandCapacity"`
-	TargetSpotCapacity          int                 `json:"TargetSpotCapacity"`
-	ProvisionedOnDemandCapacity int                 `json:"ProvisionedOnDemandCapacity"`
-	ProvisionedSpotCapacity     int                 `json:"ProvisionedSpotCapacity"`
+	Status                      InstanceFleetStatus         `json:"Status"`
+	ID                          string                      `json:"Id"`
+	Name                        string                      `json:"Name"`
+	InstanceFleetType           string                      `json:"InstanceFleetType"`
+	InstanceTypeSpecifications  []InstanceTypeSpecification `json:"InstanceTypeSpecifications,omitempty"`
+	TargetOnDemandCapacity      int                         `json:"TargetOnDemandCapacity"`
+	TargetSpotCapacity          int                         `json:"TargetSpotCapacity"`
+	ProvisionedOnDemandCapacity int                         `json:"ProvisionedOnDemandCapacity"`
+	ProvisionedSpotCapacity     int                         `json:"ProvisionedSpotCapacity"`
 }
 
 // InstanceFleetSpec is the input specification for an instance fleet.
 type InstanceFleetSpec struct {
-	Name                   string          `json:"Name"`
-	InstanceFleetType      string          `json:"InstanceFleetType"`
-	Configurations         []Configuration `json:"Configurations,omitempty"`
-	TargetOnDemandCapacity int             `json:"TargetOnDemandCapacity"`
-	TargetSpotCapacity     int             `json:"TargetSpotCapacity"`
+	Name                   string                   `json:"Name"`
+	InstanceFleetType      string                   `json:"InstanceFleetType"`
+	Configurations         []Configuration          `json:"Configurations,omitempty"`
+	InstanceTypeConfigs    []InstanceTypeConfigSpec `json:"InstanceTypeConfigs,omitempty"`
+	TargetOnDemandCapacity int                      `json:"TargetOnDemandCapacity"`
+	TargetSpotCapacity     int                      `json:"TargetSpotCapacity"`
+}
+
+// InstanceTypeConfigSpec is the request-side shape of one instance type
+// entry within an instance fleet's InstanceTypeConfigs (RunJobFlow's
+// Instances.InstanceFleets[].InstanceTypeConfigs and AddInstanceFleet's
+// InstanceFleet.InstanceTypeConfigs).
+type InstanceTypeConfigSpec struct {
+	InstanceType                        string  `json:"InstanceType"`
+	BidPrice                            string  `json:"BidPrice,omitempty"`
+	BidPriceAsPercentageOfOnDemandPrice float64 `json:"BidPriceAsPercentageOfOnDemandPrice,omitempty"`
+	WeightedCapacity                    int     `json:"WeightedCapacity,omitempty"`
+}
+
+// InstanceTypeSpecification is the response-side echo of a fleet's
+// configured instance types (types.InstanceTypeSpecification,
+// emr@v1.64.4/types/types.go:1634). Only the fields this emulator's
+// InstanceTypeConfigSpec accepts are modeled -- EbsBlockDevices,
+// Configurations, CustomAmiId and Priority are not (no real EBS/AMI
+// provisioning happens here).
+type InstanceTypeSpecification struct {
+	InstanceType                        string  `json:"InstanceType"`
+	BidPrice                            string  `json:"BidPrice,omitempty"`
+	BidPriceAsPercentageOfOnDemandPrice float64 `json:"BidPriceAsPercentageOfOnDemandPrice,omitempty"`
+	WeightedCapacity                    int     `json:"WeightedCapacity,omitempty"`
 }
 
 // SecurityConfiguration stores an EMR security configuration.
