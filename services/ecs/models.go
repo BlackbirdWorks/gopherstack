@@ -752,7 +752,11 @@ type MonitoringConfiguration struct {
 
 // Service represents an ECS service.
 type Service struct {
-	CreatedAt                     time.Time                      `json:"createdAt"`
+	CreatedAt time.Time `json:"createdAt"`
+	// DrainDeadline is when a Status of DRAINING resolves to INACTIVE,
+	// lazily applied by sweepServiceTransitionsLocked. Zero when Status is
+	// not DRAINING.
+	DrainDeadline                 time.Time                      `json:"drainDeadline"`
 	HealthCheckGracePeriodSeconds *int                           `json:"healthCheckGracePeriodSeconds,omitempty"`
 	ServiceConnectConfiguration   *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
 	DeploymentConfiguration       *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`

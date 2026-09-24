@@ -1,8 +1,8 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.96.0
-last_audit_commit: d1ed0e39b  # 2026-09-20 mega-batch-37 coverage (account settings, EXTERNAL service, task sets); prior: d522d763f
-last_audit_date: 2026-09-20  # prior: 2026-09-19
+last_audit_commit: 1598513da  # 2026-09-24 DeleteService DRAINING->INACTIVE lifecycle fix; prior: d1ed0e39b
+last_audit_date: 2026-09-24  # prior: 2026-09-20
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
@@ -21,8 +21,8 @@ ops:
   CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now records a real ServiceDeployment for the initial PRIMARY deployment (was a disguised stub, see gaps/fixes); capacityProviderStrategy validated (see PutClusterCapacityProviders note). FIXED gopherstack-rnka: tags supplied at creation now mirrored into the resourceTags side map (was two never-synced copies -- see TagResource note and Notes)."}
   DescribeServices: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED gopherstack-rnka: added include=[TAGS] gating (previously tags were always returned unconditionally, unlike DescribeClusters/DescribeCapacityProviders/DescribeContainerInstances/DescribeTaskSets/DescribeExpressGatewayService, which already gated correctly); tags now sourced from the resourceTags side map via ListTagsForResource, not the stale Service.Tags snapshot."}
   UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now syncs ServiceDeployment records when rotating the PRIMARY deployment; capacityProviderStrategy validated (see PutClusterCapacityProviders note). FIXED gopherstack-rnka: response tags now read from the resourceTags side map (authoritative) instead of the stale creation-time snapshot."}
-  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cleans up its ServiceDeployment records (was leaking one entry per deleted service); also cleans its resourceTags side-map entry (previously a ghost row, see Notes). FIXED gopherstack-rnka: response echoes the final resourceTags-authoritative tag set, captured before the side-map entry is cleared."}
-  ListServices: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cleans up its ServiceDeployment records (was leaking one entry per deleted service); also cleans its resourceTags side-map entry (previously a ghost row, see Notes). FIXED gopherstack-rnka: response echoes the final resourceTags-authoritative tag set, captured before the side-map entry is cleared. FIXED 2026-09-24 (mega-batch-37 terraform destroy-waiter gap): no longer hard-deletes the service record; moves it to DRAINING then INACTIVE (sweepServiceTransitionsLocked, dax's lazy-deadline pattern, no goroutine) per api_op_DeleteService.go, so DescribeServices keeps reporting it. Same-named CreateService is now refused while DRAINING/ACTIVE and allowed once INACTIVE."}
+  ListServices: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-24: now excludes DRAINING/INACTIVE services (see DeleteService note) -- api_op_DeleteService.go documents a drained service as 'no longer visible in ... ListServices'."}
   ListServicesByNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTaskSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added capacityProviderStrategy (was entirely absent from both CreateTaskSetInput and the TaskSet wire shape -- a real SDK field, now validated + stored + echoed) and tags (stored via the resourceTags side map, echoed unconditionally on Create like CreateCluster)"}
   DeleteTaskSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: also cleans the task set's resourceTags side-map entry (previously a permanent ghost row for every tagged task set ever deleted, see Notes)"}
@@ -83,13 +83,19 @@ items_still_open:
   - "ListContainerInstancesInput.status docs a default INACTIVE exclusion when unset, but types.ContainerInstanceStatus's own enum has no INACTIVE value and DeregisterContainerInstance deletes the row entirely rather than retaining it as INACTIVE -- no container instance in this backend's store can ever carry that status, so the documented default has zero observable effect here. Recorded, not implemented: no reachable state exists to test it against."
   - "Container exit -> STOPPED (gopherstack-s1u9) is implemented (ContainerWait-driven watchContainerExit, markTaskStoppedByContainerExit). One approximation remains open: the essential-container distinction (ContainerDefinition.Essential) is not modeled, so the FIRST container in a multi-container task to exit drives the whole task to STOPPED without force-stopping siblings -- exact for the common single-container Step Functions .sync batch-job shape, wrong for genuine multi-container teardown."
   - "awslogs LogConfiguration (gopherstack-sv5q, gopherstack-jnct) streams real CloudWatch Logs via ContainerLogs. One approximation remains open: with no awslogs-stream-prefix set, real ECS names the stream after the Docker-assigned container ID (unavailable before the container exists); this backend substitutes the task ID instead -- an own-choice approximation, not SDK-pinned."
-  - "DeleteService hard-deletes the service record immediately; real AWS transitions it to DRAINING then INACTIVE and keeps it DescribeServices-visible for a time before it disappears. terraform-provider-aws's delete waiter for an EXTERNAL-controller service (task sets, no steady-state to converge on) polls expecting to keep finding the service and errors 'couldn't find resource' when it vanishes immediately instead -- observed via TestTerraform_MegaBatch37's destroy step (non-fatal to the harness, tofu destroy's own exit code isn't asserted). Real staged deletion needs a lifecycle timer this backend doesn't have for services; not fixed this pass (mega-batch-37, 2026-09-20)."
 deferred:
   - "Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) -- the richer blue/green fields remain unmodeled (same underlying reason ContinueServiceDeployment is deferred: blue/green lifecycle is not modeled at all in this backend)."
 leaks: {status: clean, note: "Prior 'found' status was stale documentation -- that leak (DeleteService's ServiceDeployment-map entry) was already fixed in the same prior sweep that wrote the note; the status field just never got flipped back to clean. Re-verified clean this sweep. Two NEW leaks found and fixed this sweep: (1) DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows, and purgeDaemonsLocked deleted from daemonRevisions by the wrong key so it silently matched nothing -- both fixed via deleteDaemonAncillaryLocked. (2) resourceTags side-map ghost rows were never cleaned up on delete for clusters/services/container-instances/task-sets/task-definitions/express-gateway-services -- fixed via deleteResourceTagsLocked. See Notes for full writeup and proof tests. Reconciler, janitor, lifecycle stepper, and docker_runner (re-audited this sweep) remain clean."}
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) DeleteService DRAINING/INACTIVE lifecycle
+
+Fixed the mega-batch-37 items_still_open entry: DeleteService now sweeps
+through DRAINING->INACTIVE (serviceDrainDelay, sweepServiceTransitionsLocked)
+instead of hard-deleting; ListServices/CreateService/DeleteCluster updated to
+match. See TestDeleteService_DrainsToInactive.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

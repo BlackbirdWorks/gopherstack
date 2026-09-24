@@ -149,6 +149,7 @@ func (b *InMemoryBackend) daemonsInClusterLocked(clusterName string) []*Daemon {
 func (b *InMemoryBackend) deleteServicesForClusterLocked(clusterName string) {
 	for _, s := range b.servicesInClusterLocked(clusterName) {
 		b.services.Delete(servicesKeyFn(s))
+		delete(b.serviceIndex, svcRef{cluster: clusterName, name: s.ServiceName})
 		b.deleteResourceTagsLocked(s.ServiceArn)
 	}
 }

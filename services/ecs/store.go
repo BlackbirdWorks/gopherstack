@@ -13,6 +13,7 @@ const (
 	statusStopped           = "STOPPED"
 	statusActive            = "ACTIVE"
 	statusInactive          = "INACTIVE"
+	statusDraining          = "DRAINING"
 	statusDeleteInProgress  = "DELETE_IN_PROGRESS"
 	statusProvisioning      = "PROVISIONING"
 	statusPending           = "PENDING"
@@ -30,6 +31,11 @@ const (
 	// task definition family. Older INACTIVE revisions beyond this cap are
 	// removed to prevent unbounded memory growth.
 	maxTaskDefinitionRevisions = 100
+
+	// serviceDrainDelay is how long a deleted service stays DRAINING before
+	// sweepServiceTransitionsLocked settles it at INACTIVE, matching
+	// services/dax's clusterTransitionDelay lazy-deadline pattern.
+	serviceDrainDelay = time.Second
 )
 
 // compile-time assertion.

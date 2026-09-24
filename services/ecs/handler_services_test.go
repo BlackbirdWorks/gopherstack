@@ -228,8 +228,11 @@ func TestECS_DeleteService(t *testing.T) {
 
 	svc := resp["service"].(map[string]any)
 	assert.Equal(t, "del-svc", svc["serviceName"])
+	assert.Equal(t, "DRAINING", svc["status"])
 
-	// Confirm deletion: AWS returns 200 with failures list, not 404.
+	// api_op_DeleteService.go: a deleted service moves to DRAINING (then
+	// INACTIVE) but stays DescribeServices-visible -- no ServiceNotFound
+	// failure, unlike a genuinely unknown service name.
 	rec3 := doECSRequest(t, h, "DescribeServices", map[string]any{"services": []string{"del-svc"}})
 	require.Equal(t, http.StatusOK, rec3.Code)
 
@@ -237,10 +240,19 @@ func TestECS_DeleteService(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
 
 	svcs3, _ := resp3["services"].([]any)
-	assert.Empty(t, svcs3)
+	require.Len(t, svcs3, 1)
+	assert.Equal(t, "DRAINING", svcs3[0].(map[string]any)["status"])
 
 	failures3, _ := resp3["failures"].([]any)
-	assert.Len(t, failures3, 1)
+	assert.Empty(t, failures3)
+
+	// Deleted service must no longer be listed by ListServices.
+	rec4 := doECSRequest(t, h, "ListServices", map[string]any{})
+	require.Equal(t, http.StatusOK, rec4.Code)
+
+	var resp4 map[string]any
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4))
+	assert.Empty(t, resp4["serviceArns"])
 }
 
 // TestECS_DeleteService_ActiveGuard verifies AWS's DeleteService guard: a

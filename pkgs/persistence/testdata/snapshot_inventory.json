@@ -10441,6 +10441,7 @@
       "Service.DeploymentController *DeploymentController `json:\"deploymentController,omitempty\"`",
       "Service.Deployments []Deployment `json:\"deployments,omitempty\"`",
       "Service.DesiredCount int `json:\"desiredCount\"`",
+      "Service.DrainDeadline time.Time `json:\"drainDeadline\"`",
       "Service.EnableExecuteCommand bool `json:\"enableExecuteCommand,omitempty\"`",
       "Service.HealthCheckGracePeriodSeconds *int `json:\"healthCheckGracePeriodSeconds,omitempty\"`",
       "Service.LaunchType string `json:\"launchType,omitempty\"`",
