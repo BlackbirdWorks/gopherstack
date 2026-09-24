@@ -102,7 +102,7 @@ type StorageBackend interface {
 	// Resource policy operations
 	DeleteResourcePolicy() error
 	DescribeResourcePolicy() (*ResourcePolicy, error)
-	PutResourcePolicy(content string) (*ResourcePolicy, error)
+	PutResourcePolicy(content string, tags []Tag) (*ResourcePolicy, error)
 
 	// Effective policy operations
 	DescribeEffectivePolicy(policyType, targetID string) (*EffectivePolicy, error)

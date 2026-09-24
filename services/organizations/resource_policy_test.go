@@ -47,7 +47,7 @@ func TestResourcePolicy_Lifecycle(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			rp, err := b.PutResourcePolicy(tt.content)
+			rp, err := b.PutResourcePolicy(tt.content, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.content, rp.Content)
 
@@ -60,7 +60,7 @@ func TestResourcePolicy_Lifecycle(t *testing.T) {
 			}
 
 			if tt.replace != "" {
-				rp2, replaceErr := b.PutResourcePolicy(tt.replace)
+				rp2, replaceErr := b.PutResourcePolicy(tt.replace, nil)
 				require.NoError(t, replaceErr)
 				assert.Equal(t, tt.replace, rp2.Content)
 				assert.Equal(t, rp.ID, rp2.ID, "ID should be stable after replacement")
@@ -107,7 +107,7 @@ func TestResourcePolicy_ErrorCases(t *testing.T) {
 			b, _ := newOrgBackend(t)
 
 			if tt.hasRP {
-				_, err := b.PutResourcePolicy(`{"Version":"2012-10-17"}`)
+				_, err := b.PutResourcePolicy(`{"Version":"2012-10-17"}`, nil)
 				require.NoError(t, err)
 			}
 
@@ -245,7 +245,7 @@ func TestHandler_ResourcePolicy(t *testing.T) {
 
 			if tt.seedPolicy {
 				// Seed via PutResourcePolicy backend method.
-				_, err := b.PutResourcePolicy(`{"Version":"2012-10-17","Statement":[]}`)
+				_, err := b.PutResourcePolicy(`{"Version":"2012-10-17","Statement":[]}`, nil)
 				require.NoError(t, err)
 			}
 
@@ -309,7 +309,7 @@ func TestBackend_ResourcePolicyOperations(t *testing.T) {
 			b, _ := newOrgBackend(t)
 
 			if tt.seedPolicy {
-				_, err := b.PutResourcePolicy(tt.content)
+				_, err := b.PutResourcePolicy(tt.content, nil)
 				require.NoError(t, err)
 			}
 
@@ -404,7 +404,7 @@ func TestPutResourcePolicy_ContentSizeLimit(t *testing.T) {
 			content := `{"k":"` + strings.Repeat("a", tt.length-8) + `"}`
 			require.Len(t, content, tt.length)
 
-			_, err := b.PutResourcePolicy(content)
+			_, err := b.PutResourcePolicy(content, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)

@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
-last_audit_commit: 012f98aa
-last_audit_date: 2026-08-30
+last_audit_commit: 5c20d9fd7
+last_audit_date: 2026-09-24
 overall: A            # 2026-08-30 (ordering pass): audited every List op's sort key against its actual
                       # unsorted source for tie-safety (Table.All() map walks are unspecified-order; a
                       # sort with no total-order comparator leaves ties to depend on that unspecified
@@ -156,6 +156,15 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors in t
 ---
 
 ## Notes
+
+### 2026-09-24 (mega-batch-48): resource-policy tagging + resource-existence gap
+
+FIXED: `resourceExistsLocked` didn't recognize the resource policy ID, so
+`TagResource`/`ListTagsForResource` on a `p-rp-*` ARN 400'd with
+`TargetNotFoundException` even though `PutResourcePolicyInput.Tags` is a real,
+documented member (applies at initial creation only, per its doc comment).
+`PutResourcePolicy` now accepts and stores that initial tag set. Coverage
+added for account/delegated_administrator/policy(+attachment)/resource_policy.
 
 ### 2026-09-12 (gopherstack-n3zi): typed-client round trips for the remaining 39 ops, 22/63 -> 63/63
 
