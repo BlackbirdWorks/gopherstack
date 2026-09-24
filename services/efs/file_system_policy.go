@@ -36,7 +36,7 @@ func (b *InMemoryBackend) DeleteFileSystemPolicy(ctx context.Context, fileSystem
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return err
 	}
 
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) PutFileSystemPolicy(ctx context.Context, fileSystemID,
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return err
 	}
 

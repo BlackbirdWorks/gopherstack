@@ -47,7 +47,7 @@ func (b *InMemoryBackend) PutBackupPolicy(ctx context.Context, fileSystemID, sta
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return err
 	}
 

@@ -132,12 +132,12 @@ func (b *InMemoryBackend) checkMountTargetPreconditions(
 ) error {
 	// api_op_CreateMountTarget.go:29-30: "To create a mount target for a file system,
 	// the file system's lifecycle state must be available."
-	if fs.LifeCycleState != statusAvailable {
+	if state := b.effectiveFileSystemState(fs); state != statusAvailable {
 		return fmt.Errorf(
 			"%w: file system %s is in lifecycle state %q, not %q",
 			ErrIncorrectFileSystemLifeCycleState,
 			req.FileSystemID,
-			fs.LifeCycleState,
+			state,
 			statusAvailable,
 		)
 	}

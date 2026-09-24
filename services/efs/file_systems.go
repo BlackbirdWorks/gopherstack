@@ -212,23 +212,12 @@ func (b *InMemoryBackend) CreateFileSystem(
 
 	b.applyInitialBackupPolicy(region, id, req)
 
-	// When a non-zero activation delay is configured, simulate the AWS
-	// "creating" → "available" lifecycle transition asynchronously.
-	// The goroutine is self-terminating and guards against concurrent deletion.
-	if b.fsActivationDelay > 0 {
-		delay := b.fsActivationDelay
-
-		go func() {
-			time.Sleep(delay)
-			b.mu.Lock("CreateFileSystem.activate")
-			defer b.mu.Unlock()
-			if cur, ok := b.fileSystems.Get(regionKey(region, id)); ok && cur.LifeCycleState == statusCreating {
-				cur.LifeCycleState = statusAvailable
-			}
-		}()
-	}
-
+	// When a non-zero activation delay is configured, the AWS "creating" ->
+	// "available" lifecycle transition is resolved lazily by
+	// effectiveFileSystemState instead of a background goroutine (see
+	// PARITY.md's leaks note).
 	cp := *fs
+	cp.LifeCycleState = b.effectiveFileSystemState(fs)
 
 	return &cp, nil
 }
@@ -250,6 +239,7 @@ func (b *InMemoryBackend) DescribeFileSystems(
 			return nil, "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 		}
 		cp := *fs
+		cp.LifeCycleState = b.effectiveFileSystemState(fs)
 
 		return []*FileSystem{&cp}, "", nil
 	}
@@ -260,6 +250,7 @@ func (b *InMemoryBackend) DescribeFileSystems(
 		for _, fs := range regionFS {
 			if fs.CreationToken == creationToken {
 				cp := *fs
+				cp.LifeCycleState = b.effectiveFileSystemState(fs)
 
 				return []*FileSystem{&cp}, "", nil
 			}
@@ -271,6 +262,7 @@ func (b *InMemoryBackend) DescribeFileSystems(
 	all := make([]*FileSystem, 0, len(regionFS))
 	for _, fs := range regionFS {
 		cp := *fs
+		cp.LifeCycleState = b.effectiveFileSystemState(fs)
 		all = append(all, &cp)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].FileSystemID < all[j].FileSystemID })
@@ -376,17 +368,31 @@ func (b *InMemoryBackend) applyThroughputModeChange(
 	return nil
 }
 
+// effectiveFileSystemState resolves fs's currently-visible LifeCycleState,
+// lazily promoting "creating" to "available" once fsActivationDelay has
+// elapsed since CreationTime instead of a background goroutine (see
+// PARITY.md's leaks note). Pure: never mutates fs. Callers must hold b.mu
+// (read or write).
+func (b *InMemoryBackend) effectiveFileSystemState(fs *FileSystem) string {
+	if fs.LifeCycleState == statusCreating && b.fsActivationDelay > 0 &&
+		!time.Now().Before(fs.CreationTime.Add(b.fsActivationDelay)) {
+		return statusAvailable
+	}
+
+	return fs.LifeCycleState
+}
+
 // checkFileSystemAvailable returns ErrIncorrectFileSystemLifeCycleState unless fs is in
 // the "available" state, per the CreateMountTarget precondition
 // (api_op_CreateMountTarget.go:29-30) shared by every op that declares the same error.
 // Callers must hold b.mu.
-func checkFileSystemAvailable(fs *FileSystem) error {
-	if fs.LifeCycleState != statusAvailable {
+func (b *InMemoryBackend) checkFileSystemAvailable(fs *FileSystem) error {
+	if state := b.effectiveFileSystemState(fs); state != statusAvailable {
 		return fmt.Errorf(
 			"%w: file system %s is in lifecycle state %q, not %q",
 			ErrIncorrectFileSystemLifeCycleState,
 			fs.FileSystemID,
-			fs.LifeCycleState,
+			state,
 			statusAvailable,
 		)
 	}
@@ -410,7 +416,7 @@ func (b *InMemoryBackend) UpdateFileSystem(
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return nil, err
 	}
 

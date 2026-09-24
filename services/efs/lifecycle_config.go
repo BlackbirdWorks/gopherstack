@@ -119,7 +119,7 @@ func (b *InMemoryBackend) PutLifecycleConfiguration(
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return nil, err
 	}
 

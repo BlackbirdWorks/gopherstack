@@ -35,7 +35,7 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, sourceFileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return nil, err
 	}
 
@@ -235,7 +235,7 @@ func (b *InMemoryBackend) UpdateFileSystemProtection(
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return err
 	}
 
