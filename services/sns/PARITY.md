@@ -1,8 +1,8 @@
 ---
 service: sns
 sdk_module: aws-sdk-go-v2/service/sns@v1.46.0
-last_audit_commit: 41d2135ec  # 2026-09-19 PGO perf sweep (no safe change found)
-last_audit_date: 2026-09-19
+last_audit_commit: 0c0472570  # 2026-09-24 PGO perf sweep (buildHTTPDeliveryPayload re-sign fix)
+last_audit_date: 2026-09-24
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -773,6 +773,12 @@ still returns the placeholder too until `ConfirmSubscription` supplies the
 real ARN. Gates: `go build ./...` (whole module), `go vet`, `go test -race
 -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No
 persisted struct fields changed; no version bump.
+
+## 2026-09-24: PGO perf sweep -- HTTP/HTTPS delivery signed once per publish
+
+`buildHTTPDeliveryPayload` re-signed with a fresh `time.Now()` timestamp per
+HTTP/HTTPS subscriber; now Publish signs each distinct body once and shares
+that Timestamp/Signature across subscribers, matching real SNS.
 
 ## 2026-09-19: goroutine-leak sweep (gopherstack parity-sweep)
 

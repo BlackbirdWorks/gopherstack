@@ -105,6 +105,7 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 		replayEv := b.buildPublishedEvent(
 			topicArn, msg.MessageID, msg.Message, msg.Subject, msg.Attributes,
 			[]events.SNSSubscriptionSnapshot{subSnap}, sigVersion,
+			time.Now().UTC().Format(time.RFC3339), nil,
 		)
 
 		if emitter != nil {
