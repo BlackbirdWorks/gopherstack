@@ -20571,6 +20571,7 @@
       "Handshake.RequestedTimestamp time.Time `json:\"requestedTimestamp\"`",
       "Handshake.Resources []HandshakeResource `json:\"resources\"`",
       "Handshake.State string `json:\"state\"`",
+      "Handshake.StateChangedAt time.Time `json:\"stateChangedAt\"`",
       "HandshakeParty.ID string `json:\"id\"`",
       "HandshakeParty.Type string `json:\"type\"`",
       "HandshakeResource.Resources []HandshakeResource `json:\"resources,omitempty\"`",
