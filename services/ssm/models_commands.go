@@ -101,12 +101,21 @@ type SendCommandOutput struct {
 	Command Command `json:"Command"`
 }
 
+// CommandFilter is a ListCommands/ListCommandInvocations Filters entry
+// (api_op_ListCommands.go types.CommandFilter; wire keys "key"/"value" per
+// serializers.go:9891-9897, not "Key"/"Value").
+type CommandFilter struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // ListCommandsInput is the request payload for ListCommands.
 type ListCommandsInput struct {
-	CommandID  string `json:"CommandId,omitempty"`
-	InstanceID string `json:"InstanceId,omitempty"`
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64          `json:"MaxResults,omitempty"`
+	CommandID  string          `json:"CommandId,omitempty"`
+	InstanceID string          `json:"InstanceId,omitempty"`
+	NextToken  string          `json:"NextToken,omitempty"`
+	Filters    []CommandFilter `json:"Filters,omitempty"`
 }
 
 // ListCommandsOutput is the response payload for ListCommands.
@@ -153,11 +162,12 @@ type GetCommandInvocationOutput struct {
 // (CommandInvocation stores one flat stdout/stderr per invocation) --
 // accepted on the wire and otherwise inert.
 type ListCommandInvocationsInput struct {
-	CommandID  string `json:"CommandId,omitempty"`
-	InstanceID string `json:"InstanceId,omitempty"`
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
-	Details    bool   `json:"Details,omitempty"`
+	MaxResults *int64          `json:"MaxResults,omitempty"`
+	CommandID  string          `json:"CommandId,omitempty"`
+	InstanceID string          `json:"InstanceId,omitempty"`
+	NextToken  string          `json:"NextToken,omitempty"`
+	Filters    []CommandFilter `json:"Filters,omitempty"`
+	Details    bool            `json:"Details,omitempty"`
 }
 
 // ListCommandInvocationsOutput is the response payload for ListCommandInvocations.

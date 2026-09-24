@@ -301,7 +301,7 @@ func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 		var fieldValue string
 
 		switch f.Key {
-		case "Status":
+		case filterKeyStatus:
 			fieldValue = item.Status
 		case "Title":
 			fieldValue = item.Title

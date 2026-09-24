@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -338,6 +339,45 @@ func (b *InMemoryBackend) materializeCommandsLocked(region string, nowUnix float
 	}
 }
 
+// filterKeyStatus is the "Status" filter-key literal shared by every
+// per-resource filter switch in this package (CommandFilter, OpsItemFilter,
+// SessionFilter) -- pulled out once goconst flagged three independent
+// literals as a repeated constant.
+const filterKeyStatus = "Status"
+
+// matchesCommandFilters applies ListCommands/ListCommandInvocations Filters
+// (api_op_ListCommands.go types.CommandFilter doc comment): Status
+// (case-insensitive exact match), DocumentName (exact match), InvokedAfter/
+// InvokedBefore (RFC3339 timestamp bounds on RequestedDateTime, inclusive
+// per "occurring July 7, 2021, and later"). ExecutionStage is not applied:
+// it requires deriving a Pending/Executing/Complete stage this backend
+// doesn't model separately from Status, and is documented ListCommands-only.
+// An unparseable timestamp value is ignored (filter doesn't exclude).
+func matchesCommandFilters(status, documentName string, requestedDateTime float64, filters []CommandFilter) bool {
+	for _, f := range filters {
+		switch f.Key {
+		case filterKeyStatus:
+			if !strings.EqualFold(status, f.Value) {
+				return false
+			}
+		case "DocumentName":
+			if documentName != f.Value {
+				return false
+			}
+		case "InvokedAfter":
+			if t, err := time.Parse(time.RFC3339, f.Value); err == nil && requestedDateTime < float64(t.Unix()) {
+				return false
+			}
+		case "InvokedBefore":
+			if t, err := time.Parse(time.RFC3339, f.Value); err == nil && requestedDateTime > float64(t.Unix()) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 // ListCommands returns recorded commands.
 func (b *InMemoryBackend) ListCommands(
 	ctx context.Context,
@@ -357,6 +397,9 @@ func (b *InMemoryBackend) ListCommands(
 			continue
 		}
 		if input.InstanceID != "" && !slices.Contains(cmdPtr.InstanceIDs, input.InstanceID) {
+			continue
+		}
+		if !matchesCommandFilters(cmdPtr.Status, cmdPtr.DocumentName, cmdPtr.RequestedDateTime, input.Filters) {
 			continue
 		}
 		cmd := *cmdPtr
@@ -454,6 +497,9 @@ func (b *InMemoryBackend) ListCommandInvocations(
 		}
 		for _, inv := range invs {
 			if input.InstanceID != "" && inv.InstanceID != input.InstanceID {
+				continue
+			}
+			if !matchesCommandFilters(inv.Status, inv.DocumentName, inv.RequestedDateTime, input.Filters) {
 				continue
 			}
 			all = append(all, inv)
