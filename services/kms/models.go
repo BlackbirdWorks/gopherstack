@@ -28,6 +28,17 @@ const KeyUsageEncryptDecrypt = "ENCRYPT_DECRYPT"
 // KeyUsageSignVerify is the string constant for sign/verify-only keys.
 const KeyUsageSignVerify = "SIGN_VERIFY"
 
+// KeyManagerCustomer is DescribeKey's KeyMetadata.KeyManager value for a
+// customer-created key. It is also the implicit value for a Key.KeyManager
+// zero value, so keys persisted before this field existed still report
+// CUSTOMER (additive persistence: gopherstack-6u8p4).
+const KeyManagerCustomer = "CUSTOMER"
+
+// KeyManagerAWS is DescribeKey's KeyMetadata.KeyManager value for an AWS
+// managed key (e.g. alias/aws/dynamodb), lazily provisioned on first
+// reference -- see aws_managed_keys.go.
+const KeyManagerAWS = "AWS"
+
 // Note: Go fields use KeyID (Go convention) while JSON tags use KeyId (AWS API wire format).
 // This intentional difference matches both Go naming best practices and AWS API compatibility.
 
@@ -49,6 +60,9 @@ type Key struct {
 	Arn              string `json:"Arn"`
 	ExpirationModel  string `json:"ExpirationModel,omitempty"`
 	CustomKeyStoreID string `json:"CustomKeyStoreId,omitempty"`
+	// KeyManager is CUSTOMER or AWS (gopherstack-6u8p4); a zero value means
+	// CUSTOMER (see KeyManagerCustomer).
+	KeyManager string `json:"KeyManager,omitempty"`
 	// Rotations stores all rotation events with their types. The separate
 	// RotationDates and OnDemandRotationDates slices are kept for JSON
 	// backwards-compatibility with existing snapshots.

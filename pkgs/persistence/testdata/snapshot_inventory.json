@@ -15845,6 +15845,7 @@
       "Key.Enabled bool `json:\"Enabled\"`",
       "Key.ExpirationModel string `json:\"ExpirationModel,omitempty\"`",
       "Key.KeyID string `json:\"KeyId\"`",
+      "Key.KeyManager string `json:\"KeyManager,omitempty\"`",
       "Key.KeySpec string `json:\"KeySpec,omitempty\"`",
       "Key.KeyState string `json:\"KeyState\"`",
       "Key.KeyUsage string `json:\"KeyUsage\"`",

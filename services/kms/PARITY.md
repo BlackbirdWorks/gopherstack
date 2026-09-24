@@ -1,8 +1,8 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
-last_audit_commit: cd027034c  # 2026-09-20 mega-batch-35 terraform sweep: custom key store fields, ReplicateKey external-origin fix
-last_audit_date: 2026-09-20
+last_audit_commit: d1ed0e39b  # 2026-09-23 (gopherstack-6u8p4): AWS-managed key lazy provisioning
+last_audit_date: 2026-09-23
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
                        # (Handler.tags -- a side map keyed by KeyID, entirely outside
@@ -96,6 +96,12 @@ leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by Ke
 ---
 
 ## Notes
+
+### 2026-09-23 (gopherstack-6u8p4)
+
+DescribeKey/Encrypt/Decrypt/GenerateDataKey*/GetKeyPolicy now lazily provision
+`alias/aws/<service>` (KeyManager=AWS) on first reference; ScheduleKeyDeletion/
+DisableKey/PutKeyPolicy/UpdateAlias/DeleteAlias reject KeyManager=AWS keys.
 
 ### 2026-09-20 mega-batch-35 terraform sweep
 

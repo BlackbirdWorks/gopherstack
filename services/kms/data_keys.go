@@ -27,6 +27,10 @@ func (b *InMemoryBackend) generateDataKey(
 		return nil, err
 	}
 
+	if err := b.ensureAWSManagedKey(ctx, input.KeyID); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("GenerateDataKey")
 	defer b.mu.RUnlock()
 
@@ -145,6 +149,10 @@ func (b *InMemoryBackend) generateDataKeyPair(
 	}
 
 	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {
+		return nil, err
+	}
+
+	if err := b.ensureAWSManagedKey(ctx, input.KeyID); err != nil {
 		return nil, err
 	}
 

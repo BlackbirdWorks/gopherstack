@@ -271,6 +271,10 @@ func (b *InMemoryBackend) DescribeKey(
 	ctx context.Context,
 	input *DescribeKeyInput,
 ) (*DescribeKeyOutput, error) {
+	if err := b.ensureAWSManagedKey(ctx, input.KeyID); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("DescribeKey")
 	defer b.mu.RUnlock()
 
@@ -356,6 +360,10 @@ func (b *InMemoryBackend) DisableKey(ctx context.Context, input *DisableKeyInput
 		return err
 	}
 
+	if isAWSManagedKey(key) {
+		return errAWSManagedKeyInvalidState("DisableKey", key.Arn)
+	}
+
 	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport ||
 		key.KeyState == KeyStatePendingReplicaDeletion {
 		return keyStateError(key)
@@ -406,6 +414,10 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
+	}
+
+	if isAWSManagedKey(key) {
+		return nil, errAWSManagedKeyInvalidState("ScheduleKeyDeletion", key.Arn)
 	}
 
 	if key.KeyState == KeyStatePendingDeletion {
@@ -510,6 +522,11 @@ func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 		origin = KeyOriginAWSKMS
 	}
 
+	keyManager := k.KeyManager
+	if keyManager == "" {
+		keyManager = KeyManagerCustomer
+	}
+
 	meta := KeyMetadata{
 		KeyID:                 k.KeyID,
 		AWSAccountID:          b.accountID,
@@ -520,7 +537,7 @@ func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 		KeySpec:               k.KeySpec,
 		CustomerMasterKeySpec: k.KeySpec,
 		CreationDate:          k.CreationDate,
-		KeyManager:            "CUSTOMER",
+		KeyManager:            keyManager,
 		Origin:                origin,
 		MultiRegion:           k.MultiRegion,
 		PrimaryRegion:         k.PrimaryRegion,
