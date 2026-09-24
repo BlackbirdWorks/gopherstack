@@ -222,6 +222,48 @@ func TestCustomDBEV_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestDescribeDBEngineVersions_CustomEngineStatus verifies custom engine versions carry Status through
+// DescribeDBEngineVersions: terraform's waitCustomDBEngineVersionCreated treats an empty Status as "not found".
+func TestDescribeDBEngineVersions_CustomEngineStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		engine        string
+		engineVersion string
+	}{
+		{name: "oracle_ee", engine: "custom-oracle-ee", engineVersion: "19.mb54.1"},
+		{name: "sqlserver_se", engine: "custom-sqlserver-se", engineVersion: "15.mb54.2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBatch2Backend(t)
+			_, err := b.CreateCustomDBEngineVersion(tt.engine, tt.engineVersion, "test cev", "")
+			require.NoError(t, err)
+
+			versions := b.DescribeDBEngineVersions(tt.engine, tt.engineVersion)
+			require.Len(t, versions, 1)
+			assert.Equal(t, "available", versions[0].Status)
+			assert.NotEmpty(t, versions[0].ImageID, "a completed CEV must have an ImageID (real RDS Custom AMI)")
+
+			h := rds.NewHandler(b)
+			rec := postRDSForm(t, h, url.Values{
+				"Action":        {"DescribeDBEngineVersions"},
+				"Version":       {"2014-10-31"},
+				"Engine":        {tt.engine},
+				"EngineVersion": {tt.engineVersion},
+			}.Encode())
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "<Status>available</Status>")
+			assert.Contains(t, rec.Body.String(), "<Image>",
+				"Image must be present so a real client's Image.ImageId dereference doesn't nil-panic")
+		})
+	}
+}
+
 func TestOrderableOptions_AllEngines(t *testing.T) {
 	t.Parallel()
 

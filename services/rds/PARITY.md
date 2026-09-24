@@ -1829,3 +1829,25 @@ made every `tofu plan`/`apply`/`destroy` on the resource fail with
 Verified via `TestTerraform_MegaBatch53` (test/terraform/mega_batch53_test.go,
 run manually against a local server with `TF_LOG=TRACE`): the panic
 disappeared, apply/destroy round-trips cleanly.
+
+## mega-batch-54 terraform coverage (2026-09-24)
+
+Two real bugs found wiring up `aws_rds_custom_db_engine_version`:
+
+- `DBEngineVersion` (the merged custom-engine-version entries returned by
+  `DescribeDBEngineVersions`) had no `Status` field at all -- real
+  `types.DBEngineVersion.Status` (rds@v1.124.1) is what
+  terraform-provider-aws's `waitCustomDBEngineVersionCreated` polls; an
+  always-empty Status read as "not found" and the create waiter failed
+  immediately.
+- `CreateCustomDBEngineVersion` never auto-generated an `ImageID` when the
+  caller didn't supply one (the media-import path, not `source_image_id`).
+  Real RDS Custom always builds its own AMI from imported media, so a
+  completed CEV always has a non-nil `Image`; terraform-provider-aws's
+  `resourceCustomDBEngineVersionRead` dereferences `out.Image.ImageId`
+  unconditionally and segfaults the whole provider process when `Image` is
+  nil.
+
+Gates: `go build ./...`, `go vet ./services/rds/...`, `go test -race
+-count=1 ./services/rds/...`, `golangci-lint run ./services/rds/...` --
+all clean. No persisted-struct fields changed; no version bump.

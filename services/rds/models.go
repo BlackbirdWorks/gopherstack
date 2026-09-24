@@ -392,6 +392,12 @@ type DBEngineVersion struct {
 	Engine              string `json:"engine"`
 	EngineVersion       string `json:"engineVersion"`
 	DBEngineDescription string `json:"dbEngineDescription"`
+	// Status is only meaningful for custom engine versions; builtin engines leave it empty like
+	// real AWS. terraform's waitCustomDBEngineVersionCreated reads an empty Status as "not found".
+	Status string `json:"status,omitempty"`
+	// ImageID is only meaningful for custom engine versions (rds@v1.124.1 types.DBEngineVersion.Image.ImageId);
+	// builtin engines leave it empty like real AWS.
+	ImageID string `json:"imageId,omitempty"`
 	// IsDefault is internal bookkeeping for DescribeDBEngineVersions.DefaultOnly
 	// filtering -- real AWS's DBEngineVersion output type has no corresponding
 	// wire field (rds@v1.124.1 types.DBEngineVersion), so this never appears in

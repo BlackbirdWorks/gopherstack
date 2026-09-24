@@ -1,10 +1,25 @@
 package rds
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"slices"
 )
+
+const customEngineVersionImageIDBytes = 8
+
+// newCustomEngineVersionImageID generates an AMI-style ID: terraform's resourceCustomDBEngineVersionRead
+// dereferences out.Image.ImageId unconditionally (custom_db_engine_version.go:280) and panics if nil.
+func newCustomEngineVersionImageID() string {
+	buf := make([]byte, customEngineVersionImageIDBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "ami-unknown"
+	}
+
+	return "ami-" + hex.EncodeToString(buf)
+}
 
 // CreateCustomDBEngineVersion creates a custom DB engine version.
 func (b *InMemoryBackend) CreateCustomDBEngineVersion(
@@ -28,6 +43,10 @@ func (b *InMemoryBackend) CreateCustomDBEngineVersion(
 			engine,
 			engineVersion,
 		)
+	}
+
+	if imageID == "" {
+		imageID = newCustomEngineVersionImageID()
 	}
 
 	cev := &CustomDBEngineVersion{
@@ -134,6 +153,8 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 			Engine:              cev.Engine,
 			EngineVersion:       cev.EngineVersion,
 			DBEngineDescription: cev.Description,
+			Status:              cev.Status,
+			ImageID:             cev.ImageID,
 		})
 	}
 	b.mu.RUnlock()
