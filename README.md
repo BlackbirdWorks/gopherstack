@@ -713,7 +713,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 7 structural gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 1 gap; 7 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 gap; 1 deferred |
-| [WorkSpaces](services/workspaces/README.md) | A | 34 | 3 gaps |
+| [WorkSpaces](services/workspaces/README.md) | A | 34 | 5 gaps |
 <!-- END GENERATED SERVICES -->
 
 ## Using Gopherstack
