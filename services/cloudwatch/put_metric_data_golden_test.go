@@ -16,12 +16,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
-// normalizePutMetricDataGolden blanks the auto-generated RequestId, which is
-// random per process run and can never byte-match a checked-in expectation.
+// normalizePutMetricDataGolden blanks the random RequestId and the
+// now-relative datapoint Timestamp.
 func normalizePutMetricDataGolden(b []byte) []byte {
 	re := regexp.MustCompile(`<RequestId>[^<]*</RequestId>`)
+	b = re.ReplaceAll(b, []byte(`<RequestId>NORMALIZED</RequestId>`))
 
-	return re.ReplaceAll(b, []byte(`<RequestId>NORMALIZED</RequestId>`))
+	// The datapoint window is relative to now, so its bucket start is too.
+	ts := regexp.MustCompile(`<Timestamp>[^<]*</Timestamp>`)
+
+	return ts.ReplaceAll(b, []byte(`<Timestamp>NORMALIZED</Timestamp>`))
 }
 
 // TestPutMetricData_DatapointsGolden writes CwMaxMetricDataPointsForTest+50
