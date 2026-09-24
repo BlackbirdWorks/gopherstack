@@ -228,12 +228,11 @@ func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermission
 
 	// If a raw Policy JSON is provided it replaces the whole policy.
 	if input.Policy != "" {
-		var stmts []EventBusPolicyStatement
-		if err := json.Unmarshal([]byte(input.Policy), &stmts); err == nil {
-			policy.Statements = make(map[string]*EventBusPolicyStatement, len(stmts))
-			for i := range stmts {
-				s := stmts[i]
-				policy.Statements[s.Sid] = &s
+		var doc eventBusPolicyDocument
+		if err := json.Unmarshal([]byte(input.Policy), &doc); err == nil {
+			policy.Statements = make(map[string]*EventBusPolicyStatement, len(doc.Statement))
+			for _, s := range doc.Statement {
+				policy.Statements[s.Sid] = s
 			}
 		}
 
@@ -319,13 +318,27 @@ func (b *InMemoryBackend) GetEventBusPolicy(ctx context.Context, eventBusName st
 	for _, s := range policy.Statements {
 		stmts = append(stmts, s)
 	}
-	data, err := json.Marshal(stmts)
+
+	sort.Slice(stmts, func(i, j int) bool { return stmts[i].Sid < stmts[j].Sid })
+
+	data, err := json.Marshal(eventBusPolicyDocument{Version: policyDocumentVersion, Statement: stmts})
 	if err != nil {
 		return "", err
 	}
 
 	return string(data), nil
 }
+
+// eventBusPolicyDocument is the IAM-style policy document shape real AWS
+// uses for an event bus's resource-based policy, both as PutEventBusPolicy/
+// PutPermission's Policy input and as DescribeEventBus/GetEventBusPolicy's
+// Policy output -- a JSON object with a "Statement" array, not a bare array.
+type eventBusPolicyDocument struct {
+	Version   string                     `json:"Version"`
+	Statement []*EventBusPolicyStatement `json:"Statement"`
+}
+
+const policyDocumentVersion = "2012-10-17"
 
 // PutEventBusPolicy replaces the resource-based policy on an event bus with raw JSON.
 func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventBusPolicyInput) error {
@@ -351,15 +364,14 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 		return nil
 	}
 
-	var stmts []EventBusPolicyStatement
-	if err := json.Unmarshal([]byte(input.Policy), &stmts); err != nil {
+	var doc eventBusPolicyDocument
+	if err := json.Unmarshal([]byte(input.Policy), &doc); err != nil {
 		return fmt.Errorf("%w: Policy must be valid JSON: %w", ErrInvalidParameter, err)
 	}
 
-	policy := &EventBusPolicy{Statements: make(map[string]*EventBusPolicyStatement, len(stmts))}
-	for i := range stmts {
-		s := stmts[i]
-		policy.Statements[s.Sid] = &s
+	policy := &EventBusPolicy{Statements: make(map[string]*EventBusPolicyStatement, len(doc.Statement))}
+	for _, s := range doc.Statement {
+		policy.Statements[s.Sid] = s
 	}
 	policies[busKey] = policy
 

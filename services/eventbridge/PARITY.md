@@ -2,8 +2,8 @@
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
-last_audit_commit: 49cff86c4
-last_audit_date: 2026-09-19
+last_audit_commit: 6020fa871
+last_audit_date: 2026-09-24
 overall: A
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
 # go/types field-usage scan (302 exported fields across all 40 *Input/*Request
@@ -117,11 +117,22 @@ items_still_open:
   - "ECS delivery central wiring (bd gopherstack-ubum, service side FIXED this sweep, cli.go NOT touched -- out of services/eventbridge scope): delivery.go's ECSTaskRunner interface previously only passed (clusterARN, payload) to RunTask, so an ECS target delivery only ran the right task definition if the event Input/InputTransformer payload happened to carry a \"TaskDefinition\" key -- EcsParameters.TaskDefinitionArn/LaunchType/TaskCount/NetworkConfiguration set via PutTargets were validated and stored but never reached delivery. Fixed the service side with an optional-capability extension: new ECSTaskRunnerWithParams interface (RunTaskWithParams(ctx, clusterARN, *EcsParameters, payload)); deliverToECS type-asserts dt.ECS against it and prefers it when present, falling back to the base RunTask otherwise, so no existing ECSTaskRunner implementation breaks. Also found and fixed a real wire-shape gap while verifying against the pinned SDK: EcsParameters was missing the real TaskCount *int32 member (aws-sdk-go-v2/service/eventbridge/types@v1.48.4, wire key \"TaskCount\") entirely -- added. Central wiring still needed (cli.go, main-thread/future-session work): ebECSTaskRunnerAdapter in cli.go must grow a RunTaskWithParams method mapping EcsParameters onto ecsbackend.RunTaskInput (TaskDefinitionArn->TaskDefinition, LaunchType->LaunchType, TaskCount->Count, NetworkConfiguration->NetworkConfiguration, Group/PlatformVersion/PlacementConstraints/PlacementStrategy/CapacityProviderStrategy/Tags/EnableECSManagedTags/EnableExecuteCommand map 1:1 by name) for the fix to take effect end-to-end; until then, ECS delivery keeps using the legacy RunTask/payload-TaskDefinition-key path with unchanged behavior (no regression, just not yet wired to the new capability)."
 deferred:
   - "Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check. UPDATE 2026-08-29: the pagination slice of that still-undone audit is now done -- ListRegistries/ListSchemas/SearchSchemas/ListSchemaVersions all declare real Limit/NextToken (schemas@v1.37.4) that were completely unconsulted on both the JSON-RPC (handler_schemas.go/handler_registries.go, dead for a real client but still fixed for consistency) and REST-JSON1 (handler_schemas_rest.go, the actually-reachable path) dispatch paths -- every call returned every stored item in one unbounded page regardless of Limit or the query's `limit` param. Fixed via the existing paginateSlice-equivalent (backend methods gained a `limit int` parameter, wired to paginateN); REST handlers gained schemasRESTLimit(q) to parse the `limit` query param. Field-level wire/errors/state audit for the rest of these 17+5 ops is still open. UPDATE (wrapper-key sweep): PutCodeBinding/DescribeCodeBinding/GetCodeBindingSource now field-verified too -- see their own ops: entry (a real SchemaVersion-scoping bug found and fixed)."
-  - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix."
+  - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix. UPDATE 2026-09-24: the surrounding document shape WAS re-verified and fixed -- see 2026-09-24 Notes entry; Principal's dual string/object shape itself remains unverified."
 leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery goroutine (b.wg.Go) acquires a workerSem slot or aborts on svcCtx.Done() before delivering, so Close()/Shutdown() cannot leave in-flight goroutines past defaultShutdownTimeout; deliverToTargetBounded applies a per-attempt context.WithTimeout and always cancels it. The new StartReplay FilterArns plumbing (replayDeliveryPlan struct, matchedDeliveryGroupsForEntry) is a same-lock-discipline refactor of the existing buildDeliveryPlan/deliverEvents path, not a new goroutine or lock -- scheduleReplayWorker still acquires workerSem-or-aborts-on-ctx.Done() exactly as before. Scheduler (scheduler.go) and ArchiveJanitor (janitor.go) were not touched this sweep; existing leak_test.go/isolation_test.go continue to pass."}
 ---
 
 ## Notes
+
+### 2026-09-24 event bus Policy was a bare statement array, not an IAM document
+
+mega-batch-46 terraform fixture (aws_cloudwatch_event_bus_policy +
+aws_cloudwatch_event_permission) found: GetEventBusPolicy/DescribeEventBus's
+Policy string and PutEventBusPolicy/PutPermission's Policy input were a bare
+JSON array of statements. Real AWS's Policy is always an IAM-style document,
+`{"Version":"2012-10-17","Statement":[...]}` -- confirmed by the real
+provider's `permissionPolicyDoc` failing to unmarshal our array. Fixed via a
+new `eventBusPolicyDocument` wrapper used on both the read and write paths
+(event_buses.go); added TestGetEventBusPolicy_IsPolicyDocumentNotBareArray.
 
 ### 2026-09-19 schemas discoverer/resource-policy/ExportSchema implemented
 
