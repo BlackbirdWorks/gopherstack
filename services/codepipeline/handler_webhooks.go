@@ -20,8 +20,10 @@ type listWebhooksInput struct {
 }
 
 // webhookDefinitionView is the AWS-spec shape for a webhook definition inside ListWebhooks.
+//
+// AuthenticationConfiguration is always emitted; the aws provider dereferences it unchecked.
 type webhookDefinitionView struct {
-	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitzero"`
+	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration"`
 	Name                        string            `json:"name"`
 	TargetPipeline              string            `json:"targetPipeline"`
 	TargetAction                string            `json:"targetAction"`

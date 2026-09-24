@@ -602,3 +602,20 @@ accept/reject shape as CodeBuild/Lambda. Proven by
 `TestRunOneAction_CodeDeploy`, hand-reverted/confirmed-failing/restored.
 items_still_open: 14 -> 11 (4 wlab entries merged into 1; CodeDeploy's
 now-fixed text stays as 1 entry, updated in place). No snapshot version bump.
+
+## mega-batch-54 terraform coverage (2026-09-24)
+
+`webhookDefinitionView.AuthenticationConfiguration` had `omitempty` on its
+JSON tag, so a webhook with no `allowed_ip_range`/`secret_token` set (e.g.
+`authentication = "UNAUTHENTICATED"`) omitted the field from
+ListWebhooks/PutWebhook responses entirely. Real CodePipeline
+(codepipeline@v1.42.0 types.WebhookAuthConfiguration) always returns this
+struct, even empty -- terraform-provider-aws's
+`flattenWebhookAuthConfiguration` dereferences it without a nil check and
+segfaults the whole provider process when the JSON key is missing. Fixed:
+dropped `omitempty` from that one field.
+
+Gates: `go build ./...`, `go vet ./services/codepipeline/...`, `go test
+-race -count=1 ./services/codepipeline/...`, `golangci-lint run
+./services/codepipeline/...` -- all clean. No persisted-struct fields
+changed; no version bump.
