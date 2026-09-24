@@ -184,7 +184,10 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 	}
 	b.mu.Lock("CopyDBClusterSnapshot")
 	defer b.mu.Unlock()
-	source, srcExists := b.clusterSnapshots.Get(normalizeID(sourceSnapshotID))
+	// SourceDBClusterSnapshotIdentifier accepts either a bare identifier or a
+	// full ARN (real AWS docs: required when copying an encrypted snapshot);
+	// previously only a bare identifier resolved, so the ARN form always 404ed.
+	source, srcExists := b.clusterSnapshots.Get(normalizeID(rdsIDFromARN(sourceSnapshotID)))
 	if !srcExists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
 	}
@@ -209,6 +212,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		PercentProgress:             percentProgressComplete,
 		StorageEncrypted:            source.StorageEncrypted,
 		CopyTagsToSnapshot:          copyTags,
+		SourceDBClusterSnapshotArn:  source.DBClusterSnapshotArn,
 	}
 	b.clusterSnapshots.Put(snap)
 	if copyTags {
@@ -229,17 +233,28 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
 ) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBClusterSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, ok := b.clusterSnapshots.Get(normalizeID(snapshotID)); !ok {
+	snap, ok := b.clusterSnapshots.Get(normalizeID(snapshotID))
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterSnapshotNotFound, snapshotID)
 	}
-	if attrs, ok := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID)); ok {
-		cp := *attrs
+	if stored, storedOK := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID)); storedOK {
+		cp := *stored
 
 		return &cp, nil
 	}
+	// Real AWS always includes a "restore" entry (empty AttributeValues) for
+	// a manual snapshot even before any ModifyDBClusterSnapshotAttribute
+	// call; terraform-provider-aws's aws_rds_cluster_snapshot_copy Read
+	// panics with a nil pointer dereference when this list comes back
+	// empty. Automated snapshots cannot be shared and get no entry.
+	attrs := []DBSnapshotAttribute{}
+	if snap.SnapshotType == snapshotTypeManual {
+		attrs = []DBSnapshotAttribute{{AttributeName: "restore", AttributeValues: []string{}}}
+	}
+
 	result := &DBClusterSnapshotAttributesResult{
 		DBClusterSnapshotIdentifier: snapshotID,
-		DBClusterSnapshotAttributes: []DBSnapshotAttribute{},
+		DBClusterSnapshotAttributes: attrs,
 	}
 	cp := *result
 

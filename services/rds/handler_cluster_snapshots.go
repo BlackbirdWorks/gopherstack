@@ -97,6 +97,7 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 		SnapshotCreateTime:          snapshotCreateTime,
 		PercentProgress:             s.PercentProgress,
 		StorageEncrypted:            s.StorageEncrypted,
+		SourceDBClusterSnapshotArn:  s.SourceDBClusterSnapshotArn,
 	}
 }
 
@@ -110,6 +111,7 @@ type xmlDBClusterSnapshot struct {
 	Status                      string `xml:"Status"`
 	SnapshotType                string `xml:"SnapshotType,omitempty"`
 	SnapshotCreateTime          string `xml:"SnapshotCreateTime,omitempty"`
+	SourceDBClusterSnapshotArn  string `xml:"SourceDBClusterSnapshotArn,omitempty"`
 	PercentProgress             int    `xml:"PercentProgress,omitempty"`
 	StorageEncrypted            bool   `xml:"StorageEncrypted,omitempty"`
 }

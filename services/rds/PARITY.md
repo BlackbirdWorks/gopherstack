@@ -1799,3 +1799,33 @@ a test's lifetime, so tests leaked it. Close() now closes a `stopCh` and
 joins the reconciler goroutine via a WaitGroup. `~100 test call sites still
 construct backends without calling Close`, so a package-wide goleak
 TestMain is not yet safe to add — queued.
+
+## 2026-09-24: mega-batch-53 fixture fixes -- CopyDBClusterSnapshot ARN source + missing SourceDBClusterSnapshotArn crashed terraform-provider-aws (gopherstack-mb53)
+
+Two compounding gaps in `aws_rds_cluster_snapshot_copy`, found via a real
+provider crash (SIGSEGV, nil pointer dereference in
+`resourceClusterSnapshotCopy.Read`, `cluster_snapshot_copy.go:300`) that
+made every `tofu plan`/`apply`/`destroy` on the resource fail with
+"Plugin did not respond":
+
+1. `CopyDBClusterSnapshot` only resolved `SourceDBClusterSnapshotIdentifier`
+   as a bare identifier via `normalizeID`; real AWS documents ARN as a valid
+   (and, for encrypted snapshots, required) form. Now resolves through the
+   existing `rdsIDFromARN` helper first, matching the pattern already used by
+   `db_clusters.go`/`db_instances.go`/`automated_backups.go`.
+2. `DBClusterSnapshot` had no `SourceDBClusterSnapshotArn` field at all, so a
+   copy's wire response always omitted it -- real AWS never leaves it null on
+   a copy ("otherwise, a null value" per the SDK doc, i.e. only non-copies
+   omit it). Added the field, wired through `CopyDBClusterSnapshot` and the
+   `xmlDBClusterSnapshot` wire struct.
+3. Separately, `DescribeDBClusterSnapshotAttributes` returned a fully empty
+   `DBClusterSnapshotAttributes` list for a snapshot that had never had
+   `ModifyDBClusterSnapshotAttribute` called; real AWS always includes a
+   `restore` entry (empty `AttributeValues`) for a *manual* snapshot from
+   creation. The same provider Read call also calls this op, and it likewise
+   panicked on the empty list. Automated snapshots (which can't be shared)
+   still get no entry.
+
+Verified via `TestTerraform_MegaBatch53` (test/terraform/mega_batch53_test.go,
+run manually against a local server with `TF_LOG=TRACE`): the panic
+disappeared, apply/destroy round-trips cleanly.

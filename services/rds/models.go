@@ -338,14 +338,15 @@ type DBCluster struct {
 // DBClusterSnapshot represents an RDS cluster snapshot.
 type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
-	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
+	EngineVersion               string    `json:"engineVersion,omitempty"`
 	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
 	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`
-	EngineVersion               string    `json:"engineVersion,omitempty"`
+	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	Status                      string    `json:"status"`
 	SnapshotType                string    `json:"snapshotType,omitempty"`
+	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot          bool      `json:"copyTagsToSnapshot,omitempty"`
