@@ -22,8 +22,10 @@ func (h *Handler) buildDirectoriesOps() map[string]service.JSONOpFunc {
 // --- DescribeWorkspaceDirectories ---
 
 type describeDirectoriesInput struct {
-	NextToken    string   `json:"NextToken"`
-	DirectoryIDs []string `json:"DirectoryIds"`
+	NextToken               string   `json:"NextToken"`
+	DirectoryIDs            []string `json:"DirectoryIds"`
+	WorkspaceDirectoryNames []string `json:"WorkspaceDirectoryNames"`
+	Limit                   int32    `json:"Limit"`
 }
 
 type describeDirectoriesOutput struct {
@@ -43,9 +45,12 @@ type dirResp struct {
 	Alias                          string                  `json:"Alias,omitempty"`
 	State                          string                  `json:"State"`
 	EndpointEncryptionMode         string                  `json:"EndpointEncryptionMode,omitempty"`
+	CustomerUserName               string                  `json:"CustomerUserName,omitempty"`
 	//nolint:revive // AWS API uses SubnetIds capitalization
-	SubnetIds  []string `json:"SubnetIds,omitempty"`
-	IPGroupIDs []string `json:"ipGroupIds,omitempty"`
+	SubnetIds []string `json:"SubnetIds,omitempty"`
+	//nolint:revive,staticcheck // matches wire key
+	DnsIpAddresses []string `json:"DnsIpAddresses,omitempty"`
+	IPGroupIDs     []string `json:"ipGroupIds,omitempty"`
 }
 
 // certBasedAuthPropsResp mirrors types.CertificateBasedAuthProperties.
@@ -165,6 +170,8 @@ func (h *Handler) handleDescribeWorkspaceDirectories(
 	dirs, nextToken, err := h.Backend.DescribeWorkspaceDirectories(
 		ctx,
 		req.DirectoryIDs,
+		req.WorkspaceDirectoryNames,
+		req.Limit,
 		req.NextToken,
 	)
 	if err != nil {
@@ -178,8 +185,10 @@ func (h *Handler) handleDescribeWorkspaceDirectories(
 			DirectoryName:                  d.DirectoryName,
 			DirectoryType:                  d.DirectoryType,
 			Alias:                          d.Alias,
+			CustomerUserName:               d.CustomerUserName,
 			State:                          d.State,
 			SubnetIds:                      d.SubnetIDs,
+			DnsIpAddresses:                 d.DNSIPAddresses,
 			IPGroupIDs:                     d.IPGroupIDs,
 			EndpointEncryptionMode:         d.EndpointEncryptionMode,
 			CertificateBasedAuthProperties: toCertBasedAuthPropsResp(d.CertificateBasedAuthProperties),
@@ -194,10 +203,11 @@ func (h *Handler) handleDescribeWorkspaceDirectories(
 }
 
 type registerWorkspaceDirectoryInput struct {
-	DirectoryId       string    `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
-	SubnetIds         []string  `json:"SubnetIds"`   //nolint:revive // existing issue.
-	Tags              []tagItem `json:"Tags"`
-	EnableSelfService bool      `json:"EnableSelfService"`
+	DirectoryId            string    `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	SubnetIds              []string  `json:"SubnetIds"`   //nolint:revive // existing issue.
+	WorkspaceDirectoryName string    `json:"WorkspaceDirectoryName"`
+	Tags                   []tagItem `json:"Tags"`
+	EnableSelfService      bool      `json:"EnableSelfService"`
 }
 
 type registerWorkspaceDirectoryOutput struct {
@@ -208,7 +218,10 @@ type registerWorkspaceDirectoryOutput struct {
 func (h *Handler) handleRegisterWorkspaceDirectory(
 	_ context.Context, req *registerWorkspaceDirectoryInput,
 ) (*registerWorkspaceDirectoryOutput, error) {
-	if err := h.Backend.RegisterWorkspaceDirectory(req.DirectoryId, req.SubnetIds, tagsToMap(req.Tags)); err != nil {
+	err := h.Backend.RegisterWorkspaceDirectory(
+		req.DirectoryId, req.SubnetIds, tagsToMap(req.Tags), req.WorkspaceDirectoryName,
+	)
+	if err != nil {
 		return nil, err
 	}
 

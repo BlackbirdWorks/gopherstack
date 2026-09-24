@@ -50,7 +50,7 @@ func TestInMemoryBackend_ModifyCertificateBasedAuthProperties_PropertiesToDelete
 	const wantARN = "arn:aws:acm-pca:us-east-1:111122223333:certificate-authority/abc"
 
 	b := NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", nil, nil))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", nil, nil, ""))
 
 	require.NoError(t, b.ModifyCertificateBasedAuthProperties(
 		"d-1234567890",
@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted(t *testing.T
 	b := NewInMemoryBackend("000000000000", "us-east-1")
 	ctx := t.Context()
 
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", []string{"subnet-1"}, nil))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", []string{"subnet-1"}, nil, ""))
 
 	_, err := b.CreateIpGroup("grp1", "desc", nil, nil)
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted(t *testing.T
 	fresh := NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, fresh.Restore(ctx, snap))
 
-	dirs, _, err := fresh.DescribeWorkspaceDirectories(ctx, nil, "")
+	dirs, _, err := fresh.DescribeWorkspaceDirectories(ctx, nil, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, dirs, 1)
 

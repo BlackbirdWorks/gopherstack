@@ -278,6 +278,7 @@ type CLI struct {
 	mgnHandler                    service.Registerable
 	networkmanagerHandler         service.Registerable
 	lightsailHandler              service.Registerable
+	directoryServiceHandler       service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1550,6 +1551,11 @@ func (c *CLI) GetNetworkManagerHandler() service.Registerable { return c.network
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetLightsailHandler() service.Registerable { return c.lightsailHandler }
+
+// GetDirectoryServiceHandler returns the Directory Service handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDirectoryServiceHandler() service.Registerable { return c.directoryServiceHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -2833,6 +2839,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mgnHandler = byName["MGN"]
 	cli.networkmanagerHandler = byName["NetworkManager"]
 	cli.lightsailHandler = byName["Lightsail"]
+	cli.directoryServiceHandler = byName["DirectoryService"]
 }
 
 // initializeServices initializes all service providers, wires the
