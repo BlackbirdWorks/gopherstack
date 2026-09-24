@@ -315,7 +315,8 @@ func TestTopoSortResources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := cloudformation.TopoSortResources(tt.resources)
+			result, err := cloudformation.TopoSortResources(tt.resources)
+			require.NoError(t, err)
 
 			assert.Len(t, result, len(tt.resources))
 

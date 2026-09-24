@@ -34,8 +34,13 @@ func (r *MacroRegistry) RegisterForTest(name, functionARN, description string) {
 }
 
 // TopoSortResources exposes topoSortResources for white-box testing.
-func TopoSortResources(resources map[string]TemplateResource) []string {
+func TopoSortResources(resources map[string]TemplateResource) ([]string, error) {
 	return topoSortResources(resources)
+}
+
+// ReverseDependencyOrderForTest exposes reverseDependencyOrder for white-box testing.
+func ReverseDependencyOrderForTest(ids []string, templateBody string) []string {
+	return reverseDependencyOrder(ids, templateBody)
 }
 
 // AddStackEventInternal appends a fully-formed StackEvent directly into

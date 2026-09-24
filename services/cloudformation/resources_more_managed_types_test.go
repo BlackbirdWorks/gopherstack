@@ -137,7 +137,6 @@ func TestCreateStack_EC2VPCEndpoint(t *testing.T) {
   "VPC": {"Type": "AWS::EC2::VPC", "Properties": {"CidrBlock": "10.0.0.0/16"}},
   "Endpoint": {
     "Type": "AWS::EC2::VPCEndpoint",
-    "DependsOn": "VPC",
     "Properties": {
       "VpcId": {"Ref": "VPC"},
       "ServiceName": "com.amazonaws.us-east-1.s3",

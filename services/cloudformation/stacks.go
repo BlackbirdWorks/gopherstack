@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // isFailedCreateStatus reports whether status is one of the terminal
@@ -115,7 +114,13 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 
 	var failedLogicalIDs []string
 
-	for logicalID, res := range b.resources[stack.StackID] {
+	liveIDs := make([]string, 0, len(b.resources[stack.StackID]))
+	for logicalID := range b.resources[stack.StackID] {
+		liveIDs = append(liveIDs, logicalID)
+	}
+
+	for _, logicalID := range reverseDependencyOrder(liveIDs, stack.TemplateBody) {
+		res := b.resources[stack.StackID][logicalID]
 		b.addEvent(
 			stack.StackID,
 			stack.StackName,
@@ -522,7 +527,12 @@ func (b *InMemoryBackend) provisionResources(
 	// signature.
 	ctx = parentStackIDKey.Set(ctx, stack.StackID)
 
-	ordered := topoSortResources(tmpl.Resources)
+	ordered, ordErr := topoSortResources(tmpl.Resources)
+	if ordErr != nil {
+		b.failAndRollback(stack, ordErr.Error())
+
+		return physicalIDs
+	}
 
 	created := make([]string, 0, len(ordered))
 
@@ -645,77 +655,6 @@ func (b *InMemoryBackend) rollbackCreateResources(
 	return ok
 }
 
-// topoSortResources returns the logical resource IDs in an order that respects
-// DependsOn declarations. Resources with no dependencies come first; within the
-// same dependency level they are ordered alphabetically for determinism.
-// If a cycle is detected the function falls back to plain alphabetical order.
-func topoSortResources(resources map[string]TemplateResource) []string {
-	// Collect all known IDs in alphabetical order for determinism.
-	all := collections.SortedKeys(resources)
-
-	// Build forward-dependency map (id → ids it depends on) and
-	// reverse-dependency map (id → ids that depend on it) simultaneously.
-	deps := make(map[string][]string, len(resources))
-	revDeps := make(map[string][]string, len(resources))
-
-	for _, id := range all {
-		res := resources[id]
-		if len(res.DependsOn) > 0 {
-			deps[id] = res.DependsOn
-			for _, dep := range res.DependsOn {
-				revDeps[dep] = append(revDeps[dep], id)
-			}
-		}
-	}
-
-	// Kahn's algorithm for topological sort.
-	// inDegree counts how many declared dependencies are still unprocessed.
-	inDegree := make(map[string]int, len(all))
-	for _, id := range all {
-		inDegree[id] = len(deps[id])
-	}
-
-	// Process nodes with zero in-degree first (alphabetical order for determinism).
-	queue := make([]string, 0, len(all))
-	for _, id := range all {
-		if inDegree[id] == 0 {
-			queue = append(queue, id)
-		}
-	}
-
-	result := make([]string, 0, len(all))
-
-	for len(queue) > 0 {
-		// Pop first element (queue is kept sorted).
-		cur := queue[0]
-		queue = queue[1:]
-		result = append(result, cur)
-
-		// Use the reverse-dependency map for O(1) lookup of dependents.
-		for _, dependent := range revDeps[cur] {
-			inDegree[dependent]--
-			if inDegree[dependent] == 0 {
-				insertSorted(&queue, dependent)
-			}
-		}
-	}
-
-	// Cycle detected: fall back to alphabetical order (best-effort).
-	if len(result) < len(all) {
-		return all
-	}
-
-	return result
-}
-
-// insertSorted inserts s into the sorted slice ss, maintaining ascending order.
-func insertSorted(ss *[]string, s string) {
-	i := sort.SearchStrings(*ss, s)
-	*ss = append(*ss, "")
-	copy((*ss)[i+1:], (*ss)[i:])
-	(*ss)[i] = s
-}
-
 // UpdateStack updates an existing stack.
 func (b *InMemoryBackend) UpdateStack(
 	ctx context.Context,
@@ -743,6 +682,11 @@ func (b *InMemoryBackend) UpdateStack(
 	if err := b.checkStackPolicy(stack, templateBody, opts); err != nil {
 		return nil, err
 	}
+
+	// Captured before stack.TemplateBody is overwritten below: deleteStaleResources
+	// needs the OLD template's own dependency graph to delete resources dropped
+	// from the new one in reverse dependency order.
+	oldTemplateBody := stack.TemplateBody
 
 	now := time.Now()
 	stack.LastUpdatedTime = &now
@@ -772,7 +716,7 @@ func (b *InMemoryBackend) UpdateStack(
 		cfnStackType, statusUpdateInProgress, reasonUserInitiated,
 	)
 
-	if !b.applyTemplateToStack(ctx, stack, opts.DisableValidation, opts.ResourceTypes) {
+	if !b.applyTemplateToStack(ctx, stack, opts.DisableValidation, opts.ResourceTypes, oldTemplateBody) {
 		return stack, nil
 	}
 
@@ -860,7 +804,7 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 }
 
 func (b *InMemoryBackend) applyTemplateToStack(
-	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string,
+	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string, oldTemplateBody string,
 ) bool {
 	if stack.TemplateBody == "" {
 		return true
@@ -886,7 +830,7 @@ func (b *InMemoryBackend) applyTemplateToStack(
 		return false
 	}
 
-	if !b.updateResources(ctx, stack, tmpl, resolvedParams, physicalIDs) {
+	if !b.updateResources(ctx, stack, tmpl, resolvedParams, physicalIDs, oldTemplateBody) {
 		return false
 	}
 
@@ -938,6 +882,7 @@ func (b *InMemoryBackend) updateResources(
 	tmpl *Template,
 	resolvedParams map[string]string,
 	physicalIDs map[string]string,
+	oldTemplateBody string,
 ) bool {
 	// Snapshot pre-update state for rollback.
 	prevResources := make(map[string]*StackResource, len(b.resources[stack.StackID]))
@@ -946,9 +891,17 @@ func (b *InMemoryBackend) updateResources(
 		prevResources[k] = &cp
 	}
 
+	ordered, ordErr := topoSortResources(tmpl.Resources)
+	if ordErr != nil {
+		b.updateFailAndRollback(stack, ordErr.Error())
+
+		return false
+	}
+
 	var created []string
 
-	for logicalID, res := range tmpl.Resources {
+	for _, logicalID := range ordered {
+		res := tmpl.Resources[logicalID]
 		existing, exists := b.resources[stack.StackID][logicalID]
 		if !exists {
 			physicalID, cerr := b.createUpdateResource(
@@ -984,7 +937,7 @@ func (b *InMemoryBackend) updateResources(
 		}
 	}
 
-	if !b.deleteStaleResources(ctx, stack, tmpl) {
+	if !b.deleteStaleResources(ctx, stack, tmpl, oldTemplateBody) {
 		reason := "failed to delete one or more resources removed from the template"
 		stack.StackStatus = statusUpdateFailed
 		stack.StackStatusReason = reason
@@ -1113,7 +1066,9 @@ func (b *InMemoryBackend) updateExistingResource(
 // from the new template. It reports whether every stale resource was
 // actually deleted; a resource that fails to delete is left registered
 // rather than dropped, so it stays visible via DescribeStackResources.
-func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack, tmpl *Template) bool {
+func (b *InMemoryBackend) deleteStaleResources(
+	ctx context.Context, stack *Stack, tmpl *Template, oldTemplateBody string,
+) bool {
 	var stale []string
 	for logicalID := range b.resources[stack.StackID] {
 		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
@@ -1121,7 +1076,7 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 		}
 	}
 
-	sort.Strings(stale)
+	stale = reverseDependencyOrder(stale, oldTemplateBody)
 
 	ok := true
 
