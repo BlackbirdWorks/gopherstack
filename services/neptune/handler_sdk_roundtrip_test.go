@@ -204,6 +204,40 @@ func Test_SDKRoundTrip_DescribeDBClusterEndpoints_ListsEndpoints(t *testing.T) {
 	assert.Equal(t, "rt-endpoint", aws.ToString(out.DBClusterEndpoints[0].DBClusterEndpointIdentifier))
 }
 
+// Test_SDKRoundTrip_DescribeDBClusterEndpoints_UnmatchedIDReturnsEmpty proves
+// a DBClusterEndpointIdentifier that matches nothing returns an empty list
+// with no error -- not DBClusterEndpointNotFoundFault. That fault is a real
+// error code, but DescribeDBClusterEndpoints does not declare it as one of
+// its possible errors (neptune@v1.48.4 deserializers.go,
+// awsAwsquery_deserializeOpErrorDescribeDBClusterEndpoints only special-cases
+// DBClusterNotFoundFault), so a real client can never type-assert it via
+// errors.As for this op; it decodes as a generic, un-typed error instead.
+// terraform-provider-aws's delete waiter relies on errors.As matching to
+// recognize "already gone" -- returning the fault here made every
+// aws_neptune_cluster_endpoint destroy hang until the provider's own
+// multi-minute default delete timeout.
+func Test_SDKRoundTrip_DescribeDBClusterEndpoints_UnmatchedIDReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-ep-cluster2"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBClusterEndpoints(ctx, &neptunesdk.DescribeDBClusterEndpointsInput{
+		DBClusterIdentifier:         aws.String("rt-ep-cluster2"),
+		DBClusterEndpointIdentifier: aws.String("never-existed"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.DBClusterEndpoints)
+}
+
 // Test_SDKRoundTrip_EventSubscription_SourceIDs proves the real SDK client
 // sees an event subscription's SourceIds. The handler wrapped each entry in
 // <member>, but the real deserializer (neptune@v1.48.4
