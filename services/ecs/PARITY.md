@@ -1,8 +1,8 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.96.0
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: b4c2391e7                      # 2026-09-18 ledger burn-down sweep
-last_audit_date: 2026-09-19  # prior: 2026-09-18
+last_audit_commit: d1ed0e39b  # 2026-09-20 mega-batch-37 coverage (account settings, EXTERNAL service, task sets); prior: d522d763f
+last_audit_date: 2026-09-20  # prior: 2026-09-19
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
@@ -83,6 +83,7 @@ items_still_open:
   - "ListContainerInstancesInput.status docs a default INACTIVE exclusion when unset, but types.ContainerInstanceStatus's own enum has no INACTIVE value and DeregisterContainerInstance deletes the row entirely rather than retaining it as INACTIVE -- no container instance in this backend's store can ever carry that status, so the documented default has zero observable effect here. Recorded, not implemented: no reachable state exists to test it against."
   - "Container exit -> STOPPED (gopherstack-s1u9) is implemented (ContainerWait-driven watchContainerExit, markTaskStoppedByContainerExit). One approximation remains open: the essential-container distinction (ContainerDefinition.Essential) is not modeled, so the FIRST container in a multi-container task to exit drives the whole task to STOPPED without force-stopping siblings -- exact for the common single-container Step Functions .sync batch-job shape, wrong for genuine multi-container teardown."
   - "awslogs LogConfiguration (gopherstack-sv5q, gopherstack-jnct) streams real CloudWatch Logs via ContainerLogs. One approximation remains open: with no awslogs-stream-prefix set, real ECS names the stream after the Docker-assigned container ID (unavailable before the container exists); this backend substitutes the task ID instead -- an own-choice approximation, not SDK-pinned."
+  - "DeleteService hard-deletes the service record immediately; real AWS transitions it to DRAINING then INACTIVE and keeps it DescribeServices-visible for a time before it disappears. terraform-provider-aws's delete waiter for an EXTERNAL-controller service (task sets, no steady-state to converge on) polls expecting to keep finding the service and errors 'couldn't find resource' when it vanishes immediately instead -- observed via TestTerraform_MegaBatch37's destroy step (non-fatal to the harness, tofu destroy's own exit code isn't asserted). Real staged deletion needs a lifecycle timer this backend doesn't have for services; not fixed this pass (mega-batch-37, 2026-09-20)."
 deferred:
   - "Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) -- the richer blue/green fields remain unmodeled (same underlying reason ContinueServiceDeployment is deferred: blue/green lifecycle is not modeled at all in this backend)."
 leaks: {status: clean, note: "Prior 'found' status was stale documentation -- that leak (DeleteService's ServiceDeployment-map entry) was already fixed in the same prior sweep that wrote the note; the status field just never got flipped back to clean. Re-verified clean this sweep. Two NEW leaks found and fixed this sweep: (1) DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows, and purgeDaemonsLocked deleted from daemonRevisions by the wrong key so it silently matched nothing -- both fixed via deleteDaemonAncillaryLocked. (2) resourceTags side-map ghost rows were never cleaned up on delete for clusters/services/container-instances/task-sets/task-definitions/express-gateway-services -- fixed via deleteResourceTagsLocked. See Notes for full writeup and proof tests. Reconciler, janitor, lifecycle stepper, and docker_runner (re-audited this sweep) remain clean."}
@@ -1120,3 +1121,59 @@ not touched), `go vet`, `go test -race -count=1`, `golangci-lint run
 `TestSnapshotVersionGuard` fails only on `opsworks` (same concurrent
 sibling-agent edit, confirmed unrelated). No persisted struct fields
 changed in `services/ecs`; no version bump.
+
+## 2026-09-20: mega-batch-37 coverage (account_setting_default, capacity_provider, cluster_capacity_providers, tag, task_set)
+
+Driving these five resources through real Terraform surfaced four genuine
+bugs, all caught by the real `hashicorp/aws` provider crashing or 404ing
+where a hand-written unit test never would:
+
+1. **`ListAccountSettings(effectiveSettings=true, principalArn="")` echoed
+   an empty `PrincipalArn`.** `aws_ecs_account_setting_default`'s Read calls
+   this exact shape and, per `terraform-provider-aws`'s
+   `account_setting_default.go`, sets `d.SetId(aws.ToString(setting.PrincipalArn))`
+   -- an empty string zeroes the resource ID, which Terraform reads as "this
+   resource is gone" ("Provider produced inconsistent result after apply:
+   root object was present, but now absent") even though the PUT succeeded
+   and diagnostics were clean. Real AWS resolves the unspecified principal to
+   the account's root user for `EffectiveSettings`. Fixed via
+   `accountRootArn()` (`arn.Build("iam", "", accountID, "root")`).
+2. **`CreateService` required `taskDefinition` even for an `EXTERNAL`
+   deployment controller.** Real `CreateServiceInput.TaskDefinition` doc:
+   required only for the `ECS`/`CODE_DEPLOY` controllers -- `EXTERNAL`
+   services carry no task definition of their own (task sets do). Fixed:
+   `isExternal` bypasses the requirement; `Service.TaskDefinition` is left
+   empty for such services, and the JSON tag is now `omitempty` (an
+   emitted `""` isn't just wrong content -- `terraform-provider-aws`'s
+   service flatten unconditionally indexes `strings.Split(arn, "/")[1]`
+   on it, so a non-nil empty string panics and crashes the whole
+   provider process, taking every other in-flight resource down with
+   "Plugin did not respond").
+3. **Task set lookups only accepted the full `TaskSetArn`, never the
+   short `Id`.** The store is keyed by ARN (`taskSetsKeyFn`), but
+   `CreateTaskSetOutput.TaskSet.Id` is the short form
+   (`ecs-svc-XXXXXXXX`), and `terraform-provider-aws`'s task_set.go
+   stores and always re-sends that short id to
+   Describe/Update/Delete/PrimaryTaskSet -- never the ARN. Every such
+   call 404'd. Fixed via `findTaskSetRefLocked` (ARN-keyed lookup,
+   short-id fallback scan), used by `DescribeTaskSets`, `DeleteTaskSet`,
+   `UpdateTaskSet`, `UpdateServicePrimaryTaskSet`.
+4. The reconciler's scale-up loop had no `EXTERNAL`-controller guard and
+   called `StartTaskForService` with an empty task definition every tick,
+   logging `InvalidParameterException: taskDefinition is required` forever
+   for such a service. Fixed: `reconcileService` now returns early for
+   `EXTERNAL` services (task sets own their task placement, not the
+   reconciler).
+
+Proven end-to-end by `TestTerraform_MegaBatch37` (real
+`aws_ecs_account_setting_default`/`capacity_provider`/
+`cluster_capacity_providers`/`tag`/`task_set`/`service` apply) plus new
+unit test `TestTaskSet_DescribeUpdateDeleteByShortID`. One known gap
+recorded, not fixed: `DeleteService`'s hard-delete vs. real AWS's staged
+DRAINING/INACTIVE lifecycle trips the provider's delete *waiter* on
+destroy (see `items_still_open`) -- disclosed, not a create/read/update
+correctness issue.
+
+Gates: `gofmt -l`, `go build ./services/ecs/...`, `go vet`,
+`go test -race -count=1 ./services/ecs/...` all clean. No persisted
+struct fields changed; no snapshot version bump.

@@ -136,21 +136,44 @@ func createServiceDefaults(input CreateServiceInput) (string, string, string, st
 	return launchType, schedulingStrategy, propagateTags, azRebalancing
 }
 
+// resolveServiceTaskDefinitionArnLocked resolves taskDefinition to its ARN,
+// or returns "" when taskDefinition is empty (an EXTERNAL-controller
+// service, already validated as allowed to omit it -- see CreateService's
+// isExternal check). Must be called with the backend lock held.
+func (b *InMemoryBackend) resolveServiceTaskDefinitionArnLocked(taskDefinition string) (string, error) {
+	if taskDefinition == "" {
+		return "", nil
+	}
+
+	td, err := b.findTaskDefinitionLocked(taskDefinition)
+	if err != nil {
+		return "", err
+	}
+
+	return td.TaskDefinitionArn, nil
+}
+
 // CreateService creates a new ECS service.
 func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, error) {
 	if input.ServiceName == "" {
 		return nil, fmt.Errorf("%w: serviceName is required", ErrInvalidParameter)
 	}
 
-	if input.TaskDefinition == "" {
+	if err := validateDeploymentController(input.DeploymentController); err != nil {
+		return nil, err
+	}
+
+	// CreateServiceInput.TaskDefinition doc comment (ecs@v1.96.0
+	// api_op_CreateService.go): "A task definition must be specified if the
+	// service uses either the ECS or CODE_DEPLOY deployment controllers" --
+	// EXTERNAL services manage their task definition per task set instead.
+	isExternal := input.DeploymentController != nil &&
+		strings.EqualFold(input.DeploymentController.Type, deploymentControllerExternal)
+	if input.TaskDefinition == "" && !isExternal {
 		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
-
-	if err := validateDeploymentController(input.DeploymentController); err != nil {
-		return nil, err
-	}
 
 	b.mu.Lock("CreateService")
 	defer b.mu.Unlock()
@@ -165,7 +188,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, err
 	}
 
-	td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
+	taskDefinitionArn, err := b.resolveServiceTaskDefinitionArnLocked(input.TaskDefinition)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +211,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 			b.accountID,
 			fmt.Sprintf("cluster/%s", clusterName),
 		),
-		TaskDefinition:                td.TaskDefinitionArn,
+		TaskDefinition:                taskDefinitionArn,
 		Status:                        statusActive,
 		LaunchType:                    launchType,
 		SchedulingStrategy:            schedulingStrategy,

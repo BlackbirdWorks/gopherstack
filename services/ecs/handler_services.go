@@ -453,26 +453,33 @@ type serviceView struct {
 	NetworkConfiguration          *networkConfigurationView        `json:"networkConfiguration,omitempty"`
 	HealthCheckGracePeriodSeconds *int                             `json:"healthCheckGracePeriodSeconds,omitempty"`
 	ClusterArn                    string                           `json:"clusterArn"`
-	TaskDefinition                string                           `json:"taskDefinition"`
-	Status                        string                           `json:"status"`
-	LaunchType                    string                           `json:"launchType,omitempty"`
-	SchedulingStrategy            string                           `json:"schedulingStrategy,omitempty"`
-	PropagateTags                 string                           `json:"propagateTags,omitempty"`
-	AvailabilityZoneRebalancing   string                           `json:"availabilityZoneRebalancing,omitempty"`
-	ServiceArn                    string                           `json:"serviceArn"`
-	ServiceName                   string                           `json:"serviceName"`
-	LoadBalancers                 []loadBalancerView               `json:"loadBalancers"`
-	ServiceRegistries             []serviceRegistryView            `json:"serviceRegistries"`
-	CapacityProviderStrategy      []cpStrategyItemInput            `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints          []placementConstraintView        `json:"placementConstraints,omitempty"`
-	PlacementStrategy             []placementStrategyView          `json:"placementStrategy,omitempty"`
-	Deployments                   []deploymentView                 `json:"deployments,omitempty"`
-	Tags                          []Tag                            `json:"tags,omitempty"`
-	CreatedAt                     float64                          `json:"createdAt"`
-	DesiredCount                  int                              `json:"desiredCount"`
-	PendingCount                  int                              `json:"pendingCount"`
-	RunningCount                  int                              `json:"runningCount"`
-	EnableExecuteCommand          bool                             `json:"enableExecuteCommand,omitempty"`
+	// omitempty: an EXTERNAL-controller service has no task definition of its
+	// own (task sets carry theirs) and real AWS omits the field entirely
+	// rather than sending "". terraform-provider-aws's flatten
+	// (internal/service/ecs/service.go) treats any non-nil TaskDefinition
+	// as present and indexes strings.Split(arn, "/")[1] unconditionally,
+	// which panics (crashing the whole provider process, "Plugin did not
+	// respond") on an empty string instead of a real ARN.
+	TaskDefinition              string                    `json:"taskDefinition,omitempty"`
+	Status                      string                    `json:"status"`
+	LaunchType                  string                    `json:"launchType,omitempty"`
+	SchedulingStrategy          string                    `json:"schedulingStrategy,omitempty"`
+	PropagateTags               string                    `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing string                    `json:"availabilityZoneRebalancing,omitempty"`
+	ServiceArn                  string                    `json:"serviceArn"`
+	ServiceName                 string                    `json:"serviceName"`
+	LoadBalancers               []loadBalancerView        `json:"loadBalancers"`
+	ServiceRegistries           []serviceRegistryView     `json:"serviceRegistries"`
+	CapacityProviderStrategy    []cpStrategyItemInput     `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints        []placementConstraintView `json:"placementConstraints,omitempty"`
+	PlacementStrategy           []placementStrategyView   `json:"placementStrategy,omitempty"`
+	Deployments                 []deploymentView          `json:"deployments,omitempty"`
+	Tags                        []Tag                     `json:"tags,omitempty"`
+	CreatedAt                   float64                   `json:"createdAt"`
+	DesiredCount                int                       `json:"desiredCount"`
+	PendingCount                int                       `json:"pendingCount"`
+	RunningCount                int                       `json:"runningCount"`
+	EnableExecuteCommand        bool                      `json:"enableExecuteCommand,omitempty"`
 }
 
 func toServiceView(s Service) serviceView {

@@ -98,6 +98,73 @@ func TestTaskSet_ExternalController_CreateDescribeDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, deleteResp.Code)
 }
 
+// TestTaskSet_DescribeUpdateDeleteByShortID guards against a real bug: the
+// task set store is keyed by its full TaskSetArn, but CreateTaskSetOutput's
+// TaskSet.Id carries only the short form ("ecs-svc-XXXXXXXX"), and a real SDK
+// client (e.g. terraform-provider-aws's task_set.go) stores and re-sends that
+// short Id -- never the ARN -- to Describe/Update/DeleteTaskSet's TaskSet
+// parameter. Looking it up only by the ARN-keyed store previously 404'd
+// every such call.
+func TestTaskSet_DescribeUpdateDeleteByShortID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ts-shortid-cluster"})
+	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               "ts-shortid-task",
+		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
+	})
+	doECSRequest(t, h, "CreateService", map[string]any{
+		"cluster":              "ts-shortid-cluster",
+		"serviceName":          "ts-shortid-svc",
+		"desiredCount":         0,
+		"deploymentController": map[string]any{"type": "EXTERNAL"},
+	})
+
+	createResp := doECSRequest(t, h, "CreateTaskSet", map[string]any{
+		"cluster":        "ts-shortid-cluster",
+		"service":        "ts-shortid-svc",
+		"taskDefinition": "ts-shortid-task",
+		"scale":          map[string]any{"unit": "PERCENT", "value": 100},
+	})
+	require.Equal(t, http.StatusOK, createResp.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	taskSet := createOut["taskSet"].(map[string]any)
+	shortID := taskSet["id"].(string)
+	require.NotEmpty(t, shortID)
+	require.NotContains(t, shortID, "arn:", "test fixture should be exercising the short id, not the ARN")
+
+	describeResp := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
+		"cluster":  "ts-shortid-cluster",
+		"service":  "ts-shortid-svc",
+		"taskSets": []string{shortID},
+	})
+	require.Equal(t, http.StatusOK, describeResp.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &descOut))
+	require.Len(t, descOut["taskSets"].([]any), 1)
+	require.Empty(t, descOut["failures"])
+
+	updateResp := doECSRequest(t, h, "UpdateTaskSet", map[string]any{
+		"cluster": "ts-shortid-cluster",
+		"service": "ts-shortid-svc",
+		"taskSet": shortID,
+		"scale":   map[string]any{"unit": "PERCENT", "value": 50},
+	})
+	require.Equal(t, http.StatusOK, updateResp.Code)
+
+	deleteResp := doECSRequest(t, h, "DeleteTaskSet", map[string]any{
+		"cluster": "ts-shortid-cluster",
+		"service": "ts-shortid-svc",
+		"taskSet": shortID,
+	})
+	require.Equal(t, http.StatusOK, deleteResp.Code)
+}
+
 func TestTaskSet_UpdateScale(t *testing.T) {
 	t.Parallel()
 

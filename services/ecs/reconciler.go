@@ -3,6 +3,7 @@ package ecs
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -131,6 +132,16 @@ func (r *Reconciler) reconcileService(
 	svc := snap.service
 
 	if svc.Status != statusActive {
+		return nil
+	}
+
+	// EXTERNAL services have no task definition of their own (see
+	// CreateService's TaskDefinition doc comment: required only for the ECS
+	// or CODE_DEPLOY deployment controllers) -- their running tasks are
+	// provisioned entirely through CreateTaskSet/task sets, never by this
+	// reconciler launching svc.TaskDefinition directly.
+	if svc.DeploymentController != nil &&
+		strings.EqualFold(svc.DeploymentController.Type, deploymentControllerExternal) {
 		return nil
 	}
 
