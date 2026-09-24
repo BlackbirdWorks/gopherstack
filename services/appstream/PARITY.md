@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
-last_audit_commit: d4dc4a723
-last_audit_date: 2026-09-18
+last_audit_commit: 5c20d9fd7
+last_audit_date: 2026-09-24
 overall: A            # 2026-08-23: closed the one remaining named-and-flagged gap this file
                        # carried (UpdateThemeForStack request-side accept-and-drop -- see
                        # UpdateThemeForStack/Theme ops rows and the dated Notes section at the
@@ -177,6 +177,12 @@ assumption as the bug. Rewrote it to send all required fields plus a
 `Restore`, not just the initial create.
 
 ## Notes
+
+**2026-09-24** (mega-batch-48): FIXED -- CreateImageBuilder started new
+builders in STOPPED; real AWS launches the build instance immediately
+(Pending->Running), and terraform-provider-aws's create waiter only accepts
+Running, never Stopped. Now starts RUNNING. Coverage added for
+directory_config/fleet(+stack association)/image_builder/user/user_stack_association.
 
 Protocol: **dual**, same as CloudWatch's dual XML/CBOR handling (see
 `services/cloudwatch/PARITY.md`'s "Protocol" note for the sibling case). Two wire protocols

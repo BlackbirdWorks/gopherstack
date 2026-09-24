@@ -189,6 +189,11 @@ func TestImageBuilder_ExtendedFields_RealClient(t *testing.T) {
 	assert.Nil(t, created.ImageBuilder.AppstreamAgentVersion,
 		"not set on Create; must stay unset until StartImageBuilder sets it")
 
+	// Already RUNNING immediately after create -- stop it first so there is
+	// something for Start to legitimately act on.
+	_, err = client.StopImageBuilder(ctx, &appstreamsdk.StopImageBuilderInput{Name: aws.String("ext-builder")})
+	require.NoError(t, err)
+
 	_, err = client.StartImageBuilder(ctx, &appstreamsdk.StartImageBuilderInput{
 		Name:                  aws.String("ext-builder"),
 		AppstreamAgentVersion: aws.String("1.2.3"),
