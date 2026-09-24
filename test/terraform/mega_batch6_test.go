@@ -8,8 +8,10 @@ import (
 	cloudfrontsvc2 "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cfkvssvc "github.com/aws/aws-sdk-go-v2/service/cloudfrontkeyvaluestore"
 	grafanasvc "github.com/aws/aws-sdk-go-v2/service/grafana"
+	grafanatypes "github.com/aws/aws-sdk-go-v2/service/grafana/types"
 	inspector2svc "github.com/aws/aws-sdk-go-v2/service/inspector2"
 	networkmanagersvc "github.com/aws/aws-sdk-go-v2/service/networkmanager"
+	nmtypes "github.com/aws/aws-sdk-go-v2/service/networkmanager/types"
 	resiliencehubsvc "github.com/aws/aws-sdk-go-v2/service/resiliencehub"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,8 +41,9 @@ func TestTerraform_MegaBatch6(t *testing.T) {
 				})
 				wsOut, err := grafanaClient.ListWorkspaces(ctx, &grafanasvc.ListWorkspacesInput{})
 				require.NoError(t, err, "ListWorkspaces should succeed")
-				require.NotEmpty(t, wsOut.Workspaces, "a workspace should exist after apply")
-				assert.Equal(t, "mega-batch-6-grafana", aws.ToString(wsOut.Workspaces[0].Name))
+				findBy(t, wsOut.Workspaces, func(w grafanatypes.WorkspaceSummary) bool {
+					return aws.ToString(w.Name) == "mega-batch-6-grafana"
+				}, "mega-batch-6-grafana workspace")
 
 				inspClient := inspector2svc.NewFromConfig(cfg, func(o *inspector2svc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -57,8 +60,9 @@ func TestTerraform_MegaBatch6(t *testing.T) {
 				})
 				nmOut, err := nmClient.DescribeGlobalNetworks(ctx, &networkmanagersvc.DescribeGlobalNetworksInput{})
 				require.NoError(t, err, "DescribeGlobalNetworks should succeed")
-				require.NotEmpty(t, nmOut.GlobalNetworks, "a global network should exist after apply")
-				assert.Equal(t, "mega-batch-6 global network", aws.ToString(nmOut.GlobalNetworks[0].Description))
+				findBy(t, nmOut.GlobalNetworks, func(n nmtypes.GlobalNetwork) bool {
+					return aws.ToString(n.Description) == "mega-batch-6 global network"
+				}, "mega-batch-6 global network")
 
 				rhClient := resiliencehubsvc.NewFromConfig(cfg, func(o *resiliencehubsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)

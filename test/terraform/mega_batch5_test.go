@@ -9,10 +9,12 @@ import (
 	accessanalyzersvc "github.com/aws/aws-sdk-go-v2/service/accessanalyzer"
 	appmeshsvc "github.com/aws/aws-sdk-go-v2/service/appmesh"
 	cleanroomssvc "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
+	cleanroomstypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	daxsvc "github.com/aws/aws-sdk-go-v2/service/dax"
 	directconnectsvc "github.com/aws/aws-sdk-go-v2/service/directconnect"
 	dxtypes "github.com/aws/aws-sdk-go-v2/service/directconnect/types"
 	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
+	dlmtypes "github.com/aws/aws-sdk-go-v2/service/dlm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,8 +61,9 @@ func TestTerraform_MegaBatch5(t *testing.T) {
 				})
 				crOut, err := crClient.ListCollaborations(ctx, &cleanroomssvc.ListCollaborationsInput{})
 				require.NoError(t, err, "ListCollaborations should succeed")
-				require.NotEmpty(t, crOut.CollaborationList, "a collaboration should exist after apply")
-				assert.Equal(t, "mega-batch-5-collab", aws.ToString(crOut.CollaborationList[0].Name))
+				findBy(t, crOut.CollaborationList, func(c cleanroomstypes.CollaborationSummary) bool {
+					return aws.ToString(c.Name) == "mega-batch-5-collab"
+				}, "mega-batch-5-collab collaboration")
 
 				daxClient := daxsvc.NewFromConfig(cfg, func(o *daxsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -86,8 +89,9 @@ func TestTerraform_MegaBatch5(t *testing.T) {
 				})
 				dlmOut, err := dlmClient.GetLifecyclePolicies(ctx, &dlmsvc.GetLifecyclePoliciesInput{})
 				require.NoError(t, err, "GetLifecyclePolicies should succeed")
-				require.NotEmpty(t, dlmOut.Policies, "a lifecycle policy should exist after apply")
-				assert.Equal(t, "mega-batch-5 DLM lifecycle policy", aws.ToString(dlmOut.Policies[0].Description))
+				findBy(t, dlmOut.Policies, func(p dlmtypes.LifecyclePolicySummary) bool {
+					return aws.ToString(p.Description) == "mega-batch-5 DLM lifecycle policy"
+				}, "mega-batch-5 DLM lifecycle policy")
 			},
 		},
 	}

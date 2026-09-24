@@ -102,6 +102,9 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 
 	listGrantsOut, err := client.ListAccessGrants(ctx, &s3controlsvc.ListAccessGrantsInput{
 		AccountId: aws.String(acctID),
+		GranteeIdentifier: aws.String(
+			"arn:aws:iam::000000000000:role/mega-batch-21-access-grants-role",
+		),
 	})
 	require.NoError(t, err, "ListAccessGrants should succeed")
 	require.NotEmpty(t, listGrantsOut.AccessGrantsList)

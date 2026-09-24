@@ -2758,11 +2758,25 @@ func TestTerraform_EC2(t *testing.T) {
 				}
 				require.True(t, found, "security group %q should exist", sgName)
 
-				// Verify an instance was created.
-				out, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{})
+				// Verify an instance was created, filtered to this fixture's security group.
+				out, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{
+					Filters: []ec2types.Filter{
+						{Name: aws.String("instance.group-name"), Values: []string{sgName}},
+					},
+				})
 				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
-				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
-				require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
+				require.NotEmpty(
+					t,
+					out.Reservations,
+					"reservation should exist for security group %q",
+					sgName,
+				)
+				require.NotEmpty(
+					t,
+					out.Reservations[0].Instances,
+					"instance should exist for security group %q",
+					sgName,
+				)
 
 				// Verify that tags from the fixture's `tags = {}` blocks were stored
 				// (via TagSpecification on CreateVpc / standalone CreateTags).
@@ -3121,17 +3135,12 @@ func TestTerraform_AppSync(t *testing.T) {
 				listOut, err := client.ListGraphqlApis(ctx, &appsyncsdkv2.ListGraphqlApisInput{})
 				require.NoError(t, err, "ListGraphqlApis should succeed")
 
-				var apiID string
-				for _, a := range listOut.GraphqlApis {
-					if aws.ToString(a.Name) == vars["APIName"].(string) {
-						apiID = aws.ToString(a.ApiId)
+				api := findBy(t, listOut.GraphqlApis, func(a appsyncsdktypes.GraphqlApi) bool {
+					return aws.ToString(a.Name) == vars["APIName"].(string)
+				}, "AppSync API "+vars["APIName"].(string))
+				apiID := aws.ToString(api.ApiId)
 
-						break
-					}
-				}
-
-				require.NotEmpty(t, apiID, "API %q should appear in list", vars["APIName"])
-				assert.Equal(t, appsyncsdktypes.AuthenticationTypeApiKey, listOut.GraphqlApis[0].AuthenticationType)
+				assert.Equal(t, appsyncsdktypes.AuthenticationTypeApiKey, api.AuthenticationType)
 
 				// Verify data source exists.
 				dsOut, err := client.GetDataSource(ctx, &appsyncsdkv2.GetDataSourceInput{
@@ -6681,10 +6690,23 @@ func TestTerraform_TimestreamQuery(t *testing.T) {
 				})
 				require.NoError(t, err, "DeleteScheduledQuery should succeed")
 
-				// Verify the list is empty again.
-				listAfter, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				// Verify our scheduled query is gone (other fixtures may still have their own).
+				listAfter, err := client.ListScheduledQueries(
+					ctx,
+					&timestreamquerysvc.ListScheduledQueriesInput{},
+				)
 				require.NoError(t, err, "ListScheduledQueries after delete should succeed")
-				assert.Empty(t, listAfter.ScheduledQueries)
+				assert.False(
+					t,
+					slices.ContainsFunc(
+						listAfter.ScheduledQueries,
+						func(q timestreamquerytypes.ScheduledQuery) bool {
+							return aws.ToString(q.Arn) == arn
+						},
+					),
+					"deleted scheduled query %q should no longer be listed",
+					arn,
+				)
 			},
 		},
 	}
