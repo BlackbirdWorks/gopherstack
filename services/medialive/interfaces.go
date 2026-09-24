@@ -2692,10 +2692,12 @@ type ServiceDescriptor struct {
 
 // MultiplexProgramSettings holds the settings for a MultiplexProgram.
 type MultiplexProgramSettings struct {
+	VideoConstantBitrate     *int32
 	ServiceDescriptor        ServiceDescriptor
 	ProgramName              string
 	PreferredChannelPipeline string
 	ProgramNumber            int
+	HasServiceDescriptor     bool
 }
 
 // MultiplexProgram represents a program within a Multiplex.

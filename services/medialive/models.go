@@ -297,9 +297,11 @@ type storedServiceDescriptor struct {
 }
 
 type storedMultiplexProgramSettings struct {
+	VideoConstantBitrate     *int32                  `json:"videoConstantBitrate,omitempty"`
 	ServiceDescriptor        storedServiceDescriptor `json:"serviceDescriptor"`
 	PreferredChannelPipeline string                  `json:"preferredChannelPipeline"`
 	ProgramNumber            int                     `json:"programNumber"`
+	HasServiceDescriptor     bool                    `json:"hasServiceDescriptor,omitempty"`
 }
 
 // Strings first, value struct last: reduces GC pointer scan.
@@ -317,6 +319,8 @@ func (p *storedMultiplexProgram) toProgram() *MultiplexProgram {
 			ProgramName:              p.ProgramName,
 			ProgramNumber:            p.Settings.ProgramNumber,
 			PreferredChannelPipeline: p.Settings.PreferredChannelPipeline,
+			HasServiceDescriptor:     p.Settings.HasServiceDescriptor,
+			VideoConstantBitrate:     p.Settings.VideoConstantBitrate,
 			ServiceDescriptor: ServiceDescriptor{
 				ProviderName: p.Settings.ServiceDescriptor.ProviderName,
 				ServiceName:  p.Settings.ServiceDescriptor.ServiceName,

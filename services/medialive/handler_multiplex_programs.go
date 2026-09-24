@@ -13,10 +13,15 @@ type serviceDescriptorOutput struct {
 	ServiceName  string `json:"serviceName"`
 }
 
+type videoSettingsOutput struct {
+	ConstantBitrate int32 `json:"constantBitrate"`
+}
+
 type multiplexProgramSettingsOutput struct {
-	ServiceDescriptor        serviceDescriptorOutput `json:"serviceDescriptor"`
-	PreferredChannelPipeline string                  `json:"preferredChannelPipeline"`
-	ProgramNumber            int                     `json:"programNumber"`
+	ServiceDescriptor        *serviceDescriptorOutput `json:"serviceDescriptor,omitempty"`
+	VideoSettings            *videoSettingsOutput     `json:"videoSettings,omitempty"`
+	PreferredChannelPipeline string                   `json:"preferredChannelPipeline"`
+	ProgramNumber            int                      `json:"programNumber"`
 }
 
 // ProgramName and ChannelID first: reduces GC pointer scan.
@@ -27,17 +32,26 @@ type multiplexProgramOutput struct {
 }
 
 func toMultiplexProgramOutput(p *MultiplexProgram) multiplexProgramOutput {
+	settings := multiplexProgramSettingsOutput{
+		ProgramNumber:            p.Settings.ProgramNumber,
+		PreferredChannelPipeline: p.Settings.PreferredChannelPipeline,
+	}
+
+	if p.Settings.HasServiceDescriptor {
+		settings.ServiceDescriptor = &serviceDescriptorOutput{
+			ProviderName: p.Settings.ServiceDescriptor.ProviderName,
+			ServiceName:  p.Settings.ServiceDescriptor.ServiceName,
+		}
+	}
+
+	if p.Settings.VideoConstantBitrate != nil {
+		settings.VideoSettings = &videoSettingsOutput{ConstantBitrate: *p.Settings.VideoConstantBitrate}
+	}
+
 	return multiplexProgramOutput{
-		ProgramName: p.ProgramName,
-		ChannelID:   p.ChannelID,
-		MultiplexProgramSettings: multiplexProgramSettingsOutput{
-			ProgramNumber:            p.Settings.ProgramNumber,
-			PreferredChannelPipeline: p.Settings.PreferredChannelPipeline,
-			ServiceDescriptor: serviceDescriptorOutput{
-				ProviderName: p.Settings.ServiceDescriptor.ProviderName,
-				ServiceName:  p.Settings.ServiceDescriptor.ServiceName,
-			},
-		},
+		ProgramName:              p.ProgramName,
+		ChannelID:                p.ChannelID,
+		MultiplexProgramSettings: settings,
 	}
 }
 
@@ -50,9 +64,20 @@ func extractMultiplexProgramSettings(body map[string]any) MultiplexProgramSettin
 	}
 
 	var sd ServiceDescriptor
-	if sdRaw, ok := raw["serviceDescriptor"].(map[string]any); ok {
+
+	sdRaw, hasSD := raw["serviceDescriptor"].(map[string]any)
+	if hasSD {
 		sd.ProviderName, _ = sdRaw["providerName"].(string)
 		sd.ServiceName, _ = sdRaw["serviceName"].(string)
+	}
+
+	var videoConstantBitrate *int32
+
+	if vsRaw, ok := raw["videoSettings"].(map[string]any); ok {
+		if cb, hasCB := vsRaw["constantBitrate"]; hasCB {
+			v := int32FromAny(cb)
+			videoConstantBitrate = &v
+		}
 	}
 
 	preferred, _ := raw["preferredChannelPipeline"].(string)
@@ -62,6 +87,8 @@ func extractMultiplexProgramSettings(body map[string]any) MultiplexProgramSettin
 		ProgramNumber:            intFromAny(raw["programNumber"]),
 		PreferredChannelPipeline: preferred,
 		ServiceDescriptor:        sd,
+		HasServiceDescriptor:     hasSD,
+		VideoConstantBitrate:     videoConstantBitrate,
 	}
 }
 

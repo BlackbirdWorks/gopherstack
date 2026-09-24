@@ -1,7 +1,7 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
-last_audit_commit: 1ecd57d33
-last_audit_date: 2026-09-18
+last_audit_commit: 5c20d9fd7
+last_audit_date: 2026-09-24
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
                        # CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
@@ -873,6 +873,15 @@ leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirm
 ---
 
 ## Notes
+
+**2026-09-24 (mega-batch-49):** FIXED MultiplexProgramSettings.ServiceDescriptor/
+VideoSettings -- both are optional real members (`*MultiplexProgramServiceDescriptor`/
+`*MultiplexVideoSettings`), but this backend always emitted `serviceDescriptor`
+(even empty) and never modeled `videoSettings` at all, so terraform-provider-aws's
+own plan-consistency check failed apply ("block count changed from 0 to 1" /
+"1 to 0") on `aws_medialive_multiplex_program`. Both now round-trip only when
+actually supplied. Coverage added for input_security_group/channel/multiplex/
+multiplex_program.
 
 **2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s):** all 15
 census-flagged List ops verified member by member. 13 already exactly
