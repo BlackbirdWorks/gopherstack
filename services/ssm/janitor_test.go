@@ -194,6 +194,79 @@ func TestJanitor_SweepsExpiredCommands(t *testing.T) {
 	require.Len(t, listOut.Commands, 1)
 }
 
+// TestJanitor_SweepsExpiredAutomationExecutions verifies that the janitor
+// evicts terminal automation executions whose EndTime is older than
+// automationExecutionHistoryRetentionSecs (30 days), and leaves recent and
+// non-terminal executions alone.
+func TestJanitor_SweepsExpiredAutomationExecutions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		status    string
+		endTime   float64
+		wantEvict bool
+	}{
+		{
+			name:      "old_success_evicted",
+			status:    "Success",
+			endTime:   float64(time.Now().Unix()) - (31 * 24 * 60 * 60),
+			wantEvict: true,
+		},
+		{
+			name:      "old_failed_evicted",
+			status:    "Failed",
+			endTime:   float64(time.Now().Unix()) - (40 * 24 * 60 * 60),
+			wantEvict: true,
+		},
+		{
+			name:      "old_cancelled_evicted",
+			status:    "Cancelled",
+			endTime:   float64(time.Now().Unix()) - (35 * 24 * 60 * 60),
+			wantEvict: true,
+		},
+		{
+			name:      "recent_success_retained",
+			status:    "Success",
+			endTime:   float64(time.Now().Unix()) - 60,
+			wantEvict: false,
+		},
+		{
+			// completeAfter is unset (zero value), so this materializes to
+			// Success with a fresh EndTime during the sweep and must not be
+			// evicted just because it started out InProgress with EndTime 0.
+			name:      "in_progress_materializes_and_is_retained",
+			status:    "InProgress",
+			endTime:   0,
+			wantEvict: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ssm.NewInMemoryBackend()
+			b.AddAutomationExecutionInternal(ssm.AutomationExecution{
+				AutomationExecutionID: "auto-" + tt.name,
+				DocumentName:          "TestDoc",
+				Status:                tt.status,
+				EndTime:               tt.endTime,
+			})
+			require.Equal(t, 1, b.AutomationExecutionCount())
+
+			j := ssm.NewJanitor(b, ssm.DefaultJanitorInterval)
+			j.SweepOnce(context.TODO())
+
+			wantCount := 1
+			if tt.wantEvict {
+				wantCount = 0
+			}
+			assert.Equal(t, wantCount, b.AutomationExecutionCount())
+		})
+	}
+}
+
 // TestHandler_WithJanitor_StartWorker verifies that StartWorker can be called
 // on a handler that has a janitor attached without error.
 func TestHandler_WithJanitor_StartWorker(t *testing.T) {

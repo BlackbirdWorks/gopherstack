@@ -43,6 +43,7 @@ func (j *Janitor) Run(ctx context.Context) {
 	g.Ticker("ParameterExpirer", j.Interval, j.TaskTimeout, j.sweepExpiredParameters)
 	g.Ticker("SessionSweeper", j.Interval, j.TaskTimeout, j.sweepTerminatedSessions)
 	g.Ticker("ParameterPolicyNotifier", j.Interval, j.TaskTimeout, j.sweepParameterPolicyNotifications)
+	g.Ticker("AutomationExecutionSweeper", j.Interval, j.TaskTimeout, j.sweepExpiredAutomationExecutions)
 
 	<-ctx.Done()
 	g.Stop()
@@ -59,6 +60,51 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepParameterPolicyNotifications(ctx)
 	j.sweepExpiredParameters(ctx)
 	j.sweepTerminatedSessions(ctx)
+	j.sweepExpiredAutomationExecutions(ctx)
+}
+
+// sweepExpiredAutomationExecutions evicts terminal automation executions
+// (Success/Failed/Cancelled/TimedOut) whose EndTime is older than
+// automationExecutionHistoryRetentionSecs, preventing unbounded growth of
+// StartAutomationExecution/StartChangeRequestExecution history
+// (gopherstack sweep finding: these were never evicted).
+func (j *Janitor) sweepExpiredAutomationExecutions(ctx context.Context) {
+	b := j.Backend
+	now := time.Now().UTC()
+	cutoff := UnixTimeFloat(now) - automationExecutionHistoryRetentionSecs
+
+	b.mu.Lock("SSMJanitorAutomation")
+
+	type expiredExec struct {
+		region string
+		id     string
+	}
+	var expired []expiredExec
+
+	for region, execs := range b.automationExecutions {
+		for _, exec := range execs.All() {
+			materializeAutomationLocked(exec, now)
+
+			if isTerminalAutomationStatus(exec.Status) && exec.EndTime > 0 && exec.EndTime < cutoff {
+				expired = append(expired, expiredExec{region: region, id: exec.AutomationExecutionID})
+			}
+		}
+	}
+
+	for _, e := range expired {
+		b.automationExecutions[e.region].Delete(e.id)
+	}
+
+	b.mu.Unlock()
+
+	count := len(expired)
+
+	telemetry.RecordWorkerItems("ssm", "AutomationExecutionSweeper", count)
+	telemetry.RecordWorkerTask("ssm", "AutomationExecutionSweeper", "success")
+
+	if count > 0 {
+		logger.Load(ctx).InfoContext(ctx, "SSM janitor: expired automation executions evicted", "count", count)
+	}
 }
 
 // sweepTerminatedSessions evicts terminated (history) sessions whose EndDate is
