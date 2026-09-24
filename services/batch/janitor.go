@@ -28,8 +28,9 @@ const (
 // Janitor is the Batch background worker that evicts INACTIVE job definitions
 // after a configurable TTL to prevent unbounded growth of in-memory state.
 // This matches AWS behavior where deregistered definitions eventually disappear.
-// It also evicts completed and failed jobs after a configurable TTL, matching
-// the AWS Batch job history retention behavior.
+// It also evicts completed and failed jobs (both regular and service jobs)
+// after a configurable TTL, matching the AWS Batch job history retention
+// behavior.
 type Janitor struct {
 	Backend           *InMemoryBackend
 	Interval          time.Duration
@@ -79,6 +80,7 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepInactiveJobDefinitions(ctx)
 	j.sweepCompletedJobs(ctx)
+	j.sweepCompletedServiceJobs(ctx)
 	j.advanceJobs(ctx)
 }
 
@@ -145,39 +147,54 @@ type jobEvictKey struct {
 	region, id string
 }
 
-// sweepCompletedJobs removes completed or failed Batch jobs whose StoppedAt
-// timestamp is older than CompletedJobTTL. This mirrors AWS Batch behavior where
-// job history is retained for a limited period before automatic removal.
-func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
-	cutoffMs := time.Now().Add(-j.CompletedJobTTL).UnixMilli()
-
+// terminalJobEvictKeys scans all for terminal (SUCCEEDED/FAILED) entries whose
+// StoppedAt is older than cutoffMs, using the given field accessors. Shared by
+// sweepCompletedJobs and sweepCompletedServiceJobs so both Job and ServiceJob
+// (distinct store.Table element types) use one scan implementation. Caller
+// must hold at least a read lock.
+func terminalJobEvictKeys[T any](
+	all []*T,
+	cutoffMs int64,
+	status func(*T) string,
+	stoppedAt func(*T) *int64,
+	key func(*T) jobEvictKey,
+) []jobEvictKey {
 	var toEvict []jobEvictKey
 
-	j.Backend.mu.RLock("BatchJanitorCompletedJobs")
-	for _, job := range j.Backend.jobs.All() {
-		if !isTerminalJobStatus(job.Status) {
+	for _, job := range all {
+		if !isTerminalJobStatus(status(job)) {
 			continue
 		}
 
-		if job.StoppedAt == nil {
+		sa := stoppedAt(job)
+		if sa == nil {
 			continue
 		}
 
-		if *job.StoppedAt < cutoffMs {
-			toEvict = append(toEvict, jobEvictKey{job.region, job.JobID})
+		if *sa < cutoffMs {
+			toEvict = append(toEvict, key(job))
 		}
 	}
-	j.Backend.mu.RUnlock()
 
+	return toEvict
+}
+
+// applyJobEviction deletes each evicted key via del (jobs.Delete or
+// serviceJobs.Delete) under the write lock and records telemetry/logging.
+// A no-op when toEvict is empty. Caller must not hold any lock.
+func (j *Janitor) applyJobEviction(
+	ctx context.Context,
+	toEvict []jobEvictKey,
+	del func(string) bool,
+	lockLabel, logMsg string,
+) {
 	if len(toEvict) == 0 {
 		return
 	}
 
-	j.Backend.mu.Lock("BatchJanitorCompletedJobsDel")
+	j.Backend.mu.Lock(lockLabel)
 	for _, k := range toEvict {
-		// Table.Delete also removes the job from the byRegion/byARN/byQueue
-		// indexes, replacing the old manual jobsByARN cleanup.
-		j.Backend.jobs.Delete(regionKey(k.region, k.id))
+		del(regionKey(k.region, k.id))
 	}
 	j.Backend.mu.Unlock()
 
@@ -185,7 +202,46 @@ func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
 
 	telemetry.RecordWorkerTask(batchWorkerServiceName, completedJobSweeperComponent, "success")
 	telemetry.RecordWorkerItems(batchWorkerServiceName, completedJobSweeperComponent, count)
-	logger.Load(ctx).InfoContext(ctx, "Batch janitor: completed jobs evicted", "count", count)
+	logger.Load(ctx).InfoContext(ctx, logMsg, "count", count)
+}
+
+// sweepCompletedJobs removes completed or failed Batch jobs whose StoppedAt
+// timestamp is older than CompletedJobTTL. This mirrors AWS Batch behavior where
+// job history is retained for a limited period before automatic removal.
+func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
+	cutoffMs := time.Now().Add(-j.CompletedJobTTL).UnixMilli()
+
+	j.Backend.mu.RLock("BatchJanitorCompletedJobs")
+	toEvict := terminalJobEvictKeys(j.Backend.jobs.All(), cutoffMs,
+		func(job *Job) string { return job.Status },
+		func(job *Job) *int64 { return job.StoppedAt },
+		func(job *Job) jobEvictKey { return jobEvictKey{job.region, job.JobID} },
+	)
+	j.Backend.mu.RUnlock()
+
+	// Table.Delete also removes the job from the byRegion/byARN/byQueue
+	// indexes, replacing the old manual jobsByARN cleanup.
+	j.applyJobEviction(ctx, toEvict, j.Backend.jobs.Delete,
+		"BatchJanitorCompletedJobsDel", "Batch janitor: completed jobs evicted")
+}
+
+// sweepCompletedServiceJobs removes completed or failed Batch service jobs whose
+// StoppedAt timestamp is older than CompletedJobTTL. Service jobs (b.serviceJobs)
+// were previously never evicted here, so SUCCEEDED/FAILED SubmitServiceJob
+// entries grew without bound; this mirrors sweepCompletedJobs's TTL behavior.
+func (j *Janitor) sweepCompletedServiceJobs(ctx context.Context) {
+	cutoffMs := time.Now().Add(-j.CompletedJobTTL).UnixMilli()
+
+	j.Backend.mu.RLock("BatchJanitorCompletedServiceJobs")
+	toEvict := terminalJobEvictKeys(j.Backend.serviceJobs.All(), cutoffMs,
+		func(job *ServiceJob) string { return job.Status },
+		func(job *ServiceJob) *int64 { return job.StoppedAt },
+		func(job *ServiceJob) jobEvictKey { return jobEvictKey{job.region, job.JobID} },
+	)
+	j.Backend.mu.RUnlock()
+
+	j.applyJobEviction(ctx, toEvict, j.Backend.serviceJobs.Delete,
+		"BatchJanitorCompletedServiceJobsDel", "Batch janitor: completed service jobs evicted")
 }
 
 type advanceKey struct {

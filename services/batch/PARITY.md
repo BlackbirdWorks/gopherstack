@@ -79,6 +79,14 @@ leaks: {status: clean, note: "janitor.go's advanceJobs/sweep* all take/release t
 
 ## Notes
 
+### 2026-09-24 unbounded-growth sweep: service jobs never evicted
+
+sweepCompletedJobs (janitor.go) evicted terminal regular Jobs past
+CompletedJobTTL but never swept b.serviceJobs, so SUCCEEDED/FAILED
+SubmitServiceJob entries grew without bound in a long-running emulator.
+Added sweepCompletedServiceJobs, reusing the same CompletedJobTTL. See
+TestBatchJanitor_SweepCompletedServiceJobs (janitor_service_jobs_test.go).
+
 ### 2026-09-19 over-wide-response sweep (gopherstack)
 
 ListJobs' JobSummary was missing jobDefinition/shareIdentifier/arrayProperties
