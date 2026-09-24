@@ -466,6 +466,16 @@ func (h *S3Handler) handleRenameObject(
 const copySourceMinParts = 2
 
 func parseCopySource(src string) (string, string, string, bool) {
+	// The AWS provider (and some SDKs) send the whole "bucket/key" value
+	// URL-query-escaped, including the bucket/key separator itself
+	// (aws-sdk-go-v2/service/s3 serializers.go passes CopySource through
+	// verbatim as a header -- the escaping happens client-side). Unescaping
+	// here must happen BEFORE splitting on "/", or an escaped separator
+	// (%2F) never matches and every such copy fails as a malformed source.
+	if unescaped, err := url.QueryUnescape(src); err == nil {
+		src = unescaped
+	}
+
 	src = strings.TrimPrefix(src, "/")
 	parts := strings.SplitN(src, "/", copySourceMinParts)
 
@@ -480,12 +490,6 @@ func parseCopySource(src string) (string, string, string, bool) {
 	if idx := strings.Index(key, "?versionId="); idx != -1 {
 		versionID = key[idx+11:]
 		key = key[:idx]
-	}
-
-	// Unescape the key since it may be URL-encoded from the client.
-	unescapedKey, err := url.PathUnescape(key)
-	if err == nil {
-		key = unescapedKey
 	}
 
 	return bucket, key, versionID, true
