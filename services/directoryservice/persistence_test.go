@@ -206,8 +206,12 @@ func assertForwardingStateRestored(t *testing.T, b *directoryservice.InMemoryBac
 
 	forwarders, err := b.DescribeConditionalForwarders(ctx, dirID, nil)
 	require.NoError(t, err)
-	require.Len(t, forwarders, 1)
-	assert.Equal(t, "remote.example.com", forwarders[0].RemoteDomainName)
+	// 2, not 1: CreateTrust auto-creates a conditional forwarder for
+	// "trusted.example.com", alongside the "remote.example.com" one created directly.
+	require.Len(t, forwarders, 2)
+	domains := []string{forwarders[0].RemoteDomainName, forwarders[1].RemoteDomainName}
+	assert.Contains(t, domains, "remote.example.com")
+	assert.Contains(t, domains, "trusted.example.com")
 
 	subs, _, err := b.ListLogSubscriptions(ctx, dirID, 0, "")
 	require.NoError(t, err)

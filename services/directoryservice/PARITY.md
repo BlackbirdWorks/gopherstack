@@ -666,3 +666,27 @@ Gates: `go build ./services/directoryservice/...` and `go vet
 --new-from-rev=HEAD ./services/directoryservice/...` 0 issues (after
 `gofmt -w` on the new file). `go run ./cmd/paritylint` stays at 0 FAIL. No
 persisted-struct/snapshot-inventory change; no version bump.
+
+## mega-batch-54 terraform coverage (2026-09-24)
+
+Two real bugs found wiring up `aws_directory_service_trust`:
+
+- `CreateTrust` always left a new trust at `TrustState: "Created"`. Real AWS
+  auto-verifies a trust asynchronously once created, for every direction
+  except "One-Way: Incoming" (nothing to verify against on our side for an
+  incoming trust). terraform-provider-aws's `resourceTrustCreate` waits on
+  `waitTrustVerified` (target Verified/VerifyFailed) for every other
+  direction, so a trust stuck at "Created" never satisfied that waiter.
+  Fixed: non-incoming trusts now start at "Verified".
+- `CreateTrust` never created an associated conditional forwarder. Real AWS
+  sets up DNS conditional forwarding to the remote domain as part of
+  establishing a trust, and terraform-provider-aws's trust Read
+  unconditionally looks one up (`findConditionalForwarderByTwoPartKey`),
+  erroring "reading Directory Service Conditional Forwarder ... empty
+  result" when none exists. Fixed: `CreateTrust` now also stores a
+  conditional forwarder row (and `DeleteTrust` cleans it up).
+
+Gates: `go build ./...`, `go vet ./services/directoryservice/...`, `go test
+-race -count=1 ./services/directoryservice/...`, `golangci-lint run
+./services/directoryservice/...` -- all clean. No persisted-struct fields
+changed; no version bump.
