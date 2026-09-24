@@ -45,6 +45,14 @@ const (
 	// this 12h default; the 7-day carve-out for a specific resource-type allowlist
 	// (EC2 capacity reservations, VPC subnets, etc.) is not modeled.
 	invitationExpiryWindow = 12 * time.Hour
+	// ramInvitationTerminalTTL bounds how long a terminal (ACCEPTED/REJECTED/
+	// EXPIRED) invitation stays in b.invitations before pruneTerminalInvitationsLocked
+	// evicts it. AWS documents no specific duration for ResourceShareInvitation
+	// history and has no DeleteInvitation op, but a long-running emulator still
+	// needs a bound on terraform-driven invite/accept/reject churn; reuses the
+	// 1h window established for this backend's other delete-waiter tombstones
+	// (ramDeletedShareTTL, ec2 c254cd795, ecs 3fa9337a8, medialive gopherstack-f9w3k).
+	ramInvitationTerminalTTL = time.Hour
 	// permissionTypeCustomer is the customer managed permission type.
 	permissionTypeCustomer = "CUSTOMER_MANAGED"
 	// permissionTypeAWSManaged is the AWS-managed permission type.

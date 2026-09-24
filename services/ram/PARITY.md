@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
-last_audit_commit: 2332c3128  # 2026-09-24 DELETED resource share unbounded-growth fix; prior: 5cb6665a0
+last_audit_commit: f78c3b7c7  # 2026-09-24 terminal invitation unbounded-growth fix; prior: 2332c3128
 last_audit_date: 2026-09-24
 # 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
 # a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
@@ -271,6 +271,22 @@ Gates: `go build ./services/ram/...` clean; `golangci-lint run ./services/ram/..
 ones).
 
 ## Notes
+
+### 2026-09-24 (leak sweep #2) terminal invitations now evicted after 1h
+
+AcceptResourceShareInvitation/RejectResourceShareInvitation/
+expireInvitationLocked transitioned a PENDING invitation to a terminal status
+(ACCEPTED/REJECTED/EXPIRED) but kept the row in b.invitations forever, the
+same unbounded-memory-growth leak class as the DELETED resource share fix
+below. AWS documents no retention for ResourceShareInvitation history and
+has no DeleteInvitation op, so this reuses the 1h TTL convention established
+for this backend's other delete-waiter tombstones. Added
+`ramInvitationTerminalTTL` and `pruneTerminalInvitationsLocked`, called on
+every create/accept/reject/list path, evicting a terminal invitation past
+LastUpdatedTime (guarded against a zero LastUpdatedTime so a test-seeded
+invitation via AddInvitationInternal isn't pruned immediately). No new
+field, no persisted-field change, no version bump. Tests:
+`invitation_expiry_test.go` (synctest, evicted-after-TTL + kept-within-TTL).
 
 ### 2026-09-24 (leak sweep) DELETED resource shares now evicted after 1h
 

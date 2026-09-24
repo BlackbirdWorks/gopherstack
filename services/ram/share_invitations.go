@@ -24,12 +24,28 @@ func (b *InMemoryBackend) AddInvitationInternal(inv *ResourceShareInvitation) {
 	b.invitations.Put(inv)
 }
 
+// pruneTerminalInvitationsLocked evicts invitations that have sat in a
+// terminal status (ACCEPTED/REJECTED/EXPIRED) past ramInvitationTerminalTTL
+// since LastUpdatedTime, so terraform-driven invite/accept/reject churn
+// doesn't grow b.invitations unbounded in a long-running emulator. Caller
+// must hold the write lock.
+func (b *InMemoryBackend) pruneTerminalInvitationsLocked(now time.Time) {
+	for _, inv := range b.invitations.All() {
+		if inv.Status != invitationStatusPending && !inv.LastUpdatedTime.IsZero() &&
+			now.Sub(inv.LastUpdatedTime) >= ramInvitationTerminalTTL {
+			b.invitations.Delete(inv.InvitationARN)
+		}
+	}
+}
+
 // AcceptResourceShareInvitation accepts a pending resource share invitation.
 func (b *InMemoryBackend) AcceptResourceShareInvitation(
 	invitationARN string,
 ) (*ResourceShareInvitation, error) {
 	b.mu.Lock("AcceptResourceShareInvitation")
 	defer b.mu.Unlock()
+
+	b.pruneTerminalInvitationsLocked(time.Now())
 
 	inv, ok := b.invitations.Get(invitationARN)
 	if !ok {
@@ -96,6 +112,8 @@ func (b *InMemoryBackend) disassociateReceiverPrincipalsLocked(shareARN, receive
 // createInvitationLocked creates a pending invitation without acquiring a lock.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) createInvitationLocked(shareARN, shareNm, receiverAcctID string) {
+	b.pruneTerminalInvitationsLocked(time.Now())
+
 	invID := uuid.NewString()
 	invARN := b.invitationARN(invID)
 	now := time.Now()
@@ -136,6 +154,8 @@ func (b *InMemoryBackend) CreateInvitation(
 	b.mu.Lock("CreateInvitation")
 	defer b.mu.Unlock()
 
+	b.pruneTerminalInvitationsLocked(time.Now())
+
 	invID := uuid.NewString()
 	invARN := b.invitationARN(invID)
 	now := time.Now()
@@ -168,6 +188,7 @@ func (b *InMemoryBackend) GetResourceShareInvitations(
 	for _, inv := range b.invitations.All() {
 		b.expireInvitationLocked(inv, now)
 	}
+	b.pruneTerminalInvitationsLocked(now)
 
 	arnSet := make(map[string]struct{}, len(invitationARNs))
 
@@ -212,6 +233,8 @@ func (b *InMemoryBackend) RejectResourceShareInvitation(
 ) (*ResourceShareInvitation, error) {
 	b.mu.Lock("RejectResourceShareInvitation")
 	defer b.mu.Unlock()
+
+	b.pruneTerminalInvitationsLocked(time.Now())
 
 	inv, ok := b.invitations.Get(invitationARN)
 	if !ok {
