@@ -19,6 +19,7 @@ const (
 	apigwKindUsagePlan
 	apigwKindVpcLink
 	apigwKindClientCertificate
+	apigwKindAccessAssociation
 )
 
 // restAPIStageARNSegs is the segment count of a .../restapis/{id}/stages/{name} ARN path.
@@ -66,6 +67,8 @@ func resolveTaggableARN(resourceARN string) (apigwTaggableKind, string, string, 
 		return apigwKindVpcLink, id, "", nil
 	case apiGWSegClientCerts:
 		return apigwKindClientCertificate, id, "", nil
+	case "accessassociations":
+		return apigwKindAccessAssociation, id, "", nil
 	}
 
 	return apigwKindUnknown, "", "",
@@ -169,6 +172,21 @@ var apigwTaggableKinds = map[apigwTaggableKind]apigwTaggableKindInfo{
 			}
 
 			return c.Tags, true
+		},
+	},
+	// DomainNameAccessAssociation isn't taggable, but terraform's tagging
+	// framework still calls ListTagsForResource on every Read; return empty tags, not an error.
+	apigwKindAccessAssociation: {
+		notFoundErr: ErrNotFound,
+		notFoundArg: func(id, _ string) string { return id },
+		get: func(b *InMemoryBackend, id, _ string) (*tags.Tags, bool) {
+			for _, assoc := range b.domainNameAccessAssociations.All() {
+				if strings.HasSuffix(assoc.DomainNameAccessAssociationARN, "/accessassociations/"+id) {
+					return tags.New("apigw.accessassociation." + id + ".tags"), true
+				}
+			}
+
+			return nil, false
 		},
 	},
 }

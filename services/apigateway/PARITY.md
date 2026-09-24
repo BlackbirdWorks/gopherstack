@@ -1204,3 +1204,25 @@ Gates: `go build ./...`, `go vet ./services/apigateway/...`, `go test -race
 -count=1 ./services/apigateway/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/apigateway/...` — all clean. No persisted (`backendSnapshot`)
 fields changed, no `snapshot_inventory.json` rows needed, no version bump.
+
+## mega-batch-54 terraform coverage (2026-09-24)
+
+Two real bugs found wiring up `aws_api_gateway_domain_name_access_association`:
+
+- `DomainName` had no `DomainNameArn` field at all (apigateway@v1.29.4
+  types.DomainName does), so `GetDomainName`/`CreateDomainName` responses
+  never carried it -- a real client's `DomainNameArn` was always nil, which
+  `aws_api_gateway_domain_name_access_association` needs as its
+  `domain_name_arn` source input.
+- `GetTags`/`ListTagsForResource` rejected any `.../accessassociations/...`
+  resource ARN with `BadRequestException: unsupported resource type`.
+  `DomainNameAccessAssociation` has no Tags field (not taggable via Create),
+  but terraform-provider-aws's tagging framework still calls
+  `ListTagsForResource` against its ARN on every Read; real AWS tolerates
+  this and returns an empty tag set rather than erroring.
+
+Gates: `go build ./...`, `go vet ./services/apigateway/...`, `go test -race
+-count=1 ./services/apigateway/...`, `golangci-lint run
+./services/apigateway/...` -- all clean. `snapshot_inventory.json` updated
+(`-update`) for the additive `DomainName.DomainNameArnValue` field; no
+version bump.

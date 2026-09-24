@@ -517,6 +517,7 @@
       "DomainName.CreatedDate *unixEpochTime `json:\"createdDate,omitempty\"`",
       "DomainName.DistributionDomainName string `json:\"distributionDomainName,omitempty\"`",
       "DomainName.DistributionHostedZoneID string `json:\"distributionHostedZoneId,omitempty\"`",
+      "DomainName.DomainNameArnValue string `json:\"domainNameArn,omitempty\"`",
       "DomainName.DomainNameStatus string `json:\"domainNameStatus,omitempty\"`",
       "DomainName.DomainNameValue string `json:\"domainName\"`",
       "DomainName.EndpointAccessMode string `json:\"endpointAccessMode,omitempty\"`",

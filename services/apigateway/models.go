@@ -587,26 +587,29 @@ type CreateDocumentationVersionInput struct {
 
 // DomainName represents a custom domain name for an API.
 type DomainName struct {
-	CreatedDate                         *unixEpochTime           `json:"createdDate,omitempty"`
-	Tags                                *tags.Tags               `json:"tags,omitempty"`
-	EndpointConfiguration               *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
-	MutualTLSAuthentication             *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
-	DomainNameValue                     string                   `json:"domainName"`
-	CertificateARN                      string                   `json:"certificateArn,omitempty"`
-	CertificateName                     string                   `json:"certificateName,omitempty"`
-	RegionalCertificateARN              string                   `json:"regionalCertificateArn,omitempty"`
-	RegionalCertificateName             string                   `json:"regionalCertificateName,omitempty"`
-	OwnershipVerificationCertificateARN string                   `json:"ownershipVerificationCertificateArn,omitempty"`
-	ManagementPolicy                    string                   `json:"managementPolicy,omitempty"`
-	Policy                              string                   `json:"policy,omitempty"`
-	RoutingMode                         string                   `json:"routingMode,omitempty"`
-	EndpointAccessMode                  string                   `json:"endpointAccessMode,omitempty"`
-	DistributionDomainName              string                   `json:"distributionDomainName,omitempty"`
-	DistributionHostedZoneID            string                   `json:"distributionHostedZoneId,omitempty"`
-	RegionalDomainName                  string                   `json:"regionalDomainName,omitempty"`
-	RegionalHostedZoneID                string                   `json:"regionalHostedZoneId,omitempty"`
-	SecurityPolicy                      string                   `json:"securityPolicy,omitempty"`
-	DomainNameStatus                    string                   `json:"domainNameStatus,omitempty"`
+	CreatedDate             *unixEpochTime           `json:"createdDate,omitempty"`
+	Tags                    *tags.Tags               `json:"tags,omitempty"`
+	EndpointConfiguration   *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	DomainNameValue         string                   `json:"domainName"`
+	// DomainNameArn was missing from responses, leaving a real client's
+	// DomainNameArn field nil (apigateway@v1.29.4 types.DomainName).
+	DomainNameArnValue                  string `json:"domainNameArn,omitempty"`
+	CertificateARN                      string `json:"certificateArn,omitempty"`
+	CertificateName                     string `json:"certificateName,omitempty"`
+	RegionalCertificateARN              string `json:"regionalCertificateArn,omitempty"`
+	RegionalCertificateName             string `json:"regionalCertificateName,omitempty"`
+	OwnershipVerificationCertificateARN string `json:"ownershipVerificationCertificateArn,omitempty"`
+	ManagementPolicy                    string `json:"managementPolicy,omitempty"`
+	Policy                              string `json:"policy,omitempty"`
+	RoutingMode                         string `json:"routingMode,omitempty"`
+	EndpointAccessMode                  string `json:"endpointAccessMode,omitempty"`
+	DistributionDomainName              string `json:"distributionDomainName,omitempty"`
+	DistributionHostedZoneID            string `json:"distributionHostedZoneId,omitempty"`
+	RegionalDomainName                  string `json:"regionalDomainName,omitempty"`
+	RegionalHostedZoneID                string `json:"regionalHostedZoneId,omitempty"`
+	SecurityPolicy                      string `json:"securityPolicy,omitempty"`
+	DomainNameStatus                    string `json:"domainNameStatus,omitempty"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.

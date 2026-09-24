@@ -44,6 +44,7 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 
 	dn := &DomainName{
 		DomainNameValue:          input.DomainName,
+		DomainNameArnValue:       "arn:aws:apigateway:us-east-1::/domainnames/" + input.DomainName,
 		CertificateARN:           input.CertificateARN,
 		RegionalCertificateARN:   input.RegionalCertificateARN,
 		SecurityPolicy:           securityPolicy,
