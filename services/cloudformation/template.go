@@ -1457,7 +1457,16 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeSageMakerModelPackageGroup, resTypeSageMakerFeatureGroup, resTypeSageMakerProject,
 			resTypeSageMakerWorkteam, resTypeSageMakerImage, resTypeSageMakerImageVersion,
 			resTypeAthenaNamedQuery, resTypeAthenaCapacityReservation,
-			resTypeMemoryDBCluster:
+			resTypeMemoryDBCluster,
+			resTypeLambdaCodeSigningConfig, resTypeEventsEndpoint, resTypeSchedulerScheduleGroup,
+			resTypeAppSyncDomainName,
+			resTypeR53RResolverRuleAssoc, resTypeR53RFirewallDomainList, resTypeR53RFirewallRuleGroup,
+			resTypeR53RFirewallRGAssoc, resTypeR53RQueryLogConfig, resTypeR53RQueryLogConfigAssc,
+			resTypeR53ROutpostResolver,
+			resTypeCloudTrailEventDataStore,
+			resTypeLogsDelivery, resTypeLogsDeliveryDestination, resTypeLogsDeliverySource,
+			resTypeLogsIntegration, resTypeLogsAnomalyDetector, resTypeLogsScheduledQuery,
+			resTypeCodeArtifactDomain, resTypeCodeArtifactRepository, resTypeCodeArtifactPackageGroup:
 			return v
 		}
 	}

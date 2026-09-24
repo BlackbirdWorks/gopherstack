@@ -16,6 +16,7 @@ import (
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
@@ -185,6 +186,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.AWSConfig, _ = getHandler[*awsconfigbackend.Handler](bp.GetAWSConfigHandler())
 	backends.SageMaker, _ = getHandler[*sagemakerbackend.Handler](bp.GetSageMakerHandler())
 	backends.Athena, _ = getHandler[*athenabackend.Handler](bp.GetAthenaHandler())
+	backends.CodeArtifact, _ = getHandler[*codeartifactbackend.Handler](bp.GetCodeArtifactHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

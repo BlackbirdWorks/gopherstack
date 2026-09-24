@@ -25,6 +25,7 @@ import (
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
@@ -148,6 +149,7 @@ type ServiceBackends struct {
 	AWSConfig        *awsconfigbackend.Handler
 	SageMaker        *sagemakerbackend.Handler
 	Athena           *athenabackend.Handler
+	CodeArtifact     *codeartifactbackend.Handler
 	AccountID        string
 	Region           string
 }
@@ -1439,6 +1441,10 @@ func (rc *ResourceCreator) deletePropsBasedResource(
 		return true, rc.deleteAPIGatewayDocumentationVersion(props, stackPhysicalIDs, physicalID)
 	case resTypeConfigStoredQuery:
 		return true, rc.deleteConfigStoredQuery(props, stackPhysicalIDs)
+	case resTypeCodeArtifactRepository:
+		return true, rc.deleteCodeArtifactRepository(ctx, props, stackPhysicalIDs)
+	case resTypeCodeArtifactPackageGroup:
+		return true, rc.deleteCodeArtifactPackageGroup(ctx, props, stackPhysicalIDs)
 	default:
 		return rc.deleteMorePropsBasedResource(resourceType, props, stackPhysicalIDs)
 	}
@@ -2063,6 +2069,63 @@ func (rc *ResourceCreator) createMoreSupplementalResource(
 		return id, true, err
 	}
 
+	return rc.createNewerSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createNewerSupplementalResource is createMoreSupplementalResource's own
+// overflow table, for resource type groups added once its budget was spent
+// too: Lambda CodeSigningConfig, Events Endpoint, Scheduler ScheduleGroup,
+// AppSync DomainName/GraphQLSchema/ChannelNamespace, the Route53Resolver
+// firewall/query-logging/outpost family, CloudTrail EventDataStore/Channel,
+// the CloudWatch Logs delivery/integration/anomaly-detector/scheduled-query
+// family, and CodeArtifact.
+func (rc *ResourceCreator) createNewerSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if id, ok, err := rc.createLambdaCSCResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEventsEndpointResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createSchedulerGroupResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createAppSyncMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createRoute53ResolverMoreResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createCloudTrailMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createLogsMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createCodeArtifactResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
 	return "", false, nil
 }
 
@@ -2157,6 +2220,39 @@ func (rc *ResourceCreator) deleteMoreSupplementalResource(
 		return true, err
 	}
 	if handled, err := rc.deleteMemoryDBResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deleteNewerSupplementalResource(ctx, resourceType, physicalID)
+}
+
+// deleteNewerSupplementalResource is deleteMoreSupplementalResource's own
+// overflow table, mirroring createNewerSupplementalResource.
+func (rc *ResourceCreator) deleteNewerSupplementalResource(
+	ctx context.Context, resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteLambdaCSCResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEventsEndpointResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteSchedulerGroupResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteAppSyncMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteRoute53ResolverMoreResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteCloudTrailMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteLogsMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteCodeArtifactResource(ctx, resourceType, physicalID); handled {
 		return true, err
 	}
 

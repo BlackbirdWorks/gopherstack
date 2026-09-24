@@ -1,7 +1,26 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 390f9687e  # 2026-09-24 20 new resource types added: SageMaker Model/
+last_audit_commit: 43e38e92b  # 2026-09-24 24 new resource types added: Lambda
+                               # CodeSigningConfig; Events Endpoint; Scheduler
+                               # ScheduleGroup; AppSync DomainName/GraphQLSchema/
+                               # ChannelNamespace (3 types); Route53Resolver
+                               # ResolverRuleAssociation/FirewallDomainList/
+                               # FirewallRuleGroup/FirewallRuleGroupAssociation/
+                               # ResolverQueryLoggingConfig/
+                               # ResolverQueryLoggingConfigAssociation/
+                               # OutpostResolver (7 types); CloudTrail
+                               # EventDataStore/Channel (2 types); Logs
+                               # Delivery/DeliveryDestination/DeliverySource/
+                               # Integration/LogAnomalyDetector/ScheduledQuery
+                               # (6 types); CodeArtifact Domain/Repository/
+                               # PackageGroup (3 types, new family -- CodeArtifact
+                               # newly wired into the CloudFormation backend,
+                               # CodeArtifact field added to ServiceBackends;
+                               # GetCodeArtifactHandler already existed on
+                               # BackendsProvider/cli.go, so no cli.go change
+                               # was needed) (356 -> 380 supported types);
+                               # prior: 390f9687e  # 2026-09-24 20 new resource types added: SageMaker Model/
                                # EndpointConfig/Endpoint/NotebookInstance/
                                # NotebookInstanceLifecycleConfig/CodeRepository/Domain/
                                # Pipeline/ModelPackageGroup/FeatureGroup/Project/Workteam/
@@ -185,6 +204,117 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep, wave 10): Lambda/Events/Scheduler/AppSync/Route53Resolver/CloudTrail/Logs/CodeArtifact -- 24 new resource types: 356 -> 380 supported types
+
+Added: `AWS::Lambda::CodeSigningConfig` (resources_lambda_csc.go);
+`AWS::Events::Endpoint` (resources_events_endpoint.go);
+`AWS::Scheduler::ScheduleGroup` (resources_scheduler_group.go);
+`AWS::AppSync::{DomainName,GraphQLSchema,ChannelNamespace}`
+(resources_appsync_more.go); `AWS::Route53Resolver::{ResolverRuleAssociation,
+FirewallDomainList,FirewallRuleGroup,FirewallRuleGroupAssociation,
+ResolverQueryLoggingConfig,ResolverQueryLoggingConfigAssociation,
+OutpostResolver}` (resources_route53resolver_more.go);
+`AWS::CloudTrail::{EventDataStore,Channel}` (resources_cloudtrail_more.go);
+`AWS::Logs::{Delivery,DeliveryDestination,DeliverySource,Integration,
+LogAnomalyDetector,ScheduledQuery}` (resources_logs_more.go); and
+`AWS::CodeArtifact::{Domain,Repository,PackageGroup}`
+(resources_codeartifact.go, new family -- CodeArtifact wasn't wired into
+CloudFormation at all before this pass, despite `GetCodeArtifactHandler`
+already existing on `BackendsProvider`/cli.go; added the `CodeArtifact`
+field to `ServiceBackends` and its `extractAllServiceBackends` wiring in
+provider.go). All create* dispatch through a new `createNewerSupplementalResource`/
+`deleteNewerSupplementalResource` tier (resources.go), added because
+`createMoreSupplementalResource`/`deleteMoreSupplementalResource` (the
+MemoryDB/Athena/SageMaker overflow tier from wave 9) were themselves at
+their cyclop budget.
+
+Doc-vs-backend Ref mismatches (same class as the Athena::NamedQuery
+precedent, resources_athena.go): `Lambda::CodeSigningConfig` and
+`CloudTrail::{EventDataStore,Channel}`'s Template Reference pages literally
+say "Ref returns the resource name", but none of the three has a Name-keyed
+backend identity (CodeSigningConfig has no Name property at all; Create/Delete
+for all three take the ARN) -- the ARN is used as Ref/physical ID instead, with
+the docs' own non-Arn GetAtt attributes (CodeSigningConfigId; none for
+EventDataStore/Channel beyond the ARN itself) stashed or, for EventDataStore,
+absent since Name isn't actually a documented GetAtt attribute either.
+`Events::Endpoint`'s docs say Ref is the EndpointId ("mystack-Endpoint-ABCDEFGHIJK"-shaped),
+but the backend is Name-keyed (`DeleteEndpoint(ctx, name)`); since
+`EndpointID = name + "-" + region` deterministically (endpoints.go), Ref
+uses the real EndpointId and delete strips the trailing `"-"+region` back
+off rather than stashing Name. Several Route53Resolver types' Ref text
+("returns the FirewallDomainList object", "the FirewallRuleGroupId") doesn't
+name a field distinctly from their documented `Id` GetAtt attribute, so `Id`
+(the backend's own key) is used, same imprecision class. Where Ref is fully
+undocumented (`Logs::{Delivery,DeliveryDestination,DeliverySource,
+Integration}`, `Logs::{LogAnomalyDetector,ScheduledQuery}` -- checked via the
+raw page HTML: an empty `<h3>Ref</h3>` with no following paragraph, not
+merely a generic sentence), the backend's own primary key is used per the
+task's "use the primary identifier" rule (DeliveryId, Name, Name, IntegrationName,
+AnomalyDetectorArn, ScheduledQueryArn respectively).
+
+`AppSync::GraphQLSchema` and `AWS::ECS::PrimaryTaskSet` share a "no
+independent lifecycle" delete: a GraphQL schema lives and dies with its
+owning Api, so delete is a documented no-op (create genuinely calls
+`StartSchemaCreation`, so this isn't a stub -- same reasoning as
+PrimaryTaskSet's existing no-op delete). `AppSync::ChannelNamespace` is keyed
+by `(ApiId, Name)` against `b.eventAPIs`, a *different* table than the
+`b.apis` GraphQLApi table `AWS::AppSync::GraphQLApi` populates -- Event APIs
+are created via `CreateAPI`, which only `AWS::AppSync::Api` (not implemented
+this pass, see skipped list) would wire up; the test seeds an Event API
+directly on the backend and passes its ID in as a stack Parameter rather than
+provisioning it through CFN.
+
+REAL BUG CLASS FOUND (not fixed, pre-existing, affects every prior wave too):
+`strProp`/`resolve` (used to resolve a resource's own Properties at create
+time) calls `ResolveValue` with a bare `{params, physicalIDs}` `resolveCtx` --
+no `resourceTypes` map. `resolveGetAtt`'s stashed-attribute gate switches on
+`resType`, so an `Fn::GetAtt` used as an *input property value* for another
+resource in the same stack (as opposed to a stack Output, which resolves
+through a fully-populated ctx) always falls through to the plain-physID
+fallback for any attribute that isn't the physical ID itself -- it silently
+returns the wrong value instead of erroring. Hit while templating
+`CodeArtifact::Repository.DomainName: {Fn::GetAtt: [Dom, Name]}` (Domain's
+Ref is its ARN, not its Name, so this silently resolved to the ARN and the
+repository's domain lookup 404'd) and `Logs::Delivery.DeliveryDestinationArn:
+{Fn::GetAtt: [Dest, Arn]}` (silently resolved to Delivery's own about-to-be-assigned
+physID before Arn was ever computed). Both new tests route around it (literal
+strings/`DependsOn` instead of cross-resource `Fn::GetAtt` in Properties,
+matching the wave-9 MemoryDB test's existing convention of a literal
+`SubnetGroupName` + `DependsOn` rather than `Fn::GetAtt`) rather than fixing
+the shared `resolve()` plumbing, which is out of this pass's scope but affects
+any resource type across any wave whose GetAtt attribute isn't its own
+physical ID.
+
+Skipped (ops missing or out of scope, not stubbed): `Route53Resolver::
+{FirewallConfig,ResolverDNSSECConfig,ResolverConfig}` -- no create/delete
+API exists in real AWS either (singleton per-VPC config mutated via
+Update/Put; CFN itself models Create as an initial Update call and Delete
+as a reset-to-default Update, which this backend has no clean way to
+distinguish from an ordinary property update without a dedicated "does this
+logical ID own the config" tracking layer). `AppSync::ApiCache` -- the
+Template Reference page has no "Return values" section at all (no Ref, no
+GetAtt documented for this type), so there's no doc basis for its Ref value
+even under the "use the primary identifier" fallback rule; `CreateAPICache`/
+`DeleteAPICache` exist and are real, so this is a candidate for a future
+pass once Ref is settled some other way. `AppSync::{Api,SourceApiAssociation,
+DomainNameApiAssociation}` -- would need the Event-API CreateAPI path
+(see ChannelNamespace above) wired up first. `CodeArtifact::Package` --
+CFN documents this type but the backend has `DeletePackage` with no
+corresponding `CreatePackage` (packages are created implicitly via publish,
+matching real AWS's own model where `AWS::CodeArtifact::Package` largely
+exists for `OriginConfiguration` on an already-published package, not for
+provisioning one from scratch) -- no-stub rule leaves this for a pass that
+adds package-version-aware create semantics. `CloudWatchLogs::AccountPolicy`
+-- backend has `PutResourcePolicy`/`DeleteResourcePolicy` but no
+account-scope-specific variant distinct from the existing (already-wired)
+`Logs::ResourcePolicy`'s resource-scope semantics.
+
+`resources_newer_types_test.go` (new): one table-driven
+`TestCreateStack_NewerTypes` (24 subtests, each `t.Parallel()`) driving a
+real CreateStack -> Fn::GetAtt -> DeleteStack -> backend-describe round trip
+per type through the real `aws-sdk-go-v2/service/cloudformation` client,
+asserting the backend object exists after create and is gone after delete.
 
 ### 2026-09-24 (parity-sweep, wave 9): AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster} -- 5 new resource types: 339 -> 344 supported types
 
