@@ -8,6 +8,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -46,6 +47,7 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
@@ -137,6 +139,8 @@ type BackendsProvider interface {
 	GetResilienceHubHandler() service.Registerable
 	GetServiceDiscoveryHandler() service.Registerable
 	GetAWSConfigHandler() service.Registerable
+	GetSageMakerHandler() service.Registerable
+	GetAthenaHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -179,6 +183,8 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.ServiceDiscovery, _ = getHandler[*servicediscoverybackend.Handler](bp.GetServiceDiscoveryHandler())
 	backends.CodeDeploy, _ = getHandler[*codedeploybackend.Handler](bp.GetCodeDeployHandler())
 	backends.AWSConfig, _ = getHandler[*awsconfigbackend.Handler](bp.GetAWSConfigHandler())
+	backends.SageMaker, _ = getHandler[*sagemakerbackend.Handler](bp.GetSageMakerHandler())
+	backends.Athena, _ = getHandler[*athenabackend.Handler](bp.GetAthenaHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

@@ -1450,7 +1450,13 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeIoTThingType, resTypeIoTThingGroup, resTypeIoTBillingGroup,
 			resTypeIoTDomainConfiguration, resTypeIoTFleetMetric, resTypeIoTMitigationAction,
 			resTypeConfigConfigRule, resTypeConfigConfigurationAggregator, resTypeConfigConformancePack,
-			resTypeConfigStoredQuery:
+			resTypeConfigStoredQuery,
+			resTypeSageMakerModel, resTypeSageMakerEndpointConfig, resTypeSageMakerEndpoint,
+			resTypeSageMakerNotebookInstance, resTypeSageMakerNotebookInstanceLifecycleConfig,
+			resTypeSageMakerCodeRepository, resTypeSageMakerDomain, resTypeSageMakerPipeline,
+			resTypeSageMakerModelPackageGroup, resTypeSageMakerFeatureGroup, resTypeSageMakerProject,
+			resTypeSageMakerWorkteam, resTypeSageMakerImage, resTypeSageMakerImageVersion,
+			resTypeAthenaNamedQuery, resTypeAthenaCapacityReservation:
 			return v
 		}
 	}

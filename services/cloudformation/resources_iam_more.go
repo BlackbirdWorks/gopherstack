@@ -71,6 +71,8 @@ func (rc *ResourceCreator) deleteMorePropsBasedResource(
 		return true, rc.deleteIAMUserPolicy(props, stackPhysicalIDs)
 	case resTypeGlueSchema:
 		return true, rc.deleteGlueSchema(props, stackPhysicalIDs)
+	case resTypeAthenaPreparedStatement:
+		return true, rc.deleteAthenaPreparedStatement(props, stackPhysicalIDs)
 	default:
 		return false, nil
 	}

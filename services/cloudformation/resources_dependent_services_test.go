@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -24,6 +25,7 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -62,6 +64,8 @@ func newDependentServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
 	b.Pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.EMR = emrbackend.NewHandler(emrbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.AWSConfig = awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackendWithMeta("000000000000", "us-east-1"))
+	b.SageMaker = sagemakerbackend.NewHandler(sagemakerbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.Athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend("us-east-1", "000000000000"))
 
 	return b
 }

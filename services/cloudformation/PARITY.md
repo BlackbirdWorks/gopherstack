@@ -1,7 +1,18 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 0af53d7f0  # 2026-09-24 28 new resource types added: IAM GroupPolicy/
+last_audit_commit: 390f9687e  # 2026-09-24 20 new resource types added: SageMaker Model/
+                               # EndpointConfig/Endpoint/NotebookInstance/
+                               # NotebookInstanceLifecycleConfig/CodeRepository/Domain/
+                               # Pipeline/ModelPackageGroup/FeatureGroup/Project/Workteam/
+                               # Image/ImageVersion (14 types); Athena WorkGroup/DataCatalog/
+                               # NamedQuery/PreparedStatement/CapacityReservation (5 types);
+                               # WAFv2 WebACLAssociation (1 type) (319 -> 339 supported
+                               # types); SageMaker and Athena newly wired into the
+                               # CloudFormation backend (GetSageMakerHandler/GetAthenaHandler
+                               # added to BackendsProvider/ServiceBackends -- cli.go already
+                               # implemented both methods for the generic backend registry,
+                               # so no cli.go change was needed); prior: 0af53d7f0  # 2026-09-24 28 new resource types added: IAM GroupPolicy/
                                # RolePolicy/UserPolicy/ServerCertificate, ECR
                                # PullThroughCacheRule/RegistryPolicy/RepositoryCreationTemplate,
                                # ElastiCache ParameterGroup/SecurityGroup/GlobalReplicationGroup/
@@ -37,7 +48,7 @@ last_audit_commit: 0af53d7f0  # 2026-09-24 28 new resource types added: IAM Grou
                                # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
                                # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
                                # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
-last_audit_date: 2026-09-24  # prior: 2026-09-24 (25-type IoT/Config pass earlier same day)
+last_audit_date: 2026-09-24  # prior: 2026-09-24 (28-type IAM/ECR/ElastiCache/Neptune/DocDB/Backup/Glue/CodeBuild/Kinesis/Lambda pass earlier same day)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -170,10 +181,91 @@ items_still_open:
   - "RollbackStack is a status-only stub (flips StackStatus, replays nothing) and drops RoleARN/RetainExceptOnCreate both — same missing rollback machinery as the UpdateStack line above (gopherstack-xhu2t; re-verified 2026-09-18)"
   - "ListResourceScanRelatedResources ignores MaxResults/NextToken and always returns an empty list — this backend computes no cross-resource relationship graph for a scan, so there's nothing to paginate over (gopherstack-xhu2t; re-verified 2026-09-18)"
   - "ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped — no multi-version type catalog exists for them to gate (RegisterType stores one version per type, ActivateType hardcodes VersionID \"00000001\"; same class as SetTypeConfiguration above) (gopherstack-xhu2t; re-verified 2026-09-18)"
+  - "AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster} remain unwired: memorydb.StorageBackend's Create{ParameterGroup,SubnetGroup,User,ACL,Cluster} all take an unexported *memorydb.createXRequest struct type (models_parameter_groups.go et al.), which services/cloudformation cannot name or construct from outside the memorydb package — a structural blocker, not a scope choice (the AddXInternal seeding helpers exist but bypass real parameter validation and would be a disguised stub, not a real create). Fixing this needs an exported request/options type added to services/memorydb itself, out of this pass's services/cloudformation-only scope (2026-09-24)"
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep, wave 8) 20 new resource types: 319 -> 339 supported types
+
+Wired AWS::SageMaker and AWS::Athena into the CloudFormation backend for the first time
+(GetSageMakerHandler/GetAthenaHandler added to BackendsProvider in provider.go and to
+ServiceBackends/extractAllServiceBackends; cli.go already implemented both methods for the
+generic backend registry from an earlier, unrelated pass, so no cli.go edit was needed).
+
+Added AWS::SageMaker::{Model,EndpointConfig,Endpoint,NotebookInstance,
+NotebookInstanceLifecycleConfig,CodeRepository,Domain,Pipeline,ModelPackageGroup,
+FeatureGroup,Project,Workteam,Image,ImageVersion} (14 types); AWS::Athena::{WorkGroup,
+DataCatalog,NamedQuery,PreparedStatement,CapacityReservation} (5 types); and
+AWS::WAFv2::WebACLAssociation (1 type, against the WAFv2 backend already wired into
+ServiceBackends) -- 20 types total. New files resources_sagemaker.go, resources_athena.go,
+resources_wafv2_association.go; SageMaker/Athena added to ServiceBackends and to
+resolveGetAtt's stashed-attribute type gate (template.go) for every type whose Ref is an
+ARN/ID but which also exposes a documented GetAtt attribute derived from a sibling property
+(e.g. Model's Ref is ModelArn but ModelName is also a GetAtt). Test helper
+newDependentServiceBackends (resources_dependent_services_test.go) now constructs real
+SageMaker/Athena backends for every test built on it.
+
+Every Ref/Fn::GetAtt was checked against the CloudFormation Template Reference's "Return
+values" section (curl + tag-stripped read) and, for the composite/undocumented cases, cross-
+checked against the CloudFormation Registry resource schema's `primaryIdentifier` (from
+github.com/aws-cloudformation/aws-cloudformation-resource-providers-sagemaker, fetched live).
+Several SageMaker types document Ref as the resource's ARN while the backend's own Delete
+methods are name-keyed (Model, EndpointConfig, Endpoint, NotebookInstance,
+NotebookInstanceLifecycleConfig, CodeRepository, ModelPackageGroup, Project, Image) -- same
+class as AWS::Backup::Framework's existing precedent (see the 291->319 entry below): the
+trailing path segment is extracted from the ARN at delete time (sagemakerNameFromARN).
+ImageVersion's ARN embeds both the parent image name and the version number
+(.../image-version/<name>/<version>), extracted the same way (sagemakerImageVersionFromARN)
+rather than via a sibling property. AWS::SageMaker::Workteam's Template Reference page has no
+Ref subsection at all (only Fn::GetAtt Id/WorkteamName, both the work team's own name) --
+WorkteamName, this backend's own primary key, is used as the fallback per this task's rule for
+undocumented Ref. AWS::Athena::NamedQuery's page text ("Ref returns the resource name") cannot
+be this type's real identifier: NamedQuery is backend- and real-AWS-keyed by a generated
+NamedQueryId (CreateNamedQuery returns the ID, not the name; GetNamedQuery/DeleteNamedQuery
+are ID-only, with no name-keyed lookup at all), and GetAtt NamedQueryId is documented as a
+*separate* attribute from Ref -- the same "docs text doesn't match this type's own identifier
+model" class already logged for AWS::Glue::Registry and AWS::ECR::RegistryPolicy in the
+291->319 entry below. The generated ID is used as Ref/physical ID instead; Name is stashed as
+a GetAtt-style attribute. AWS::WAFv2::WebACLAssociation's page documents Ref as
+"name|id|scope" -- verified against the CloudFormation registry schema
+(aws-cloudformation-resource-providers-wafv2) to be a copy/paste artifact from
+AWS::WAFv2::WebACL's own Ref format: WebACLAssociation's only properties are
+ResourceArn/WebACLArn (both required, createOnly, and the schema's actual
+`primaryIdentifier`), so ResourceArn|WebACLArn (pipe-joined, matching CloudFormation's own
+composite-key convention) is used instead. AWS::Athena::CapacityReservation and
+AWS::SageMaker::NotebookInstance both need a state transition before their real delete call
+will succeed (DeleteCapacityReservation requires CANCELLED/CANCELLING;
+DeleteNotebookInstance requires Stopped) -- stack teardown now calls
+CancelCapacityReservation / StopNotebookInstance (the synchronous, unconditional variants,
+not the InService-only/async FSM ones) immediately before the real delete, mirroring how a
+real deploy tool (e.g. the Terraform AWS provider) sequences these deletes.
+
+Delete for AWS::Athena::PreparedStatement needs the sibling WorkGroup property (the backend
+key is workGroup+"/"+name, not name alone), so it is wired through the existing
+deleteMorePropsBasedResource props-based-delete dispatcher (resources_iam_more.go), the same
+pattern AWS::Config::StoredQuery already used.
+
+Skipped: the AWS::MemoryDB::* family (ParameterGroup/SubnetGroup/User/ACL/Cluster) -- the
+memorydb.StorageBackend interface's Create* methods all take an *unexported*
+`*memorydb.createXRequest` struct type, which services/cloudformation cannot name or
+construct from outside the memorydb package (a real Go visibility blocker, not a scope
+choice); see items_still_open for the exact methods and the fix this needs. This is a
+correction to the previous pass's Notes entry below, which listed MemoryDB as merely
+deferred for scope reasons -- it is not accessible at all without a services/memorydb change,
+which was out of this pass's services/cloudformation-only mandate. AWS::SageMaker::App and
+AWS::SageMaker::UserProfile were also considered and skipped: both have composite
+primaryIdentifiers (App: AppName|AppType|DomainId|UserProfileName; UserProfile:
+UserProfileName|DomainId, both confirmed via the CloudFormation registry schema) that would
+need cross-resource Fn::GetAtt wiring to compose correctly in a template, and this pass found
+(while debugging test failures) that Fn::GetAtt resolution used to link one resource's
+Properties to a sibling resource created earlier in the same stack does not go through
+resolveGetAtt's type-gated physicalIDs stash the way Fn::GetAtt in a stack's Outputs does
+(ctx.resourceTypes is empty at that resolution point) -- a pre-existing template.go limitation
+unrelated to any of this pass's new types, out of scope to fix here, and not exercised by any
+of the 20 types actually added (none of their test templates depend on cross-resource
+Fn::GetAtt during creation).
 
 ### 2026-09-24 (parity-sweep) 28 new resource types: 291 -> 319 supported types
 

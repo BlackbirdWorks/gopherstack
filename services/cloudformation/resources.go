@@ -17,6 +17,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -55,6 +56,7 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
@@ -144,6 +146,8 @@ type ServiceBackends struct {
 	ServiceDiscovery *servicediscoverybackend.Handler
 	CodeDeploy       *codedeploybackend.Handler
 	AWSConfig        *awsconfigbackend.Handler
+	SageMaker        *sagemakerbackend.Handler
+	Athena           *athenabackend.Handler
 	AccountID        string
 	Region           string
 }
@@ -2038,6 +2042,21 @@ func (rc *ResourceCreator) createMoreSupplementalResource(
 	); ok {
 		return id, true, err
 	}
+	if id, ok, err := rc.createSageMakerResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createAthenaResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createWAFv2AssociationResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
 
 	return "", false, nil
 }
@@ -2121,6 +2140,15 @@ func (rc *ResourceCreator) deleteMoreSupplementalResource(
 		return true, err
 	}
 	if handled, err := rc.deleteMiscMoreResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteSageMakerResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteAthenaResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteWAFv2AssociationResource(ctx, resourceType, physicalID); handled {
 		return true, err
 	}
 
