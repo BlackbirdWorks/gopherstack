@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: grafana
 sdk_module: aws-sdk-go-v2/service/grafana@v1.38.4
-last_audit_commit: 44bff591b   # 2026-09-19 over-wide-response sweep (this pass); prior: e75a8cecd   # HEAD at this audit pass; diff from here forward
-last_audit_date: 2026-09-19  # prior: 2026-08-20 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListPermissions/ListWorkspaceServiceAccountTokens/ListWorkspaceServiceAccounts/ListWorkspaces member-by-member against grafana@v1.38.4
+last_audit_commit: 5c20d9fd7   # 2026-09-24 mega-batch-49 pass; prior: 44bff591b
+last_audit_date: 2026-09-24  # prior: 2026-09-19
 # Grade A: this pass added the integration suite that is the only accepted parity proof
 # (.claude/memories/parity-principles.md rule 3 -- test/integration/grafana_test.go, driving
 # every operation through a real aws-sdk-go-v2 client against a live container) and closed
@@ -406,3 +406,15 @@ All four flagged List ops (ListPermissions/ListWorkspaceServiceAccountTokens/
 ListWorkspaceServiceAccounts/ListWorkspaces) already emit exactly their real
 Summary/Entry shape, verified via cmd/structfielddiff against
 grafana@v1.38.4. No leaks, no gaps, no code change.
+
+## 2026-09-24 (mega-batch-49): SAML config AssertionAttributes/RoleValues always present
+
+FIXED: `toSamlConfigWire` omitted `assertionAttributes`/`roleValues` entirely
+when unset; terraform-provider-aws's `resourceWorkspaceSAMLConfigurationRead`
+dereferences `saml.Configuration.AssertionAttributes.Email` and
+`.RoleValues.Admin` with no nil check, so a real client's first
+`aws_grafana_workspace_saml_configuration` apply panicked the provider.
+Both are now always emitted (empty-valued when unset), matching how a real
+client's crash-free read implies the real API never omits them either.
+Coverage added for license_association/workspace_saml_configuration/
+workspace_service_account/workspace_service_account_token.
