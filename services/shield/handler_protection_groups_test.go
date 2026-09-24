@@ -52,7 +52,7 @@ func TestHandler_CreateProtectionGroup(t *testing.T) {
 			name: "duplicate group",
 			setup: func(h *shield.Handler) {
 				require.NoError(t, h.Backend.CreateSubscription())
-				_, err := h.Backend.CreateProtectionGroup("group-dup", "MAX", "ALL", "", nil)
+				_, err := h.Backend.CreateProtectionGroup("group-dup", "MAX", "ALL", "", nil, nil)
 				require.NoError(t, err)
 			},
 			body: map[string]any{
@@ -117,7 +117,7 @@ func TestHandler_DeleteProtectionGroup(t *testing.T) {
 			name: "success",
 			setup: func(h *shield.Handler) string {
 				require.NoError(t, h.Backend.CreateSubscription())
-				_, err := h.Backend.CreateProtectionGroup("group-1", "MAX", "ALL", "", nil)
+				_, err := h.Backend.CreateProtectionGroup("group-1", "MAX", "ALL", "", nil, nil)
 				require.NoError(t, err)
 
 				return "group-1"
@@ -170,7 +170,7 @@ func TestHandler_ListProtectionGroupsOpaquePageToken(t *testing.T) {
 	for i := range 5 {
 		_, err := b.CreateProtectionGroup(
 			"group-"+string(rune('a'+i)),
-			"SUM", "ALL", "", nil,
+			"SUM", "ALL", "", nil, nil,
 		)
 		require.NoError(t, err)
 	}
@@ -202,7 +202,7 @@ func TestHandler_ListProtectionGroupsPagination(t *testing.T) {
 			shield.AggregationSum,
 			shield.PatternAll,
 			"",
-			nil,
+			nil, nil,
 		)
 		require.NoError(t, err)
 	}
@@ -238,7 +238,7 @@ func TestHandler_ListProtectionGroupsDefaultMaxResults(t *testing.T) {
 			shield.AggregationSum,
 			shield.PatternAll,
 			"",
-			nil,
+			nil, nil,
 		)
 		require.NoError(t, err)
 	}
@@ -262,14 +262,14 @@ func TestHandler_ListProtectionGroupsInclusionFilterByPattern(t *testing.T) {
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
 
-	_, err := b.CreateProtectionGroup("grp-all", shield.AggregationSum, shield.PatternAll, "", nil)
+	_, err := b.CreateProtectionGroup("grp-all", shield.AggregationSum, shield.PatternAll, "", nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateProtectionGroup(
 		"grp-arb",
 		shield.AggregationMax,
 		shield.PatternArbitrary,
 		"",
-		[]string{eipARN("1")},
+		[]string{eipARN("1")}, nil,
 	)
 	require.NoError(t, err)
 
@@ -298,9 +298,9 @@ func TestHandler_ListProtectionGroupsInclusionFilterByAggregation(t *testing.T) 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
 
-	_, err := b.CreateProtectionGroup("grp-sum", shield.AggregationSum, shield.PatternAll, "", nil)
+	_, err := b.CreateProtectionGroup("grp-sum", shield.AggregationSum, shield.PatternAll, "", nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateProtectionGroup("grp-max", shield.AggregationMax, shield.PatternAll, "", nil)
+	_, err = b.CreateProtectionGroup("grp-max", shield.AggregationMax, shield.PatternAll, "", nil, nil)
 	require.NoError(t, err)
 
 	h := shield.NewHandler(b)
@@ -335,7 +335,7 @@ func TestHandler_ListResourcesInProtectionGroupPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err := b.CreateProtectionGroup("grp-all", shield.AggregationSum, shield.PatternAll, "", nil)
+	_, err := b.CreateProtectionGroup("grp-all", shield.AggregationSum, shield.PatternAll, "", nil, nil)
 	require.NoError(t, err)
 
 	h := shield.NewHandler(b)

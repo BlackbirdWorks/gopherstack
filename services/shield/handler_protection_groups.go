@@ -3,15 +3,18 @@ package shield
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // createProtectionGroupRequest is the request body for CreateProtectionGroup.
 type createProtectionGroupRequest struct {
-	ProtectionGroupID string   `json:"ProtectionGroupId"`
-	Aggregation       string   `json:"Aggregation"`
-	Pattern           string   `json:"Pattern"`
-	ResourceType      string   `json:"ResourceType"`
-	Members           []string `json:"Members"`
+	ProtectionGroupID string    `json:"ProtectionGroupId"`
+	Aggregation       string    `json:"Aggregation"`
+	Pattern           string    `json:"Pattern"`
+	ResourceType      string    `json:"ResourceType"`
+	Members           []string  `json:"Members"`
+	Tags              []tags.KV `json:"Tags"`
 }
 
 func (h *Handler) handleCreateProtectionGroup(body []byte) error {
@@ -34,6 +37,7 @@ func (h *Handler) handleCreateProtectionGroup(body []byte) error {
 
 	_, err := h.Backend.CreateProtectionGroup(
 		req.ProtectionGroupID, req.Aggregation, req.Pattern, req.ResourceType, req.Members,
+		tags.MapFromKV(req.Tags),
 	)
 
 	return err

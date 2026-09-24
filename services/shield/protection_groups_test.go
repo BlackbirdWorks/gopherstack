@@ -17,7 +17,7 @@ func TestInMemoryBackend_ListProtectionGroupsSortOutsideLock(t *testing.T) {
 	b.AddSubscriptionInternal()
 
 	for i := range 10 {
-		_, err := b.CreateProtectionGroup("grp-"+string(rune('a'+i)), "SUM", "ALL", "", nil)
+		_, err := b.CreateProtectionGroup("grp-"+string(rune('a'+i)), "SUM", "ALL", "", nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -95,7 +95,7 @@ func TestBackend_CreateDeleteProtectionGroup(t *testing.T) {
 			b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b.CreateSubscription())
 
-			pg, err := b.CreateProtectionGroup(tt.groupID, tt.aggregation, tt.pattern, tt.resourceType, tt.members)
+			pg, err := b.CreateProtectionGroup(tt.groupID, tt.aggregation, tt.pattern, tt.resourceType, tt.members, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -134,7 +134,7 @@ func TestInMemoryBackend_ListResourcesByResourceType(t *testing.T) {
 		shield.AggregationMax,
 		shield.PatternByResourceType,
 		"ELASTIC_IP_ALLOCATION",
-		nil,
+		nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -301,7 +301,7 @@ func TestInMemoryBackend_ValidAggregationConstants(t *testing.T) {
 	require.NoError(t, b.CreateSubscription())
 
 	for _, agg := range []string{shield.AggregationSum, shield.AggregationMean, shield.AggregationMax} {
-		_, err := b.CreateProtectionGroup(agg+"-grp", agg, shield.PatternAll, "", nil)
+		_, err := b.CreateProtectionGroup(agg+"-grp", agg, shield.PatternAll, "", nil, nil)
 		require.NoError(t, err, "aggregation %q should be valid", agg)
 	}
 }
@@ -313,7 +313,7 @@ func TestInMemoryBackend_InvalidAggregation(t *testing.T) {
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
 
-	_, err := b.CreateProtectionGroup("grp", "INVALID", shield.PatternAll, "", nil)
+	_, err := b.CreateProtectionGroup("grp", "INVALID", shield.PatternAll, "", nil, nil)
 	require.Error(t, err)
 }
 
@@ -324,7 +324,7 @@ func TestInMemoryBackend_PatternArbitraryRequiresMembers(t *testing.T) {
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
 
-	_, err := b.CreateProtectionGroup("grp", shield.AggregationMax, shield.PatternArbitrary, "", nil)
+	_, err := b.CreateProtectionGroup("grp", shield.AggregationMax, shield.PatternArbitrary, "", nil, nil)
 	require.Error(t, err)
 }
 
@@ -335,7 +335,7 @@ func TestInMemoryBackend_PatternByResourceTypeRequiresResourceType(t *testing.T)
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
 
-	_, err := b.CreateProtectionGroup("grp", shield.AggregationMax, shield.PatternByResourceType, "", nil)
+	_, err := b.CreateProtectionGroup("grp", shield.AggregationMax, shield.PatternByResourceType, "", nil, nil)
 	require.Error(t, err)
 }
 

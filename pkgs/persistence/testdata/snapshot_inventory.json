@@ -26090,6 +26090,7 @@
       "ProtectionGroup.Pattern string `json:\"pattern\"`",
       "ProtectionGroup.ProtectionGroupArn string `json:\"protectionGroupArn\"`",
       "ProtectionGroup.ResourceType string `json:\"resourceType,omitempty\"`",
+      "ProtectionGroup.Tags map[string]string `json:\"tags,omitempty\"`",
       "Subscription.AutoRenew string `json:\"autoRenew\"`",
       "Subscription.EndTime time.Time `json:\"endTime\"`",
       "Subscription.StartTime time.Time `json:\"startTime\"`",

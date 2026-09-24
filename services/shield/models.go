@@ -88,13 +88,14 @@ type DRTAccess struct {
 
 // ProtectionGroup represents a Shield Advanced protection group.
 type ProtectionGroup struct {
-	CreationTime       time.Time `json:"creationTime"`
-	ID                 string    `json:"id"`
-	ProtectionGroupArn string    `json:"protectionGroupArn"`
-	Aggregation        string    `json:"aggregation"`
-	Pattern            string    `json:"pattern"`
-	ResourceType       string    `json:"resourceType,omitempty"`
-	Members            []string  `json:"members"`
+	CreationTime       time.Time         `json:"creationTime"`
+	Tags               map[string]string `json:"tags,omitempty"`
+	ID                 string            `json:"id"`
+	ProtectionGroupArn string            `json:"protectionGroupArn"`
+	Aggregation        string            `json:"aggregation"`
+	Pattern            string            `json:"pattern"`
+	ResourceType       string            `json:"resourceType,omitempty"`
+	Members            []string          `json:"members"`
 }
 
 // cloneProtectionGroup returns a deep copy of a ProtectionGroup.
@@ -104,6 +105,8 @@ func cloneProtectionGroup(pg *ProtectionGroup) *ProtectionGroup {
 	if pg.Members != nil {
 		cp.Members = append([]string(nil), pg.Members...)
 	}
+
+	cp.Tags = maps.Clone(pg.Tags)
 
 	return &cp
 }
