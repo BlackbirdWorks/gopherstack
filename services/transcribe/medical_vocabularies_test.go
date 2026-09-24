@@ -129,6 +129,43 @@ func TestHTTP_MedicalVocabularyEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusOK, delRec.Code)
 }
 
+// TestGetMedicalVocabulary_NotFound verifies a missing vocabulary reports BadRequestException (400),
+// not NotFoundException (404): terraform's delete waiter only treats BadRequestException as "gone".
+func TestGetMedicalVocabulary_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		vocabularyName string
+	}{
+		{name: "never_existed", vocabularyName: "no-such-med-vocab"},
+		{name: "deleted", vocabularyName: "deleted-med-vocab"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newHandlerWithBackend(t)
+
+			if tt.name == "deleted" {
+				_, err := b.CreateMedicalVocabulary(tt.vocabularyName, "en-US", "s3://bucket/f.txt", nil)
+				require.NoError(t, err)
+				require.NoError(t, b.DeleteMedicalVocabulary(tt.vocabularyName))
+			}
+
+			rec := doTranscribeRequest(t, h, "GetMedicalVocabulary", map[string]any{
+				"VocabularyName": tt.vocabularyName,
+			})
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "BadRequestException", body["__type"])
+		})
+	}
+}
+
 // TestListMedicalVocabularies_NameContains verifies the NameContains filter
 // (case-insensitive substring match), per the real ListMedicalVocabulariesInput field.
 func TestListMedicalVocabularies_NameContains(t *testing.T) {
