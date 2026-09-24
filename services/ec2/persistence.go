@@ -30,6 +30,7 @@ type backendSnapshot struct {
 	IpamPoolCidrs                  map[string][]*IpamPoolCidr                  `json:"ipamPoolCidrs,omitempty"`
 	IpamPrefixListResolverVersions map[string][]int64                          `json:"ipamPLRVersions,omitempty"`
 	VpcCidrAssociations            map[string]*VpcCidrBlockAssociation         `json:"vpcCidrAssociations"`
+	VpcIpv6CidrAssociations        map[string]*VpcIpv6CidrBlockAssociation     `json:"vpcIpv6CidrAssociations,omitempty"`
 	SpotFleetHistory               map[string][]SpotFleetHistoryRecord         `json:"spotFleetHistory"`
 	FleetHistory                   map[string][]FleetHistoryRecord             `json:"fleetHistory,omitempty"`
 	SnapshotTiers                  map[string]string                           `json:"snapshotTiers,omitempty"`
@@ -116,6 +117,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextPrivateIPIndex:             b.nextPrivateIPIndex,
 		NextElasticIPIndex:             b.nextElasticIPIndex,
 		VpcCidrAssociations:            b.vpcCidrAssociations,
+		VpcIpv6CidrAssociations:        b.vpcIpv6CidrAssociations,
 		SpotFleetHistory:               b.spotFleetHistory,
 		FleetHistory:                   b.fleetHistory,
 		SnapshotTiers:                  b.snapshotTiers,
@@ -241,6 +243,7 @@ func restoreMapField[K comparable, V any](dst *map[K]V, src map[K]V) {
 // for writing.
 func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.vpcCidrAssociations, snap.VpcCidrAssociations)
+	restoreMapField(&b.vpcIpv6CidrAssociations, snap.VpcIpv6CidrAssociations)
 	restoreMapField(&b.spotFleetHistory, snap.SpotFleetHistory)
 	restoreMapField(&b.fleetHistory, snap.FleetHistory)
 	restoreMapField(&b.snapshotTiers, snap.SnapshotTiers)

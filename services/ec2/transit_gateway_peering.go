@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -39,6 +40,12 @@ func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
 }
 
 // DeleteTransitGatewayPeeringAttachment removes a TGW peering attachment.
+// DeleteTransitGatewayPeeringAttachment removes a TGW peering attachment,
+// keeping a tombstone in state "deleted" so a subsequent by-ID Describe
+// still finds it (real AWS keeps a deleted attachment describable for a
+// period; terraform-provider-aws's delete waiter polls by ID and treats a
+// NotFound response as a fatal error instead of "done" -- see
+// nat_gateways.go's DeleteNatGateway for the same pattern).
 func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) (*TransitGatewayPeeringAttachment, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
@@ -55,26 +62,31 @@ func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) (*Tra
 	b.tgwPeeringAttachments.Delete(id)
 	delete(b.tags, id)
 
+	tombstone := cp
+	tombstone.State = tgwRouteStateDeleted
+	b.tgwPeeringAttachmentTombstones[id] = &tombstone
+
 	return &cp, nil
 }
 
 // DescribeTransitGatewayPeeringAttachments returns TGW peering attachments.
+// When ids are provided, a tombstone is returned for any of them that was
+// recently deleted (see DeleteTransitGatewayPeeringAttachment); an
+// unfiltered Describe never surfaces tombstones, matching real AWS's
+// list-vs-get behavior.
 func (b *InMemoryBackend) DescribeTransitGatewayPeeringAttachments(
 	ids []string,
 ) []*TransitGatewayPeeringAttachment {
 	b.mu.RLock("DescribeTransitGatewayPeeringAttachments")
 	defer b.mu.RUnlock()
 
-	filter := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		filter[id] = true
+	if len(ids) > 0 {
+		return describeWithTombstones(b.tgwPeeringAttachments.All(), b.tgwPeeringAttachmentTombstones, ids,
+			func(a *TransitGatewayPeeringAttachment) string { return a.TransitGatewayAttachmentID })
 	}
 
-	var out []*TransitGatewayPeeringAttachment
+	out := make([]*TransitGatewayPeeringAttachment, 0, b.tgwPeeringAttachments.Len())
 	for _, att := range b.tgwPeeringAttachments.All() {
-		if len(filter) > 0 && !filter[att.TransitGatewayAttachmentID] {
-			continue
-		}
 		cp := *att
 		out = append(out, &cp)
 	}
@@ -107,6 +119,8 @@ func (b *InMemoryBackend) CreateTransitGatewayConnect(
 		TransportTransitGatewayAttachmentID: transportAttachmentID,
 		TransitGatewayID:                    transitGatewayID,
 		State:                               stateAvailable,
+		Protocol:                            "gre",
+		CreationTime:                        time.Now().UTC(),
 	}
 	b.tgwConnects.Put(conn)
 

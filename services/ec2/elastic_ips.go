@@ -163,6 +163,7 @@ func (b *InMemoryBackend) DescribeAddressesAttribute(allocationIDs []string) []A
 		}
 		if stored, ok := b.addressAttributes.Get(addr.AllocationID); ok {
 			attr.DomainName = stored.DomainName
+			attr.PtrRecordUpdated = stored.PtrRecordUpdated
 		}
 		out = append(out, attr)
 	}
@@ -185,9 +186,10 @@ func (b *InMemoryBackend) ModifyAddressAttribute(allocationID, domainName string
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
 	b.addressAttributes.Put(&AddressAttribute{
-		AllocationID: allocationID,
-		PublicIP:     addr.PublicIP,
-		DomainName:   domainName,
+		AllocationID:     allocationID,
+		PublicIP:         addr.PublicIP,
+		DomainName:       domainName,
+		PtrRecordUpdated: true,
 	})
 
 	return nil
@@ -206,7 +208,15 @@ func (b *InMemoryBackend) ResetAddressAttribute(allocationID string) (*Address, 
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
-	b.addressAttributes.Delete(allocationID)
+	// Keep a (domain-less) attribute record rather than deleting it outright:
+	// aws_eip_domain_name's create/delete waiters poll DescribeAddressesAttribute
+	// for an empty PtrRecordUpdate.Status, and an absent record left the wire
+	// response with no ptrRecordUpdate element at all.
+	b.addressAttributes.Put(&AddressAttribute{
+		AllocationID:     allocationID,
+		PublicIP:         addr.PublicIP,
+		PtrRecordUpdated: true,
+	})
 
 	cp := *addr
 

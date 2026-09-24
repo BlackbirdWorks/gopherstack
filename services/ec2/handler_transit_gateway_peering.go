@@ -21,11 +21,17 @@ type describeTransitGatewayPeeringAttachmentsResponse struct {
 }
 
 type tgwConnectItem struct {
-	TransitGatewayAttachmentID          string          `xml:"transitGatewayAttachmentId"`
-	TransportTransitGatewayAttachmentID string          `xml:"transportTransitGatewayAttachmentId"`
-	TransitGatewayID                    string          `xml:"transitGatewayId"`
-	State                               string          `xml:"state"`
-	TagSet                              []simpleTagItem `xml:"tagSet>item"`
+	CreationTime                        string                 `xml:"creationTime,omitempty"`
+	TransitGatewayAttachmentID          string                 `xml:"transitGatewayAttachmentId"`
+	TransportTransitGatewayAttachmentID string                 `xml:"transportTransitGatewayAttachmentId"`
+	TransitGatewayID                    string                 `xml:"transitGatewayId"`
+	State                               string                 `xml:"state"`
+	Options                             *tgwConnectOptionsItem `xml:"options,omitempty"`
+	TagSet                              []simpleTagItem        `xml:"tagSet>item"`
+}
+
+type tgwConnectOptionsItem struct {
+	Protocol string `xml:"protocol,omitempty"`
 }
 
 type createTransitGatewayConnectResponse struct {
@@ -254,13 +260,21 @@ func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
 // ---- TGW Connect handlers ----
 
 func toTGWConnectItem(conn *TransitGatewayConnect, tags map[string]string) tgwConnectItem {
-	return tgwConnectItem{
+	item := tgwConnectItem{
 		TransitGatewayAttachmentID:          conn.TransitGatewayAttachmentID,
 		TransportTransitGatewayAttachmentID: conn.TransportTransitGatewayAttachmentID,
 		TransitGatewayID:                    conn.TransitGatewayID,
 		State:                               conn.State,
 		TagSet:                              tagItemsFromMap(tags),
 	}
+	if conn.Protocol != "" {
+		item.Options = &tgwConnectOptionsItem{Protocol: conn.Protocol}
+	}
+	if !conn.CreationTime.IsZero() {
+		item.CreationTime = conn.CreationTime.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleCreateTransitGatewayConnect(vals url.Values, reqID string) (any, error) {

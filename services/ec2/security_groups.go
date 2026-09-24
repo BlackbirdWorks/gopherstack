@@ -520,6 +520,57 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(
 	return out, nil
 }
 
+// securityGroupIDFromRuleID extracts the owning security group ID from a
+// "sgr-<groupID>-{in,out}-<index>" rule ID without needing to already know
+// the group. Security group IDs are lowercase hex ("sg-" + [0-9a-f]+), which
+// never contains the letters i/n/o/u/t, so the last "-in-"/"-out-" occurrence
+// unambiguously marks the split point.
+func securityGroupIDFromRuleID(ruleID string) (string, bool) {
+	rest, ok := strings.CutPrefix(ruleID, "sgr-")
+	if !ok {
+		return "", false
+	}
+
+	if idx := strings.LastIndex(rest, "-in-"); idx >= 0 {
+		return rest[:idx], true
+	}
+
+	if idx := strings.LastIndex(rest, "-out-"); idx >= 0 {
+		return rest[:idx], true
+	}
+
+	return "", false
+}
+
+// DescribeSecurityGroupRulesByIDs returns the security group rules matching
+// ruleIDs, looking up each rule's owning group from its ID
+// (DescribeSecurityGroupRules requires a GroupId, but
+// aws_vpc_security_group_ingress_rule/egress_rule read back by
+// SecurityGroupRuleId alone).
+func (b *InMemoryBackend) DescribeSecurityGroupRulesByIDs(ruleIDs []string) ([]*SecurityGroupRuleDetail, error) {
+	var out []*SecurityGroupRuleDetail
+
+	for _, ruleID := range ruleIDs {
+		groupID, ok := securityGroupIDFromRuleID(ruleID)
+		if !ok {
+			continue
+		}
+
+		groupRules, err := b.DescribeSecurityGroupRules(groupID)
+		if err != nil {
+			continue
+		}
+
+		for _, r := range groupRules {
+			if r.SecurityGroupRuleID == ruleID {
+				out = append(out, r)
+			}
+		}
+	}
+
+	return out, nil
+}
+
 // ModifySecurityGroupRules updates one or more rules (by position index) within a security group.
 // Only protocol, IPRange, and port range can be mutated; egress/ingress direction is immutable.
 // parseSecurityGroupRuleID decodes the deterministic "sgr-<groupID>-{in,out}-<index>"

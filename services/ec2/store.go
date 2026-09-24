@@ -98,6 +98,11 @@ const (
 	// capacity reservations, and spot instance requests.
 	stateActive = "active"
 
+	// instanceConnectEndpointStateCreateComplete matches
+	// types.Ec2InstanceConnectEndpointStateCreateComplete (ec2@v1.329.0
+	// types/enums.go): a distinct state set from stateActive above.
+	instanceConnectEndpointStateCreateComplete = "create-complete"
+
 	// lifecycleReconcileInterval is how often the reconciler advances transitional instance states.
 	lifecycleReconcileInterval = 50 * time.Millisecond
 
@@ -361,6 +366,7 @@ type InMemoryBackend struct {
 	tgwPolicyTableEntries               *store.Table[TransitGatewayPolicyTableEntry]
 	tgwRouteTableAnnouncements          *store.Table[TransitGatewayRouteTableAnnouncement]
 	vpcCidrAssociations                 map[string]*VpcCidrBlockAssociation
+	vpcIpv6CidrAssociations             map[string]*VpcIpv6CidrBlockAssociation
 	vpnGateways                         *store.Table[VpnGateway]
 	customerGateways                    *store.Table[CustomerGateway]
 	vpnConnections                      *store.Table[VpnConnection]
@@ -405,14 +411,20 @@ type InMemoryBackend struct {
 	// tgwVpcAttachmentTombstones is the same tombstone pattern as
 	// tgwRouteTableTombstones, for TGW VPC attachment delete waiters.
 	tgwVpcAttachmentTombstones map[string]*TransitGatewayVpcAttachment
-	subnetCIDRAssociations     map[string][]*SubnetCIDRAssociation
-	addressAttributes          *store.Table[AddressAttribute]
-	instanceCreditSpecs        map[string]string
-	instanceMetadataDefaults   *InstanceMetadataDefaults
-	instanceEventNotifAttrs    *InstanceEventNotificationAttributes
-	niPermissions              *store.Table[NetworkInterfacePermission]
-	niIPv6Addresses            map[string][]string
-	idFormatSettings           map[string]bool
+	// natGatewayTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for DeleteNatGateway's delete waiter.
+	natGatewayTombstones map[string]*NatGateway
+	// tgwPeeringAttachmentTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for DeleteTransitGatewayPeeringAttachment's delete waiter.
+	tgwPeeringAttachmentTombstones map[string]*TransitGatewayPeeringAttachment
+	subnetCIDRAssociations         map[string][]*SubnetCIDRAssociation
+	addressAttributes              *store.Table[AddressAttribute]
+	instanceCreditSpecs            map[string]string
+	instanceMetadataDefaults       *InstanceMetadataDefaults
+	instanceEventNotifAttrs        *InstanceEventNotificationAttributes
+	niPermissions                  *store.Table[NetworkInterfacePermission]
+	niIPv6Addresses                map[string][]string
+	idFormatSettings               map[string]bool
 	// batch2 additions
 	endpointConnectionNotifs      *store.Table[VpcEndpointConnectionNotification]
 	vpcEndpointServicePermissions map[string][]string
@@ -601,14 +613,15 @@ type InMemoryBackend struct {
 
 func newInMemoryBackendMaps() *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:            store.NewRegistry(),
-		tags:                make(map[string]map[string]string),
-		addressTransfers:    make(map[string]*AddressTransfer),
-		vpcCidrAssociations: make(map[string]*VpcCidrBlockAssociation),
-		ipamPoolCidrs:       make(map[string][]*IpamPoolCidr),
-		instanceIDsByVPC:    make(map[string]map[string]struct{}),
-		eniIDsByInstance:    make(map[string]map[string]struct{}),
-		eniIDByAttachment:   make(map[string]string),
+		registry:                store.NewRegistry(),
+		tags:                    make(map[string]map[string]string),
+		addressTransfers:        make(map[string]*AddressTransfer),
+		vpcCidrAssociations:     make(map[string]*VpcCidrBlockAssociation),
+		vpcIpv6CidrAssociations: make(map[string]*VpcIpv6CidrBlockAssociation),
+		ipamPoolCidrs:           make(map[string][]*IpamPoolCidr),
+		instanceIDsByVPC:        make(map[string]map[string]struct{}),
+		eniIDsByInstance:        make(map[string]map[string]struct{}),
+		eniIDByAttachment:       make(map[string]string),
 	}
 	registerAllTables(b)
 	initCoreExtraMaps(b)
@@ -660,6 +673,8 @@ func initCoreExtraMaps(b *InMemoryBackend) {
 	b.vpcPeeringAccepterOptions = make(map[string]*PeeringConnectionOptions)
 	b.tgwRouteTableTombstones = make(map[string]*TransitGatewayRouteTable)
 	b.tgwVpcAttachmentTombstones = make(map[string]*TransitGatewayVpcAttachment)
+	b.natGatewayTombstones = make(map[string]*NatGateway)
+	b.tgwPeeringAttachmentTombstones = make(map[string]*TransitGatewayPeeringAttachment)
 	b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
 	b.instanceCreditSpecs = make(map[string]string)
 	b.niIPv6Addresses = make(map[string][]string)
@@ -754,6 +769,7 @@ func (b *InMemoryBackend) Reset() {
 	b.tags = make(map[string]map[string]string)
 	b.addressTransfers = make(map[string]*AddressTransfer)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
+	b.vpcIpv6CidrAssociations = make(map[string]*VpcIpv6CidrBlockAssociation)
 	initSecondaryIndexMaps(b)
 	b.freePrivateIPs = nil
 	b.nextPrivateIPIndex = 0
@@ -827,6 +843,7 @@ func (b *InMemoryBackend) seedDefaultDhcpOptionsLocked() {
 func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.addressTransfers = make(map[string]*AddressTransfer)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
+	b.vpcIpv6CidrAssociations = make(map[string]*VpcIpv6CidrBlockAssociation)
 	initCoreExtraMaps(b)
 	initBatch6Maps(b)
 	b.resetAdvancedNetworkingMapsLocked()

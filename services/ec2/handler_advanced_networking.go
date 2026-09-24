@@ -485,6 +485,7 @@ type vpcEndpointServiceConfigItem struct {
 	ServiceID                   string                          `xml:"serviceId"`
 	ServiceName                 string                          `xml:"serviceName"`
 	ServiceType                 string                          `xml:"serviceType>item>serviceType"`
+	ServiceState                string                          `xml:"serviceState,omitempty"`
 	PayerResponsibility         string                          `xml:"payerResponsibility,omitempty"`
 	PrivateDNSNameConfiguration privateDNSNameConfigurationItem `xml:"privateDnsNameConfiguration"`
 	NetworkLoadBalancerArnSet   []string                        `xml:"networkLoadBalancerArnSet>item"`
@@ -499,6 +500,7 @@ func toVpcEndpointServiceConfigItem(
 		ServiceID:                 cfg.ServiceID,
 		ServiceName:               cfg.ServiceName,
 		ServiceType:               cfg.ServiceType,
+		ServiceState:              cfg.ServiceState,
 		PayerResponsibility:       cfg.PayerResponsibility,
 		AcceptanceRequired:        cfg.AcceptanceRequired,
 		NetworkLoadBalancerArnSet: cfg.NetworkLoadBalancerARNs,
@@ -631,6 +633,8 @@ type ipamScopeItem struct {
 	IpamScopeID   string          `xml:"ipamScopeId"`
 	IpamScopeARN  string          `xml:"ipamScopeArn"`
 	IpamID        string          `xml:"ipamId"`
+	IpamARN       string          `xml:"ipamArn,omitempty"`
+	IpamRegion    string          `xml:"ipamRegion,omitempty"`
 	IpamScopeType string          `xml:"ipamScopeType"`
 	Description   string          `xml:"description,omitempty"`
 	State         string          `xml:"state"`
@@ -644,6 +648,8 @@ func (h *Handler) toIpamScopeItem(scope *IpamScope) ipamScopeItem {
 		IpamScopeID:   scope.IpamScopeID,
 		IpamScopeARN:  scope.IpamScopeARN,
 		IpamID:        scope.IpamID,
+		IpamARN:       scope.IpamARN,
+		IpamRegion:    scope.IpamRegion,
 		IpamScopeType: scope.IpamScopeType,
 		IsDefault:     scope.IsDefault,
 		Description:   scope.Description,
@@ -687,7 +693,10 @@ type ipamPoolItem struct {
 	IpamPoolID                     string          `xml:"ipamPoolId"`
 	IpamPoolARN                    string          `xml:"ipamPoolArn"`
 	IpamID                         string          `xml:"ipamId"`
+	IpamARN                        string          `xml:"ipamArn,omitempty"`
 	IpamScopeID                    string          `xml:"ipamScopeId,omitempty"`
+	IpamScopeARN                   string          `xml:"ipamScopeArn,omitempty"`
+	IpamRegion                     string          `xml:"ipamRegion,omitempty"`
 	State                          string          `xml:"state"`
 	Locale                         string          `xml:"locale,omitempty"`
 	Description                    string          `xml:"description,omitempty"`
@@ -706,7 +715,10 @@ func (h *Handler) toIpamPoolItem(pool *IpamPool) ipamPoolItem {
 		IpamPoolID:                     pool.IpamPoolID,
 		IpamPoolARN:                    pool.IpamPoolARN,
 		IpamID:                         pool.IpamID,
+		IpamARN:                        pool.IpamARN,
 		IpamScopeID:                    pool.IpamScopeID,
+		IpamScopeARN:                   pool.IpamScopeARN,
+		IpamRegion:                     pool.IpamRegion,
 		State:                          pool.State,
 		Locale:                         pool.Locale,
 		AddressFamily:                  pool.AddressFamily,

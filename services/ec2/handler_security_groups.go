@@ -297,19 +297,36 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 	// always indexed).
 	filters := parseEC2Filters(vals)
 
-	groupIDs := filters["group-id"]
-	if len(groupIDs) == 0 {
-		groupIDs = []string{""}
-	}
+	// aws_vpc_security_group_ingress_rule/egress_rule read a single rule
+	// back by ID alone (SecurityGroupRuleId.N, or the equivalent
+	// security-group-rule-id filter) with no GroupId -- requiring GroupId
+	// unconditionally broke that read with "GroupId is required".
+	ruleIDs := parseMemberList(vals, "SecurityGroupRuleId")
+	ruleIDs = append(ruleIDs, filters["security-group-rule-id"]...)
 
 	var rules []*SecurityGroupRuleDetail
-	for _, groupID := range groupIDs {
-		groupRules, err := h.Backend.DescribeSecurityGroupRules(groupID)
+
+	if len(ruleIDs) > 0 {
+		var err error
+
+		rules, err = h.Backend.DescribeSecurityGroupRulesByIDs(ruleIDs)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		groupIDs := filters["group-id"]
+		if len(groupIDs) == 0 {
+			groupIDs = []string{""}
+		}
 
-		rules = append(rules, groupRules...)
+		for _, groupID := range groupIDs {
+			groupRules, err := h.Backend.DescribeSecurityGroupRules(groupID)
+			if err != nil {
+				return nil, err
+			}
+
+			rules = append(rules, groupRules...)
+		}
 	}
 
 	maxResults, offset, err := parseEC2Pagination(

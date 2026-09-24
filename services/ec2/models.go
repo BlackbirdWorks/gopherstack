@@ -67,6 +67,15 @@ type AddressAttribute struct {
 	AllocationID string `json:"allocationID,omitempty"`
 	PublicIP     string `json:"publicIP,omitempty"`
 	DomainName   string `json:"domainName,omitempty"`
+	// PtrRecordUpdated is set once ModifyAddressAttribute/ResetAddressAttribute
+	// has run at least once for this allocation. Real AWS's PtrRecordUpdate.Status
+	// is a transient PENDING marker while the PTR change propagates and reads
+	// back empty ("") once applied; terraform-provider-aws's create/delete
+	// waiters for aws_eip_domain_name poll for exactly that empty status. This
+	// backend applies the change synchronously, so status is always empty --
+	// PtrRecordUpdated only controls whether the wire response's
+	// ptrRecordUpdate wrapper is present at all.
+	PtrRecordUpdated bool `json:"ptrRecordUpdated,omitempty"`
 }
 
 // InstanceMetadataDefaults holds account-level IMDS defaults.
@@ -326,10 +335,14 @@ type ClientVpnConnection struct {
 
 // TransitGatewayConnect represents a TGW connect attachment.
 type TransitGatewayConnect struct {
-	TransitGatewayAttachmentID          string `json:"transitGatewayAttachmentId,omitempty"`
-	TransportTransitGatewayAttachmentID string `json:"transportTransitGatewayAttachmentId,omitempty"`
-	TransitGatewayID                    string `json:"transitGatewayId,omitempty"`
-	State                               string `json:"state,omitempty"`
+	CreationTime                        time.Time `json:"creationTime"`
+	TransitGatewayAttachmentID          string    `json:"transitGatewayAttachmentId,omitempty"`
+	TransportTransitGatewayAttachmentID string    `json:"transportTransitGatewayAttachmentId,omitempty"`
+	TransitGatewayID                    string    `json:"transitGatewayId,omitempty"`
+	State                               string    `json:"state,omitempty"`
+	// Protocol is always "gre", the only ProtocolValue real AWS supports for
+	// TGW Connect attachments.
+	Protocol string `json:"protocol,omitempty"`
 }
 
 // TransitGatewayConnectPeer represents a TGW connect peer.
@@ -507,10 +520,12 @@ type NetworkInsightsPath struct {
 // NetworkInsightsAnalysis holds a network insights analysis.
 
 type NetworkInsightsAnalysis struct {
-	NetworkInsightsAnalysisID string `json:"networkInsightsAnalysisId,omitempty"`
-	NetworkInsightsPathID     string `json:"networkInsightsPathId,omitempty"`
-	Status                    string `json:"status,omitempty"`
-	NetworkPathFound          bool   `json:"networkPathFound,omitempty"`
+	StartDate                  time.Time `json:"startDate"`
+	NetworkInsightsAnalysisID  string    `json:"networkInsightsAnalysisId,omitempty"`
+	NetworkInsightsAnalysisARN string    `json:"networkInsightsAnalysisArn,omitempty"`
+	NetworkInsightsPathID      string    `json:"networkInsightsPathId,omitempty"`
+	Status                     string    `json:"status,omitempty"`
+	NetworkPathFound           bool      `json:"networkPathFound,omitempty"`
 }
 
 // NetworkInsightsAccessScope holds a network insights access scope.

@@ -194,7 +194,8 @@ func TestVpcBlockPublicAccessExclusion_CRUD(t *testing.T) { //nolint:paralleltes
 		assert.Equal(t, vpc.ID, excl.VpcID)
 		assert.Equal(t, "allow-egress", excl.InternetGatewayExclusionMode)
 		assert.Equal(t, "create-complete", excl.State)
-		assert.Contains(t, excl.ResourceArn, excl.ExclusionID)
+		assert.Contains(t, excl.ResourceArn, vpc.ID,
+			"ResourceArn is the excluded VPC's own ARN, not a fabricated exclusion-object ARN")
 		assert.Equal(t, "test", b.TagsForResource(excl.ExclusionID)["Name"])
 		exclusionID = excl.ExclusionID
 	})

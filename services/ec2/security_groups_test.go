@@ -214,6 +214,60 @@ func TestHTTP_DescribeSecurityGroupRules(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DescribeSecurityGroupRulesResponse")
 }
 
+// TestDescribeSecurityGroupRules_ByRuleIDAlone verifies that
+// DescribeSecurityGroupRules works when only a rule ID is given (no
+// GroupId/group-id filter) via either SecurityGroupRuleId.N or the
+// security-group-rule-id filter -- the shape
+// aws_vpc_security_group_ingress_rule/egress_rule use to read a single rule
+// back, previously rejected with "GroupId is required".
+func TestDescribeSecurityGroupRules_ByRuleIDAlone(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	createResp := postForm(
+		t,
+		h,
+		"Action=CreateSecurityGroup&Version=2016-11-15&GroupName=test-sg&GroupDescription=test",
+	)
+	groupID := extractXMLValue(t, createResp.Body.String(), "groupId")
+	require.NotEmpty(t, groupID)
+
+	authResp := postForm(
+		t, h,
+		"Action=AuthorizeSecurityGroupIngress&Version=2016-11-15&GroupId="+groupID+
+			"&IpPermissions.1.IpProtocol=tcp&IpPermissions.1.FromPort=22&IpPermissions.1.ToPort=22"+
+			"&IpPermissions.1.IpRanges.1.CidrIp=10.0.0.0/8",
+	)
+	require.Equal(t, http.StatusOK, authResp.Code)
+
+	descAll := postForm(
+		t,
+		h,
+		"Action=DescribeSecurityGroupRules&Version=2016-11-15&Filter.1.Name=group-id&Filter.1.Value.1="+groupID,
+	)
+	ruleID := extractXMLValue(t, descAll.Body.String(), "securityGroupRuleId")
+	require.NotEmpty(t, ruleID)
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "member list", query: "SecurityGroupRuleId.1=" + ruleID},
+		{name: "filter", query: "Filter.1.Name=security-group-rule-id&Filter.1.Value.1=" + ruleID},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postForm(t, h, "Action=DescribeSecurityGroupRules&Version=2016-11-15&"+tc.query)
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), ruleID)
+		})
+	}
+}
+
 func TestSecurityGroupRuleOperations(t *testing.T) {
 	t.Parallel()
 

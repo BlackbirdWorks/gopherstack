@@ -238,15 +238,28 @@ func (b *InMemoryBackend) ModifyVpcEndpointServicePermissions(
 
 // ---- ModifyVpcEndpoint ----
 
-// ModifyVpcEndpoint modifies a VPC endpoint (adds/removes subnets, SGs,
-// route tables). resetPolicy is an optional trailing arg
-// (api_op_ModifyVpcEndpoint.go's ResetPolicy: "reset the policy document to
-// the default policy"); this backend's default policy is the empty string,
-// matching CreateVpcEndpoint's own unset default.
+// ModifyVpcEndpointOptions carries ModifyVpcEndpoint's optional fields beyond
+// subnet add/remove (api_op_ModifyVpcEndpoint.go: AddRouteTableIds,
+// RemoveRouteTableIds, AddSecurityGroupIds, RemoveSecurityGroupIds,
+// PolicyDocument, PrivateDnsEnabled, ResetPolicy).
+type ModifyVpcEndpointOptions struct {
+	PolicyDocument         *string
+	PrivateDNSEnabled      *bool
+	AddRouteTableIDs       []string
+	RemoveRouteTableIDs    []string
+	AddSecurityGroupIDs    []string
+	RemoveSecurityGroupIDs []string
+	ResetPolicy            bool
+}
+
+// ModifyVpcEndpoint modifies a VPC endpoint: adds/removes subnets, route
+// tables, and security groups, and can set the policy document or private
+// DNS flag. This backend's default policy is the empty string, matching
+// CreateVpcEndpoint's own unset default.
 func (b *InMemoryBackend) ModifyVpcEndpoint(
 	endpointID string,
 	addSubnetIDs, removeSubnetIDs []string,
-	resetPolicy ...bool,
+	opts ModifyVpcEndpointOptions,
 ) error {
 	if endpointID == "" {
 		return fmt.Errorf("%w: VpcEndpointId is required", ErrInvalidParameter)
@@ -260,25 +273,38 @@ func (b *InMemoryBackend) ModifyVpcEndpoint(
 		return fmt.Errorf("%w: %s", ErrVpcEndpointNotFound, endpointID)
 	}
 
-	removeSet := make(map[string]bool, len(removeSubnetIDs))
-	for _, id := range removeSubnetIDs {
+	ep.SubnetIDs = applyIDSetChanges(ep.SubnetIDs, addSubnetIDs, removeSubnetIDs)
+	ep.RouteTableIDs = applyIDSetChanges(ep.RouteTableIDs, opts.AddRouteTableIDs, opts.RemoveRouteTableIDs)
+	ep.SecurityGroupIDs = applyIDSetChanges(ep.SecurityGroupIDs, opts.AddSecurityGroupIDs, opts.RemoveSecurityGroupIDs)
+
+	if opts.ResetPolicy {
+		ep.PolicyDocument = ""
+	} else if opts.PolicyDocument != nil {
+		ep.PolicyDocument = *opts.PolicyDocument
+	}
+
+	if opts.PrivateDNSEnabled != nil {
+		ep.PrivateDNSEnabled = *opts.PrivateDNSEnabled
+	}
+
+	return nil
+}
+
+// applyIDSetChanges removes ids in remove from current, then appends ids in add.
+func applyIDSetChanges(current, add, remove []string) []string {
+	removeSet := make(map[string]bool, len(remove))
+	for _, id := range remove {
 		removeSet[id] = true
 	}
 
-	filtered := ep.SubnetIDs[:0]
-	for _, id := range ep.SubnetIDs {
+	filtered := current[:0]
+	for _, id := range current {
 		if !removeSet[id] {
 			filtered = append(filtered, id)
 		}
 	}
-	ep.SubnetIDs = filtered
 
-	if len(resetPolicy) > 0 && resetPolicy[0] {
-		ep.PolicyDocument = ""
-	}
-	ep.SubnetIDs = append(ep.SubnetIDs, addSubnetIDs...)
-
-	return nil
+	return append(filtered, add...)
 }
 
 // ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
@@ -472,4 +498,8 @@ func (b *InMemoryBackend) RejectVpcEndpointConnections(serviceID string, vpcEndp
 	return unsuccessful, nil
 }
 
-const vpcEndpointConnectionStateRejected = "rejected"
+// vpcEndpointConnectionStateRejected matches types.StateRejected
+// (ec2@v1.329.0 types/enums.go): VpcEndpointConnection.VpcEndpointState uses
+// title-case values ("Available", "Rejected", ...), unlike most other EC2
+// state fields, which are lowercase.
+const vpcEndpointConnectionStateRejected = "Rejected"

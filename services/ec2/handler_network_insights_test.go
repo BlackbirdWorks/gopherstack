@@ -73,6 +73,10 @@ func TestNetworkInsightsAnalysis(t *testing.T) { //nolint:paralleltest // existi
 		assert.Equal(t, "succeeded", a.Status)
 		assert.True(t, a.NetworkPathFound)
 		assert.Equal(t, pathID, a.NetworkInsightsPathID)
+		assert.Contains(t, a.NetworkInsightsAnalysisARN, a.NetworkInsightsAnalysisID,
+			"an empty NetworkInsightsAnalysisArn/StartDate nil-dereferenced terraform-provider-aws's "+
+				"resourceNetworkInsightsAnalysisRead")
+		assert.False(t, a.StartDate.IsZero())
 		analysisID = a.NetworkInsightsAnalysisID
 	})
 

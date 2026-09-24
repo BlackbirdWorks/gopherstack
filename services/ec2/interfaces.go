@@ -295,6 +295,7 @@ type Backend interface {
 
 	// DescribeSecurityGroupRules returns all rules for a security group.
 	DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error)
+	DescribeSecurityGroupRulesByIDs(ruleIDs []string) ([]*SecurityGroupRuleDetail, error)
 
 	// ModifySecurityGroupRules replaces all rules in the specified direction.
 	ModifySecurityGroupRules(groupID string, updates []SecurityGroupRuleUpdate) error
@@ -624,6 +625,17 @@ type Backend interface {
 	// SecondaryCidrBlockAssociationsForVPC returns vpcID's secondary CIDR
 	// block associations (not including the primary CIDR block).
 	SecondaryCidrBlockAssociationsForVPC(vpcID string) []*VpcCidrBlockAssociation
+
+	// AssociateVpcIpv6CidrBlock associates an IPv6 CIDR block with a VPC.
+	AssociateVpcIpv6CidrBlock(
+		vpcID, ipv6Pool, ipv6CidrBlock, networkBorderGroup string,
+	) (*VpcIpv6CidrBlockAssociation, error)
+
+	// DisassociateVpcIpv6CidrBlock removes an IPv6 CIDR block association from a VPC.
+	DisassociateVpcIpv6CidrBlock(associationID string) (vpcID string, assoc *VpcIpv6CidrBlockAssociation, err error)
+
+	// SecondaryIpv6CidrBlockAssociationsForVPC returns vpcID's IPv6 CIDR block associations.
+	SecondaryIpv6CidrBlockAssociationsForVPC(vpcID string) []*VpcIpv6CidrBlockAssociation
 
 	// ---- Transit Gateway Route Tables ----
 
@@ -1383,7 +1395,7 @@ type Backend interface {
 	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
 	DescribeVpcEndpointServicePermissions(serviceID string) []string
 	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) ([]string, error)
-	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string, resetPolicy ...bool) error
+	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string, opts ModifyVpcEndpointOptions) error
 
 	// ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
 	// endpoint's usage within the given charge scope.

@@ -3,6 +3,7 @@ package ec2_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,6 +38,9 @@ func TestIpam_CRUD(t *testing.T) {
 	for _, s := range scopes {
 		assert.True(t, s.IsDefault)
 		assert.Equal(t, ipam.IpamID, s.IpamID)
+		assert.Equal(t, ipam.IpamARN, s.IpamARN,
+			"an empty IpamArn on a scope crashed terraform-provider-aws's resourceIPAMScopeRead")
+		assert.NotEmpty(t, s.IpamRegion)
 	}
 
 	discoveries := bk.DescribeIpamResourceDiscoveries([]string{ipam.DefaultResourceDiscoveryID})
@@ -84,6 +88,10 @@ func TestIpam_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, pool.IpamPoolID)
 	assert.Equal(t, ipam.PrivateDefaultScopeID, pool.IpamScopeID)
+	assert.Equal(t, ipam.IpamARN, pool.IpamARN,
+		"an empty IpamScopeArn/IpamArn on a pool crashed terraform-provider-aws's resourceIPAMPoolRead")
+	assert.NotEmpty(t, pool.IpamScopeARN)
+	assert.NotEmpty(t, pool.IpamRegion)
 
 	pools := bk.DescribeIpamPools([]string{pool.IpamPoolID})
 	require.Len(t, pools, 1)
@@ -242,6 +250,41 @@ func TestIpam_DescribeFiltersByID(t *testing.T) {
 
 	none := bk.DescribeIpams([]string{"ipam-doesnotexist"})
 	assert.Empty(t, none)
+}
+
+// TestIpamScope_DescribeFiltersByIsDefault verifies the is-default and
+// ipam-id filters -- previously handleDescribeIpamScopes ignored Filters
+// entirely, so an is-default=false filter still returned the 2 account
+// default scopes alongside the custom one.
+func TestIpamScope_DescribeFiltersByIsDefault(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	createRec := postForm(t, h, "Action=CreateIpam&Version=2016-11-15")
+	require.Equal(t, http.StatusOK, createRec.Code)
+	ipamID := extractXMLValue(t, createRec.Body.String(), "ipamId")
+	require.NotEmpty(t, ipamID)
+
+	scopeRec := postForm(
+		t, h, fmt.Sprintf("Action=CreateIpamScope&Version=2016-11-15&IpamId=%s&Description=extra", ipamID),
+	)
+	require.Equal(t, http.StatusOK, scopeRec.Code)
+	customScopeID := extractXMLValue(t, scopeRec.Body.String(), "ipamScopeId")
+	require.NotEmpty(t, customScopeID)
+
+	filteredRec := postForm(
+		t,
+		h,
+		"Action=DescribeIpamScopes&Version=2016-11-15"+
+			"&Filter.1.Name=ipam-id&Filter.1.Value.1="+ipamID+
+			"&Filter.2.Name=is-default&Filter.2.Value.1=false",
+	)
+	require.Equal(t, http.StatusOK, filteredRec.Code)
+	body := filteredRec.Body.String()
+	assert.Contains(t, body, customScopeID)
+	assert.Equal(t, 1, strings.Count(body, "<ipamScopeId>"),
+		"is-default=false filter should exclude the 2 account default scopes")
 }
 
 // TestIpam_HTTP exercises the family end-to-end through the EC2 Query-protocol HTTP handler,

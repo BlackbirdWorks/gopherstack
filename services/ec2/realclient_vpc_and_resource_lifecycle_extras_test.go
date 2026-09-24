@@ -574,10 +574,16 @@ func runNatGatewayAddressLifecycle(t *testing.T, client *ec2sdk.Client) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.DescribeNatGateways(t.Context(), &ec2sdk.DescribeNatGatewaysInput{
+	// Real AWS keeps a deleted NAT gateway describable by ID for a period in
+	// "deleted" state rather than NotFound immediately -- some
+	// terraform-provider-aws delete waiters poll by ID and treat NotFound as
+	// a fatal error instead of "done".
+	descOut, err := client.DescribeNatGateways(t.Context(), &ec2sdk.DescribeNatGatewaysInput{
 		NatGatewayIds: []string{natGatewayID},
 	})
-	require.Error(t, err, "deleted NAT gateway must NotFound when named explicitly, not silently vanish")
+	require.NoError(t, err, "a deleted NAT gateway should still be describable by ID as a tombstone")
+	require.Len(t, descOut.NatGateways, 1)
+	assert.Equal(t, types.NatGatewayStateDeleted, descOut.NatGateways[0].State)
 }
 
 // runNetworkInterfaceExtras covers DetachNetworkInterface,

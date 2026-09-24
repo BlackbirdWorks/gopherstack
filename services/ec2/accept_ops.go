@@ -474,8 +474,13 @@ func (b *InMemoryBackend) AddTGWVpcAttachmentInternal(att *TransitGatewayVpcAtta
 
 // ---- AcceptVpcEndpointConnections ----
 
+// vpcEndpointConnectionStateAvailable matches types.StateAvailable
+// (ec2@v1.329.0 types/enums.go) -- see vpcEndpointConnectionStateRejected's
+// comment for why this is title-case, unlike most other EC2 state fields.
+const vpcEndpointConnectionStateAvailable = "Available"
+
 // AcceptVpcEndpointConnections accepts VPC endpoint connections to the given service,
-// transitioning each endpoint's state to "available".
+// transitioning each endpoint's state to "Available".
 // Returns a non-nil (possibly empty) slice of accepted connections.
 func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 	serviceID string,
@@ -508,7 +513,7 @@ func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 			b.vpcEndpointConnections.Put(conn)
 		}
 
-		conn.State = stateAvailable
+		conn.State = vpcEndpointConnectionStateAvailable
 		cp := *conn
 		accepted = append(accepted, &cp)
 	}

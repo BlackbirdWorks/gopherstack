@@ -39,6 +39,74 @@ func TestFilters_DescribeVpcs(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), vpcID, "filter by cidr-block should return matching VPC")
 }
 
+// TestFilters_DescribeVpcs_CidrBlockAssociation verifies the
+// cidr-block-association.* and ipv6-cidr-block-association.* filters used by
+// terraform-provider-aws's wait-for-associated waiters for
+// aws_vpc_ipv4_cidr_block_association and aws_vpc_ipv6_cidr_block_association:
+// without server-side filtering, DescribeVpcs returns every VPC instead of
+// just the one matching the association, and the waiter treats "not exactly
+// one result" as not-found.
+func TestFilters_DescribeVpcs_CidrBlockAssociation(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	rec := postForm(t, h, "Action=CreateVpc&Version=2016-11-15&CidrBlock=10.1.0.0/16")
+	require.Equal(t, http.StatusOK, rec.Code)
+	vpcID := extractXMLValue(t, rec.Body.String(), "vpcId")
+	require.NotEmpty(t, vpcID)
+
+	// A second, unrelated VPC must NOT show up in any of these filtered results.
+	rec = postForm(t, h, "Action=CreateVpc&Version=2016-11-15&CidrBlock=10.2.0.0/16")
+	require.Equal(t, http.StatusOK, rec.Code)
+	otherVpcID := extractXMLValue(t, rec.Body.String(), "vpcId")
+	require.NotEmpty(t, otherVpcID)
+
+	rec = postForm(t, h, "Action=AssociateVpcCidrBlock&Version=2016-11-15&VpcId="+vpcID+"&CidrBlock=10.99.0.0/16")
+	require.Equal(t, http.StatusOK, rec.Code)
+	ipv4AssocID := extractXMLValue(t, rec.Body.String(), "associationId")
+	require.NotEmpty(t, ipv4AssocID)
+
+	rec = postForm(
+		t,
+		h,
+		"Action=AssociateVpcCidrBlock&Version=2016-11-15&VpcId="+vpcID+"&AmazonProvidedIpv6CidrBlock=true",
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	ipv6AssocID := extractXMLValue(t, rec.Body.String(), "associationId")
+	require.NotEmpty(t, ipv6AssocID)
+
+	tests := []struct {
+		name        string
+		filterName  string
+		filterValue string
+	}{
+		{name: "ipv4 association-id", filterName: "cidr-block-association.association-id", filterValue: ipv4AssocID},
+		{name: "ipv4 cidr-block", filterName: "cidr-block-association.cidr-block", filterValue: "10.99.0.0/16"},
+		{
+			name:        "ipv6 association-id",
+			filterName:  "ipv6-cidr-block-association.association-id",
+			filterValue: ipv6AssocID,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			filterRec := postForm(
+				t,
+				h,
+				"Action=DescribeVpcs&Version=2016-11-15&Filter.1.Name="+tc.filterName+"&Filter.1.Value.1="+tc.filterValue,
+			)
+			require.Equal(t, http.StatusOK, filterRec.Code)
+			body := filterRec.Body.String()
+			assert.Contains(t, body, vpcID, "filter %s should return the matching VPC", tc.filterName)
+			assert.NotContains(t, body, otherVpcID, "filter %s must exclude the unrelated VPC", tc.filterName)
+		})
+	}
+}
+
 // TestFilters_DescribeSubnets verifies vpc-id and availability-zone subnet filters.
 func TestFilters_DescribeSubnets(t *testing.T) {
 	t.Parallel()

@@ -60,6 +60,10 @@ const (
 	attachmentStateAttached = "attached"
 	// attachmentStateDetached is the state of a VPN gateway once detached from a VPC.
 	attachmentStateDetached = "detached"
+	// serviceStateAvailable is the only ServiceState value this backend produces
+	// for a VPC endpoint service configuration; real AWS's ServiceState enum is
+	// title-case, unlike most other EC2 state enums (types.ServiceStateAvailable).
+	serviceStateAvailable = "Available"
 	// ipv4Shift is the bit-size of an IPv4 address, used when calculating CIDR offsets.
 	ipv4Shift = 32
 	// octetMask is used to extract a single byte from an IPv4 uint32 representation.
@@ -263,6 +267,7 @@ type VpcEndpointServiceConfig struct {
 	ServiceID               string   `json:"serviceId,omitempty"`
 	ServiceName             string   `json:"serviceName,omitempty"`
 	ServiceType             string   `json:"serviceType,omitempty"`
+	ServiceState            string   `json:"serviceState,omitempty"`
 	PrivateDNSNameState     string   `json:"privateDnsNameState,omitempty"`
 	PayerResponsibility     string   `json:"payerResponsibility,omitempty"`
 	NetworkLoadBalancerARNs []string `json:"networkLoadBalancerArns,omitempty"`
@@ -303,6 +308,8 @@ type IpamScope struct {
 	IpamScopeID   string `json:"ipamScopeId,omitempty"`
 	IpamScopeARN  string `json:"ipamScopeArn,omitempty"`
 	IpamID        string `json:"ipamId,omitempty"`
+	IpamARN       string `json:"ipamArn,omitempty"`
+	IpamRegion    string `json:"ipamRegion,omitempty"`
 	IpamScopeType string `json:"ipamScopeType,omitempty"`
 	State         string `json:"state,omitempty"`
 	Description   string `json:"description,omitempty"`
@@ -315,7 +322,10 @@ type IpamPool struct {
 	Cidr                           string `json:"cidr,omitempty"`
 	Description                    string `json:"description,omitempty"`
 	IpamID                         string `json:"ipamId,omitempty"`
+	IpamARN                        string `json:"ipamArn,omitempty"`
 	IpamScopeID                    string `json:"ipamScopeId,omitempty"`
+	IpamScopeARN                   string `json:"ipamScopeArn,omitempty"`
+	IpamRegion                     string `json:"ipamRegion,omitempty"`
 	SourceIpamPoolID               string `json:"sourceIpamPoolId,omitempty"`
 	State                          string `json:"state,omitempty"`
 	IpamPoolARN                    string `json:"ipamPoolArn,omitempty"`

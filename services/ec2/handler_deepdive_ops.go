@@ -211,6 +211,7 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 	// verified, not the silent-omission bug for this particular op).
 	ids := parseMemberList(vals, "VpcEndpointId")
 	endpoints := h.Backend.DescribeVpcEndpoints(ids)
+	endpoints = applyVpcEndpointFilters(endpoints, parseEC2Filters(vals), h.Backend)
 
 	items := make([]vpcEndpointItem, 0, len(endpoints))
 	for _, endpoint := range endpoints {

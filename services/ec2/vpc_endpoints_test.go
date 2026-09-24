@@ -26,7 +26,7 @@ func TestRejectVpcEndpointConnections(t *testing.T) {
 
 	conns := b.DescribeVpcEndpointConnections([]string{"vpce-svc-1"})
 	require.Len(t, conns, 1)
-	assert.Equal(t, "rejected", conns[0].State)
+	assert.Equal(t, "Rejected", conns[0].State)
 
 	_, err = b.RejectVpcEndpointConnections("", []string{"vpce-1"})
 	require.ErrorIs(t, err, ec2.ErrInvalidParameter)

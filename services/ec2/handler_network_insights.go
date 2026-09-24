@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"time"
 )
 
 type createNetworkInsightsPathResponse struct {
@@ -20,10 +21,12 @@ type describeNetworkInsightsPathsResponse struct {
 }
 
 type networkInsightsAnalysisItem struct {
-	NetworkInsightsAnalysisID string `xml:"networkInsightsAnalysisId"`
-	NetworkInsightsPathID     string `xml:"networkInsightsPathId,omitempty"`
-	Status                    string `xml:"status,omitempty"`
-	NetworkPathFound          bool   `xml:"networkPathFound,omitempty"`
+	NetworkInsightsAnalysisID  string `xml:"networkInsightsAnalysisId"`
+	NetworkInsightsAnalysisARN string `xml:"networkInsightsAnalysisArn,omitempty"`
+	NetworkInsightsPathID      string `xml:"networkInsightsPathId,omitempty"`
+	Status                     string `xml:"status,omitempty"`
+	StartDate                  string `xml:"startDate,omitempty"`
+	NetworkPathFound           bool   `xml:"networkPathFound,omitempty"`
 }
 
 type startNetworkInsightsAnalysisResponse struct {
@@ -180,12 +183,18 @@ func (h *Handler) handleDescribeNetworkInsightsPaths(vals url.Values, reqID stri
 // ---- Network Insights Analysis handlers ----
 
 func toNetworkInsightsAnalysisItem(a *NetworkInsightsAnalysis) networkInsightsAnalysisItem {
-	return networkInsightsAnalysisItem{
-		NetworkInsightsAnalysisID: a.NetworkInsightsAnalysisID,
-		NetworkInsightsPathID:     a.NetworkInsightsPathID,
-		Status:                    a.Status,
-		NetworkPathFound:          a.NetworkPathFound,
+	item := networkInsightsAnalysisItem{
+		NetworkInsightsAnalysisID:  a.NetworkInsightsAnalysisID,
+		NetworkInsightsAnalysisARN: a.NetworkInsightsAnalysisARN,
+		NetworkInsightsPathID:      a.NetworkInsightsPathID,
+		Status:                     a.Status,
+		NetworkPathFound:           a.NetworkPathFound,
 	}
+	if !a.StartDate.IsZero() {
+		item.StartDate = a.StartDate.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleStartNetworkInsightsAnalysis(vals url.Values, reqID string) (any, error) {

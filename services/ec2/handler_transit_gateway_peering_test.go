@@ -35,7 +35,15 @@ func TestTGWPeeringAttachment(t *testing.T) { //nolint:paralleltest // existing 
 		require.NoError(t, err)
 		assert.Equal(t, attID, deleted.TransitGatewayAttachmentID)
 		atts := b.DescribeTransitGatewayPeeringAttachments(nil)
-		assert.Empty(t, atts)
+		assert.Empty(t, atts, "an unfiltered describe must not surface tombstones")
+
+		// A by-ID describe should still find the deleted attachment as a
+		// tombstone in state "deleted" -- terraform-provider-aws's delete
+		// waiter polls by ID and treats NotFound as a fatal error instead
+		// of "done".
+		tombstoned := b.DescribeTransitGatewayPeeringAttachments([]string{attID})
+		require.Len(t, tombstoned, 1)
+		assert.Equal(t, "deleted", tombstoned[0].State)
 	})
 
 	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.

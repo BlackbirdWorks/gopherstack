@@ -16,6 +16,10 @@ var ErrNatGatewayNotFound = errors.New("InvalidNatGatewayID.NotFound")
 // see PARITY.md.
 const natGatewayConnectivityTypePublic = "public"
 
+// natGatewayStateDeleted matches types.NatGatewayStateDeleted (ec2@v1.329.0
+// types/enums.go), the tombstone state DeleteNatGateway leaves behind.
+const natGatewayStateDeleted = "deleted"
+
 // NatGateway represents an EC2 NAT Gateway.
 type NatGateway struct {
 	CreateTime time.Time `json:"createTime"`
@@ -92,7 +96,11 @@ func (b *InMemoryBackend) CreateNatGateway(
 
 // DeleteNatGateway removes a NAT Gateway and recycles every private IP it
 // holds: the primary address, any secondary EIP associations, and any
-// secondary private IPs assigned via AssignPrivateNatGatewayAddress.
+// secondary private IPs assigned via AssignPrivateNatGatewayAddress. A
+// tombstone in state "deleted" is kept so a subsequent by-ID Describe still
+// finds it (real AWS keeps a deleted NAT gateway describable for a period;
+// terraform-provider-aws's delete waiter polls by ID and treats a NotFound
+// response as a fatal error instead of "done").
 func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	b.mu.Lock("DeleteNatGateway")
 	defer b.mu.Unlock()
@@ -116,30 +124,24 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	b.natGateways.Delete(id)
 	delete(b.tags, id)
 
+	cp := *ngw
+	cp.State = natGatewayStateDeleted
+	b.natGatewayTombstones[id] = &cp
+
 	return nil
 }
 
-// DescribeNatGateways returns NAT Gateways, optionally filtered by IDs.
-// When ids are provided, lookups are O(len(ids)) via the NAT-gateway map
-// rather than scanning every gateway in the backend.
+// DescribeNatGateways returns NAT Gateways, optionally filtered by IDs. When
+// ids are provided, a tombstone is returned for any of them that was
+// recently deleted (see DeleteNatGateway); an unfiltered Describe never
+// surfaces tombstones, matching real AWS's list-vs-get behavior.
 func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 	b.mu.RLock("DescribeNatGateways")
 	defer b.mu.RUnlock()
 
 	if len(ids) > 0 {
-		out := make([]*NatGateway, 0, len(ids))
-
-		for _, id := range ids {
-			ngw, ok := b.natGateways.Get(id)
-			if !ok {
-				continue
-			}
-
-			cp := *ngw
-			out = append(out, &cp)
-		}
-
-		return out
+		return describeWithTombstones(b.natGateways.All(), b.natGatewayTombstones, ids,
+			func(n *NatGateway) string { return n.ID })
 	}
 
 	out := make([]*NatGateway, 0, b.natGateways.Len())

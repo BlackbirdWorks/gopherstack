@@ -3,6 +3,7 @@ package ec2_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,41 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
+
+// TestIpamResourceDiscovery_DescribeFiltersByTag verifies the tag:<key>
+// filter -- previously handleDescribeIpamResourceDiscoveries ignored
+// Filters entirely, so a tag:Name filter still returned the account's own
+// default resource discovery (created by CreateIpam) alongside the matching
+// custom one.
+func TestIpamResourceDiscovery_DescribeFiltersByTag(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	createIpamRec := postForm(t, h, "Action=CreateIpam&Version=2016-11-15")
+	require.Equal(t, http.StatusOK, createIpamRec.Code)
+
+	discoRec := postForm(
+		t, h,
+		"Action=CreateIpamResourceDiscovery&Version=2016-11-15"+
+			"&TagSpecification.1.ResourceType=ipam-resource-discovery"+
+			"&TagSpecification.1.Tag.1.Key=Name&TagSpecification.1.Tag.1.Value=custom-disco",
+	)
+	require.Equal(t, http.StatusOK, discoRec.Code)
+	discoID := extractXMLValue(t, discoRec.Body.String(), "ipamResourceDiscoveryId")
+	require.NotEmpty(t, discoID)
+
+	filteredRec := postForm(
+		t,
+		h,
+		"Action=DescribeIpamResourceDiscoveries&Version=2016-11-15&Filter.1.Name=tag:Name&Filter.1.Value.1=custom-disco",
+	)
+	require.Equal(t, http.StatusOK, filteredRec.Code)
+	body := filteredRec.Body.String()
+	assert.Contains(t, body, discoID)
+	assert.Equal(t, 1, strings.Count(body, "<ipamResourceDiscoveryId>"),
+		"tag:Name filter should exclude the account default resource discovery")
+}
 
 // TestIpamResourceDiscovery_CRUD exercises user-created (non-default) IPAM resource
 // discoveries: create, associate with an IPAM, modify, disassociate, delete.

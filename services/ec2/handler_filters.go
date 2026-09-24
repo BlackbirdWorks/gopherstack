@@ -37,6 +37,7 @@ const (
 	filterKeyResourceType     = "resource-type"
 	filterKeyAttachInstanceID = "attachment.instance-id"
 	filterKeyImageID          = "image-id"
+	filterKeyIsDefault        = "is-default"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -72,18 +73,35 @@ vpcLoop:
 	return out
 }
 
+// DescribeVpcs' "cidr-block-association.*" / "ipv6-cidr-block-association.*"
+// filter names.
+const (
+	filterCidrBlockAssocCidrBlock     = "cidr-block-association.cidr-block"
+	filterCidrBlockAssocAssociationID = "cidr-block-association.association-id"
+	filterCidrBlockAssocState         = "cidr-block-association.state"
+	filterIpv6CidrBlockAssocCidrBlock = "ipv6-cidr-block-association.ipv6-cidr-block"
+	filterIpv6CidrBlockAssocAssocID   = "ipv6-cidr-block-association.association-id"
+	filterIpv6CidrBlockAssocPool      = "ipv6-cidr-block-association.ipv6-pool"
+	filterIpv6CidrBlockAssocState     = "ipv6-cidr-block-association.state"
+)
+
 func vpcMatchesFilter(v *VPC, filterName string, values []string, b Backend) bool {
 	switch filterName {
 	case filterKeyVPCID:
 		return anyEqual(v.ID, values)
 	case "cidr", "cidr-block", "cidrBlock":
 		return anyEqual(v.CIDRBlock, values)
-	case "isDefault", "is-default":
+	case "isDefault", filterKeyIsDefault:
 		want := anyEqual("true", values)
 
 		return v.IsDefault == want
 	case filterKeyState:
 		return anyEqual("available", values)
+	case filterCidrBlockAssocCidrBlock, filterCidrBlockAssocAssociationID, filterCidrBlockAssocState:
+		return vpcMatchesCidrBlockAssocFilter(v, filterName, values, b)
+	case filterIpv6CidrBlockAssocCidrBlock, filterIpv6CidrBlockAssocAssocID,
+		filterIpv6CidrBlockAssocPool, filterIpv6CidrBlockAssocState:
+		return vpcMatchesIpv6CidrBlockAssocFilter(v, filterName, values, b)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
 			return tagMatch(v.ID, tagKey, values, b)
@@ -91,6 +109,71 @@ func vpcMatchesFilter(v *VPC, filterName string, values []string, b Backend) boo
 	}
 
 	return true
+}
+
+// vpcMatchesCidrBlockAssocFilter matches the "cidr-block-association.*"
+// DescribeVpcs filters against v's primary CIDR (always "associated") plus
+// its secondary IPv4 CIDR associations. Without this, a filtered
+// DescribeVpcs returns every VPC instead of just the matching one, which
+// broke terraform-provider-aws's wait-for-associated waiter for
+// aws_vpc_ipv4_cidr_block_association (it polls by association-id filter
+// and treats "not exactly one VPC" as not-found).
+func vpcMatchesCidrBlockAssocFilter(v *VPC, filterName string, values []string, b Backend) bool {
+	if anyEqual(v.CIDRBlock, values) && filterName == filterCidrBlockAssocCidrBlock {
+		return true
+	}
+
+	if filterName == filterCidrBlockAssocState && anyEqual(stateAssociated, values) {
+		return true
+	}
+
+	for _, assoc := range b.SecondaryCidrBlockAssociationsForVPC(v.ID) {
+		switch filterName {
+		case filterCidrBlockAssocCidrBlock:
+			if anyEqual(assoc.CidrBlock, values) {
+				return true
+			}
+		case filterCidrBlockAssocAssociationID:
+			if anyEqual(assoc.AssociationID, values) {
+				return true
+			}
+		case filterCidrBlockAssocState:
+			if anyEqual(assoc.State, values) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// vpcMatchesIpv6CidrBlockAssocFilter matches the
+// "ipv6-cidr-block-association.*" DescribeVpcs filters against v's IPv6
+// CIDR associations -- see vpcMatchesCidrBlockAssocFilter for why this
+// matters for the corresponding waiter.
+func vpcMatchesIpv6CidrBlockAssocFilter(v *VPC, filterName string, values []string, b Backend) bool {
+	for _, assoc := range b.SecondaryIpv6CidrBlockAssociationsForVPC(v.ID) {
+		switch filterName {
+		case filterIpv6CidrBlockAssocCidrBlock:
+			if anyEqual(assoc.Ipv6CidrBlock, values) {
+				return true
+			}
+		case filterIpv6CidrBlockAssocAssocID:
+			if anyEqual(assoc.AssociationID, values) {
+				return true
+			}
+		case filterIpv6CidrBlockAssocPool:
+			if anyEqual(assoc.Ipv6Pool, values) {
+				return true
+			}
+		case filterIpv6CidrBlockAssocState:
+			if anyEqual(assoc.State, values) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ---- Subnet filters ----
@@ -2280,6 +2363,156 @@ func reservedInstancesOfferingMatchesFilter(o *ReservedInstancesOffering, filter
 		return anyEqual(o.ReservedInstancesOfferingID, values)
 	case "usage-price":
 		return anyEqual(strconv.FormatFloat(o.UsagePrice, 'f', -1, 64), values)
+	}
+
+	return true
+}
+
+// ---- VPC Endpoint filters ----
+
+// applyVpcEndpointFilters implements DescribeVpcEndpoints' documented
+// filters (vpc-id, vpc-endpoint-state, vpc-endpoint-type, service-name,
+// tag:<key>, tag-key). Previously handleDescribeVpcEndpoints ignored
+// Filters entirely, so e.g. a tag:Name filter returned every endpoint in
+// the account instead of just the matching one.
+func applyVpcEndpointFilters(endpoints []*VpcEndpoint, filters map[string][]string, b Backend) []*VpcEndpoint {
+	if len(filters) == 0 {
+		return endpoints
+	}
+
+	out := endpoints[:0:0]
+
+epLoop:
+	for _, ep := range endpoints {
+		for name, values := range filters {
+			if !vpcEndpointMatchesFilter(ep, name, values, b) {
+				continue epLoop
+			}
+		}
+
+		out = append(out, ep)
+	}
+
+	return out
+}
+
+func vpcEndpointMatchesFilter(ep *VpcEndpoint, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case filterKeyVPCID:
+		return anyEqual(ep.VPCID, values)
+	case "vpc-endpoint-state":
+		return anyEqual(ep.State, values)
+	case "vpc-endpoint-type":
+		return anyEqual(ep.VpcEndpointType, values)
+	case "service-name":
+		return anyEqual(ep.ServiceName, values)
+	case "tag-key":
+		for k := range b.TagsForResource(ep.ID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(ep.ID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// ---- IPAM Scope filters ----
+
+// applyIpamScopeFilters implements DescribeIpamScopes' documented filters
+// (ipam-arn, ipam-scope-type, is-default, owner-id, tag:<key>). Previously
+// handleDescribeIpamScopes ignored Filters entirely, so an is-default=false
+// filter still returned every scope (including the 2 account defaults).
+func applyIpamScopeFilters(scopes []*IpamScope, filters map[string][]string, b Backend) []*IpamScope {
+	if len(filters) == 0 {
+		return scopes
+	}
+
+	out := scopes[:0:0]
+
+scopeLoop:
+	for _, s := range scopes {
+		for name, values := range filters {
+			if !ipamScopeMatchesFilter(s, name, values, b) {
+				continue scopeLoop
+			}
+		}
+
+		out = append(out, s)
+	}
+
+	return out
+}
+
+func ipamScopeMatchesFilter(s *IpamScope, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "ipam-arn":
+		return anyEqual(s.IpamARN, values)
+	case "ipam-id":
+		return anyEqual(s.IpamID, values)
+	case "ipam-scope-type":
+		return anyEqual(s.IpamScopeType, values)
+	case filterKeyIsDefault:
+		want := anyEqual("true", values)
+
+		return s.IsDefault == want
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(s.IpamScopeID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// ---- IPAM Resource Discovery filters ----
+
+// applyIpamResourceDiscoveryFilters implements DescribeIpamResourceDiscoveries'
+// documented filters (owner-id, is-default, tag:<key>). Previously
+// handleDescribeIpamResourceDiscoveries ignored Filters entirely, so a
+// tag:Name filter still returned the account's own default resource
+// discovery alongside the matching one.
+func applyIpamResourceDiscoveryFilters(
+	discoveries []*IpamResourceDiscovery, filters map[string][]string, b Backend,
+) []*IpamResourceDiscovery {
+	if len(filters) == 0 {
+		return discoveries
+	}
+
+	out := discoveries[:0:0]
+
+discoveryLoop:
+	for _, d := range discoveries {
+		for name, values := range filters {
+			if !ipamResourceDiscoveryMatchesFilter(d, name, values, b) {
+				continue discoveryLoop
+			}
+		}
+
+		out = append(out, d)
+	}
+
+	return out
+}
+
+func ipamResourceDiscoveryMatchesFilter(d *IpamResourceDiscovery, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "owner-id":
+		return anyEqual(d.OwnerID, values)
+	case filterKeyIsDefault:
+		want := anyEqual("true", values)
+
+		return d.IsDefault == want
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(d.IpamResourceDiscoveryID, tagKey, values, b)
+		}
 	}
 
 	return true

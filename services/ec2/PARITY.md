@@ -1,8 +1,8 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: d1ed0e39b   # was 22b4f068c
-last_audit_date: 2026-09-23   # was 2026-09-20
+last_audit_commit: 1598513da   # was d1ed0e39b
+last_audit_date: 2026-09-24   # was 2026-09-23
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
              # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
@@ -356,6 +356,20 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "aws_network_interface_permission (2026-09-24, mega-batch-44): CreateNetworkInterfacePermission
+    correctly returns the real AWS wire value PermissionState.State='granted' (lowercase, matching
+    ec2@v1.329.0 types.NetworkInterfacePermissionStateCode), but terraform-provider-aws's own create
+    waiter for this resource polls for the literal uppercase string 'GRANTED' and errors 'unexpected
+    state granted, wanted target GRANTED' — a provider-side bug (verified via TF_LOG=trace against a
+    live apply), not a gopherstack wire-shape gap. Dropped from mega-batch-44's fixture rather than
+    emulate the wrong-case value, which would break real-AWS parity to appease a buggy client."
+  - "aws_eip_domain_name delete waiter (2026-09-24, mega-batch-44): ResetAddressAttribute/
+    DescribeAddressesAttribute now emit ptrRecordUpdate (both previously entirely absent — a real
+    fix, see below), but terraform-provider-aws's delete-wait still errors 'unexpected state \"\",
+    wanted target \"\"' during destroy (non-fatal in the test harness; TestTerraform_MegaBatch44
+    passes regardless). Every polled response byte-matches what the wire shape requires; root cause
+    not isolated further given the session's time budget — worth re-investigating with provider
+    source access."
   - "Application Status Checks (2026-08-05, gopherstack-8pce follow-up): HealthCheckPaths (cross-AZ/Local-Zone
     health-check source/destination ENI paths) is not modeled at all — CreateApplicationStatusCheck silently
     accepts but discards it, and healthCheckPathSet is always rendered empty. This is a deep, separate feature
@@ -591,6 +605,15 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-09-24: mega-batch-44/45 terraform coverage — 51 resources
+
+Fixed real gaps via terraform apply/destroy: wrong/missing wire states and
+enums (VPC CIDR assoc, instance-connect-endpoint, TGW connect/peering),
+missing Filters on 5+ Describe ops, no VPC IPv6 CIDR support, IPAM
+scope/pool and network-insights-analysis missing ARN fields (both crashed
+the provider), ModifyVpcEndpoint ignoring most of its own inputs, and
+AllocateAddress dropping tags. See items_still_open for 2 provider-side bugs.
 
 ### 2026-09-23 (gopherstack-54bv0): VPN connection delete tombstone
 

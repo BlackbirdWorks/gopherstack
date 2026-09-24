@@ -28,10 +28,14 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 
 	ipamID := "ipam-" + uuid.New().String()[:8]
 
+	ipamARN := "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID
+
 	privScope := &IpamScope{
 		IpamScopeID:   "ipam-scope-" + uuid.New().String()[:8],
 		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/",
 		IpamID:        ipamID,
+		IpamARN:       ipamARN,
+		IpamRegion:    b.Region,
 		IpamScopeType: ipamScopeTypePrivate,
 		IsDefault:     true,
 		State:         ipamStateCreateComplete,
@@ -43,6 +47,8 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 		IpamScopeID:   "ipam-scope-" + uuid.New().String()[:8],
 		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/",
 		IpamID:        ipamID,
+		IpamARN:       ipamARN,
+		IpamRegion:    b.Region,
 		IpamScopeType: ipamScopeTypePublic,
 		IsDefault:     true,
 		State:         ipamStateCreateComplete,
@@ -64,7 +70,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	assoc := &IpamResourceDiscoveryAssociation{
 		IpamResourceDiscoveryAssociationID: "ipam-res-disco-assoc-" + uuid.New().String()[:8],
 		IpamID:                             ipamID,
-		IpamARN:                            "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID,
+		IpamARN:                            ipamARN,
 		IpamRegion:                         b.Region,
 		IpamResourceDiscoveryID:            discovery.IpamResourceDiscoveryID,
 		OwnerID:                            b.AccountID,
@@ -78,7 +84,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 
 	ipam := &Ipam{
 		IpamID:                                ipamID,
-		IpamARN:                               "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID,
+		IpamARN:                               ipamARN,
 		State:                                 ipamStateCreateComplete,
 		Region:                                b.Region,
 		OwnerID:                               b.AccountID,
@@ -262,6 +268,8 @@ func (b *InMemoryBackend) CreateIpamScope(ipamID, description string) (*IpamScop
 		IpamScopeID:   scopeID,
 		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/" + scopeID,
 		IpamID:        ipamID,
+		IpamARN:       "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID,
+		IpamRegion:    b.Region,
 		IpamScopeType: ipamScopeTypePrivate,
 		State:         ipamStateCreateComplete,
 		Description:   description,
@@ -400,7 +408,10 @@ func (b *InMemoryBackend) CreateIpamPool(
 		IpamPoolID:                     poolID,
 		IpamPoolARN:                    "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-pool/" + poolID,
 		IpamID:                         ipamID,
+		IpamARN:                        "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID,
 		IpamScopeID:                    scopeID,
+		IpamScopeARN:                   "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/" + scopeID,
+		IpamRegion:                     b.Region,
 		State:                          ipamStateCreateComplete,
 		Locale:                         locale,
 		AddressFamily:                  addressFamily,

@@ -29,7 +29,49 @@ func TestAddressAttribute(t *testing.T) { //nolint:paralleltest // existing issu
 		attrs := b.DescribeAddressesAttribute([]string{addr.AllocationID})
 		require.Len(t, attrs, 1)
 		assert.Empty(t, attrs[0].DomainName)
+		assert.True(t, attrs[0].PtrRecordUpdated)
 	})
+}
+
+// TestResetAddressAttribute_HTTP_IncludesPtrRecordUpdate verifies the wire
+// response includes a ptrRecordUpdate element once
+// ModifyAddressAttribute/ResetAddressAttribute has run, with an empty
+// status -- terraform-provider-aws's aws_eip_domain_name create/delete
+// waiters poll for exactly that empty status, and an absent ptrRecordUpdate
+// element previously left the delete waiter polling forever ("waiting for
+// EC2 EIP Domain Name ... delete").
+func TestResetAddressAttribute_HTTP_IncludesPtrRecordUpdate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	addr, err := h.Backend.AllocateAddress()
+	require.NoError(t, err)
+
+	modifyResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":       {"ModifyAddressAttribute"},
+		"AllocationId": {addr.AllocationID},
+		"DomainName":   {"ec2.example.com"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, modifyResp, "<ptrRecordUpdate>")
+	assert.NotContains(t, modifyResp, "<status>")
+
+	resetResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":       {"ResetAddressAttribute"},
+		"AllocationId": {addr.AllocationID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resetResp, "<ptrRecordUpdate>")
+	assert.NotContains(t, resetResp, "<status>")
+
+	descResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":         {"DescribeAddressesAttribute"},
+		"AllocationId.1": {addr.AllocationID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, descResp, "<ptrRecordUpdate>")
+	assert.NotContains(t, descResp, "<status>")
 }
 
 // ---- Instance ---- //nolint:godot // existing issue.
@@ -88,6 +130,34 @@ func TestMoveAddressToVpcAndDescribeMovingAddressesHTTP(t *testing.T) {
 	assert.Contains(t, resp, "<DescribeMovingAddressesResponse>")
 	assert.Contains(t, resp, "<publicIp>"+addr.PublicIP+"</publicIp>")
 	assert.Contains(t, resp, "<moveStatus>movingToVpc</moveStatus>")
+}
+
+// TestAllocateAddress_TagSpecification verifies that AllocateAddress applies
+// TagSpecifications (previously dropped entirely -- the handler discarded
+// its url.Values parameter), so a tag:Name filter on DescribeAddresses can
+// find the allocated EIP, matching aws_eip's tags argument.
+func TestAllocateAddress_TagSpecification(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                          {"AllocateAddress"},
+		"TagSpecification.1.ResourceType": {"elastic-ip"},
+		"TagSpecification.1.Tag.1.Key":    {"Name"},
+		"TagSpecification.1.Tag.1.Value":  {"my-eip"},
+	})
+	require.NoError(t, err)
+	allocationID := extractXMLTag(resp, "allocationId")
+	require.NotEmpty(t, allocationID)
+
+	descResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":           {"DescribeAddresses"},
+		"Filter.1.Name":    {"tag:Name"},
+		"Filter.1.Value.1": {"my-eip"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, descResp, allocationID)
 }
 
 func TestAssociateAddress_NetworkInterfaceId_Accepted(t *testing.T) {

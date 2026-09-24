@@ -16,9 +16,9 @@ type describeAddressesAttributeResponse struct {
 }
 
 type modifyAddressAttributeResponse struct {
+	Address   addressAttributeItem `xml:"address"`
 	XMLName   xml.Name             `xml:"ModifyAddressAttributeResponse"`
 	RequestID string               `xml:"requestId"`
-	Address   addressAttributeItem `xml:"address"`
 }
 
 func (h *Handler) handleDescribeAddressesAttribute(vals url.Values, reqID string) (any, error) {
@@ -40,17 +40,29 @@ func (h *Handler) handleDescribeAddressesAttribute(vals url.Values, reqID string
 
 	resp := &describeAddressesAttributeResponse{RequestID: reqID, NextToken: nextToken}
 	for _, attr := range attrs {
-		resp.AddressSet.Items = append(
-			resp.AddressSet.Items,
-			addressAttributeItem{
-				AllocationID: attr.AllocationID,
-				PublicIP:     attr.PublicIP,
-				PtrRecord:    attr.DomainName,
-			},
-		)
+		resp.AddressSet.Items = append(resp.AddressSet.Items, toAddressAttributeItem(attr))
 	}
 
 	return resp, nil
+}
+
+// toAddressAttributeItem builds the wire item for an AddressAttribute,
+// including ptrRecordUpdate once ModifyAddressAttribute/ResetAddressAttribute
+// has run at least once for the allocation. Status is left empty: this
+// backend applies the change synchronously (no real PENDING window), which
+// is the state terraform-provider-aws's aws_eip_domain_name create/delete
+// waiters poll for.
+func toAddressAttributeItem(attr AddressAttribute) addressAttributeItem {
+	item := addressAttributeItem{
+		AllocationID: attr.AllocationID,
+		PublicIP:     attr.PublicIP,
+		PtrRecord:    attr.DomainName,
+	}
+	if attr.PtrRecordUpdated {
+		item.PtrRecordUpdate = &ptrRecordUpdateItem{Value: attr.DomainName}
+	}
+
+	return item
 }
 
 func (h *Handler) handleModifyAddressAttribute(vals url.Values, reqID string) (any, error) {
@@ -62,7 +74,7 @@ func (h *Handler) handleModifyAddressAttribute(vals url.Values, reqID string) (a
 
 	address := addressAttributeItem{AllocationID: allocationID, PtrRecord: domainName}
 	if attrs := h.Backend.DescribeAddressesAttribute([]string{allocationID}); len(attrs) == 1 {
-		address.PublicIP = attrs[0].PublicIP
+		address = toAddressAttributeItem(attrs[0])
 	}
 
 	return &modifyAddressAttributeResponse{
@@ -76,30 +88,26 @@ func (h *Handler) handleModifyAddressAttribute(vals url.Values, reqID string) (a
 // allocationId/publicIp/ptrRecord/ptrRecordUpdate. There is no Return member
 // at all -- the real deserializer has no case for it.
 type resetAddressAttributeResponse struct {
+	Address   addressAttributeItem `xml:"address"`
 	XMLName   xml.Name             `xml:"ResetAddressAttributeResponse"`
 	RequestID string               `xml:"requestId"`
-	Address   resetAddressAttrItem `xml:"address"`
-}
-
-type resetAddressAttrItem struct {
-	AllocationID string `xml:"allocationId,omitempty"`
-	PublicIP     string `xml:"publicIp,omitempty"`
 }
 
 func (h *Handler) handleResetAddressAttribute(vals url.Values, reqID string) (any, error) {
 	allocationID := vals.Get("AllocationId")
 
-	addr, err := h.Backend.ResetAddressAttribute(allocationID)
-	if err != nil {
+	if _, err := h.Backend.ResetAddressAttribute(allocationID); err != nil {
 		return nil, err
+	}
+
+	address := addressAttributeItem{AllocationID: allocationID}
+	if attrs := h.Backend.DescribeAddressesAttribute([]string{allocationID}); len(attrs) == 1 {
+		address = toAddressAttributeItem(attrs[0])
 	}
 
 	return &resetAddressAttributeResponse{
 		RequestID: reqID,
-		Address: resetAddressAttrItem{
-			AllocationID: addr.AllocationID,
-			PublicIP:     addr.PublicIP,
-		},
+		Address:   address,
 	}, nil
 }
 
@@ -406,10 +414,16 @@ type releaseAddressResponse struct {
 	Return    bool     `xml:"return"`
 }
 
-func (h *Handler) handleAllocateAddress(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleAllocateAddress(vals url.Values, reqID string) (any, error) {
 	addr, err := h.Backend.AllocateAddress()
 	if err != nil {
 		return nil, err
+	}
+
+	if tags := parseTagSpecification(vals, "elastic-ip"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{addr.AllocationID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &allocateAddressResponse{

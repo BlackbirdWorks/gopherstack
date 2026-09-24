@@ -497,8 +497,80 @@ func TestModifyVpcEndpoint_AddSubnet(t *testing.T) {
 		"ModifyVpcEndpoint success response must return true")
 }
 
-// TestModifyVpcEndpoint_NotFound verifies that ModifyVpcEndpoint
-// returns an error when the endpoint does not exist, matching AWS EC2 behaviour.
+// TestModifyVpcEndpoint_RouteTablesSecurityGroupsAndPolicy verifies that
+// ModifyVpcEndpoint applies AddRouteTableId/AddSecurityGroupId/PolicyDocument
+// against real endpoint state (not just accepting and dropping them), since
+// aws_vpc_endpoint_route_table_association, aws_vpc_endpoint_policy, and
+// aws_vpc_endpoint_security_group_association all target an existing
+// endpoint via this op rather than via CreateVpcEndpoint.
+func TestModifyVpcEndpoint_RouteTablesSecurityGroupsAndPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		field string
+		want  string
+	}{
+		{name: "route table association", field: "AddRouteTableId.1"},
+		{name: "security group association", field: "AddSecurityGroupId.1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := newTestHandlerWithBackend(b)
+
+			vpc, err := b.CreateVpc("10.0.0.0/16", "default")
+			require.NoError(t, err)
+
+			ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Interface", nil)
+			require.NoError(t, err)
+
+			_, err = ec2.ExportDispatch(h, url.Values{
+				"Action":        {"ModifyVpcEndpoint"},
+				"VpcEndpointId": {ep.ID},
+				tc.field:        {"rtb-or-sg-12345"},
+			})
+			require.NoError(t, err)
+
+			resp, err := ec2.ExportDispatch(h, url.Values{
+				"Action":          {"DescribeVpcEndpoints"},
+				"VpcEndpointId.1": {ep.ID},
+			})
+			require.NoError(t, err)
+			assert.Contains(t, resp, "rtb-or-sg-12345")
+		})
+	}
+
+	t.Run("policy document", func(t *testing.T) {
+		t.Parallel()
+
+		b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+		h := newTestHandlerWithBackend(b)
+
+		vpc, err := b.CreateVpc("10.0.0.0/16", "default")
+		require.NoError(t, err)
+
+		ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Interface", nil)
+		require.NoError(t, err)
+
+		_, err = ec2.ExportDispatch(h, url.Values{
+			"Action":         {"ModifyVpcEndpoint"},
+			"VpcEndpointId":  {ep.ID},
+			"PolicyDocument": {`{"Version":"2012-10-17"}`},
+		})
+		require.NoError(t, err)
+
+		resp, err := ec2.ExportDispatch(h, url.Values{
+			"Action":          {"DescribeVpcEndpoints"},
+			"VpcEndpointId.1": {ep.ID},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, resp, `{&#34;Version&#34;:&#34;2012-10-17&#34;}`)
+	})
+}
 
 // TestModifyVpcEndpoint_NotFound verifies that ModifyVpcEndpoint
 // returns an error when the endpoint does not exist, matching AWS EC2 behaviour.
@@ -533,7 +605,7 @@ func TestRejectVpcEndpointConnectionsHTTP(t *testing.T) {
 
 	conns := h.Backend.DescribeVpcEndpointConnections([]string{"vpce-svc-1"})
 	require.Len(t, conns, 1)
-	assert.Equal(t, "rejected", conns[0].State)
+	assert.Equal(t, "Rejected", conns[0].State)
 }
 
 // TestVpcEndpoint_CreateContainsEndpointID verifies the response
@@ -916,6 +988,45 @@ func TestDescribeVpcEndpoints_FilterByID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, resp, ep1.ID, "filtered response must include requested endpoint")
 	assert.NotContains(t, resp, ep2.ID, "filtered response must exclude other endpoints")
+}
+
+// TestDescribeVpcEndpoints_Filters verifies the tag: and service-name
+// filters -- previously handleDescribeVpcEndpoints ignored Filters entirely,
+// so any filter (including tag:Name) returned every endpoint in the account.
+func TestDescribeVpcEndpoints_Filters(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
+	require.NoError(t, err)
+
+	ep1, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Gateway", nil)
+	require.NoError(t, err)
+	require.NoError(t, b.CreateTags([]string{ep1.ID}, map[string]string{"Name": "gateway-ep"}))
+
+	ep2, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.ec2", "Interface", nil)
+	require.NoError(t, err)
+	require.NoError(t, b.CreateTags([]string{ep2.ID}, map[string]string{"Name": "interface-ep"}))
+
+	tagResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":           {"DescribeVpcEndpoints"},
+		"Filter.1.Name":    {"tag:Name"},
+		"Filter.1.Value.1": {"gateway-ep"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tagResp, ep1.ID)
+	assert.NotContains(t, tagResp, ep2.ID)
+
+	svcResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":           {"DescribeVpcEndpoints"},
+		"Filter.1.Name":    {"service-name"},
+		"Filter.1.Value.1": {"com.amazonaws.us-east-1.ec2"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, svcResp, ep2.ID)
+	assert.NotContains(t, svcResp, ep1.ID)
 }
 
 // --- ModifyVpcEndpoint ---

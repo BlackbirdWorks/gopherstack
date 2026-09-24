@@ -139,6 +139,8 @@ func (h *Handler) handleDescribeIpamScopes(vals url.Values, reqID string) (any, 
 		return nil, err
 	}
 
+	scopes = applyIpamScopeFilters(scopes, parseEC2Filters(vals), h.Backend)
+
 	resp := &describeIpamScopesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, scope := range scopes {
@@ -487,6 +489,7 @@ func (h *Handler) handleModifyIpamPoolAllocation(vals url.Values, reqID string) 
 func (h *Handler) handleDescribeIpamResourceDiscoveries(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "IpamResourceDiscoveryId")
 	discoveries := h.Backend.DescribeIpamResourceDiscoveries(ids)
+	discoveries = applyIpamResourceDiscoveryFilters(discoveries, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeIpamResourceDiscoveriesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

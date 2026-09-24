@@ -551,10 +551,14 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 		SubnetID:                   subnetID,
 		VPCID:                      subnet.VPCID,
 		SecurityGroupIDs:           securityGroupIDs,
-		State:                      stateActive,
-		PreserveClientIP:           preserveClientIP,
-		IPAddressType:              addrType,
-		CreateTime:                 time.Now().UTC(),
+		// "active" is not a valid Ec2InstanceConnectEndpointState (real
+		// values are the create/delete/update-{in-progress,complete,failed}
+		// set); the wrong value hung terraform-provider-aws's
+		// wait-for-create-complete waiter until timeout.
+		State:            instanceConnectEndpointStateCreateComplete,
+		PreserveClientIP: preserveClientIP,
+		IPAddressType:    addrType,
+		CreateTime:       time.Now().UTC(),
 	}
 	b.instanceConnectEndpoints.Put(ep)
 

@@ -156,6 +156,56 @@ func (b *InMemoryBackend) DisassociateVpcCidrBlock(associationID string) (string
 	return "", nil, fmt.Errorf("%w: %s", ErrInvalidParameter, associationID)
 }
 
+// DisassociateVpcIpv6CidrBlock removes an IPv6 CIDR block association from a
+// VPC, mirroring DisassociateVpcCidrBlock's synchronous-removal behavior.
+func (b *InMemoryBackend) DisassociateVpcIpv6CidrBlock(
+	associationID string,
+) (string, *VpcIpv6CidrBlockAssociation, error) {
+	if associationID == "" {
+		return "", nil, fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DisassociateVpcIpv6CidrBlock")
+	defer b.mu.Unlock()
+
+	for key, assoc := range b.vpcIpv6CidrAssociations {
+		if assoc.AssociationID == associationID {
+			delete(b.vpcIpv6CidrAssociations, key)
+
+			cp := *assoc
+			cp.State = vpcCidrBlockStateDisassociated
+			vpcID := strings.TrimSuffix(key, ":"+associationID)
+
+			return vpcID, &cp, nil
+		}
+	}
+
+	return "", nil, fmt.Errorf("%w: %s", ErrInvalidParameter, associationID)
+}
+
+// SecondaryIpv6CidrBlockAssociationsForVPC returns the IPv6 CIDR blocks
+// associated with vpcID via AssociateVpcIpv6CidrBlock, sorted by association
+// ID for stable output.
+func (b *InMemoryBackend) SecondaryIpv6CidrBlockAssociationsForVPC(vpcID string) []*VpcIpv6CidrBlockAssociation {
+	b.mu.RLock("SecondaryIpv6CidrBlockAssociationsForVPC")
+	defer b.mu.RUnlock()
+
+	prefix := vpcID + ":"
+
+	out := make([]*VpcIpv6CidrBlockAssociation, 0, len(b.vpcIpv6CidrAssociations))
+
+	for key, assoc := range b.vpcIpv6CidrAssociations {
+		if strings.HasPrefix(key, prefix) {
+			cp := *assoc
+			out = append(out, &cp)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].AssociationID < out[j].AssociationID })
+
+	return out
+}
+
 // vpcCidrBlockStateDisassociated matches types.VpcCidrBlockStateCodeDisassociated
 // (ec2@v1.319.1 types/enums.go).
 const vpcCidrBlockStateDisassociated = "disassociated"

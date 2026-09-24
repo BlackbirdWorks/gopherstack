@@ -52,14 +52,43 @@ type describeVpcEndpointAssociationsResponse struct {
 	} `xml:"vpcEndpointAssociationSet"`
 }
 
+type allowedPrincipalItem struct {
+	Principal           string `xml:"principal,omitempty"`
+	PrincipalType       string `xml:"principalType,omitempty"`
+	ServiceID           string `xml:"serviceId,omitempty"`
+	ServicePermissionID string `xml:"servicePermissionId,omitempty"`
+}
+
 type describeVpcEndpointServicePermissionsResponse struct {
 	XMLName           xml.Name `xml:"DescribeVpcEndpointServicePermissionsResponse"`
 	RequestID         string   `xml:"requestId"`
 	AllowedPrincipals struct {
-		Items []struct {
-			Principal string `xml:"principal"`
-		} `xml:"item"`
+		Items []allowedPrincipalItem `xml:"item"`
 	} `xml:"allowedPrincipals"`
+}
+
+// principalTypeFor classifies a VPC endpoint service allowed-principal ARN
+// into the PrincipalType this backend can determine from the ARN alone
+// (ec2@v1.329.0 types.PrincipalType: All | Service | OrganizationUnit |
+// Account | User | Role). Anything not "*" is treated as an account
+// principal, the overwhelmingly common case for this resource.
+func principalTypeFor(principal string) string {
+	if principal == "*" {
+		return "All"
+	}
+
+	return "Account"
+}
+
+// servicePermissionIDFor derives a stable, deterministic
+// servicePermissionId for a (service, principal) pair. This backend does
+// not durably track a separate ID per allowed principal (permissions are
+// stored as a plain set), so the ID is recomputed on every response rather
+// than persisted.
+func servicePermissionIDFor(serviceID, principal string) string {
+	sum := sha256.Sum256([]byte(serviceID + ":" + principal))
+
+	return "vpce-perm-" + hex.EncodeToString(sum[:])[:17]
 }
 
 func toConnectionNotifItem(n *VpcEndpointConnectionNotification) connectionNotifItem {
@@ -271,9 +300,12 @@ func (h *Handler) handleDescribeVpcEndpointServicePermissions(
 
 	resp := &describeVpcEndpointServicePermissionsResponse{RequestID: reqID}
 	for _, p := range principals {
-		resp.AllowedPrincipals.Items = append(resp.AllowedPrincipals.Items, struct {
-			Principal string `xml:"principal"`
-		}{Principal: p})
+		resp.AllowedPrincipals.Items = append(resp.AllowedPrincipals.Items, allowedPrincipalItem{
+			Principal:           p,
+			PrincipalType:       principalTypeFor(p),
+			ServiceID:           serviceID,
+			ServicePermissionID: servicePermissionIDFor(serviceID, p),
+		})
 	}
 
 	return resp, nil
@@ -295,8 +327,9 @@ func (h *Handler) handleModifyVpcEndpointServicePermissions(
 	resp := &modifyVpcEndpointServicePermissionsResponse{RequestID: reqID, ReturnValue: true}
 	for _, p := range added {
 		resp.AddedPrincipalSet.Items = append(resp.AddedPrincipalSet.Items, addedPrincipalItem{
-			Principal: p,
-			ServiceID: serviceID,
+			Principal:     p,
+			PrincipalType: principalTypeFor(p),
+			ServiceID:     serviceID,
 		})
 	}
 
@@ -323,7 +356,25 @@ func (h *Handler) handleModifyVpcEndpoint(vals url.Values, reqID string) (any, e
 	addSubnets := parseMemberList(vals, "AddSubnetId")
 	removeSubnets := parseMemberList(vals, "RemoveSubnetId")
 	resetPolicy, _ := strconv.ParseBool(vals.Get("ResetPolicy"))
-	if err := h.Backend.ModifyVpcEndpoint(endpointID, addSubnets, removeSubnets, resetPolicy); err != nil {
+
+	opts := ModifyVpcEndpointOptions{
+		AddRouteTableIDs:       parseMemberList(vals, "AddRouteTableId"),
+		RemoveRouteTableIDs:    parseMemberList(vals, "RemoveRouteTableId"),
+		AddSecurityGroupIDs:    parseMemberList(vals, "AddSecurityGroupId"),
+		RemoveSecurityGroupIDs: parseMemberList(vals, "RemoveSecurityGroupId"),
+		ResetPolicy:            resetPolicy,
+	}
+
+	if v, ok := vals["PolicyDocument"]; ok && len(v) > 0 {
+		opts.PolicyDocument = &v[0]
+	}
+
+	if v := vals.Get("PrivateDnsEnabled"); v != "" {
+		enabled := v == ec2BooleanTrue
+		opts.PrivateDNSEnabled = &enabled
+	}
+
+	if err := h.Backend.ModifyVpcEndpoint(endpointID, addSubnets, removeSubnets, opts); err != nil {
 		return nil, err
 	}
 

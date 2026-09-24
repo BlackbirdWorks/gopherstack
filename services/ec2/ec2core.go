@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // awsRegions is the standard "aws" partition commercial region list, sourced
@@ -128,6 +130,58 @@ type VpcCidrBlockAssociation struct {
 	AssociationID string `json:"associationID,omitempty"`
 	CidrBlock     string `json:"cidrBlock,omitempty"`
 	State         string `json:"state,omitempty"`
+}
+
+// VpcIpv6CidrBlockAssociation represents an IPv6 CIDR block associated with a VPC.
+type VpcIpv6CidrBlockAssociation struct {
+	AssociationID      string `json:"associationID,omitempty"`
+	Ipv6CidrBlock      string `json:"ipv6CidrBlock,omitempty"`
+	Ipv6Pool           string `json:"ipv6Pool,omitempty"`
+	NetworkBorderGroup string `json:"networkBorderGroup,omitempty"`
+	State              string `json:"state,omitempty"`
+}
+
+// AssociateVpcIpv6CidrBlock associates an IPv6 CIDR block with a VPC. Only
+// the Amazon-provided /56 allocation path is modeled (ipv6CidrBlock is
+// generated when the caller doesn't supply one from a BYOIP pool).
+func (b *InMemoryBackend) AssociateVpcIpv6CidrBlock(
+	vpcID, ipv6Pool, ipv6CidrBlock, networkBorderGroup string,
+) (*VpcIpv6CidrBlockAssociation, error) {
+	if vpcID == "" {
+		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AssociateVpcIpv6CidrBlock")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcs.Get(vpcID); !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+	}
+
+	if ipv6CidrBlock == "" {
+		ipv6CidrBlock = generateAmazonIpv6CidrBlock()
+	}
+
+	assoc := &VpcIpv6CidrBlockAssociation{
+		AssociationID:      newVPCCIDRAssociationID(),
+		Ipv6CidrBlock:      ipv6CidrBlock,
+		Ipv6Pool:           ipv6Pool,
+		NetworkBorderGroup: networkBorderGroup,
+		State:              stateAssociated,
+	}
+	b.vpcIpv6CidrAssociations[vpcID+":"+assoc.AssociationID] = assoc
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// generateAmazonIpv6CidrBlock returns a synthetic Amazon-provided /56 IPv6
+// CIDR block in the same 2600:1f:: range real EC2 allocates from.
+func generateAmazonIpv6CidrBlock() string {
+	id := uuid.New()
+
+	return fmt.Sprintf("2600:1f18:%x:%x00::/56", id[0:2], id[2])
 }
 
 // ---- EgressOnly Internet Gateway ----
@@ -446,7 +500,12 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	assoc := &VpcCidrBlockAssociation{
 		AssociationID: newVPCCIDRAssociationID(),
 		CidrBlock:     cidrBlock,
-		State:         stateAvailable,
+		// "available" is not a valid VpcCidrBlockStateCode (associating |
+		// associated | disassociating | disassociated | failing | failed);
+		// the wrong value hung terraform-provider-aws's wait-for-associated
+		// waiter until timeout since it never saw "associated" (gopherstack
+		// mega-batch-44 investigation).
+		State: stateAssociated,
 	}
 	b.vpcCidrAssociations[vpcID+":"+assoc.AssociationID] = assoc
 
