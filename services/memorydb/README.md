@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 45 (42 ok, 3 partial) |
+| PARITY entries audited | 45 (43 ok, 2 partial) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -20,7 +20,6 @@
 - ServiceUpdate.NodesUpdated is not modeled: real AWS's field lists which nodes a per-cluster service update instance has updated. This backend has no per-node update tracking (buildShards' node identities are synthesized per-request, not persisted per-node state), so there is nothing honest to report; the wire field exists (added 2026-08-10) but is always empty rather than fabricated. ClusterName/per-cluster fanout and the ClusterNames filter ARE now modeled -- see DescribeServiceUpdates/BatchUpdateCluster fixed in this pass.
 - DescribeSnapshotsInput.ShowDetail (real field; per AWS's doc comment it gates whether the per-shard configuration -- ClusterConfiguration.Shards -- is included in the response, NOT ClusterConfiguration itself, which is always present) is not implemented. Tied to the Shards gap above: since Shards can't be honestly populated (Size/Slots not derivable without fabrication), wiring a ShowDetail flag that gates an always-empty Shards list would just be a second parsed-and-ignored request field: not implemented, rather than added as a no-op.
 - 2026-08-15 (gopherstack-6flj): ClusterPendingUpdates.Resharding (real member, types.ReshardingStatus{SlotMigration{ProgressPercentage}}, confirmed via deserializers.go's 3-key ClusterPendingUpdates case list -- ACLs/Resharding/ServiceUpdates) is not modeled on pendingUpdatesObject at all. Same root cause as the UpdateMultiRegionCluster ShardConfiguration gap above: UpdateCluster/UpdateMultiRegionCluster apply a shard-count change synchronously with no in-progress-resharding state (grep for "reshard" in this service: zero hits outside this note), so there is nothing to honestly report -- the field would always be absent/nil either way, identical to a real AWS response at rest with no resharding in flight. Not added as a dead always-nil field; disclosed instead.
-- 2026-08-15 (gopherstack-6flj): DescribeUsersInput.Filters -- see DescribeUsers op note above.
 
 ### Deferred
 
