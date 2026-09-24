@@ -51,9 +51,10 @@ func (b *InMemoryBackend) CreateProject(name string, params CreateProjectParams)
 		CreationTimestamp: time.Now(),
 		ProjectARN:        arn,
 		Name:              name,
-		Status:            "CREATING",
-		AutoUpdate:        params.AutoUpdate,
-		Feature:           feature,
+		// No async worker transitions it, so CREATING would wedge pollers.
+		Status:     "CREATED",
+		AutoUpdate: params.AutoUpdate,
+		Feature:    feature,
 	}
 	b.projects.Put(p)
 
