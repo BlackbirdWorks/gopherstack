@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -125,12 +126,24 @@ type InMemoryBackend struct {
 	updateInfoEntries map[string]map[string][]*storedUpdateInfo
 
 	mu        *lockmetrics.RWMutex
+	work      *worker.Group
 	region    string
 	accountID string
 }
 
-// NewInMemoryBackend constructs a new InMemoryBackend.
+// NewInMemoryBackend constructs a new InMemoryBackend whose background
+// directory/restore lifecycle transitions are rooted at context.Background()
+// (see NewInMemoryBackendWithContext for a backend tied to a real service
+// lifecycle).
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext constructs a new InMemoryBackend whose
+// delayed directory-creation and snapshot-restore transitions run on a
+// worker.Group rooted at ctx, so Close stops them and they never outlive the
+// backend (see PARITY.md's leaks note).
+func NewInMemoryBackendWithContext(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:          store.NewRegistry(),
 		aliases:           make(map[string]map[string]string),
@@ -140,6 +153,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		dirSettings:       make(map[string]map[string][]*storedDirectorySetting),
 		updateInfoEntries: make(map[string]map[string][]*storedUpdateInfo),
 		mu:                lockmetrics.New("directoryservice"),
+		work:              worker.NewGroup(ctx, "directoryservice"),
 		accountID:         accountID,
 		region:            region,
 	}
@@ -147,6 +161,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 	return b
 }
+
+// Close stops all scheduled directory-lifecycle timers so none outlives the
+// backend. Safe to call multiple times.
+func (b *InMemoryBackend) Close() { b.work.Stop() }
 
 // The following accessor helpers replace the old lazy per-region map
 // accessors (b.state(region).directories etc.) with store.Table / store.Index

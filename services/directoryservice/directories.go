@@ -22,24 +22,27 @@ func setStage(d *storedDirectory, stage DirectoryStage) {
 	d.StageLastUpdatedDateTime = time.Now().UTC()
 }
 
-// transitionDirectoryToActive runs the Requested → Creating → Active lifecycle.
-// Must be called as a goroutine after the directory has been stored.
+// transitionDirectoryToActive runs the Requested -> Creating -> Active
+// lifecycle on b.work, a worker.Group tied to the backend's lifecycle
+// context (see PARITY.md's leaks note): each step is a tracked, cancellable
+// timer instead of an untracked goroutine sleeping in real time, so nothing
+// outlives Close() and pending timers cannot pile up past shutdown.
 func (b *InMemoryBackend) transitionDirectoryToActive(region, dirID string) {
-	time.Sleep(directoryLifecycleDelay)
+	b.work.After("DirectoryCreating", directoryLifecycleDelay, func() {
+		b.mu.Lock("transitionDirectoryToActive:creating")
+		if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageRequested) {
+			setStage(d, DirectoryStageCreating)
+		}
+		b.mu.Unlock()
 
-	b.mu.Lock("transitionDirectoryToActive:creating")
-	if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageRequested) {
-		setStage(d, DirectoryStageCreating)
-	}
-	b.mu.Unlock()
-
-	time.Sleep(directoryLifecycleDelay)
-
-	b.mu.Lock("transitionDirectoryToActive:active")
-	if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageCreating) {
-		setStage(d, DirectoryStageActive)
-	}
-	b.mu.Unlock()
+		b.work.After("DirectoryActive", directoryLifecycleDelay, func() {
+			b.mu.Lock("transitionDirectoryToActive:active")
+			if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageCreating) {
+				setStage(d, DirectoryStageActive)
+			}
+			b.mu.Unlock()
+		})
+	})
 }
 
 // synthesizeDNSIPAddrs deterministically derives two plausible private DNS
@@ -232,7 +235,7 @@ func (b *InMemoryBackend) CreateDirectory(
 
 	cp := b.describeDirectory(d)
 
-	go b.transitionDirectoryToActive(region, d.DirectoryID)
+	b.transitionDirectoryToActive(region, d.DirectoryID)
 
 	return &cp, nil
 }
@@ -286,7 +289,7 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 
 	cp := b.describeDirectory(d)
 
-	go b.transitionDirectoryToActive(region, d.DirectoryID)
+	b.transitionDirectoryToActive(region, d.DirectoryID)
 
 	return &cp, nil
 }
