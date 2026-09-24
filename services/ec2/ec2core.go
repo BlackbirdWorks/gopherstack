@@ -573,7 +573,8 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 
 	cp := *rt
 	cp.State = tgwRouteStateDeleted
-	b.tgwRouteTableTombstones[id] = &cp
+	pruneExpiredTombstones(b.tgwRouteTableTombstones, time.Now())
+	b.tgwRouteTableTombstones[id] = tombstone[TransitGatewayRouteTable]{value: &cp, deletedAt: time.Now()}
 
 	b.tgwRouteTables.Delete(id)
 	delete(b.tags, id)

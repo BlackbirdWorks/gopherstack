@@ -17,6 +17,25 @@ const DefaultTerminatedTTL = defaultTerminatedTTL
 // DefaultCancelledSpotTTL exposes the package default cancelled spot request TTL for testing.
 const DefaultCancelledSpotTTL = defaultCancelledSpotTTL
 
+// TombstoneTTLForTest exposes ec2TombstoneTTL for testing.
+const TombstoneTTLForTest = ec2TombstoneTTL
+
+// TombstoneCountsForTest returns the total number of entries across every EC2
+// tombstone map, for asserting sweepExpiredTombstones bounds their growth.
+func (b *InMemoryBackend) TombstoneCountsForTest() int {
+	b.mu.RLock("TombstoneCountsForTest")
+	defer b.mu.RUnlock()
+
+	return len(b.tgwRouteTableTombstones) + len(b.tgwVpcAttachmentTombstones) +
+		len(b.tgwPeeringAttachmentTombstones) + len(b.natGatewayTombstones) +
+		len(b.fleetTombstones) + len(b.vpnConnectionTombstones)
+}
+
+// SweepExpiredTombstonesForTest exposes sweepExpiredTombstones for unit tests.
+func (j *Janitor) SweepExpiredTombstonesForTest(ctx context.Context) {
+	j.sweepExpiredTombstones(ctx)
+}
+
 // TickLifecycleForTest synchronously runs one pass of the lifecycle reconciler,
 // advancing any transitional instance states to their next stable state.
 // Used in tests to avoid waiting for the background goroutine.

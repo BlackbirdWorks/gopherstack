@@ -407,16 +407,16 @@ type InMemoryBackend struct {
 	// state "deleted" for a period rather than NotFound; some
 	// terraform-provider-aws delete waiters treat a NotFound response as a
 	// fatal error instead of "done").
-	tgwRouteTableTombstones map[string]*TransitGatewayRouteTable
+	tgwRouteTableTombstones map[string]tombstone[TransitGatewayRouteTable]
 	// tgwVpcAttachmentTombstones is the same tombstone pattern as
 	// tgwRouteTableTombstones, for TGW VPC attachment delete waiters.
-	tgwVpcAttachmentTombstones map[string]*TransitGatewayVpcAttachment
+	tgwVpcAttachmentTombstones map[string]tombstone[TransitGatewayVpcAttachment]
 	// natGatewayTombstones is the same tombstone pattern as
 	// tgwRouteTableTombstones, for DeleteNatGateway's delete waiter.
-	natGatewayTombstones map[string]*NatGateway
+	natGatewayTombstones map[string]tombstone[NatGateway]
 	// tgwPeeringAttachmentTombstones is the same tombstone pattern as
 	// tgwRouteTableTombstones, for DeleteTransitGatewayPeeringAttachment's delete waiter.
-	tgwPeeringAttachmentTombstones map[string]*TransitGatewayPeeringAttachment
+	tgwPeeringAttachmentTombstones map[string]tombstone[TransitGatewayPeeringAttachment]
 	subnetCIDRAssociations         map[string][]*SubnetCIDRAssociation
 	addressAttributes              *store.Table[AddressAttribute]
 	instanceCreditSpecs            map[string]string
@@ -472,10 +472,10 @@ type InMemoryBackend struct {
 	fleetHistory             map[string][]FleetHistoryRecord
 	// fleetTombstones is the same tombstone pattern as tgwRouteTableTombstones,
 	// for DeleteFleets' delete waiter.
-	fleetTombstones map[string]*Fleet
+	fleetTombstones map[string]tombstone[Fleet]
 	// vpnConnectionTombstones is the same tombstone pattern as
 	// tgwRouteTableTombstones, for DeleteVpnConnection's delete waiter.
-	vpnConnectionTombstones            map[string]*VpnConnection
+	vpnConnectionTombstones            map[string]tombstone[VpnConnection]
 	networkInsightsPaths               *store.Table[NetworkInsightsPath]
 	networkInsightsAnalyses            *store.Table[NetworkInsightsAnalysis]
 	networkInsightsAccessScopes        *store.Table[NetworkInsightsAccessScope]
@@ -663,18 +663,18 @@ func initVerifiedAccessExtMaps(b *InMemoryBackend) {
 func initCoreExtraMaps(b *InMemoryBackend) {
 	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
 	b.fleetHistory = make(map[string][]FleetHistoryRecord)
-	b.fleetTombstones = make(map[string]*Fleet)
-	b.vpnConnectionTombstones = make(map[string]*VpnConnection)
+	b.fleetTombstones = make(map[string]tombstone[Fleet])
+	b.vpnConnectionTombstones = make(map[string]tombstone[VpnConnection])
 	b.snapshotTiers = make(map[string]string)
 	b.snapshotAttributes = make(map[string]map[string]string)
 	b.sgVpcAssociations = make(map[string]map[string]string)
 	b.vpcTenancy = make(map[string]string)
 	b.vpcPeeringOptions = make(map[string]*PeeringConnectionOptions)
 	b.vpcPeeringAccepterOptions = make(map[string]*PeeringConnectionOptions)
-	b.tgwRouteTableTombstones = make(map[string]*TransitGatewayRouteTable)
-	b.tgwVpcAttachmentTombstones = make(map[string]*TransitGatewayVpcAttachment)
-	b.natGatewayTombstones = make(map[string]*NatGateway)
-	b.tgwPeeringAttachmentTombstones = make(map[string]*TransitGatewayPeeringAttachment)
+	b.tgwRouteTableTombstones = make(map[string]tombstone[TransitGatewayRouteTable])
+	b.tgwVpcAttachmentTombstones = make(map[string]tombstone[TransitGatewayVpcAttachment])
+	b.natGatewayTombstones = make(map[string]tombstone[NatGateway])
+	b.tgwPeeringAttachmentTombstones = make(map[string]tombstone[TransitGatewayPeeringAttachment])
 	b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
 	b.instanceCreditSpecs = make(map[string]string)
 	b.niIPv6Addresses = make(map[string][]string)

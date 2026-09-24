@@ -430,7 +430,8 @@ func (b *InMemoryBackend) DeleteFleets(ids []string, terminateInstances bool) []
 		}
 
 		cp := *f
-		b.fleetTombstones[id] = &cp
+		pruneExpiredTombstones(b.fleetTombstones, time.Now())
+		b.fleetTombstones[id] = tombstone[Fleet]{value: &cp, deletedAt: time.Now()}
 
 		b.fleets.Delete(id)
 		delete(b.tags, id)
@@ -493,9 +494,9 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 			continue
 		}
 
-		if tomb, ok := b.fleetTombstones[id]; ok {
-			cp := *tomb
-			cp.FleetState = b.fleetReportedStateLocked(tomb)
+		if tomb, ok := b.fleetTombstones[id]; ok && time.Since(tomb.deletedAt) <= ec2TombstoneTTL {
+			cp := *tomb.value
+			cp.FleetState = b.fleetReportedStateLocked(tomb.value)
 			result = append(result, &cp)
 		}
 	}

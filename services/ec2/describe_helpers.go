@@ -3,7 +3,37 @@ package ec2
 import (
 	"fmt"
 	"sort"
+	"time"
 )
+
+// ec2TombstoneTTL is how long a deleted resource stays describable by id in
+// "deleted" state before describeWithTombstones treats it as gone and the
+// janitor's sweepExpiredTombstones prunes it. No per-resource-type duration
+// is documented for the TGW route table / VPC attachment / peering
+// attachment, NAT gateway, Fleet, or VPN connection tombstones below; this
+// reuses the one duration the pinned SDK does document for a deleted EC2
+// resource staying visible (aws-sdk-go-v2/service/ec2 v1.329.0
+// api_op_DescribeInstances.go: "Recently terminated instances might appear
+// in the returned results. This interval is usually less than one hour.").
+const ec2TombstoneTTL = time.Hour
+
+// tombstone pairs a deleted resource's last known state with when it was
+// deleted, so describeWithTombstones and the janitor can expire it instead
+// of keeping it in memory forever.
+type tombstone[T any] struct {
+	value     *T
+	deletedAt time.Time
+}
+
+// pruneExpiredTombstones removes every entry older than ec2TombstoneTTL.
+// Caller must hold the backend write lock.
+func pruneExpiredTombstones[T any](tombstones map[string]tombstone[T], now time.Time) {
+	for id, tomb := range tombstones {
+		if now.Sub(tomb.deletedAt) > ec2TombstoneTTL {
+			delete(tombstones, id)
+		}
+	}
+}
 
 // describeByIDsOrNotFound looks up each of ids via get and returns the found
 // values sorted by less, or fails the whole call with notFoundErr (wrapping
@@ -34,7 +64,12 @@ func describeByIDsOrNotFound[T any](
 // describeWithTombstones copies matching live items plus, for any requested
 // id not found live, its tombstone -- an unfiltered Describe never surfaces
 // tombstones, matching real AWS's list-vs-get behavior. Result sorted by id.
-func describeWithTombstones[T any](live []*T, tombstones map[string]*T, ids []string, idOf func(*T) string) []*T {
+func describeWithTombstones[T any](
+	live []*T,
+	tombstones map[string]tombstone[T],
+	ids []string,
+	idOf func(*T) string,
+) []*T {
 	idSet := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		idSet[id] = true
@@ -59,10 +94,13 @@ func describeWithTombstones[T any](live []*T, tombstones map[string]*T, ids []st
 			continue
 		}
 
-		if tomb, ok := tombstones[id]; ok {
-			cp := *tomb
-			out = append(out, &cp)
+		tomb, ok := tombstones[id]
+		if !ok || time.Since(tomb.deletedAt) > ec2TombstoneTTL {
+			continue
 		}
+
+		cp := *tomb.value
+		out = append(out, &cp)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return idOf(out[i]) < idOf(out[j]) })

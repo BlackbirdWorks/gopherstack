@@ -1,7 +1,7 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 1598513da   # was d1ed0e39b
+last_audit_commit: 30db30dd8   # was 1598513da
 last_audit_date: 2026-09-24   # was 2026-09-23
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
@@ -601,10 +601,24 @@ deferred:
   - NAT gateway private-connectivity mode (ConnectivityType=private, no AllocationId) and create-time PrivateIpAddress/SecondaryAllocationIds/SecondaryPrivateIpAddressCount/SecondaryPrivateIpAddresses — not modeled, no backing data; see nat_gateway note.
   - VPC Endpoint Service / VPC Endpoint DnsEntries, security groups, IP prefixes, policy documents, PrivateLink-managed-service fields — not modeled, no backing data; see vpc_endpoints note.
   - "EBS snapshot lineage, ENI attach/detach edge cases, pagination internals beyond tags/instances: AUDITED and FIXED (parity-5, 2026-07-30 pass) — see the ebs_snapshot_lineage/eni_attach_detach/pagination family notes above. Real, honestly-documented remaining gaps from that pass: Snapshot.DataEncryptionKeyId and AMI-backing-snapshot InvalidSnapshot.InUse protection (no backing data, see ebs_snapshot_lineage); per-ENI security-group tracking, a materially larger separate feature (see eni_attach_detach); MaxResults/NextToken truncation across ~12 newer op families that declare but never implement it, and SearchTransitGatewayRoutes's required-Filters not being enforced (see pagination and transit_gateway notes)."
-leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable leak). Re-verified the lifecycle-reconciler goroutine (store.go StartLifecycleReconciler/StopLifecycleReconciler) is ctx-parented AND has an explicit Stop channel, wired into provider.go/handler.go Shutdown — no leak. No other goroutines/tickers found in services/ec2 (grep for `go func\(`/`time.NewTicker`/`time.AfterFunc` — one hit, the reconciler above). Secondary indexes (instanceIDsByVPC/subnetIDsByVPC/routeTableIDsByVPC/sgIDsByVPC/natGatewayIDsByVPC) are correctly deindexed on every explicit per-resource delete; eniIDsByVPC is still correctly maintained but is now write-only (no reader) since DeleteVpc no longer cascades through it — not a leak (bounded, cleaned on ENI delete), just vestigial; left in place rather than risk a wider removal across network_interfaces.go/instances.go/spot_fleet.go/indexes.go for a non-functional cleanup.}
+leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable leak). Re-verified the lifecycle-reconciler goroutine (store.go StartLifecycleReconciler/StopLifecycleReconciler) is ctx-parented AND has an explicit Stop channel, wired into provider.go/handler.go Shutdown — no leak. No other goroutines/tickers found in services/ec2 (grep for `go func\(`/`time.NewTicker`/`time.AfterFunc` — one hit, the reconciler above). Secondary indexes (instanceIDsByVPC/subnetIDsByVPC/routeTableIDsByVPC/sgIDsByVPC/natGatewayIDsByVPC) are correctly deindexed on every explicit per-resource delete; eniIDsByVPC is still correctly maintained but is now write-only (no reader) since DeleteVpc no longer cascades through it — not a leak (bounded, cleaned on ENI delete), just vestigial; left in place rather than risk a wider removal across network_interfaces.go/instances.go/spot_fleet.go/indexes.go for a non-functional cleanup. NEW (2026-09-24): the six tombstone maps (tgwRouteTableTombstones, tgwVpcAttachmentTombstones, tgwPeeringAttachmentTombstones, natGatewayTombstones, fleetTombstones, vpnConnectionTombstones) never expired an entry — unbounded growth for a long-running emulator's terraform suites. Fixed: each tombstone now carries a deletedAt, describeWithTombstones stops returning one past ec2TombstoneTTL (1h, api_op_DescribeInstances.go's documented "usually less than one hour" terminated-instance visibility — no per-resource-type duration is documented for these six), and Janitor.sweepExpiredTombstones (added to SweepOnce) plus each Delete* op's own pruneExpiredTombstones call physically evict expired entries. See TestTombstones_ExpireAfterRetentionWindow, TestJanitor_SweepExpiredTombstones.}
 ---
 
 ## Notes
+
+### 2026-09-24: tombstone maps now expire (unbounded-growth fix)
+
+The six delete-waiter tombstone maps added by the mega-batch-11/12 and
+gopherstack-54bv0 passes below never removed an entry, so a long-running
+emulator whose terraform suites create/delete thousands of TGW route
+tables/VPC attachments/peering attachments, NAT gateways, Fleets, and VPN
+connections grew them without bound. Each tombstone now records deletedAt;
+describeWithTombstones stops surfacing one past ec2TombstoneTTL (1h, citing
+api_op_DescribeInstances.go's documented terminated-instance visibility
+window -- no duration is documented for these six specifically); a new
+Janitor.sweepExpiredTombstones (wired into SweepOnce, no new goroutine) and
+each Delete* op's own prune call physically evict expired entries. See
+TestTombstones_ExpireAfterRetentionWindow, TestJanitor_SweepExpiredTombstones.
 
 ### 2026-09-24: mega-batch-44/45 terraform coverage — 51 resources
 

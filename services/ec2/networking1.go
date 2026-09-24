@@ -140,7 +140,8 @@ func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 
 	cp := *att
 	cp.State = tgwRouteStateDeleted
-	b.tgwVpcAttachmentTombstones[id] = &cp
+	pruneExpiredTombstones(b.tgwVpcAttachmentTombstones, time.Now())
+	b.tgwVpcAttachmentTombstones[id] = tombstone[TransitGatewayVpcAttachment]{value: &cp, deletedAt: time.Now()}
 
 	b.tgwVpcAttachments.Delete(id)
 	delete(b.tags, id)

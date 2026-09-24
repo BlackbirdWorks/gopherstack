@@ -126,7 +126,8 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 
 	cp := *ngw
 	cp.State = natGatewayStateDeleted
-	b.natGatewayTombstones[id] = &cp
+	pruneExpiredTombstones(b.natGatewayTombstones, time.Now())
+	b.natGatewayTombstones[id] = tombstone[NatGateway]{value: &cp, deletedAt: time.Now()}
 
 	return nil
 }

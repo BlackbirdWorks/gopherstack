@@ -62,9 +62,13 @@ func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) (*Tra
 	b.tgwPeeringAttachments.Delete(id)
 	delete(b.tags, id)
 
-	tombstone := cp
-	tombstone.State = tgwRouteStateDeleted
-	b.tgwPeeringAttachmentTombstones[id] = &tombstone
+	tombstoned := cp
+	tombstoned.State = tgwRouteStateDeleted
+	pruneExpiredTombstones(b.tgwPeeringAttachmentTombstones, time.Now())
+	b.tgwPeeringAttachmentTombstones[id] = tombstone[TransitGatewayPeeringAttachment]{
+		value:     &tombstoned,
+		deletedAt: time.Now(),
+	}
 
 	return &cp, nil
 }

@@ -197,7 +197,8 @@ func (b *InMemoryBackend) DeleteVpnConnection(id string) error {
 
 	cp := *conn
 	cp.State = tgwRouteStateDeleted
-	b.vpnConnectionTombstones[id] = &cp
+	pruneExpiredTombstones(b.vpnConnectionTombstones, time.Now())
+	b.vpnConnectionTombstones[id] = tombstone[VpnConnection]{value: &cp, deletedAt: time.Now()}
 
 	b.vpnConnections.Delete(id)
 	delete(b.tags, id)
