@@ -371,6 +371,17 @@ func (h *Handler) sqsRoute(
 }
 
 // handleError writes an SQS error response using the standard error details mapping.
+//
+// SQS is an AWS-query-compatible JSON service: aws-sdk-go-v2 sends JSON
+// requests but, for backward compatibility with legacy Query-protocol error
+// codes (which callers like terraform-provider-aws match against, e.g.
+// waitQueueDeleted comparing ErrorCode() to "AWS.SimpleQueueService.
+// NonExistentQueue"), it reads the response's X-Amzn-Query-Error header and
+// overrides ErrorCode() with it when present (see smithy-go's awsjson
+// protocol DeserializeResponse). Without this header every JSON-protocol SQS
+// error surfaces to the client as its "__type" shape name (e.g.
+// "QueueDoesNotExist") instead of the legacy code real AWS also sends,
+// breaking any caller that still matches on the legacy string.
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	errType, message, status := errorDetails(err)
 
@@ -379,6 +390,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return marshalErr
 	}
 
+	queryCode, _, queryStatus := queryErrorDetails(err)
+
+	fault := errorFaultSender
+	if queryStatus >= http.StatusInternalServerError {
+		fault = "Receiver"
+	}
+
+	c.Response().Header().Set("X-Amzn-Query-Error", queryCode+";"+fault)
 	c.Response().Header().Set("Content-Type", sqsJSONContentType)
 
 	return c.JSONBlob(status, payload)

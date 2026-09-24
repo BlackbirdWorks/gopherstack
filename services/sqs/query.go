@@ -17,6 +17,11 @@ import (
 // queryRequestID is the fixed request ID returned in Query protocol responses.
 const queryRequestID = "gopherstack"
 
+// errorFaultSender is the smithy/query-protocol fault classification for a
+// client-caused error; shared by the Query/XML <Error><Type> element and the
+// JSON protocol's X-Amzn-Query-Error response header (see handleError).
+const errorFaultSender = "Sender"
+
 // isQueryProtocol reports whether the request uses the SQS Query (form-encoded) protocol.
 func isQueryProtocol(r *http.Request) bool {
 	return r.Method == http.MethodPost &&
@@ -84,7 +89,7 @@ func writeQueryError(c *echo.Context, code, message string, status int) error {
 		Xmlns:     sqsNamespace,
 		RequestID: queryRequestID,
 		Error: XMLError{
-			Type:    "Sender",
+			Type:    errorFaultSender,
 			Code:    code,
 			Message: message,
 		},
@@ -109,7 +114,7 @@ func buildQueryError(err error) *queryError {
 		Xmlns:     sqsNamespace,
 		RequestID: queryRequestID,
 		Error: XMLError{
-			Type:    "Sender",
+			Type:    errorFaultSender,
 			Code:    code,
 			Message: message,
 		},

@@ -696,3 +696,41 @@ func TestProviderNameAndInit(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 }
+
+// TestSQSHandler_QueryCompatibleErrorHeader verifies JSON-protocol error
+// responses carry X-Amzn-Query-Error with the legacy Query-protocol code.
+// aws-sdk-go-v2's awsjson protocol (SQS is aws.protocols#awsQueryCompatible)
+// overrides ErrorCode() from this header when present; callers matching the
+// legacy code (e.g. terraform-provider-aws's waitQueueDeleted comparing
+// against "AWS.SimpleQueueService.NonExistentQueue") silently fail to
+// recognize the error without it -- observed as terraform's SQS queue
+// destroy erroring instead of treating a 404 as "already gone".
+func TestSQSHandler_QueryCompatibleErrorHeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		action     string
+		wantHeader string
+	}{
+		{
+			name:       "queue_does_not_exist",
+			action:     "GetQueueAttributes",
+			body:       map[string]any{"QueueUrl": "http://localhost/000000000000/does-not-exist"},
+			wantHeader: "AWS.SimpleQueueService.NonExistentQueue;Sender",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+
+			require.NotEqual(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.wantHeader, rec.Header().Get("X-Amzn-Query-Error"))
+		})
+	}
+}

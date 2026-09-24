@@ -1,9 +1,15 @@
 ---
 service: sqs
 sdk_module: aws-sdk-go-v2/service/sqs@v1.51.0
-last_audit_commit: f51bf624e
-last_audit_date: 2026-08-10
-overall: A
+last_audit_commit: e13b41148  # 2026-09-24 terraform-coverage sweep; prior: f51bf624e
+last_audit_date: 2026-09-24  # prior: 2026-08-10
+overall: A            # 2026-09-24: fixed a real bug -- JSON-protocol error responses never
+                       # carried the X-Amzn-Query-Error header. SQS is aws.protocols#awsQueryCompatible;
+                       # aws-sdk-go-v2 overrides ErrorCode() from that header when present, so every
+                       # JSON-protocol error surfaced to real clients as its JSON __type name instead of
+                       # the legacy code (e.g. QueueDoesNotExist instead of
+                       # AWS.SimpleQueueService.NonExistentQueue) -- breaking terraform-provider-aws's
+                       # SQS queue-delete waiter, which matches only the legacy code. See families.error_codes.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -37,7 +43,7 @@ families:
   delay_queues: {status: ok, note: "queue-level DelaySeconds + per-message DelaySeconds (message wins), FIFO rejects per-message delay, delayedCount maintained incrementally for O(1) GetQueueAttributes"}
   long_polling: {status: ok, note: "broadcast notify-channel-close-and-replace pattern wakes all waiters on send or 0-timeout visibility reset; 1s recheck interval catches janitor-driven requeues without a new SendMessage"}
   receive_request_attempt_id: {status: ok, note: "5-minute exactly-once-retry cache keyed by ReceiveRequestAttemptId, pruned alongside dedup IDs"}
-  error_codes: {status: fixed, note: "fixed this pass: the previous audit note here claimed Query protocol \"correctly uses legacy codes ... AWS.SimpleQueueService.PurgeQueueInProgress, etc.\", but independent field-diff against the actual code showed queryErrorDetails only special-cased ErrQueueNotFound and fell through to the shared JSON errorDetails table for every other error — so the Query/XML <Code> element for PurgeQueueInProgress, EmptyBatchRequest, TooManyEntriesInBatchRequest, BatchEntryIdsNotDistinct, and BatchRequestTooLong literally contained the JSON protocol's \"com.amazonaws.sqs#\"-namespaced Smithy shape ID, which is never valid in an XML Query-protocol response (that prefix has no meaning outside the JSON __type field). The correct legacy codes were already sitting unused as those five sentinels' own .Error() text in errors.go (encoded there in an earlier pass, apparently for exactly this purpose, but never wired up). legacyQueryErrorOverride now uses them. QueueDeletedRecently (new this pass) got the same treatment from the start. Query protocol correctly uses legacy codes for these 6 plus NonExistentQueue's pre-existing override vs JSON protocol's com.amazonaws.sqs# namespaced codes for everything else"}
+  error_codes: {status: fixed, note: "fixed this pass: the previous audit note here claimed Query protocol \"correctly uses legacy codes ... AWS.SimpleQueueService.PurgeQueueInProgress, etc.\", but independent field-diff against the actual code showed queryErrorDetails only special-cased ErrQueueNotFound and fell through to the shared JSON errorDetails table for every other error — so the Query/XML <Code> element for PurgeQueueInProgress, EmptyBatchRequest, TooManyEntriesInBatchRequest, BatchEntryIdsNotDistinct, and BatchRequestTooLong literally contained the JSON protocol's \"com.amazonaws.sqs#\"-namespaced Smithy shape ID, which is never valid in an XML Query-protocol response (that prefix has no meaning outside the JSON __type field). The correct legacy codes were already sitting unused as those five sentinels' own .Error() text in errors.go (encoded there in an earlier pass, apparently for exactly this purpose, but never wired up). legacyQueryErrorOverride now uses them. QueueDeletedRecently (new this pass) got the same treatment from the start. Query protocol correctly uses legacy codes for these 6 plus NonExistentQueue's pre-existing override vs JSON protocol's com.amazonaws.sqs# namespaced codes for everything else. FIXED 2026-09-24 (mega-batch-51 terraform coverage): the JSON protocol's error RESPONSE never set the X-Amzn-Query-Error header real AWS sends alongside the JSON body for awsQueryCompatible services (SQS/SNS). aws-sdk-go-v2's awsjson protocol (smithy-go transport/http/protocol/awsjson) reads that header and overrides the deserialized error's ErrorCode() with it; without it, every JSON-protocol error surfaced as its bare __type shape name (e.g. \"QueueDoesNotExist\") instead of the legacy code (\"AWS.SimpleQueueService.NonExistentQueue\") real AWS also sends there -- silently breaking any caller (terraform-provider-aws's waitQueueDeleted, observed directly) that matches on the legacy code, since the SDK never even attempts the override. handleError now reuses queryErrorDetails (already correct for the Query/XML path) to also set this header on every JSON-protocol error response."}
   persistence: {status: fixed, note: "fixed this pass: (1) hasActivity (janitor skip-idle-queue flag) was never restored, so a restored non-FIFO queue with pending messages was silently invisible to the background janitor until an unrelated SendMessage touched it again; (2) fifoSeqCounter was not persisted, so SequenceNumber could regress/duplicate for a FIFO queue that already had messages sent before a snapshot/restore; (3) lastPurgedAt (PurgeQueue 60s cooldown) was not persisted, resetting the cooldown on every restart. This pass added: the new QueueDeletedRecently cooldown map (b.recentlyDeleted) is persisted as a new top-level backendSnapshot.RecentlyDeleted field (region/name -> unix-milli, no version bump needed since it's an additive omitempty field), following the same rationale as lastPurgedAt — otherwise a restore immediately followed by CreateQueue would silently drop the 60s wait-before-recreate rule for a queue deleted just before the snapshot"}
 gaps: []
 items_still_open:
@@ -54,6 +60,11 @@ leaks: {status: clean, note: "fixed this pass: restoreQueueFromSnapshot now seed
 ---
 
 ## Notes
+
+### 2026-09-24 terraform-coverage sweep (mega-batch-51)
+
+JSON-protocol errors never set X-Amzn-Query-Error (real AWS SQS does), breaking
+terraform-provider-aws's queue-delete waiter. See families.error_codes.
 
 ### Protocol
 SQS implements **both** protocols side by side, dispatched in `handler.go`'s
