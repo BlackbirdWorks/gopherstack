@@ -21,25 +21,19 @@ const HeaderDashboard = "X-Gopherstack-Dashboard"
 // headerDashboardBypass is the value of HeaderDashboard that signals bypass.
 const headerDashboardBypass = "true"
 
-// extractServiceFromRequest extracts the lowercase AWS service name from the
-// SigV4 Authorization header (e.g. "dynamodb", "s3", "sqs").
-// Returns an empty string when the header is absent or malformed.
-func extractServiceFromRequest(r interface {
+// sigV4CredentialParts splits the SigV4 Credential scope once per request; nil if absent or malformed.
+func sigV4CredentialParts(r interface {
 	Header(string) string
 },
-) string {
+) []string {
 	auth := r.Header("Authorization")
-	if auth == "" {
-		return ""
-	}
-
-	if !strings.Contains(auth, "Credential=") {
-		return ""
+	if auth == "" || !strings.Contains(auth, "Credential=") {
+		return nil
 	}
 
 	_, after, found := strings.Cut(auth, "Credential=")
 	if !found {
-		return ""
+		return nil
 	}
 
 	// Credential value ends at the next comma (before SignedHeaders).
@@ -48,29 +42,28 @@ func extractServiceFromRequest(r interface {
 
 	// Format: AKID / date / region / service / aws4_request
 	if len(parts) < minSigV4CredentialParts {
+		return nil
+	}
+
+	return parts
+}
+
+// extractServiceFromRequest returns the lowercase service from the scope, or "".
+func extractServiceFromRequest(parts []string) string {
+	if parts == nil {
 		return ""
 	}
 
 	return sanitizeName(strings.ToLower(parts[3]))
 }
 
-// extractRegionFromRequest extracts the AWS region from the SigV4 Authorization
-// header, falling back to the X-Amz-Region header.
-func extractRegionFromRequest(r interface {
+// extractRegionFromRequest returns the scope's region, falling back to X-Amz-Region.
+func extractRegionFromRequest(parts []string, r interface {
 	Header(string) string
 },
 ) string {
-	auth := r.Header("Authorization")
-	if auth != "" && strings.Contains(auth, "Credential=") {
-		_, after, found := strings.Cut(auth, "Credential=")
-		if found {
-			credOnly, _, _ := strings.Cut(after, ",")
-			parts := strings.Split(credOnly, "/")
-
-			if len(parts) >= minSigV4CredentialParts {
-				return sanitizeName(parts[2])
-			}
-		}
+	if parts != nil {
+		return sanitizeName(parts[2])
 	}
 
 	return sanitizeName(r.Header("X-Amz-Region"))
@@ -142,9 +135,10 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 			log := logger.Load(ctx)
 
 			adapter := echoRequestAdapter{c: c}
-			svc := extractServiceFromRequest(adapter)
+			credParts := sigV4CredentialParts(adapter)
+			svc := extractServiceFromRequest(credParts)
 			op := extractOperationFromRequest(adapter)
-			region := extractRegionFromRequest(adapter)
+			region := extractRegionFromRequest(credParts, adapter)
 
 			// Apply network effects latency before forwarding.
 			effects := store.GetEffects()

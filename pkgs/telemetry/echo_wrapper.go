@@ -36,15 +36,13 @@ func WrapEchoHandler(
 	observer ObservabilityObserver,
 ) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		// Enrich the request-scoped context logger with the service name so
-		// that every log line emitted during this request is tagged with it.
-		// AddAttrs creates a *new* logger derived from the one already in ctx,
-		// leaving the shared root logger untouched.
-		reqCtx := pkglogger.AddAttrs(
-			c.Request().Context(),
-			slog.String("service", serviceName),
-		)
-		c.SetRequest(c.Request().WithContext(reqCtx))
+		reqCtx := c.Request().Context()
+
+		// Registry services are already tagged by withServiceLogger.
+		if !pkglogger.HasService(reqCtx, serviceName) {
+			reqCtx = pkglogger.AddAttrs(reqCtx, slog.String("service", serviceName))
+			c.SetRequest(c.Request().WithContext(reqCtx))
+		}
 
 		log := pkglogger.Load(reqCtx)
 
