@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,9 +24,11 @@ var errUnknownPath = errors.New("unknown path")
 
 // Handler is the HTTP handler for the AWS Application Migration Service API.
 type Handler struct {
-	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
+	Backend     *InMemoryBackend
+	routesCache map[string]routeEntry
+	AccountID   string
+	Region      string
+	routesOnce  sync.Once
 }
 
 // NewHandler creates a new MGN handler.

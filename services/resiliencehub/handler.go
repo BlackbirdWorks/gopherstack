@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -28,9 +29,11 @@ var errUnknownPath = errors.New("unknown path")
 
 // Handler is the HTTP handler for the AWS Resilience Hub API.
 type Handler struct {
-	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
+	Backend     *InMemoryBackend
+	routesCache map[string]routeEntry
+	AccountID   string
+	Region      string
+	routesOnce  sync.Once
 }
 
 // NewHandler creates a new Resilience Hub handler.

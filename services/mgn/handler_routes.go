@@ -8,17 +8,22 @@ import "maps"
 // a lookup-table split, not a logic split (decomposition, not suppression --
 // see .claude/memories/parity-principles.md's ban on cyclop/funlen/gocyclo/
 // gocognit suppressions).
+// Built once: the router evaluates every matcher per request.
 func (h *Handler) routes() map[string]routeEntry {
-	return mergeRoutes(
-		h.routesSourceServersAndJobs(),
-		h.routesConfigTemplates(),
-		h.routesAppsAndWaves(),
-		h.routesConnectorsVcenterExportImport(),
-		h.routesActionsAndServiceInit(),
-		h.routesTags(),
-		h.routesNetworkMigrationDefinitions(),
-		h.routesNetworkMigrationJobs(),
-	)
+	h.routesOnce.Do(func() {
+		h.routesCache = mergeRoutes(
+			h.routesSourceServersAndJobs(),
+			h.routesConfigTemplates(),
+			h.routesAppsAndWaves(),
+			h.routesConnectorsVcenterExportImport(),
+			h.routesActionsAndServiceInit(),
+			h.routesTags(),
+			h.routesNetworkMigrationDefinitions(),
+			h.routesNetworkMigrationJobs(),
+		)
+	})
+
+	return h.routesCache
 }
 
 func mergeRoutes(tables ...map[string]routeEntry) map[string]routeEntry {

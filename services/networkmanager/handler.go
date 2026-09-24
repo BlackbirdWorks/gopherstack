@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,9 +24,11 @@ var errUnknownPath = errors.New("unknown path")
 
 // Handler is the HTTP handler for the AWS Network Manager API.
 type Handler struct {
-	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
+	Backend         *InMemoryBackend
+	AccountID       string
+	Region          string
+	routeTableCache []route
+	routeTableOnce  sync.Once
 }
 
 // NewHandler creates a new Network Manager handler.
@@ -375,20 +378,25 @@ func marshalResponse(v any) ([]byte, error) {
 // concatenating every family's own route slice -- one family per
 // handler_<family>.go file, each named for the PARITY.md family table it
 // implements (all 95 operations, none missing).
+// Built once: the router evaluates every matcher per request.
 func (h *Handler) routeTable() []route {
-	return concatRoutes(
-		h.globalNetworksRoutes(),
-		h.associationsRoutes(),
-		h.connectPeersRoutes(),
-		h.coreNetworksRoutes(),
-		h.attachmentsRoutes(),
-		h.peeringsRoutes(),
-		h.routeAnalysisRoutes(),
-		h.introspectionRoutes(),
-		h.orgAccessRoutes(),
-		h.resourcePolicyRoutes(),
-		h.taggingRoutes(),
-	)
+	h.routeTableOnce.Do(func() {
+		h.routeTableCache = concatRoutes(
+			h.globalNetworksRoutes(),
+			h.associationsRoutes(),
+			h.connectPeersRoutes(),
+			h.coreNetworksRoutes(),
+			h.attachmentsRoutes(),
+			h.peeringsRoutes(),
+			h.routeAnalysisRoutes(),
+			h.introspectionRoutes(),
+			h.orgAccessRoutes(),
+			h.resourcePolicyRoutes(),
+			h.taggingRoutes(),
+		)
+	})
+
+	return h.routeTableCache
 }
 
 // concatRoutes flattens groups into one preallocated slice -- shared by
