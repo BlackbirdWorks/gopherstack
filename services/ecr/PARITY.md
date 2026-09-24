@@ -1,8 +1,8 @@
 ---
 service: ecr
 sdk_module: aws-sdk-go-v2/service/ecr@v1.64.0
-last_audit_commit: 70d96e12d  # 2026-09-19 mega-batch-14/15 terraform sweep
-last_audit_date: 2026-09-19
+last_audit_commit: f78c3b7c7  # 2026-09-24 goroutine-leak audit (gopherstack-1x2u0)
+last_audit_date: 2026-09-24
 overall: A  # round 4 (gopherstack-6flj wrapper-key sweep) found and fixed 6 more real wire-shape bugs the round-3 "wire: ok" claims had missed -- see "Genuine fixes made this pass, round 4" below. Round 3 closed every remaining gap it found: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -933,3 +933,22 @@ free-text exception name `RepositoryNotFoundException` instead of the real
 (ecr@v1.64.0 types/enums.go:423). Fixed; proof:
 `TestBatchGetRepositoryScanningConfiguration_MissingRepoFailureCode` asserts
 the typed constant via the real client.
+
+## 2026-09-24 (gopherstack-1x2u0 goroutine-leak audit)
+
+Embedded Docker registry (docker_registry.go, distribution v3.1.1) leaked two
+background goroutines whenever GOPHERSTACK_ENABLE_LOCAL_REGISTRY=1: the
+upload purger (startUploadPurger) and a github.com/docker/go-events
+Broadcaster (app.events.sink), unconditionally started by
+handlers.App.configureEvents. Upload purger disabled via
+`storage.maintenance.uploadpurging.enabled=false` (meaningless for
+in-memory, process-lifetime storage anyway). The broadcaster has no
+exported Close/Shutdown reachable from *handlers.App (app.events.sink is an
+unexported field of an unexported struct) -- added to
+services/ecr/leak_main_test.go's ignore list, one line naming
+`github.com/docker/go-events.(*Broadcaster).run`. Handler now implements
+service.Shutdowner, calling the registry's own Shutdown() (a no-op today
+since this registry isn't a proxy.Closer, but the correct hook). Added
+leak_main_test.go (testleak.VerifyTestMain); 4 test call sites in
+docker_registry_test.go retrofitted via a shared initWithLocalRegistry
+helper with t.Cleanup. No persisted struct fields changed; no version bump.

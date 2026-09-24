@@ -5,6 +5,7 @@ package ecr_test
 // of the JSON control plane when GOPHERSTACK_ENABLE_LOCAL_REGISTRY is set.
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -18,28 +19,30 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ecr"
 )
 
-func TestProvider_Init_WithLocalRegistry(t *testing.T) {
+func initWithLocalRegistry(t *testing.T) *ecr.Handler {
+	t.Helper()
 	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
 
 	p := &ecr.Provider{}
 	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
 	require.NoError(t, err)
-	assert.NotNil(t, svc)
 
 	h, ok := svc.(*ecr.Handler)
 	require.True(t, ok)
+	t.Cleanup(func() { h.Shutdown(context.Background()) })
+
+	return h
+}
+
+//nolint:paralleltest // t.Setenv (via initWithLocalRegistry) forbids t.Parallel()
+func TestProvider_Init_WithLocalRegistry(t *testing.T) {
+	h := initWithLocalRegistry(t)
 	assert.True(t, h.RegistryEnabled())
 }
 
+//nolint:paralleltest // t.Setenv (via initWithLocalRegistry) forbids t.Parallel()
 func TestRouteMatcher_V2Path_WithRegistryEnabled(t *testing.T) {
-	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
-
-	p := &ecr.Provider{}
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-
-	h, ok := svc.(*ecr.Handler)
-	require.True(t, ok)
+	h := initWithLocalRegistry(t)
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
@@ -47,36 +50,24 @@ func TestRouteMatcher_V2Path_WithRegistryEnabled(t *testing.T) {
 	assert.True(t, h.RouteMatcher()(c))
 }
 
+//nolint:paralleltest // t.Setenv (via initWithLocalRegistry) forbids t.Parallel()
 func TestHandler_V2Path_ProxiesRegistry(t *testing.T) {
-	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
-
-	p := &ecr.Provider{}
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-
-	h, ok := svc.(*ecr.Handler)
-	require.True(t, ok)
+	h := initWithLocalRegistry(t)
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	err = h.Handler()(c)
+	err := h.Handler()(c)
 	require.NoError(t, err)
 	// Distribution registry responds 200 for /v2/ when no auth is configured.
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+//nolint:paralleltest // t.Setenv (via initWithLocalRegistry) forbids t.Parallel()
 func TestExtractOperation_V2Path_WithRegistryEnabled(t *testing.T) {
-	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
-
-	p := &ecr.Provider{}
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-
-	h, ok := svc.(*ecr.Handler)
-	require.True(t, ok)
+	h := initWithLocalRegistry(t)
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
