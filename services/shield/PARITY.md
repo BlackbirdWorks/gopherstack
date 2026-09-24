@@ -476,3 +476,18 @@ Gates: `go build ./...`, `go vet`, `go test -race -count=1`
 --new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
 missing-items-still-open FAIL. No persisted-struct fields changed; no
 version bump.
+
+## mega-batch-54 terraform coverage (2026-09-24)
+
+`AssociateHealthCheck`/`DisassociateHealthCheck` stored the full Route 53
+health check ARN in `Protection.HealthCheckIds`, but real Shield
+(shield@v1.37.4 types.Protection) stores the bare health check ID there --
+terraform-provider-aws's `aws_shield_protection_health_check_association`
+read path splits its own ARN and looks for the bare ID in
+`DescribeProtection`'s `HealthCheckIds`, so the full-ARN entry was invisible
+to it ("root object was present, but now absent" after apply). Fixed:
+`healthCheckIDFromARN` extracts the ID before storing/comparing.
+
+Gates: `go build ./...`, `go vet ./services/shield/...`, `go test -race
+-count=1 ./services/shield/...`, `golangci-lint run ./services/shield/...`
+-- all clean. No persisted-struct fields changed; no version bump.

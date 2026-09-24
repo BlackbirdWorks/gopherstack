@@ -277,7 +277,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "full-protection", restored.Name)
 	assert.Equal(t, "test", restored.Tags["env"])
-	assert.Equal(t, []string{"arn:aws:route53:::healthcheck/hc1"}, restored.HealthCheckIDs)
+	assert.Equal(t, []string{"hc1"}, restored.HealthCheckIDs)
 
 	// protectionsByResourceARN index.
 	byARN, err := fresh.DescribeProtection("", p.ResourceARN)

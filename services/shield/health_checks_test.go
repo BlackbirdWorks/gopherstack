@@ -3,10 +3,49 @@ package shield_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
+
+// TestInMemoryBackend_AssociateHealthCheck_StoresBareID verifies AssociateHealthCheck stores the bare
+// health check ID, not the full ARN: storing the full ARN made every association invisible after create.
+func TestInMemoryBackend_AssociateHealthCheck_StoresBareID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		healthCheckARN string
+		wantID         string
+	}{
+		{
+			name:           "bare_id_extracted",
+			healthCheckARN: "arn:aws:route53:::healthcheck/abc123",
+			wantID:         "abc123",
+		},
+		{
+			name:           "uuid_style_id_extracted",
+			healthCheckARN: "arn:aws:route53:::healthcheck/5b0abbb9-0000-4000-8000-000000000000",
+			wantID:         "5b0abbb9-0000-4000-8000-000000000000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+			p := b.AddProtectionInternal("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1")
+
+			require.NoError(t, b.AssociateHealthCheck(p.ID, tt.healthCheckARN))
+
+			got, err := b.DescribeProtection(p.ID, "")
+			require.NoError(t, err)
+			assert.Equal(t, []string{tt.wantID}, got.HealthCheckIDs)
+		})
+	}
+}
 
 // TestBackend_AssociateHealthCheck tests backend health check association.
 func TestBackend_AssociateHealthCheck(t *testing.T) {

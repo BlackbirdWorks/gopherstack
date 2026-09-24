@@ -3,7 +3,16 @@ package shield
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
+
+// healthCheckIDFromARN extracts the bare ID from a Route 53 health check ARN: real Shield's
+// Protection.HealthCheckIds holds bare IDs, not ARNs, so storing the full ARN hid every association.
+func healthCheckIDFromARN(healthCheckARN string) string {
+	parts := strings.Split(healthCheckARN, "/")
+
+	return parts[len(parts)-1]
+}
 
 // AssociateHealthCheck associates a Route 53 health check with a protection.
 func (b *InMemoryBackend) AssociateHealthCheck(protectionID, healthCheckARN string) error {
@@ -15,11 +24,12 @@ func (b *InMemoryBackend) AssociateHealthCheck(protectionID, healthCheckARN stri
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
 
-	if slices.Contains(p.HealthCheckIDs, healthCheckARN) {
+	id := healthCheckIDFromARN(healthCheckARN)
+	if slices.Contains(p.HealthCheckIDs, id) {
 		return nil
 	}
 
-	p.HealthCheckIDs = append(p.HealthCheckIDs, healthCheckARN)
+	p.HealthCheckIDs = append(p.HealthCheckIDs, id)
 
 	return nil
 }
@@ -34,7 +44,9 @@ func (b *InMemoryBackend) DisassociateHealthCheck(protectionID, healthCheckARN s
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
 
-	idx := slices.Index(p.HealthCheckIDs, healthCheckARN)
+	id := healthCheckIDFromARN(healthCheckARN)
+
+	idx := slices.Index(p.HealthCheckIDs, id)
 	if idx < 0 {
 		return fmt.Errorf(
 			"%w: health check %q not associated with protection %q",

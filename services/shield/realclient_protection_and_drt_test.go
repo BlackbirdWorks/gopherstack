@@ -303,7 +303,9 @@ func testHealthChecksRealClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, descOut.Protection.HealthCheckIds, 1)
-	assert.Equal(t, healthCheckARN, descOut.Protection.HealthCheckIds[0])
+	// Protection.HealthCheckIds holds the bare ID, not the ARN passed to AssociateHealthCheck
+	// (shield@v1.37.4 types/types.go) -- see healthCheckIDFromARN.
+	assert.Equal(t, "abcd1234-abcd-1234-abcd-1234abcd1234", descOut.Protection.HealthCheckIds[0])
 
 	_, err = client.DisassociateHealthCheck(ctx, &shieldsdk.DisassociateHealthCheckInput{
 		ProtectionId:   aws.String(prot.ID),
