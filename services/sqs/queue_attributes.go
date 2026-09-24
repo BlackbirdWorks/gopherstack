@@ -2,7 +2,6 @@ package sqs
 
 import (
 	"encoding/json"
-	"maps"
 	"slices"
 	"strconv"
 	"time"
@@ -97,11 +96,25 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 		}
 	}
 
-	maps.Copy(q.Attributes, input.Attributes)
+	mergeQueueAttributes(q.Attributes, input.Attributes)
 
 	q.Attributes[attrLastModifiedTimestamp] = strconv.FormatInt(time.Now().Unix(), 10)
 
 	return nil
+}
+
+// mergeQueueAttributes applies updates onto dst; "" unsets the attribute, as
+// on real SQS (the provider's redrive-policy destroy waits for the key to vanish).
+func mergeQueueAttributes(dst, updates map[string]string) {
+	for k, v := range updates {
+		if v == "" {
+			delete(dst, k)
+
+			continue
+		}
+
+		dst[k] = v
+	}
 }
 
 // validateQueueAttributes returns an error if any of the provided queue attributes
