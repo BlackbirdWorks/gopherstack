@@ -530,6 +530,10 @@ func (rc *ResourceCreator) createIAMCoreResource(
 		physID, err := rc.createIAMGroup(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
+	case resTypeIAMOIDCProvider:
+		physID, err := rc.createIAMOIDCProvider(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	default:
 
 		return "", false, nil
@@ -582,6 +586,14 @@ func (rc *ResourceCreator) createEC2CoreResource(
 			params,
 			physicalIDs,
 		)
+
+		return physID, true, err
+	case resTypeEC2LaunchTemplate:
+		physID, err := rc.createEC2LaunchTemplate(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEC2VPCEndpoint:
+		physID, err := rc.createEC2VPCEndpoint(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	default:
@@ -694,6 +706,10 @@ func (rc *ResourceCreator) createRDSResource(
 		return physID, true, err
 	case "AWS::RDS::DBParameterGroup":
 		physID, err := rc.createRDSDBParameterGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeRDSDBProxy:
+		physID, err := rc.createRDSDBProxy(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	default:
@@ -907,6 +923,18 @@ func (rc *ResourceCreator) createPhase3AppServiceResource(
 		return physID, true, err
 	case "AWS::AutoScaling::LaunchConfiguration":
 		physID, err := rc.createLaunchConfiguration(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeASGScalingPolicy:
+		physID, err := rc.createASGScalingPolicy(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeASGScheduledActn:
+		physID, err := rc.createASGScheduledAction(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeASGLifecycleHook:
+		physID, err := rc.createASGLifecycleHook(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::ApiGatewayV2::Api":
@@ -1324,6 +1352,9 @@ func (rc *ResourceCreator) deleteIAMCoreResource(resourceType, physicalID string
 	case "AWS::IAM::Group":
 
 		return true, rc.deleteIAMGroup(physicalID)
+	case resTypeIAMOIDCProvider:
+
+		return true, rc.deleteIAMOIDCProvider(physicalID)
 	default:
 
 		return false, nil
@@ -1360,6 +1391,12 @@ func (rc *ResourceCreator) deleteEC2CoreResource(resourceType, physicalID string
 	case "AWS::EC2::SubnetRouteTableAssociation":
 
 		return true, rc.deleteEC2SubnetRouteTableAssociation(physicalID)
+	case resTypeEC2LaunchTemplate:
+
+		return true, rc.deleteEC2LaunchTemplate(physicalID)
+	case resTypeEC2VPCEndpoint:
+
+		return true, rc.deleteEC2VPCEndpoint(physicalID)
 	default:
 
 		return false, nil
@@ -1463,6 +1500,9 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 	case "AWS::RDS::DBParameterGroup":
 
 		return true, rc.deleteRDSDBParameterGroup(physicalID)
+	case resTypeRDSDBProxy:
+
+		return true, rc.deleteRDSDBProxy(physicalID)
 	case resTypeECSCluster:
 
 		return true, rc.deleteECSCluster(physicalID)
@@ -1677,6 +1717,12 @@ func (rc *ResourceCreator) deleteAppPlatformResource(_ context.Context, physical
 		return true, rc.deleteAutoScalingGroup(physicalID)
 	case "AWS::AutoScaling::LaunchConfiguration":
 		return true, rc.deleteLaunchConfiguration(physicalID)
+	case resTypeASGScalingPolicy:
+		return true, rc.deleteASGScalingPolicy(physicalID)
+	case resTypeASGScheduledActn:
+		return true, rc.deleteASGScheduledAction(physicalID)
+	case resTypeASGLifecycleHook:
+		return true, rc.deleteASGLifecycleHook(physicalID)
 	case "AWS::ApiGatewayV2::Api":
 		return true, rc.deleteAPIGatewayV2API(physicalID)
 	case "AWS::ApiGatewayV2::Stage":

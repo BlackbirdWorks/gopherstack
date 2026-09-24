@@ -39,6 +39,34 @@ func getExtraResourceAttribute(resType, physID, attrName, accountID, region stri
 		return physID, true
 	}
 
+	return getManagedTypesAttribute(resType, physID, attrName, accountID, region)
+}
+
+// getManagedTypesAttribute derives Fn::GetAtt attribute values for the
+// EC2/AutoScaling/RDS types added in resources_more_managed_types.go.
+func getManagedTypesAttribute(resType, physID, attrName, accountID, region string) (string, bool) {
+	switch resType {
+	case resTypeEC2LaunchTemplate:
+		if attrName == "DefaultVersionNumber" || attrName == "LatestVersionNumber" {
+			// CreateStack always creates exactly one launch template version.
+			return "1", true
+		}
+
+		return physID, true
+	case resTypeASGScalingPolicy:
+		if attrName == "PolicyName" {
+			return scalingPolicyNameFromARN(physID), true
+		}
+
+		return physID, true
+	case resTypeRDSDBProxy:
+		if attrName == "DBProxyArn" {
+			return rdsDBProxyArn(physID, accountID, region), true
+		}
+
+		return physID, true
+	}
+
 	return "", false
 }
 

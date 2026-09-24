@@ -1,7 +1,9 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 1598513da  # 2026-09-24 DeleteStack already-gone-child fix; prior: 893408596
+last_audit_commit: d67382029  # 2026-09-24 added 7 new resource types (LaunchTemplate, VPCEndpoint,
+                               # ScalingPolicy, ScheduledAction, LifecycleHook, IAM OIDCProvider,
+                               # RDS DBProxy); prior: 1598513da
 last_audit_date: 2026-09-24  # prior: 2026-09-20
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
@@ -135,10 +137,21 @@ items_still_open:
   - "RollbackStack is a status-only stub (flips StackStatus, replays nothing) and drops RoleARN/RetainExceptOnCreate both — same missing rollback machinery as the UpdateStack line above (gopherstack-xhu2t; re-verified 2026-09-18)"
   - "ListResourceScanRelatedResources ignores MaxResults/NextToken and always returns an empty list — this backend computes no cross-resource relationship graph for a scan, so there's nothing to paginate over (gopherstack-xhu2t; re-verified 2026-09-18)"
   - "ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped — no multi-version type catalog exists for them to gate (RegisterType stores one version per type, ActivateType hardcodes VersionID \"00000001\"; same class as SetTypeConfiguration above) (gopherstack-xhu2t; re-verified 2026-09-18)"
+  - "topoSortResources (stacks.go) only orders resources by explicit DependsOn — it never infers dependencies from Ref/Fn::GetAtt inside Properties, unlike real CloudFormation. Resources with no DependsOn are processed in plain alphabetical order, so a template whose logical IDs happen to sort against their real dependency (e.g. an EC2::VPCEndpoint logical ID alphabetically before the VPC it references) fails CreateStack with a not-found error real AWS would never hit. Found 2026-09-24 while adding AWS::EC2::VPCEndpoint; worked around in that type's tests via explicit DependsOn, not fixed (structural — would need a Ref/GetAtt scanner over every resource's Properties tree)."
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
 ## Notes
+
+### 2026-09-24 (parity-sweep) 7 new resource types: 184 -> 191 supported types
+
+Added AWS::EC2::LaunchTemplate, AWS::EC2::VPCEndpoint, AWS::AutoScaling::{ScalingPolicy,
+ScheduledAction,LifecycleHook}, AWS::IAM::OIDCProvider, AWS::RDS::DBProxy, each
+provisioning through its real service backend with correct Ref/GetAtt (see resources_
+more_managed_types.go). Found but did not fix a pre-existing gap: topoSortResources only
+honors explicit DependsOn, never infers ordering from Ref/Fn::GetAtt, so templates whose
+resources sort alphabetically out of dependency order (e.g. "Endpoint" before "VPC") fail
+CreateStack unless DependsOn is added explicitly -- unlike real CloudFormation.
 
 ### 2026-09-24 (parity-sweep) DeleteStack already-gone child resource
 
