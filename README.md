@@ -488,7 +488,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 12 gaps |
-| [S3](services/s3/README.md) | A | 23 | 8 gaps |
+| [S3](services/s3/README.md) | A | 24 | 8 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
@@ -594,7 +594,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 2 gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 10 gaps; 2 deferred |
-| [IAM](services/iam/README.md) | A | 37 | 7 gaps |
+| [IAM](services/iam/README.md) | A | 37 | 8 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 5 gaps |

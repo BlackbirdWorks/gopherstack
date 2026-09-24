@@ -123,6 +123,18 @@ invented_ops_removed:
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 items_still_open:
+  - "aws_iam_security_token_service_preferences (2026-09-24, mega-batch-50 terraform
+    sweep): dropped from test/terraform/fixtures/mega-batch-50.tf after a real
+    attempt. terraform-provider-aws v5.100.0 fails apply with 'Provider produced
+    inconsistent result after apply ... root object was present, but now absent',
+    the identical symptom already recorded for aws_ecr_registry_scanning_configuration
+    /aws_ecr_replication_configuration in services/ecr/PARITY.md (gopherstack-101r,
+    2026-09-19) -- a Put-then-immediate-Read singleton-settings resource pattern
+    that trips a legacy-SDK/plugin-framework state-consistency check in Terraform
+    Core itself, not this emulator: SetSecurityTokenServicePreferences and its
+    read path (GetAccountSummary's GlobalEndpointTokenVersion entry) are already
+    verified wire-correct (see the SetSecurityTokenServicePreferences ops entry
+    above). Left out rather than re-chased blind, same reasoning as the ECR entry."
   - "2026-09-19 (parity-sweep): PutAccountProperties enforces both AWS-documented
     structural key constraints (one '/' separator, no leading/trailing '/', single
     namespace per request) but not per-property value typing (e.g. RoleManager's
