@@ -287,6 +287,8 @@ func (h *Handler) handleDescribeTransitGatewayVpcAttachments(
 		return nil, err
 	}
 
+	atts = applyTGWVpcAttachmentFilters(atts, parseEC2Filters(vals), h.Backend)
+
 	resp := &describeTransitGatewayVpcAttachmentsResponse{RequestID: reqID}
 
 	for _, att := range atts {

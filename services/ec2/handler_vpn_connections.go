@@ -112,6 +112,8 @@ func (h *Handler) handleDescribeVpnConnections(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
+	conns = applyVpnConnectionFilters(conns, parseEC2Filters(vals), h.Backend)
+
 	resp := &describeVpnConnectionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, conn := range conns {

@@ -266,6 +266,7 @@ func (h *Handler) handleDeleteClientVpnEndpoint(vals url.Values, reqID string) (
 func (h *Handler) handleDescribeClientVpnEndpoints(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ClientVpnEndpointId")
 	eps := h.Backend.DescribeClientVpnEndpoints(ids)
+	eps = applyClientVpnEndpointFilters(eps, parseEC2Filters(vals), h.Backend)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

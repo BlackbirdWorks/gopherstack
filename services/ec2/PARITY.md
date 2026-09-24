@@ -3,7 +3,74 @@ service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: 5cb6665a0   # was 30db30dd8
 last_audit_date: 2026-09-24   # was 2026-09-23
-overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
+overall: A   # Filter.N sweep (this pass, chore/parity-sweep-2026-09-18 branch, closes
+             # gopherstack-rwwvt): DescribeTransitGatewayVpcAttachments only honoured
+             # TransitGatewayAttachmentIds and silently dropped every Filter.N (state,
+             # transit-gateway-attachment-id, transit-gateway-id, vpc-id, tag:<key>, tag-key --
+             # all real, api_op_DescribeTransitGatewayVpcAttachments.go-documented and backed by
+             # stored fields). Fixed via a new applyTGWVpcAttachmentFilters/
+             # tgwVpcAttachmentMatchesFilter pair in handler_filters.go, following the file's
+             # existing applyXxxFilters convention, wired into handleDescribeTransitGatewayVpcAttachments
+             # (handler_networking1.go) after the existing requireAllIDsPresent check (matches
+             # handleDescribeTransitGateways' ordering). Audited every other registered EC2
+             # Describe*/Get* handler against the pinned SDK's per-op "Filters []types.Filter"
+             # (or, for the DescribeNatGateways family, the singular "Filter []types.Filter")
+             # field: of 181 ops the SDK declares as filterable, 60 already apply filters and 121
+             # silently ignored Filters entirely (see below and .claude-scratch audit for the
+             # full op list -- not reproduced here in full given its size). Of the priority
+             # families called out for this pass: DescribeNetworkAcls, DescribeRouteTables,
+             # DescribeCustomerGateways, DescribeVpnGateways, DescribeNatGateways,
+             # DescribeIpamScopes, and DescribeIpamResourceDiscoveries were already fixed by an
+             # earlier pass and confirmed still correct. Newly fixed this pass, beyond the
+             # mandatory target: (2) DescribeTransitGatewayAttachments -- same
+             # filters-ignored bug, same TransitGatewayVpcAttachment-derived data; added
+             # applyTGWAttachmentFilters/tgwAttachmentMatchesFilter covering resource-id,
+             # resource-type, state, transit-gateway-attachment-id, transit-gateway-id, tag:<key>,
+             # tag-key (association.*, resource-owner-id, transit-gateway-owner-id are documented
+             # but this backend's TransitGatewayAttachmentSummary has no backing field, left
+             # unimplemented rather than fabricated). (3) DescribeClientVpnEndpoints -- added
+             # applyClientVpnEndpointFilters/clientVpnEndpointMatchesFilter covering endpoint-id,
+             # transport-protocol, tag:<key>, tag-key (the two real documented filters this
+             # backend has data for). (4) DescribeVpnConnections -- added
+             # applyVpnConnectionFilters/vpnConnectionMatchesFilter covering vpn-connection-id,
+             # state, type, customer-gateway-id, vpn-gateway-id, transit-gateway-id,
+             # option.static-routes-only, tag:<key>, tag-key; customer-gateway-configuration
+             # (an XML blob, not an equality-filterable field), route.destination-cidr-block, and
+             # bgp-asn are documented but unmodeled, left unimplemented. (5)
+             # DescribeVpcEndpointServices -- added the "service-type" Filter (derived from the
+             # existing gatewayEndpointServiceType helper); ServiceRegion.N and the remaining
+             # documented Filters (owner, tag:<key>, etc.) stay a documented gap since this
+             # backend's service catalogue is a static per-region name list with no per-service
+             # attribute data to filter against. New tests (all real aws-sdk-go-v2-client-driven,
+             # table-driven, t.Parallel outer+inner): realclient_filters_tgw_vpn_test.go --
+             # TestRealClient_DescribeTransitGatewayVpcAttachmentsFilters,
+             # TestRealClient_DescribeTransitGatewayAttachmentsFilters,
+             # TestRealClient_DescribeClientVpnEndpointsFilters,
+             # TestRealClient_DescribeVpnConnectionsFilters,
+             # TestRealClient_DescribeVpcEndpointServicesFilters -- each creates 2+ objects,
+             # applies a filter, and asserts only the matching object(s) come back; empty-filter
+             # behaviour is unchanged (every new applyXxxFilters function returns its input
+             # unmodified when len(filters)==0, same as every pre-existing one). Remaining
+             # filter-ignoring ops, not fixed this pass (out of scope/lower priority; see
+             # items_still_open for the full breakdown by family): the rest of the transit
+             # gateway family (DescribeTransitGatewayConnectPeers/Connects/MeteringPolicies/
+             # MulticastDomains/PeeringAttachments/PolicyTables/RouteTableAnnouncements and every
+             # GetTransitGateway*/GetTransitGatewayRouteTable* sub-resource op), the remaining VPC
+             # endpoint ops (DescribeVpcEndpointAssociations/ConnectionNotifications/
+             # ServiceConfigurations/ServicePermissions), DescribeClientVpnAuthorizationRules/
+             # Connections/Routes/TargetNetworks, the local gateway route table family
+             # (DescribeLocalGatewayRouteTables and its VirtualInterfaceGroupAssociations/
+             # VpcAssociations siblings), and the large IPAM Describe*/Get* surface
+             # (DescribeIpamPools/Ipams/PoolAllocations/ExternalResourceVerificationTokens/
+             # PrefixListResolvers(Targets)/ResourceDiscoveryAssociations/Policies and every
+             # GetIpamDiscovered*/GetIpamPolicy*/GetIpamPrefixListResolver*/GetIpamPoolCidrs/
+             # GetIpamResourceCidrs/GetIpamRouteProtectionFindings/GetIpamInternetRegistryAssociation*
+             # op). Gates run: gofmt -l (clean), go build ./... && go vet ./services/ec2/...
+             # (clean), go test -race -count=1 ./services/ec2/... (pass), golangci-lint run
+             # ./services/ec2/... (clean), go test ./pkgs/persistence/ (pass), parityfmtcheck
+             # (clean), go.mod/go.sum untouched.
+             # ---- prior pass's note follows ----
+             # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
              # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
              # and the map-literal `"OpName": h.handleOpName`), restricted to Describe*/List*,
@@ -356,6 +423,50 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "Filter.N ignored on ~121 Describe*/Get* ops (2026-09-24, gopherstack-rwwvt sweep): of the 181
+    registered EC2 ops the pinned SDK (ec2@v1.329.0) declares as filterable (per-op 'Filters
+    []types.Filter', or 'Filter []types.Filter' for the DescribeNatGateways family), 60 already
+    apply filters and this pass fixed 5 more (DescribeTransitGatewayVpcAttachments,
+    DescribeTransitGatewayAttachments, DescribeClientVpnEndpoints, DescribeVpnConnections,
+    DescribeVpcEndpointServices's service-type filter -- see the overall note above). ~116 remain
+    genuinely unread, prioritised but not reached this pass: the rest of the transit gateway
+    family (DescribeTransitGatewayConnectPeers/Connects/MeteringPolicies/MulticastDomains/
+    PeeringAttachments/PolicyTables/RouteTableAnnouncements, and every GetTransitGatewayAttachmentPropagations/
+    GetTransitGatewayMeteringPolicyEntries/GetTransitGatewayMulticastDomainAssociations/
+    GetTransitGatewayPolicyTableAssociations/GetTransitGatewayPolicyTableEntries/
+    GetTransitGatewayPrefixListReferences/GetTransitGatewayRouteTableAssociations/
+    GetTransitGatewayRouteTablePropagations sub-resource op); the remaining VPC endpoint ops
+    (DescribeVpcEndpointAssociations/ConnectionNotifications/ServiceConfigurations/
+    ServicePermissions); DescribeClientVpnAuthorizationRules/Connections/Routes/TargetNetworks;
+    the local gateway route table family (DescribeLocalGatewayRouteTables and its
+    VirtualInterfaceGroupAssociations/VpcAssociations siblings, plus DescribeLocalGateways/
+    LocalGatewayVirtualInterfaceGroups/LocalGatewayVirtualInterfaces); the bulk of the IPAM
+    Describe*/Get* surface (DescribeIpamPools/Ipams/PoolAllocations/
+    ExternalResourceVerificationTokens/PrefixListResolvers(Targets)/ResourceDiscoveryAssociations/
+    Policies and every GetIpamDiscovered*/GetIpamPolicy*/GetIpamPrefixListResolver*/
+    GetIpamPoolCidrs/GetIpamResourceCidrs/GetIpamRouteProtectionFindings/
+    GetIpamInternetRegistryAssociation* op); plus a long tail of lower-priority families
+    (DescribeCapacityReservation*/CapacityBlock*, DescribeInstance*/Fleet*/LaunchTemplate*
+    sub-ops, DescribeNetworkInsights*, DescribeVerifiedAccess*, DescribeRouteServer*,
+    DescribeMacHosts/MacModificationTasks, DescribeStoreImageTasks, DescribeReplaceRootVolumeTasks,
+    DescribeReservedInstances/ReservedInstancesListings/ReservedInstancesModifications,
+    DescribeScheduledInstances, DescribeSecurityGroupVpcAssociations, DescribeVolumesModifications/
+    VolumeStatus, DescribeVpcBlockPublicAccessExclusions/VpcClassicLink/VpcEncryptionControls,
+    DescribeTrafficMirrorFilterRules/Sessions/Targets, DescribeTrunkInterfaceAssociations,
+    DescribeOutpostLags, DescribePlacementGroups, DescribeSpotPriceHistory,
+    DescribeIamInstanceProfileAssociations (state filter only -- instance-id/association-id
+    already work per an earlier pass), DescribeCoipPools, DescribeElasticGpus, DescribeExportTasks/
+    ExportImageTasks/ImportImageTasks/ImportSnapshotTasks/FastLaunchImages/FastSnapshotRestores,
+    DescribeStoreImageTasks, DescribeInstanceConnectEndpoints/CreditSpecifications/EventWindows/
+    ImageMetadata/Topology, DescribeSecondaryInterfaces (tag-key only -- everything else already
+    fixed), DescribeLockedSnapshots, DescribeFpgaImages (partially -- see the confirmed-correct
+    note above; some documented filters remain unread), and DescribeAwsNetworkPerformanceMetricSubscriptions/
+    DescribeCapacityManagerDataExports/DescribeImageUsageReports (report-id/image-id already
+    fixed by an earlier pass; remaining Filters unread). Each of these needs the same treatment as
+    this pass's fixes: read the op's SDK doc comment for its documented filter names, cross-check
+    against what this backend's struct actually stores, add an applyXxxFilters/xxxMatchesFilter
+    pair to handler_filters.go for only the filters with real backing data, and wire it into the
+    handler after any existing requireAllIDsPresent check."
   - "aws_network_interface_permission (2026-09-24, mega-batch-44): CreateNetworkInterfacePermission
     correctly returns the real AWS wire value PermissionState.State='granted' (lowercase, matching
     ec2@v1.329.0 types.NetworkInterfacePermissionStateCode), but terraform-provider-aws's own create

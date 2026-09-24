@@ -240,6 +240,8 @@ func (h *Handler) handleDescribeTransitGatewayAttachments(vals url.Values, reqID
 		return nil, err
 	}
 
+	atts = applyTGWAttachmentFilters(atts, parseEC2Filters(vals), h.Backend)
+
 	resp := &describeTransitGatewayAttachmentsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, att := range atts {
 		resp.Attachments.Items = append(resp.Attachments.Items, tgwAttachmentSummaryItem{

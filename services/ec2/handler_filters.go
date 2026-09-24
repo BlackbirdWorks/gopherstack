@@ -38,6 +38,8 @@ const (
 	filterKeyAttachInstanceID = "attachment.instance-id"
 	filterKeyImageID          = "image-id"
 	filterKeyIsDefault        = "is-default"
+	filterKeyTransitGatewayID = "transit-gateway-id"
+	filterKeyTagKey           = "tag-key"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -2195,7 +2197,7 @@ func transitGatewayMatchesFilter(tgw *TransitGateway, filterName string, values 
 		return anyEqual(tgw.OwnerID, values)
 	case filterKeyState:
 		return anyEqual(tgw.State, values)
-	case "transit-gateway-id":
+	case filterKeyTransitGatewayID:
 		return anyEqual(tgw.ID, values)
 	case "options.amazon-side-asn":
 		return anyEqual(strconv.FormatInt(tgw.Options.AmazonSideAsn, 10), values)
@@ -2209,7 +2211,7 @@ func transitGatewayMatchesFilter(tgw *TransitGateway, filterName string, values 
 		return anyEqual(tgw.Options.DNSSupport, values)
 	case "options.vpn-ecmp-support":
 		return anyEqual(tgw.Options.VpnEcmpSupport, values)
-	case "tag-key":
+	case filterKeyTagKey:
 		tags := b.TagsForResource(tgw.ID)
 		for _, v := range values {
 			if _, ok := tags[v]; ok {
@@ -2221,6 +2223,234 @@ func transitGatewayMatchesFilter(tgw *TransitGateway, filterName string, values 
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
 			return tagMatch(tgw.ID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyTGWVpcAttachmentFilters supports the DescribeTransitGatewayVpcAttachments
+// filters (api_op_DescribeTransitGatewayVpcAttachments.go doc comment): state,
+// transit-gateway-attachment-id, transit-gateway-id, vpc-id, tag:<key>, tag-key.
+func applyTGWVpcAttachmentFilters(
+	atts []*TransitGatewayVpcAttachment, filters map[string][]string, b Backend,
+) []*TransitGatewayVpcAttachment {
+	if len(filters) == 0 {
+		return atts
+	}
+
+	out := atts[:0:0]
+
+attLoop:
+	for _, att := range atts {
+		for name, values := range filters {
+			if !tgwVpcAttachmentMatchesFilter(att, name, values, b) {
+				continue attLoop
+			}
+		}
+
+		out = append(out, att)
+	}
+
+	return out
+}
+
+func tgwVpcAttachmentMatchesFilter(
+	att *TransitGatewayVpcAttachment, filterName string, values []string, b Backend,
+) bool {
+	switch filterName {
+	case filterKeyState:
+		return anyEqual(att.State, values)
+	case "transit-gateway-attachment-id":
+		return anyEqual(att.TransitGatewayAttachmentID, values)
+	case filterKeyTransitGatewayID:
+		return anyEqual(att.TransitGatewayID, values)
+	case filterKeyVPCID:
+		return anyEqual(att.VpcID, values)
+	case filterKeyTagKey:
+		for k := range b.TagsForResource(att.TransitGatewayAttachmentID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(att.TransitGatewayAttachmentID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyTGWAttachmentFilters supports the DescribeTransitGatewayAttachments
+// filters this backend has data for: resource-id, resource-type, state,
+// transit-gateway-attachment-id, transit-gateway-id, tag:<key>, tag-key
+// (api_op_DescribeTransitGatewayAttachments.go doc comment). association.*,
+// resource-owner-id, and transit-gateway-owner-id are documented but
+// unmodeled.
+func applyTGWAttachmentFilters(
+	atts []*TransitGatewayAttachmentSummary, filters map[string][]string, b Backend,
+) []*TransitGatewayAttachmentSummary {
+	if len(filters) == 0 {
+		return atts
+	}
+
+	out := atts[:0:0]
+
+attLoop:
+	for _, att := range atts {
+		for name, values := range filters {
+			if !tgwAttachmentMatchesFilter(att, name, values, b) {
+				continue attLoop
+			}
+		}
+
+		out = append(out, att)
+	}
+
+	return out
+}
+
+func tgwAttachmentMatchesFilter(
+	att *TransitGatewayAttachmentSummary, filterName string, values []string, b Backend,
+) bool {
+	switch filterName {
+	case filterKeyResourceID:
+		return anyEqual(att.ResourceID, values)
+	case filterKeyResourceType:
+		return anyEqual(att.ResourceType, values)
+	case filterKeyState:
+		return anyEqual(att.State, values)
+	case "transit-gateway-attachment-id":
+		return anyEqual(att.TransitGatewayAttachmentID, values)
+	case filterKeyTransitGatewayID:
+		return anyEqual(att.TransitGatewayID, values)
+	case filterKeyTagKey:
+		for k := range b.TagsForResource(att.TransitGatewayAttachmentID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(att.TransitGatewayAttachmentID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyClientVpnEndpointFilters supports the DescribeClientVpnEndpoints
+// filters this backend has data for: endpoint-id, transport-protocol,
+// tag:<key>, tag-key (api_op_DescribeClientVpnEndpoints.go doc comment).
+func applyClientVpnEndpointFilters(
+	eps []*ClientVpnEndpoint, filters map[string][]string, b Backend,
+) []*ClientVpnEndpoint {
+	if len(filters) == 0 {
+		return eps
+	}
+
+	out := eps[:0:0]
+
+epLoop:
+	for _, ep := range eps {
+		for name, values := range filters {
+			if !clientVpnEndpointMatchesFilter(ep, name, values, b) {
+				continue epLoop
+			}
+		}
+
+		out = append(out, ep)
+	}
+
+	return out
+}
+
+func clientVpnEndpointMatchesFilter(ep *ClientVpnEndpoint, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "endpoint-id":
+		return anyEqual(ep.ClientVpnEndpointID, values)
+	case "transport-protocol":
+		return anyEqual(ep.TransportProtocol, values)
+	case filterKeyTagKey:
+		for k := range b.TagsForResource(ep.ClientVpnEndpointID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(ep.ClientVpnEndpointID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyVpnConnectionFilters supports the DescribeVpnConnections filters this
+// backend has data for: customer-gateway-id, state, option.static-routes-only,
+// type, vpn-connection-id, vpn-gateway-id, transit-gateway-id, tag:<key>,
+// tag-key (api_op_DescribeVpnConnections.go doc comment).
+// customer-gateway-configuration, route.destination-cidr-block, and bgp-asn
+// are documented but unmodeled or unsuitable for equality filtering.
+func applyVpnConnectionFilters(
+	conns []*VpnConnection, filters map[string][]string, b Backend,
+) []*VpnConnection {
+	if len(filters) == 0 {
+		return conns
+	}
+
+	out := conns[:0:0]
+
+connLoop:
+	for _, c := range conns {
+		for name, values := range filters {
+			if !vpnConnectionMatchesFilter(c, name, values, b) {
+				continue connLoop
+			}
+		}
+
+		out = append(out, c)
+	}
+
+	return out
+}
+
+func vpnConnectionMatchesFilter(c *VpnConnection, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "vpn-connection-id":
+		return anyEqual(c.VpnConnectionID, values)
+	case filterKeyState:
+		return anyEqual(c.State, values)
+	case filterKeyType:
+		return anyEqual(c.Type, values)
+	case "customer-gateway-id":
+		return anyEqual(c.CustomerGatewayID, values)
+	case "vpn-gateway-id":
+		return anyEqual(c.VpnGatewayID, values)
+	case filterKeyTransitGatewayID:
+		return anyEqual(c.TransitGatewayID, values)
+	case "option.static-routes-only":
+		want := anyEqual("true", values)
+
+		return c.Options.StaticRoutesOnly == want
+	case filterKeyTagKey:
+		for k := range b.TagsForResource(c.VpnConnectionID) {
+			if anyEqual(k, values) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(c.VpnConnectionID, tagKey, values, b)
 		}
 	}
 
@@ -2266,7 +2496,7 @@ func tgwRouteTableMatchesFilter(rt *TransitGatewayRouteTable, filterName string,
 		return rt.DefaultPropagation == want
 	case filterKeyState:
 		return anyEqual(rt.State, values)
-	case "transit-gateway-id":
+	case filterKeyTransitGatewayID:
 		return anyEqual(rt.TransitGatewayID, values)
 	case "transit-gateway-route-table-id":
 		return anyEqual(rt.RouteTableID, values)
@@ -2406,7 +2636,7 @@ func vpcEndpointMatchesFilter(ep *VpcEndpoint, filterName string, values []strin
 		return anyEqual(ep.VpcEndpointType, values)
 	case "service-name":
 		return anyEqual(ep.ServiceName, values)
-	case "tag-key":
+	case filterKeyTagKey:
 		for k := range b.TagsForResource(ep.ID) {
 			if anyEqual(k, values) {
 				return true
