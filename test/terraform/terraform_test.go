@@ -253,6 +253,7 @@ provider "aws" {
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
+    dax             = %[1]q
     dms             = %[1]q
     dynamodb        = %[1]q
     ec2             = %[1]q
@@ -316,6 +317,7 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    timestreamwrite = %[1]q
     apprunner       = %[1]q
     comprehend      = %[1]q
     datasync        = %[1]q
@@ -397,6 +399,7 @@ provider "aws" {
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
+    dax             = %[1]q
     dms             = %[1]q
     dynamodb        = %[1]q
     ec2             = %[1]q
@@ -460,6 +463,7 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    timestreamwrite = %[1]q
     apprunner       = %[1]q
     comprehend      = %[1]q
     datasync        = %[1]q
