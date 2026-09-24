@@ -235,6 +235,7 @@ func (h *Handler) handleDescribeSpotPriceHistory(vals url.Values, reqID string) 
 	}
 
 	records := GenerateSpotPriceHistory(instanceTypes, azs, products, startTime, h.Region)
+	records = applySpotPriceFilters(records, parseEC2Filters(vals))
 
 	items := make([]spotPriceItem, 0, len(records))
 	for _, r := range records {

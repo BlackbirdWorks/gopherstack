@@ -450,6 +450,7 @@ func (h *Handler) handleCreateLocalGatewayRouteTable(vals url.Values, reqID stri
 func (h *Handler) handleDescribeLocalGatewayRouteTables(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "LocalGatewayRouteTableId")
 	rts := h.Backend.DescribeLocalGatewayRouteTables(ids)
+	rts = applyLocalGatewayRouteTableFilters(rts, parseEC2Filters(vals))
 
 	resp := &describeLocalGatewayRouteTablesResponse{RequestID: reqID}
 	for _, rt := range rts {
@@ -636,6 +637,7 @@ func (h *Handler) handleDescribeLocalGatewayRouteTableVpcAssociations(
 ) (any, error) {
 	ids := parseMemberList(vals, "LocalGatewayRouteTableVpcAssociationId")
 	assocs := h.Backend.DescribeLocalGatewayRouteTableVpcAssociations(ids)
+	assocs = applyLocalGatewayRouteTableVpcAssociationFilters(assocs, parseEC2Filters(vals))
 
 	resp := &describeLocalGatewayRouteTableVpcAssociationsResponse{RequestID: reqID}
 	for _, a := range assocs {
@@ -692,6 +694,7 @@ func (h *Handler) handleDeleteLGWVifGroupAssoc(vals url.Values, reqID string) (a
 func (h *Handler) handleDescribeLGWVifGroupAssocs(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "LocalGatewayRouteTableVirtualInterfaceGroupAssociationId")
 	assocs := h.Backend.DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations(ids)
+	assocs = applyLGWVifGroupAssocFilters(assocs, parseEC2Filters(vals))
 
 	resp := &describeLGWVifGroupAssocsResponse{RequestID: reqID}
 	for _, a := range assocs {

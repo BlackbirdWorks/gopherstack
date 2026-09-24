@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 )
 
 // verifiedAccessEndpointAttachmentTypeVPC is the sole real
@@ -193,6 +194,13 @@ type deleteVerifiedAccessEndpointResponse struct {
 	VerifiedAccessEndpoint verifiedAccessEndpointItem `xml:"verifiedAccessEndpoint"`
 }
 
+// handleDescribeVerifiedAccessEndpoints also honours the VerifiedAccessGroupId
+// and VerifiedAccessInstanceId scalar request parameters
+// (api_op_DescribeVerifiedAccessEndpoints.go) -- previously read only
+// VerifiedAccessEndpointId.N, so a real client narrowing by group or
+// instance got every endpoint in the account back. VerifiedAccessInstanceId
+// is resolved via the endpoint's group, since VerifiedAccessEndpoint has no
+// direct instance-id field.
 func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VerifiedAccessEndpointId")
 	eps := h.Backend.DescribeVerifiedAccessEndpoints(ids)
@@ -202,6 +210,20 @@ func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID s
 		ErrVerifiedAccessEndpointNotFound,
 	); err != nil {
 		return nil, err
+	}
+
+	if groupID := vals.Get("VerifiedAccessGroupId"); groupID != "" {
+		eps = slices.DeleteFunc(eps, func(e *VerifiedAccessEndpoint) bool {
+			return e.VerifiedAccessGroupID != groupID
+		})
+	}
+
+	if instanceID := vals.Get("VerifiedAccessInstanceId"); instanceID != "" {
+		eps = slices.DeleteFunc(eps, func(e *VerifiedAccessEndpoint) bool {
+			groups := h.Backend.DescribeVerifiedAccessGroups([]string{e.VerifiedAccessGroupID})
+
+			return len(groups) == 0 || groups[0].VerifiedAccessInstanceID != instanceID
+		})
 	}
 
 	resp := &describeVerifiedAccessEndpointsResponse{RequestID: reqID}
@@ -276,6 +298,10 @@ type deleteVerifiedAccessGroupResponse struct {
 	VerifiedAccessGroup verifiedAccessGroupItem `xml:"verifiedAccessGroup"`
 }
 
+// handleDescribeVerifiedAccessGroups also honours the VerifiedAccessInstanceId
+// scalar request parameter (api_op_DescribeVerifiedAccessGroups.go) --
+// previously read only VerifiedAccessGroupId.N, so a real client narrowing
+// by instance got every group in the account back.
 func (h *Handler) handleDescribeVerifiedAccessGroups(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VerifiedAccessGroupId")
 	groups := h.Backend.DescribeVerifiedAccessGroups(ids)
@@ -285,6 +311,12 @@ func (h *Handler) handleDescribeVerifiedAccessGroups(vals url.Values, reqID stri
 		ErrVerifiedAccessGroupNotFound,
 	); err != nil {
 		return nil, err
+	}
+
+	if instanceID := vals.Get("VerifiedAccessInstanceId"); instanceID != "" {
+		groups = slices.DeleteFunc(groups, func(g *VerifiedAccessGroup) bool {
+			return g.VerifiedAccessInstanceID != instanceID
+		})
 	}
 
 	resp := &describeVerifiedAccessGroupsResponse{RequestID: reqID}

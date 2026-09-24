@@ -168,6 +168,7 @@ func (h *Handler) handleDeleteNetworkInsightsPath(vals url.Values, reqID string)
 func (h *Handler) handleDescribeNetworkInsightsPaths(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsPathId")
 	paths := h.Backend.DescribeNetworkInsightsPaths(ids)
+	paths = applyNetworkInsightsPathFilters(paths, parseEC2Filters(vals))
 
 	resp := &describeNetworkInsightsPathsResponse{RequestID: reqID}
 	for _, p := range paths {
@@ -235,6 +236,7 @@ func (h *Handler) handleDescribeNetworkInsightsAnalyses(
 ) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsAnalysisId")
 	analyses := h.Backend.DescribeNetworkInsightsAnalyses(ids, vals.Get("NetworkInsightsPathId"))
+	analyses = applyNetworkInsightsAnalysisFilters(analyses, parseEC2Filters(vals))
 
 	resp := &describeNetworkInsightsAnalysesResponse{RequestID: reqID}
 	for _, a := range analyses {

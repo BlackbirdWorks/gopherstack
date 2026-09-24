@@ -3,7 +3,57 @@ service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: 5cb6665a0   # was 30db30dd8
 last_audit_date: 2026-09-24   # was 2026-09-23
-overall: A   # Filter.N sweep, second batch (2026-09-24, chore/parity-sweep-2026-09-18
+overall: A   # Filter.N sweep, third batch (2026-09-24, chore/parity-sweep-2026-09-18
+             # branch, continues gopherstack-rwwvt): fixed 13 more of the ~99 ops the prior
+             # pass on this branch left as items_still_open, prioritised Terraform-facing
+             # families as directed -- placement groups, EC2 Fleet, spot price history,
+             # reserved instances, the full Traffic Mirror describe family, VPC endpoint
+             # associations, the local gateway route table family, and Network Insights
+             # paths/analyses. Also fixed a related non-Filter.N bug found auditing the
+             # VerifiedAccess family (both DescribeVerifiedAccessEndpoints/Groups silently
+             # dropped their documented VerifiedAccessGroupId/VerifiedAccessInstanceId scalar
+             # params). See items_still_open for the exact filter names each op got, which
+             # documented filters were left as unmodeled gaps, and which ops were confirmed to
+             # have genuinely no enumerated Filter.N names at all (a real, deliberately-unfixed
+             # gap, not merely unreached) -- the IPAM Describe*/Get* family, RouteServer*, and
+             # NetworkInsightsAccessScope(Analyses) all fall in that category. Also corrected a
+             # stale items_still_open claim: DescribeCapacityReservations,
+             # DescribeCapacityReservationFleets, and DescribeLaunchTemplateVersions were
+             # already fixed by an earlier pass but still listed as open; confirmed still
+             # correct and removed from the open list rather than re-fixed. New code:
+             # handler_filters.go gained 13 new applyXxxFilters/xxxMatchesFilter pairs plus a
+             # shared matchesTagFilter(resourceID, filterName, values, b) (bool, bool) helper
+             # for the tag-key/tag:<key> pair, now used by the two new filters that need it
+             # (placement groups, reserved instances) instead of repeating the loop inline;
+             # handler_verified_access.go's two Describe handlers gained direct
+             # slices.DeleteFunc-based scalar-param filtering (not Filter.N, so routed outside
+             # the applyXxxFilters convention). New tests (real aws-sdk-go-v2-client-driven,
+             # table-driven, t.Parallel outer+inner, each creating 2+ objects and asserting only
+             # the matching one(s) come back): realclient_filters_batch3_test.go, 15 tests
+             # (TestRealClient_DescribePlacementGroupsFilters,
+             # TestRealClient_DescribeFleetsFilters,
+             # TestRealClient_DescribeSpotPriceHistoryFilters,
+             # TestRealClient_DescribeReservedInstancesFilters,
+             # TestRealClient_DescribeTrafficMirrorFiltersFilters,
+             # TestRealClient_DescribeTrafficMirrorSessionsFilters,
+             # TestRealClient_DescribeTrafficMirrorTargetsFilters,
+             # TestRealClient_DescribeVpcEndpointAssociationsFilters,
+             # TestRealClient_DescribeLocalGatewayRouteTablesFilters,
+             # TestRealClient_DescribeLocalGatewayRouteTableVpcAssociationsFilters,
+             # TestRealClient_DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociationsFilters,
+             # TestRealClient_DescribeNetworkInsightsPathsFilters,
+             # TestRealClient_DescribeNetworkInsightsAnalysesFilters,
+             # TestRealClient_DescribeVerifiedAccessEndpointsScalarParams,
+             # TestRealClient_DescribeVerifiedAccessGroupsScalarParam). Gates: gofmt clean; go
+             # build ./... and go vet ./services/ec2/... clean; go test -race -count=1
+             # ./services/ec2/... pass; golangci-lint run ./services/ec2/... 0 issues (fixed
+             # cyclop x1 in reservedInstanceMatchesFilter via the new matchesTagFilter helper,
+             # goconst x1 to a new filterKeyProductDesc const shared with the two pre-existing
+             # product-description switch cases, golines x1 and govet/fieldalignment x1 in the
+             # new test file -- no nolints added); go test ./pkgs/persistence/ pass;
+             # parityfmtcheck clean; go.mod/go.sum untouched.
+             # ---- prior pass's note follows ----
+             # Filter.N sweep, second batch (2026-09-24, chore/parity-sweep-2026-09-18
              # branch, continues gopherstack-rwwvt): fixed 17 more of the ~116 ops the prior
              # pass on this branch left as items_still_open, prioritised transit gateway
              # sub-resources / VPC endpoint / Client VPN / Hosts as directed. Transit Gateway
@@ -489,42 +539,91 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
-  - "Filter.N ignored on ~99 Describe*/Get* ops (2026-09-24, gopherstack-rwwvt sweep, second
+  - "Filter.N ignored on ~84 Describe*/Get* ops (2026-09-24, gopherstack-rwwvt sweep, third
     batch): of the 181 registered EC2 ops the pinned SDK (ec2@v1.329.0) declares as filterable
     (per-op 'Filters []types.Filter', or 'Filter []types.Filter' for the DescribeNatGateways
-    family), 65 already applied filters coming into this batch and this pass fixed 17 more
-    (DescribeTransitGatewayConnects/ConnectPeers/MulticastDomains/PeeringAttachments,
-    GetTransitGatewayAttachmentPropagations/MulticastDomainAssociations/PrefixListReferences/
-    RouteTableAssociations/RouteTablePropagations, DescribeVpcEndpointConnections/
-    ConnectionNotifications/ServiceConfigurations/ServicePermissions,
-    DescribeClientVpnAuthorizationRules/Routes/TargetNetworks, DescribeHosts -- see the overall
-    note above for the exact filter names each got and which documented filters were left
-    unimplemented for lack of backing data). ~99 remain genuinely unread, prioritised but not
-    reached this pass: the rest of the transit gateway family
+    family), 82 already applied filters coming into this batch and this pass fixed 13 more
+    (DescribePlacementGroups (group-name, state, strategy, tag:<key>, tag-key -- group-arn and
+    spread-level documented but unmodeled), DescribeFleets (fleet-state, type --
+    activity-status and replace-unhealthy-instances documented but unmodeled;
+    excess-capacity-termination-policy documented as a true/false value but this backend stores
+    the real no-termination/termination enum, left unmodeled rather than fabricating a mapping),
+    DescribeSpotPriceHistory (availability-zone, instance-type, product-description, spot-price
+    -- availability-zone-id unmodeled, timestamp's documented wildcard matching not
+    implemented), DescribeReservedInstances (availability-zone, duration, end, fixed-price,
+    instance-type, product-description, reserved-instances-id, start, state, usage-price,
+    tag:<key>, tag-key -- availability-zone-id and scope documented but unmodeled),
+    DescribeTrafficMirrorFilters (description, traffic-mirror-filter-id -- both backed; this op
+    was missing from every earlier pass's unread-Filters audit despite ignoring Filters
+    entirely), DescribeTrafficMirrorSessions (description, network-interface-id, owner-id,
+    packet-length, session-number, traffic-mirror-filter-id, traffic-mirror-session-id,
+    traffic-mirror-target-id, virtual-network-id -- all nine backed), DescribeTrafficMirrorTargets
+    (description, network-interface-id, network-load-balancer-arn, owner-id,
+    traffic-mirror-target-id -- all five backed), DescribeVpcEndpointAssociations
+    (vpc-endpoint-id only -- this backend models a VPC endpoint association as the endpoint
+    itself rather than a real VPC Lattice service-network association record, so
+    association-id, associated-resource-accessibility, associated-resource-id,
+    service-network-arn, and resource-configuration-group-arn stay documented-but-unmodeled
+    gaps), DescribeLocalGatewayRouteTables (local-gateway-id,
+    local-gateway-route-table-arn/-id, outpost-arn, owner-id, state -- all six backed),
+    DescribeLocalGatewayRouteTableVpcAssociations (local-gateway-id,
+    local-gateway-route-table-arn/-id, local-gateway-route-table-vpc-association-id, owner-id,
+    state, vpc-id -- all seven backed), DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations
+    (local-gateway-id, local-gateway-route-table-arn/-id,
+    local-gateway-route-table-virtual-interface-group-association-id/-id, owner-id, state --
+    all seven backed), DescribeNetworkInsightsPaths (destination, protocol, source --
+    filter-at-source.*/filter-at-destination.* documented but unmodeled: no per-endpoint
+    address/port-range filter data), DescribeNetworkInsightsAnalyses (path-found, status --
+    both backed)). Also fixed as a related, non-Filter.N bug found while auditing the
+    VerifiedAccess family: DescribeVerifiedAccessEndpoints and DescribeVerifiedAccessGroups
+    both declare no Filter.N names at all ('One or more filters. Filter names and values are
+    case-sensitive.'), but each has a real, separately-documented scalar request parameter
+    (VerifiedAccessGroupId/VerifiedAccessInstanceId on Endpoints, VerifiedAccessInstanceId on
+    Groups) that was silently dropped -- a client narrowing by group or instance got every
+    endpoint/group in the account back. Now filtered post-hoc (VerifiedAccessInstanceId on
+    Endpoints resolved via the endpoint's group, since VerifiedAccessEndpoint has no direct
+    instance-id field). Audited but NOT touched, already correct coming into this batch:
+    DescribeCapacityReservations and DescribeCapacityReservationFleets (both already apply
+    Filters via applyCapacityReservationFilters / a backend-side filters param -- an earlier
+    pass fixed these without a matching items_still_open update) and
+    DescribeLaunchTemplateVersions (already applies image-id/instance-type/is-default-version
+    via applyLaunchTemplateVersionFilters, alongside its pre-existing
+    Versions/MinVersion/MaxVersion handling) -- the 'DescribeCapacityReservation*' and
+    'LaunchTemplate* sub-ops' mentions in this bullet's prior revision were stale. Confirmed
+    DELIBERATE, documented gaps (Filter.N present on the wire but the pinned SDK's doc comment
+    enumerates no filter names at all, so implementing named matching would mean fabricating
+    semantics never verified against the wire -- same treatment as DescribeIpamPools et al.):
+    DescribeRouteServers/RouteServerEndpoints/RouteServerPeers ('One or more filters to apply
+    to the describe request.'), DescribeVerifiedAccessInstances/Endpoints/Groups/TrustProviders'
+    own Filter.N ('Filter names and values are case-sensitive.' -- only the scalar params above
+    were fixed), and DescribeNetworkInsightsAccessScopes/AccessScopeAnalyses ('There are no
+    supported filters.', verbatim). ~84 remain genuinely unread, prioritised but not reached
+    this pass: the rest of the transit gateway family
     (DescribeTransitGatewayMeteringPolicies/PolicyTables/RouteTableAnnouncements -- the latter
     two's SDK/API-reference doc comments give no enumerated filter names at all, a real,
     deliberately-unfixed gap same as DescribeIpamPools et al. below, not merely unreached; and
     every GetTransitGatewayMeteringPolicyEntries/GetTransitGatewayPolicyTableAssociations/
-    GetTransitGatewayPolicyTableEntries sub-resource op, same no-enumerated-filters gap); the
-    remaining VPC endpoint ops (DescribeVpcEndpointAssociations); DescribeClientVpnConnections
-    audited and CONFIRMED CORRECT (always empty by design -- this backend never establishes real
-    client sessions -- not a filter-ignoring bug); the local gateway route table family
-    (DescribeLocalGatewayRouteTables and its
-    VirtualInterfaceGroupAssociations/VpcAssociations siblings, plus DescribeLocalGateways/
-    LocalGatewayVirtualInterfaceGroups/LocalGatewayVirtualInterfaces); the bulk of the IPAM
-    Describe*/Get* surface (DescribeIpamPools/Ipams/PoolAllocations/
+    GetTransitGatewayPolicyTableEntries sub-resource op, same no-enumerated-filters gap);
+    DescribeClientVpnConnections audited and CONFIRMED CORRECT (always empty by design -- this
+    backend never establishes real client sessions -- not a filter-ignoring bug); the
+    remaining local gateway family (DescribeLocalGateways/LocalGatewayVirtualInterfaceGroups/
+    LocalGatewayVirtualInterfaces -- the three route-table-family ops are now fixed, see
+    above); the bulk of the IPAM Describe*/Get* surface (DescribeIpamPools/Ipams/PoolAllocations/
     ExternalResourceVerificationTokens/PrefixListResolvers(Targets)/ResourceDiscoveryAssociations/
     Policies and every GetIpamDiscovered*/GetIpamPolicy*/GetIpamPrefixListResolver*/
     GetIpamPoolCidrs/GetIpamResourceCidrs/GetIpamRouteProtectionFindings/
-    GetIpamInternetRegistryAssociation* op); plus a long tail of lower-priority families
-    (DescribeCapacityReservation*/CapacityBlock*, DescribeInstance*/Fleet*/LaunchTemplate*
-    sub-ops, DescribeNetworkInsights*, DescribeVerifiedAccess*, DescribeRouteServer*,
-    DescribeMacHosts/MacModificationTasks, DescribeStoreImageTasks, DescribeReplaceRootVolumeTasks,
-    DescribeReservedInstances/ReservedInstancesListings/ReservedInstancesModifications,
+    GetIpamInternetRegistryAssociation* op -- audited this pass: DescribeIpamPools, DescribeIpams,
+    DescribeIpamResourceDiscoveryAssociations, GetIpamPoolAllocations, and GetIpamPoolCidrs all
+    confirmed to give no enumerated Filter.N names either, 'One or more filters for the
+    request.'/'The resource discovery association filters.' with no per-name breakdown -- same
+    deliberate-gap treatment, not merely unreached); plus a long tail of lower-priority families
+    (DescribeCapacityBlock*, DescribeInstance*/Fleet* sub-ops, DescribeMacHosts/
+    MacModificationTasks, DescribeStoreImageTasks, DescribeReplaceRootVolumeTasks,
+    DescribeReservedInstancesListings/ReservedInstancesModifications,
     DescribeScheduledInstances, DescribeSecurityGroupVpcAssociations, DescribeVolumesModifications/
     VolumeStatus, DescribeVpcBlockPublicAccessExclusions/VpcClassicLink/VpcEncryptionControls,
-    DescribeTrafficMirrorFilterRules/Sessions/Targets, DescribeTrunkInterfaceAssociations,
-    DescribeOutpostLags, DescribePlacementGroups, DescribeSpotPriceHistory,
+    DescribeTrafficMirrorFilterRules, DescribeTrunkInterfaceAssociations,
+    DescribeOutpostLags,
     DescribeIamInstanceProfileAssociations (state filter only -- instance-id/association-id
     already work per an earlier pass), DescribeCoipPools, DescribeElasticGpus, DescribeExportTasks/
     ExportImageTasks/ImportImageTasks/ImportSnapshotTasks/FastLaunchImages/FastSnapshotRestores,

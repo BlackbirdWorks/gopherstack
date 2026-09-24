@@ -77,6 +77,8 @@ func (h *Handler) handleDescribePlacementGroups(vals url.Values, reqID string) (
 		return nil, err
 	}
 
+	pgs = applyPlacementGroupFilters(pgs, parseEC2Filters(vals), h.Backend)
+
 	items := make([]placementGroupItem, 0, len(pgs))
 	for _, pg := range pgs {
 		items = append(items, placementGroupItem{

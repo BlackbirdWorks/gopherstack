@@ -44,6 +44,13 @@ const (
 	filterKeyServiceID        = "service-id"
 	filterKeyDestinationCidr  = "destination-cidr"
 	filterKeyPrefixListID     = "prefix-list-id"
+	filterKeyGroupName        = "group-name"
+	filterKeyNetworkIfaceID   = "network-interface-id"
+	filterKeyLocalGatewayID   = "local-gateway-id"
+	filterKeyLGWRouteTableArn = "local-gateway-route-table-arn"
+	filterKeyLGWRouteTableID  = "local-gateway-route-table-id"
+	filterKeyVpcEndpointID    = "vpc-endpoint-id"
+	filterKeyProductDesc      = "product-description"
 )
 
 // applyFilterList runs the standard AND-across-names/OR-within-values filter
@@ -88,6 +95,27 @@ func matchesTGWResourceFilter(
 		return anyEqual(resourceType, values), true
 	case filterKeyTGWAttachmentID:
 		return anyEqual(attachmentID, values), true
+	}
+
+	return false, false
+}
+
+// matchesTagFilter handles the tag-key/tag:<key> filter pair shared by
+// several apply*Filters functions. handled is false when filterName is
+// neither, so callers fall through to their own filters.
+func matchesTagFilter(resourceID, filterName string, values []string, b Backend) (bool, bool) {
+	if filterName == filterKeyTagKey {
+		for k := range b.TagsForResource(resourceID) {
+			if anyEqual(k, values) {
+				return true, true
+			}
+		}
+
+		return false, true
+	}
+
+	if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+		return tagMatch(resourceID, tagKey, values, b), true
 	}
 
 	return false, false
@@ -2638,7 +2666,7 @@ func reservedInstancesOfferingMatchesFilter(o *ReservedInstancesOffering, filter
 		return anyEqual(strconv.FormatFloat(o.FixedPrice, 'f', -1, 64), values)
 	case filterKeyInstanceType:
 		return anyEqual(o.InstanceType, values)
-	case "product-description":
+	case filterKeyProductDesc:
 		return anyEqual(o.ProductDescription, values)
 	case "reserved-instances-offering-id":
 		return anyEqual(o.ReservedInstancesOfferingID, values)
@@ -3263,6 +3291,393 @@ func hostMatchesFilter(host *Host, filterName string, values []string, b Backend
 		}
 
 		return false
+	}
+
+	return true
+}
+
+// ---- Placement Group filters ----
+
+// applyPlacementGroupFilters supports the DescribePlacementGroups filters
+// this backend has data for: group-name, state, strategy, tag:<key>, tag-key
+// (api_op_DescribePlacementGroups.go doc comment). group-arn and
+// spread-level are documented but unmodeled (PlacementGroup has no ARN or
+// spread-level field).
+func applyPlacementGroupFilters(pgs []*PlacementGroup, filters map[string][]string, b Backend) []*PlacementGroup {
+	return applyFilterList(pgs, filters, func(pg *PlacementGroup, name string, values []string) bool {
+		return placementGroupMatchesFilter(pg, name, values, b)
+	})
+}
+
+func placementGroupMatchesFilter(pg *PlacementGroup, filterName string, values []string, b Backend) bool {
+	if matched, handled := matchesTagFilter(pg.Name, filterName, values, b); handled {
+		return matched
+	}
+
+	switch filterName {
+	case filterKeyGroupName:
+		return anyEqual(pg.Name, values)
+	case filterKeyState:
+		return anyEqual(pg.State, values)
+	case "strategy":
+		return anyEqual(pg.Strategy, values)
+	}
+
+	return true
+}
+
+// ---- Fleet filters ----
+
+// applyFleetFilters supports the DescribeFleets filters this backend has
+// data for: fleet-state, type (api_op_DescribeFleets.go doc comment).
+// activity-status and replace-unhealthy-instances are documented but
+// unmodeled (Fleet has no backing field for either); excess-capacity-
+// termination-policy is documented as a true/false value but this backend
+// stores the real no-termination/termination enum, so it is left unmodeled
+// rather than fabricating a value mapping never verified against the wire.
+func applyFleetFilters(fleets []*Fleet, filters map[string][]string) []*Fleet {
+	return applyFilterList(fleets, filters, fleetMatchesFilter)
+}
+
+func fleetMatchesFilter(f *Fleet, filterName string, values []string) bool {
+	switch filterName {
+	case "fleet-state":
+		return anyEqual(f.FleetState, values)
+	case filterKeyType:
+		return anyEqual(f.FleetType, values)
+	}
+
+	return true
+}
+
+// ---- Spot Price History filters ----
+
+// applySpotPriceFilters supports the DescribeSpotPriceHistory filters this
+// backend has data for: availability-zone, instance-type,
+// product-description, spot-price (api_op_DescribeSpotPriceHistory.go doc
+// comment). availability-zone-id is documented but unmodeled; timestamp is
+// documented as wildcard-matchable, which this backend does not implement,
+// so it is left unmodeled rather than an incorrect exact-match-only version.
+func applySpotPriceFilters(records []SpotPriceRecord, filters map[string][]string) []SpotPriceRecord {
+	return applyFilterList(records, filters, spotPriceRecordMatchesFilter)
+}
+
+func spotPriceRecordMatchesFilter(r SpotPriceRecord, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyAvailabilityZone:
+		return anyEqual(r.AvailabilityZone, values)
+	case filterKeyInstanceType:
+		return anyEqual(r.InstanceType, values)
+	case filterKeyProductDesc:
+		return anyEqual(r.ProductDescription, values)
+	case "spot-price":
+		return anyEqual(r.SpotPrice, values)
+	}
+
+	return true
+}
+
+// ---- Reserved Instances filters ----
+
+// applyReservedInstanceFilters supports the DescribeReservedInstances
+// filters this backend has data for: availability-zone, duration, end,
+// fixed-price, instance-type, product-description, reserved-instances-id,
+// start, state, tag:<key>, tag-key, usage-price
+// (api_op_DescribeReservedInstances.go doc comment). availability-zone-id
+// and scope are documented but unmodeled (ReservedInstance has no backing
+// field for either).
+func applyReservedInstanceFilters(
+	ris []*ReservedInstance, filters map[string][]string, b Backend,
+) []*ReservedInstance {
+	return applyFilterList(ris, filters, func(ri *ReservedInstance, name string, values []string) bool {
+		return reservedInstanceMatchesFilter(ri, name, values, b)
+	})
+}
+
+func reservedInstanceMatchesFilter(ri *ReservedInstance, filterName string, values []string, b Backend) bool {
+	if matched, handled := matchesTagFilter(ri.ReservedInstancesID, filterName, values, b); handled {
+		return matched
+	}
+
+	switch filterName {
+	case filterKeyAvailabilityZone:
+		return anyEqual(ri.AvailabilityZone, values)
+	case "duration":
+		return anyEqual(strconv.FormatInt(ri.Duration, 10), values)
+	case "end":
+		return anyEqual(ri.End.UTC().Format(time.RFC3339), values)
+	case "fixed-price":
+		return anyEqual(strconv.FormatFloat(ri.FixedPrice, 'f', -1, 64), values)
+	case filterKeyInstanceType:
+		return anyEqual(ri.InstanceType, values)
+	case filterKeyProductDesc:
+		return anyEqual(ri.ProductDescription, values)
+	case "reserved-instances-id":
+		return anyEqual(ri.ReservedInstancesID, values)
+	case "start":
+		return anyEqual(ri.Start.UTC().Format(time.RFC3339), values)
+	case filterKeyState:
+		return anyEqual(ri.State, values)
+	case "usage-price":
+		return anyEqual(strconv.FormatFloat(ri.UsagePrice, 'f', -1, 64), values)
+	}
+
+	return true
+}
+
+// ---- Traffic Mirror filters ----
+
+// applyTrafficMirrorFilterFilters supports the DescribeTrafficMirrorFilters
+// filters (description, traffic-mirror-filter-id --
+// api_op_DescribeTrafficMirrorFilters.go doc comment); both are backed.
+func applyTrafficMirrorFilterFilters(
+	fs []*TrafficMirrorFilter, filters map[string][]string,
+) []*TrafficMirrorFilter {
+	return applyFilterList(fs, filters, trafficMirrorFilterMatchesFilter)
+}
+
+func trafficMirrorFilterMatchesFilter(f *TrafficMirrorFilter, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyDescription:
+		return anyEqual(f.Description, values)
+	case "traffic-mirror-filter-id":
+		return anyEqual(f.TrafficMirrorFilterID, values)
+	}
+
+	return true
+}
+
+// applyTrafficMirrorSessionFilters supports the DescribeTrafficMirrorSessions
+// filters (description, network-interface-id, owner-id, packet-length,
+// session-number, traffic-mirror-filter-id, traffic-mirror-session-id,
+// traffic-mirror-target-id, virtual-network-id --
+// api_op_DescribeTrafficMirrorSessions.go doc comment); all nine are backed.
+func applyTrafficMirrorSessionFilters(
+	sessions []*TrafficMirrorSession, filters map[string][]string,
+) []*TrafficMirrorSession {
+	return applyFilterList(sessions, filters, trafficMirrorSessionMatchesFilter)
+}
+
+func trafficMirrorSessionMatchesFilter(s *TrafficMirrorSession, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyDescription:
+		return anyEqual(s.Description, values)
+	case filterKeyNetworkIfaceID:
+		return anyEqual(s.NetworkInterfaceID, values)
+	case filterKeyOwnerID:
+		return anyEqual(s.OwnerID, values)
+	case "packet-length":
+		return anyEqual(strconv.Itoa(s.PacketLength), values)
+	case "session-number":
+		return anyEqual(strconv.Itoa(s.SessionNumber), values)
+	case "traffic-mirror-filter-id":
+		return anyEqual(s.TrafficMirrorFilterID, values)
+	case "traffic-mirror-session-id":
+		return anyEqual(s.TrafficMirrorSessionID, values)
+	case "traffic-mirror-target-id":
+		return anyEqual(s.TrafficMirrorTargetID, values)
+	case "virtual-network-id":
+		return anyEqual(strconv.Itoa(s.VirtualNetworkID), values)
+	}
+
+	return true
+}
+
+// applyTrafficMirrorTargetFilters supports the DescribeTrafficMirrorTargets
+// filters (description, network-interface-id, network-load-balancer-arn,
+// owner-id, traffic-mirror-target-id --
+// api_op_DescribeTrafficMirrorTargets.go doc comment); all five are backed.
+func applyTrafficMirrorTargetFilters(
+	targets []*TrafficMirrorTarget, filters map[string][]string,
+) []*TrafficMirrorTarget {
+	return applyFilterList(targets, filters, trafficMirrorTargetMatchesFilter)
+}
+
+func trafficMirrorTargetMatchesFilter(t *TrafficMirrorTarget, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyDescription:
+		return anyEqual(t.Description, values)
+	case filterKeyNetworkIfaceID:
+		return anyEqual(t.NetworkInterfaceID, values)
+	case "network-load-balancer-arn":
+		return anyEqual(t.NetworkLoadBalancerArn, values)
+	case filterKeyOwnerID:
+		return anyEqual(t.OwnerID, values)
+	case "traffic-mirror-target-id":
+		return anyEqual(t.TrafficMirrorTargetID, values)
+	}
+
+	return true
+}
+
+// ---- VPC Endpoint Association filters ----
+
+// applyVpcEndpointAssociationFilters supports the
+// DescribeVpcEndpointAssociations filters this backend has data for:
+// vpc-endpoint-id (api_op_DescribeVpcEndpointAssociations.go doc comment).
+// This backend models a VPC endpoint association as the endpoint itself
+// rather than a real VPC Lattice service-network association record, so
+// association-id, associated-resource-accessibility, associated-resource-id,
+// service-network-arn, and resource-configuration-group-arn are documented
+// but unmodeled.
+func applyVpcEndpointAssociationFilters(eps []*VpcEndpoint, filters map[string][]string) []*VpcEndpoint {
+	return applyFilterList(eps, filters, func(ep *VpcEndpoint, name string, values []string) bool {
+		if name == filterKeyVpcEndpointID {
+			return anyEqual(ep.ID, values)
+		}
+
+		return true
+	})
+}
+
+// ---- Local Gateway Route Table filters ----
+
+// applyLocalGatewayRouteTableFilters supports the
+// DescribeLocalGatewayRouteTables filters (local-gateway-id,
+// local-gateway-route-table-arn, local-gateway-route-table-id, outpost-arn,
+// owner-id, state -- api_op_DescribeLocalGatewayRouteTables.go doc
+// comment); all six are backed.
+func applyLocalGatewayRouteTableFilters(
+	rts []*LocalGatewayRouteTable, filters map[string][]string,
+) []*LocalGatewayRouteTable {
+	return applyFilterList(rts, filters, localGatewayRouteTableMatchesFilter)
+}
+
+func localGatewayRouteTableMatchesFilter(rt *LocalGatewayRouteTable, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyLocalGatewayID:
+		return anyEqual(rt.LocalGatewayID, values)
+	case filterKeyLGWRouteTableArn:
+		return anyEqual(rt.LocalGatewayRouteTableArn, values)
+	case filterKeyLGWRouteTableID:
+		return anyEqual(rt.LocalGatewayRouteTableID, values)
+	case "outpost-arn":
+		return anyEqual(rt.OutpostArn, values)
+	case filterKeyOwnerID:
+		return anyEqual(rt.OwnerID, values)
+	case filterKeyState:
+		return anyEqual(rt.State, values)
+	}
+
+	return true
+}
+
+// applyLGWVifGroupAssocFilters supports the
+// DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations filters
+// (local-gateway-id, local-gateway-route-table-arn,
+// local-gateway-route-table-id,
+// local-gateway-route-table-virtual-interface-group-association-id,
+// local-gateway-route-table-virtual-interface-group-id, owner-id, state --
+// api_op_DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations.go
+// doc comment); all seven are backed.
+func applyLGWVifGroupAssocFilters(
+	assocs []*LocalGatewayRouteTableVirtualInterfaceGroupAssociation, filters map[string][]string,
+) []*LocalGatewayRouteTableVirtualInterfaceGroupAssociation {
+	return applyFilterList(assocs, filters, lgwVifGroupAssocMatchesFilter)
+}
+
+func lgwVifGroupAssocMatchesFilter(
+	a *LocalGatewayRouteTableVirtualInterfaceGroupAssociation, filterName string, values []string,
+) bool {
+	switch filterName {
+	case filterKeyLocalGatewayID:
+		return anyEqual(a.LocalGatewayID, values)
+	case filterKeyLGWRouteTableArn:
+		return anyEqual(a.LocalGatewayRouteTableArn, values)
+	case filterKeyLGWRouteTableID:
+		return anyEqual(a.LocalGatewayRouteTableID, values)
+	case "local-gateway-route-table-virtual-interface-group-association-id":
+		return anyEqual(a.LocalGatewayRouteTableVirtualInterfaceGroupAssociationID, values)
+	case "local-gateway-route-table-virtual-interface-group-id":
+		return anyEqual(a.LocalGatewayVirtualInterfaceGroupID, values)
+	case filterKeyOwnerID:
+		return anyEqual(a.OwnerID, values)
+	case filterKeyState:
+		return anyEqual(a.State, values)
+	}
+
+	return true
+}
+
+// applyLocalGatewayRouteTableVpcAssociationFilters supports the
+// DescribeLocalGatewayRouteTableVpcAssociations filters (local-gateway-id,
+// local-gateway-route-table-arn, local-gateway-route-table-id,
+// local-gateway-route-table-vpc-association-id, owner-id, state, vpc-id --
+// api_op_DescribeLocalGatewayRouteTableVpcAssociations.go doc comment); all
+// seven are backed.
+func applyLocalGatewayRouteTableVpcAssociationFilters(
+	assocs []*LocalGatewayRouteTableVpcAssociation, filters map[string][]string,
+) []*LocalGatewayRouteTableVpcAssociation {
+	return applyFilterList(assocs, filters, localGatewayRouteTableVpcAssociationMatchesFilter)
+}
+
+func localGatewayRouteTableVpcAssociationMatchesFilter(
+	a *LocalGatewayRouteTableVpcAssociation, filterName string, values []string,
+) bool {
+	switch filterName {
+	case filterKeyLocalGatewayID:
+		return anyEqual(a.LocalGatewayID, values)
+	case filterKeyLGWRouteTableArn:
+		return anyEqual(a.LocalGatewayRouteTableArn, values)
+	case filterKeyLGWRouteTableID:
+		return anyEqual(a.LocalGatewayRouteTableID, values)
+	case "local-gateway-route-table-vpc-association-id":
+		return anyEqual(a.LocalGatewayRouteTableVpcAssociationID, values)
+	case filterKeyOwnerID:
+		return anyEqual(a.OwnerID, values)
+	case filterKeyState:
+		return anyEqual(a.State, values)
+	case filterKeyVPCID:
+		return anyEqual(a.VpcID, values)
+	}
+
+	return true
+}
+
+// ---- Network Insights filters ----
+
+// applyNetworkInsightsPathFilters supports the DescribeNetworkInsightsPaths
+// filters this backend has data for: destination, protocol, source
+// (api_op_DescribeNetworkInsightsPaths.go doc comment). The
+// filter-at-source.*/filter-at-destination.* sub-filters are documented but
+// unmodeled: NetworkInsightsPath tracks no per-endpoint address/port-range
+// filter data.
+func applyNetworkInsightsPathFilters(
+	paths []*NetworkInsightsPath, filters map[string][]string,
+) []*NetworkInsightsPath {
+	return applyFilterList(paths, filters, networkInsightsPathMatchesFilter)
+}
+
+func networkInsightsPathMatchesFilter(p *NetworkInsightsPath, filterName string, values []string) bool {
+	switch filterName {
+	case "destination":
+		return anyEqual(p.DestinationID, values)
+	case "protocol":
+		return anyEqual(p.Protocol, values)
+	case "source":
+		return anyEqual(p.SourceID, values)
+	}
+
+	return true
+}
+
+// applyNetworkInsightsAnalysisFilters supports the
+// DescribeNetworkInsightsAnalyses filters (path-found, status --
+// api_op_DescribeNetworkInsightsAnalyses.go doc comment); both are backed.
+func applyNetworkInsightsAnalysisFilters(
+	analyses []*NetworkInsightsAnalysis, filters map[string][]string,
+) []*NetworkInsightsAnalysis {
+	return applyFilterList(analyses, filters, networkInsightsAnalysisMatchesFilter)
+}
+
+func networkInsightsAnalysisMatchesFilter(a *NetworkInsightsAnalysis, filterName string, values []string) bool {
+	switch filterName {
+	case "path-found":
+		want := anyEqual("true", values)
+
+		return a.NetworkPathFound == want
+	case filterKeyStatus:
+		return anyEqual(a.Status, values)
 	}
 
 	return true

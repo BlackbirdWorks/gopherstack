@@ -218,6 +218,7 @@ func (h *Handler) handleDescribeVpcEndpointAssociations(
 ) (any, error) {
 	ids := parseMemberList(vals, "VpcEndpointId")
 	eps := h.Backend.DescribeVpcEndpointAssociations(ids)
+	eps = applyVpcEndpointAssociationFilters(eps, parseEC2Filters(vals))
 
 	resp := &describeVpcEndpointAssociationsResponse{RequestID: reqID}
 	for _, ep := range eps {
