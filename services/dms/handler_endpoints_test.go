@@ -59,12 +59,15 @@ func TestEndpointPassword_StoredButNeverOnWire(t *testing.T) {
 }
 
 // TestEndpoint_EngineSettingsRejected locks gopherstack-z79q: CreateEndpoint/
-// ModifyEndpoint accept ~19 heterogeneous engine-specific settings blocks
-// (MySQLSettings, S3Settings, OracleSettings, ...) that this emulator does
-// not model. Rather than silently drop them (the pre-fix behavior --
-// encoding/json ignores unknown fields), sending any of them must be
-// rejected with a 400 ValidationException naming the field, not accepted
-// as if honored.
+// ModifyEndpoint accept ~18 heterogeneous engine-specific settings blocks
+// (MySQLSettings, OracleSettings, ...) that this emulator does not model.
+// Rather than silently drop them (the pre-fix behavior -- encoding/json
+// ignores unknown fields), sending any of them must be rejected with a 400
+// ValidationException naming the field, not accepted as if honored.
+// S3Settings is excluded from this table: unlike these, it is genuinely
+// modeled (see TestEndpoint_S3SettingsStoredAndEchoed) because
+// aws_dms_s3_endpoint always sends it fully populated with no way to omit
+// it, unlike a user-opted-in *_settings block on aws_dms_endpoint.
 func TestEndpoint_EngineSettingsRejected(t *testing.T) {
 	t.Parallel()
 
@@ -74,7 +77,6 @@ func TestEndpoint_EngineSettingsRejected(t *testing.T) {
 	}{
 		{name: "mysql", field: "MySQLSettings"},
 		{name: "postgresql", field: "PostgreSQLSettings"},
-		{name: "s3", field: "S3Settings"},
 		{name: "oracle", field: "OracleSettings"},
 		{name: "mongodb", field: "MongoDbSettings"},
 		{name: "kafka", field: "KafkaSettings"},
@@ -159,6 +161,47 @@ func TestEndpoint_EngineSettingsNullAccepted(t *testing.T) {
 		"MySQLSettings":      nil,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestEndpoint_S3SettingsStoredAndEchoed asserts S3Settings is stored
+// verbatim and echoed back on describe: aws_dms_s3_endpoint always sends its
+// full, provider-defaulted field set through this key (unlike the other
+// engine settings blocks in TestEndpoint_EngineSettingsRejected), so
+// rejecting it would make that resource type impossible to create.
+func TestEndpoint_S3SettingsStoredAndEchoed(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "s3-settings-ep",
+		"EndpointType":       "target",
+		"EngineName":         "s3",
+		"S3Settings": map[string]any{
+			"BucketName":           "my-bucket",
+			"ServiceAccessRoleArn": "arn:aws:iam::000000000000:role/dms-s3-role",
+			"CompressionType":      "NONE",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := parseJSON(t, rec)
+	settings, ok := body["Endpoint"].(map[string]any)["S3Settings"].(map[string]any)
+	require.True(t, ok, "S3Settings should be echoed back on the created endpoint")
+	assert.Equal(t, "my-bucket", settings["BucketName"])
+	assert.Equal(t, "NONE", settings["CompressionType"])
+
+	descRec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "endpoint-id", "Values": []string{"s3-settings-ep"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	eps := parseJSON(t, descRec)["Endpoints"].([]any)
+	require.Len(t, eps, 1)
+	descSettings, ok := eps[0].(map[string]any)["S3Settings"].(map[string]any)
+	require.True(t, ok, "S3Settings should round-trip through DescribeEndpoints")
+	assert.Equal(t, "my-bucket", descSettings["BucketName"])
 }
 
 func TestModifyEndpoint(t *testing.T) {

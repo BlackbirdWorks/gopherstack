@@ -33,6 +33,13 @@ type EndpointConnectionSettings struct {
 	SslMode                   string
 	ExternalTableDefinition   string
 	ResourceIdentifier        string
+	// S3Settings is the raw S3Settings JSON object as sent by CreateEndpoint/
+	// ModifyEndpoint for engineName=="s3" (aws_dms_s3_endpoint always sends
+	// its full, provider-defaulted field set here). Stored and echoed back
+	// verbatim rather than modeled field-by-field -- so the values seen at
+	// create time are exactly what's read back, matching what the provider
+	// itself sent regardless of AWS's real per-field defaults.
+	S3Settings string
 }
 
 // CreateEndpoint creates a new DMS endpoint.
@@ -88,6 +95,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 		ServiceAccessRoleArn:      settings.ServiceAccessRoleArn,
 		SslMode:                   settings.SslMode,
 		ExternalTableDefinition:   settings.ExternalTableDefinition,
+		S3Settings:                settings.S3Settings,
 	}
 	b.endpoints.Put(ep)
 	b.appendEvent(
@@ -336,6 +344,10 @@ func (b *InMemoryBackend) ModifyEndpoint(
 
 	if settings.ExternalTableDefinition != "" {
 		ep.ExternalTableDefinition = settings.ExternalTableDefinition
+	}
+
+	if settings.S3Settings != "" {
+		ep.S3Settings = settings.S3Settings
 	}
 
 	cp := *ep
