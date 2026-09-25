@@ -541,7 +541,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 6 gaps; 1 deferred |
-| [SES v2](services/sesv2/README.md) | A | 112 | 2 gaps |
+| [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps |
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 2 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 4 gaps; 4 deferred |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
