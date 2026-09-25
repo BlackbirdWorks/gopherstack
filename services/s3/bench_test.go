@@ -337,3 +337,53 @@ func BenchmarkDeleteObjects(b *testing.B) {
 		})
 	}
 }
+
+const benchObjectSize1MiB = 1024 * 1024
+
+// BenchmarkPutObject_1MiB drives PutObject through the full HTTP handler
+// with a 1MiB body, the size class realistic uploads (images, small blobs)
+// actually use.
+func BenchmarkPutObject_1MiB(b *testing.B) {
+	handler, backend := benchHandler(b)
+	bucketName := "bench-put-1m"
+	_, _ = backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+	data := bytes.Repeat([]byte("a"), benchObjectSize1MiB)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := range b.N {
+		rec := benchServe(handler, http.MethodPut,
+			fmt.Sprintf("/%s/key-%d", bucketName, i), bytes.NewReader(data))
+		if rec.Code != http.StatusOK {
+			b.Fatalf("PutObject failed: %d", rec.Code)
+		}
+	}
+}
+
+// BenchmarkGetObject_1MiB drives GetObject through the full HTTP handler
+// against pre-populated 1MiB (compressed) objects.
+func BenchmarkGetObject_1MiB(b *testing.B) {
+	handler, backend := benchHandler(b)
+	bucketName := "bench-get-1m"
+	_, _ = backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+	data := bytes.Repeat([]byte("a"), benchObjectSize1MiB)
+
+	const objectCount = 200
+	for i := range objectCount {
+		rec := benchServe(handler, http.MethodPut,
+			fmt.Sprintf("/%s/key-%d", bucketName, i), bytes.NewReader(data))
+		if rec.Code != http.StatusOK {
+			b.Fatalf("setup PutObject failed: %d", rec.Code)
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := range b.N {
+		rec := benchServe(handler, http.MethodGet,
+			fmt.Sprintf("/%s/key-%d", bucketName, i%objectCount), nil)
+		if rec.Code != http.StatusOK {
+			b.Fatalf("GetObject failed: %d", rec.Code)
+		}
+	}
+}
