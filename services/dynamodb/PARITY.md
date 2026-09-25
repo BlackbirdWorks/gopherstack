@@ -244,6 +244,26 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 
 ## Notes
 
+### 2026-09-24 TransactWriteItems prepare/commit split (gopherstack-wdapu)
+
+Removed the O(table-size) `snapshotTables`/`rollbackTables` GSI/LSI clone-and-
+undo path from TransactWriteItems (the 2026-09-19 perf-sweep note below said
+this "stays" after a COW prototype regressed; this replaces it with a
+different approach instead of COW). Every apply-phase failure mode was
+provably movable to a pre-validation phase that runs before any table is
+touched (item_ops_crud.go's `doUpdate` split into pure `computeUpdate` +
+mutating `commitUpdate`; transact_ops.go gained `prepareTransactWrites`), so
+the commit loop is now infallible by construction and never needs to roll
+back. `ExecuteTransaction`'s own PartiQL snapshot/restore is untouched (still
+genuinely needs it: that op's statement set is heterogeneous and can fail
+mid-apply). Benchmarks (`perf_sweep_bench_test.go`, `-count=5`, benchstat):
+a 10-item transaction against a 10,000-item/2-GSI table dropped from
+1410us/1311KiB/1.72k-allocs to 206us/144KiB/1.58k-allocs per op (-85%/-89%/
+-8%) and now costs the same as a 20-item table (previously 224us, a 6x gap).
+Differential test: `transact_write_differential_test.go`, 200 seeds x 40
+transactions, exported API only, reference-model-checked table/GSI/LSI state
+and CancellationReasons after every transaction.
+
 ### 2026-09-20 mega-batch-35 terraform sweep
 
 DisableKinesisStreamingDestination removed the destination entirely instead

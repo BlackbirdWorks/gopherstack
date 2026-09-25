@@ -883,12 +883,15 @@ func (db *InMemoryDB) checkUpdateCondition(
 	return nil
 }
 
-func (db *InMemoryDB) doUpdate(
+// computeUpdate is the pure half of doUpdate: it applies the UpdateExpression to a
+// copy of existing and validates the result, without touching table state. Reused
+// by UpdateItem (via doUpdate) and by TransactWriteItems' prepare phase, which must
+// be able to fail before any table is mutated.
+func (db *InMemoryDB) computeUpdate(
 	ctx context.Context,
 	table *Table,
 	input *dynamodb.UpdateItemInput,
 	existing map[string]any,
-	matchIndex int,
 ) (map[string]any, map[string]struct{}, error) {
 	updated := make(map[string]any)
 	wireKey := models.FromSDKItem(input.Key)
@@ -927,6 +930,16 @@ func (db *InMemoryDB) doUpdate(
 		return nil, nil, err
 	}
 
+	return updated, updatedPaths, nil
+}
+
+// commitUpdate is the mutating half of doUpdate: given an already-validated updated
+// item (from computeUpdate), it writes it into table state. It cannot fail.
+func (db *InMemoryDB) commitUpdate(
+	table *Table,
+	existing, updated map[string]any,
+	matchIndex int,
+) {
 	updatedSize, _ := CalculateItemSize(updated)
 
 	if matchIndex != -1 {
@@ -943,6 +956,21 @@ func (db *InMemoryDB) doUpdate(
 		db.updateIndexes(table, updated, newIdx)
 		table.updateSecondaryIndexes(nil, 0, updated, newIdx)
 	}
+}
+
+func (db *InMemoryDB) doUpdate(
+	ctx context.Context,
+	table *Table,
+	input *dynamodb.UpdateItemInput,
+	existing map[string]any,
+	matchIndex int,
+) (map[string]any, map[string]struct{}, error) {
+	updated, updatedPaths, err := db.computeUpdate(ctx, table, input, existing)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	db.commitUpdate(table, existing, updated, matchIndex)
 
 	return updated, updatedPaths, nil
 }

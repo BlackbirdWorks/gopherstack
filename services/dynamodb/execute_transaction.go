@@ -18,6 +18,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
+// tableStateSnapshot is ExecuteTransaction's own pre-statement snapshot of one
+// table, used to roll back all affected tables if any statement in the PartiQL
+// transaction fails. TransactWriteItems no longer needs this (gopherstack-wdapu):
+// its write actions are validated in a prepare phase before any table is touched,
+// so it never needs to undo a partial apply.
+type tableStateSnapshot struct {
+	pkIndex            map[string]int
+	pkskIndex          map[string]map[string]int
+	gsiIndexes         map[string]*secondaryIndex
+	lsiIndexes         map[string]*secondaryIndex
+	items              []map[string]any
+	itemSizes          []int
+	totalItemSizeBytes int64
+}
+
 // --- ExecuteTransaction ---
 
 // ExecuteTransaction executes a set of PartiQL DML statements atomically.

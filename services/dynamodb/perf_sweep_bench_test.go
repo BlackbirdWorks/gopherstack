@@ -71,6 +71,51 @@ func newBenchHandlerWithGSI(tb testing.TB, tblName string) *dynamodb.DynamoDBHan
 	return h
 }
 
+// newBenchHandlerWith2GSI is newBenchHandlerWithGSI plus a second GSI, for
+// benchmarking TransactWriteItems' now-deleted per-transaction secondary-index
+// snapshot cost (gopherstack-wdapu) against a table with more index buckets to
+// (no longer) clone.
+func newBenchHandlerWith2GSI(tb testing.TB, tblName string) *dynamodb.DynamoDBHandler {
+	tb.Helper()
+	db := dynamodb.NewInMemoryDB()
+	db.SetDefaultRegion("us-east-1")
+	h := dynamodb.NewHandler(db)
+
+	code, resp := invokeOpB(tb, h, "CreateTable", map[string]any{
+		"TableName": tblName,
+		"KeySchema": []map[string]any{
+			{"AttributeName": "pk", "KeyType": "HASH"},
+			{"AttributeName": "sk", "KeyType": "RANGE"},
+		},
+		"AttributeDefinitions": []map[string]any{
+			{"AttributeName": "pk", "AttributeType": "S"},
+			{"AttributeName": "sk", "AttributeType": "S"},
+			{"AttributeName": "gsipk", "AttributeType": "S"},
+			{"AttributeName": "gsipk2", "AttributeType": "S"},
+		},
+		"GlobalSecondaryIndexes": []map[string]any{
+			{
+				"IndexName": "gsi1",
+				"KeySchema": []map[string]any{
+					{"AttributeName": "gsipk", "KeyType": "HASH"},
+				},
+				"Projection": map[string]any{"ProjectionType": "ALL"},
+			},
+			{
+				"IndexName": "gsi2",
+				"KeySchema": []map[string]any{
+					{"AttributeName": "gsipk2", "KeyType": "HASH"},
+				},
+				"Projection": map[string]any{"ProjectionType": "ALL"},
+			},
+		},
+		"BillingMode": "PAY_PER_REQUEST",
+	})
+	require.Equal(tb, 200, code, "CreateTable %s: %v", tblName, resp)
+
+	return h
+}
+
 func seedBenchItem(tb testing.TB, h *dynamodb.DynamoDBHandler, tblName string, item map[string]any) {
 	tb.Helper()
 	code, resp := invokeOpB(tb, h, "PutItem", map[string]any{"TableName": tblName, "Item": item})
@@ -177,6 +222,89 @@ func BenchmarkTransactWriteItems_10(b *testing.B) {
 		})
 	}
 	req := map[string]any{"TransactItems": transactItems}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		code, resp := invokeOpB(b, h, "TransactWriteItems", req)
+		if code != 200 {
+			b.Fatalf("TransactWriteItems failed: %v", resp)
+		}
+	}
+}
+
+// buildTransactPutItems returns a 10-item Put TransactItems payload against
+// tblName, overwriting sk "%05d" for i in [0,10) with a fresh gsipk/gsipk2 pair
+// so both GSIs stay populated across repeated runs.
+func buildTransactPutItems(tblName string) []map[string]any {
+	items := make([]map[string]any, 0, 10)
+	for i := range 10 {
+		items = append(items, map[string]any{
+			"Put": map[string]any{
+				"TableName": tblName,
+				"Item": map[string]any{
+					"pk":     map[string]any{"S": "item"},
+					"sk":     map[string]any{"S": fmt.Sprintf("%05d", i)},
+					"val":    map[string]any{"N": strconv.Itoa(i)},
+					"gsipk":  map[string]any{"S": fmt.Sprintf("g%d", (i+1)%8)},
+					"gsipk2": map[string]any{"S": fmt.Sprintf("h%d", (i+1)%8)},
+				},
+			},
+		})
+	}
+
+	return items
+}
+
+// BenchmarkTransactWriteItems_10_10k_2GSI extends BenchmarkTransactWriteItems_10
+// to a 10,000-item backing table with 2 GSIs (gopherstack-wdapu): before the
+// prepare/commit split, TransactWriteItems cloned every GSI/LSI bucket
+// (snapshotTables) on every call, so this is the size this change should now make
+// roughly free of backing-table size.
+func BenchmarkTransactWriteItems_10_10k_2GSI(b *testing.B) {
+	const tableSize = 10000
+	h := newBenchHandlerWith2GSI(b, "BenchTransact10kTable")
+	for i := range tableSize {
+		seedBenchItem(b, h, "BenchTransact10kTable", map[string]any{
+			"pk":     map[string]any{"S": "item"},
+			"sk":     map[string]any{"S": fmt.Sprintf("%05d", i)},
+			"val":    map[string]any{"N": strconv.Itoa(i)},
+			"gsipk":  map[string]any{"S": fmt.Sprintf("g%d", i%8)},
+			"gsipk2": map[string]any{"S": fmt.Sprintf("h%d", i%8)},
+		})
+	}
+
+	req := map[string]any{"TransactItems": buildTransactPutItems("BenchTransact10kTable")}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		code, resp := invokeOpB(b, h, "TransactWriteItems", req)
+		if code != 200 {
+			b.Fatalf("TransactWriteItems failed: %v", resp)
+		}
+	}
+}
+
+// BenchmarkTransactWriteItems_10_SmallTable is the small-table control for
+// BenchmarkTransactWriteItems_10 / _10_10k_2GSI: the same 10-item transaction
+// against a table with only 20 pre-existing items. Before gopherstack-wdapu, this
+// ran far faster than the 5000/10000-item cases purely because of table size (the
+// per-transaction snapshot cost was O(table size)); after, all three should cost
+// about the same.
+func BenchmarkTransactWriteItems_10_SmallTable(b *testing.B) {
+	const tableSize = 20
+	h := newBenchHandlerWithGSI(b, "BenchTransactSmallTable")
+	for i := range tableSize {
+		seedBenchItem(b, h, "BenchTransactSmallTable", map[string]any{
+			"pk":    map[string]any{"S": "item"},
+			"sk":    map[string]any{"S": fmt.Sprintf("%05d", i)},
+			"val":   map[string]any{"N": strconv.Itoa(i)},
+			"gsipk": map[string]any{"S": fmt.Sprintf("g%d", i%8)},
+		})
+	}
+
+	req := map[string]any{"TransactItems": buildTransactPutItems("BenchTransactSmallTable")}
 
 	b.ReportAllocs()
 	b.ResetTimer()
