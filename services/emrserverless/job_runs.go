@@ -111,6 +111,7 @@ func (b *InMemoryBackend) StartJobRun(
 			b.jobRunTokens[applicationID] = make(map[string]string)
 		}
 
+		b.touchClientToken("jobrun", applicationID, opt.ClientToken, b.jobRunTokens[applicationID], now)
 		b.jobRunTokens[applicationID][opt.ClientToken] = jobRunID
 	}
 
@@ -124,7 +125,7 @@ func (b *InMemoryBackend) StartJobRun(
 // a fresh job run). Caller must hold the write lock.
 func (b *InMemoryBackend) jobRunForToken(applicationID, clientToken string) *JobRun {
 	jobRunID := b.jobRunTokens[applicationID][clientToken]
-	if jobRunID == "" {
+	if jobRunID == "" || !b.clientTokenFresh("jobrun", applicationID, clientToken, time.Now()) {
 		return nil
 	}
 

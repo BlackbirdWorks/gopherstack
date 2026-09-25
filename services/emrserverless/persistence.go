@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -36,9 +37,14 @@ type backendSnapshot struct {
 	SessionTokens     map[string]map[string]string `json:"sessionTokens"`
 	ApplicationTokens map[string]string            `json:"applicationTokens"`
 	JobRunTokens      map[string]map[string]string `json:"jobRunTokens"`
-	AccountID         string                       `json:"accountID"`
-	Region            string                       `json:"region"`
-	Version           int                          `json:"version"`
+	// ClientTokenCreatedAt is additive: see InMemoryBackend.clientTokenCreatedAt.
+	// Absent on an older snapshot, in which case every restored token is treated as
+	// expired on next write (clientTokenFresh/touchClientToken), not as permanently
+	// idempotency-immune.
+	ClientTokenCreatedAt map[string]time.Time `json:"clientTokenCreatedAt,omitempty"`
+	AccountID            string               `json:"accountID"`
+	Region               string               `json:"region"`
+	Version              int                  `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -54,13 +60,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:           emrserverlessSnapshotVersion,
-		Tables:            tables,
-		SessionTokens:     b.sessionTokens,
-		ApplicationTokens: b.applicationTokens,
-		JobRunTokens:      b.jobRunTokens,
-		AccountID:         b.accountID,
-		Region:            b.region,
+		Version:              emrserverlessSnapshotVersion,
+		Tables:               tables,
+		SessionTokens:        b.sessionTokens,
+		ApplicationTokens:    b.applicationTokens,
+		JobRunTokens:         b.jobRunTokens,
+		ClientTokenCreatedAt: b.clientTokenCreatedAt,
+		AccountID:            b.accountID,
+		Region:               b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -99,6 +106,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.sessionTokens = make(map[string]map[string]string)
 		b.applicationTokens = make(map[string]string)
 		b.jobRunTokens = make(map[string]map[string]string)
+		b.clientTokenCreatedAt = make(map[string]time.Time)
 
 		return nil
 	}
@@ -136,6 +144,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.sessionTokens = snap.SessionTokens
 	b.applicationTokens = snap.ApplicationTokens
 	b.jobRunTokens = snap.JobRunTokens
+
+	if snap.ClientTokenCreatedAt != nil {
+		b.clientTokenCreatedAt = snap.ClientTokenCreatedAt
+	} else {
+		b.clientTokenCreatedAt = make(map[string]time.Time)
+	}
+
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -13,6 +14,12 @@ const (
 	idChars  = "abcdefghijklmnopqrstuvwxyz0123456789"
 	idLength = 10
 )
+
+// clientTokenTTL bounds how long a ClientToken is remembered for idempotent replay
+// across applicationTokens/sessionTokens/jobRunTokens. AWS's docs don't state an
+// explicit retention window, so this uses the repo's default for undocumented
+// idempotency windows.
+const clientTokenTTL = 24 * time.Hour
 
 // InMemoryBackend stores EMR Serverless state in memory.
 type InMemoryBackend struct {
@@ -35,22 +42,29 @@ type InMemoryBackend struct {
 	// jobRunTokens maps applicationID -> clientToken -> jobRunID, giving
 	// StartJobRun the same idempotency-token replay behavior as sessionTokens.
 	jobRunTokens map[string]map[string]string
-	registry     *store.Registry
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	// clientTokenCreatedAt tracks when each of the three token maps above wrote an
+	// entry, flat-keyed by "domain\x00scope\x00token" (see clientTokenKey), so
+	// sweepClientTokensLocked can bound their growth without changing the persisted
+	// maps' value type. scope is the applicationID for session/jobrun tokens, "" for
+	// application tokens (applicationTokens has no per-app nesting).
+	clientTokenCreatedAt map[string]time.Time
+	registry             *store.Registry
+	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		sessionTokens:     make(map[string]map[string]string),
-		applicationTokens: make(map[string]string),
-		jobRunTokens:      make(map[string]map[string]string),
-		accountID:         accountID,
-		region:            region,
-		registry:          store.NewRegistry(),
-		mu:                lockmetrics.New("emrserverless"),
+		sessionTokens:        make(map[string]map[string]string),
+		applicationTokens:    make(map[string]string),
+		jobRunTokens:         make(map[string]map[string]string),
+		clientTokenCreatedAt: make(map[string]time.Time),
+		accountID:            accountID,
+		region:               region,
+		registry:             store.NewRegistry(),
+		mu:                   lockmetrics.New("emrserverless"),
 	}
 
 	registerAllTables(b)
@@ -67,6 +81,39 @@ func (b *InMemoryBackend) Reset() {
 	b.sessionTokens = make(map[string]map[string]string)
 	b.applicationTokens = make(map[string]string)
 	b.jobRunTokens = make(map[string]map[string]string)
+	b.clientTokenCreatedAt = make(map[string]time.Time)
+}
+
+// clientTokenKey builds the flat clientTokenCreatedAt key for a ClientToken
+// belonging to one of the three token maps above.
+func clientTokenKey(domain, scope, token string) string {
+	return domain + "\x00" + scope + "\x00" + token
+}
+
+// touchClientToken sweeps expired entries out of tokens (a domain/scope's ClientToken
+// dedup map) and records now as token's creation time, ahead of the caller inserting
+// token into tokens. Caller must hold b.mu (write).
+func (b *InMemoryBackend) touchClientToken(domain, scope, token string, tokens map[string]string, now time.Time) {
+	for tok := range tokens {
+		key := clientTokenKey(domain, scope, tok)
+
+		ts, ok := b.clientTokenCreatedAt[key]
+		if !ok || now.Sub(ts) >= clientTokenTTL {
+			delete(tokens, tok)
+			delete(b.clientTokenCreatedAt, key)
+		}
+	}
+
+	b.clientTokenCreatedAt[clientTokenKey(domain, scope, token)] = now
+}
+
+// clientTokenFresh reports whether a previously-recorded token for domain/scope is
+// still within clientTokenTTL (an entry with no recorded timestamp, e.g. restored from
+// a pre-TTL snapshot, is treated as stale). Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) clientTokenFresh(domain, scope, token string, now time.Time) bool {
+	ts, ok := b.clientTokenCreatedAt[clientTokenKey(domain, scope, token)]
+
+	return ok && now.Sub(ts) < clientTokenTTL
 }
 
 // Region returns the AWS region this backend is configured for.

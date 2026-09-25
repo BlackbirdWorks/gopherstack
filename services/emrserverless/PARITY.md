@@ -638,3 +638,25 @@ this pass). No persisted fields changed (Attempt/AccessSystemProfileLogs
 are request-only). Gates: `go build ./...` (whole module), `go vet`, `go
 test -race -count=1 ./services/emrserverless/...`, `golangci-lint run
 --new-from-rev=HEAD` (0 issues) all clean.
+
+## 2026-09-24: unbounded-map audit (gopherstack parity-sweep)
+
+**leaks:** `applicationTokens`/`sessionTokens`/`jobRunTokens` (store.go) recorded
+ClientToken idempotency state for CreateApplication/StartSession/StartJobRun with
+no expiry at all. `applicationTokens` was never cleaned even on DeleteApplication;
+`sessionTokens`/`jobRunTokens` were only cleaned wholesale per-application on
+DeleteApplication, so a long-lived application accumulated one entry per
+session/job-run started for its entire lifetime. AWS's docs don't state an
+explicit ClientToken retention window for EMR Serverless, so this now uses the
+repo's 24h default (`clientTokenTTL`). Fixed: `sessionForToken`/`jobRunForToken`/
+CreateApplication's token check now call the new `clientTokenFresh` helper, and
+each write path calls `touchClientToken`, which sweeps expired entries
+(flat-keyed by domain+scope+token in the new `clientTokenCreatedAt` map) on every
+write (lazy prune-on-write, no new goroutine). DeleteApplication now also purges
+`applicationTokens` entries pointing at the deleted app and the corresponding
+`clientTokenCreatedAt` rows for all three domains, closing the remaining orphan
+path. All three token maps are persisted; added the additive
+`backendSnapshot.ClientTokenCreatedAt` field (no version bump; `go test
+./pkgs/persistence/ -update` diff reviewed and applied). Regression tests:
+`TestApplicationTokens_TTLBoundsMapGrowth` and
+`TestDeleteApplication_PurgesTokenState` (idempotency_ttl_internal_test.go).

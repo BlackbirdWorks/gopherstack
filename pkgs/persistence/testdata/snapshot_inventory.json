@@ -11957,6 +11957,7 @@
       "Session.UpdatedAt time.Time `json:\"updatedAt\"`",
       "backendSnapshot.AccountID string `json:\"accountID\"`",
       "backendSnapshot.ApplicationTokens map[string]string `json:\"applicationTokens\"`",
+      "backendSnapshot.ClientTokenCreatedAt map[string]time.Time `json:\"clientTokenCreatedAt,omitempty\"`",
       "backendSnapshot.JobRunTokens map[string]map[string]string `json:\"jobRunTokens\"`",
       "backendSnapshot.Region string `json:\"region\"`",
       "backendSnapshot.SessionTokens map[string]map[string]string `json:\"sessionTokens\"`",
