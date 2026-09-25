@@ -96,7 +96,8 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 
 		// Idempotency: if token already seen, return existing job.
 		if clientRequestToken != "" {
-			if existingID, ok := b.lendingClientTokenToJobIDStore(region)[clientRequestToken]; ok {
+			if existingID, ok := b.lendingClientTokenToJobIDStore(region)[clientRequestToken]; ok &&
+				b.clientTokenFresh("lending", region, clientRequestToken, time.Now()) {
 				if existing, ok2 := b.lendingJobs.Get(regionKey(region, existingID)); ok2 {
 					result = cloneLendingJob(existing)
 					done = true
@@ -123,7 +124,9 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 		trimLendingJobsIfNeeded(b.lendingJobs, b.lendingJobsByRegion, region, b.maxJobs)
 
 		if clientRequestToken != "" {
-			b.lendingClientTokenToJobIDStore(region)[clientRequestToken] = jobID
+			tokens := b.lendingClientTokenToJobIDStore(region)
+			b.touchClientToken("lending", region, clientRequestToken, tokens, time.Now())
+			tokens[clientRequestToken] = jobID
 		}
 
 		if b.asyncJobDelay == 0 {

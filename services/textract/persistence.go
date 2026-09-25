@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -121,7 +122,11 @@ type backendSnapshot struct {
 	AdapterClientTokenToID    map[string]map[string]string `json:"adapterClientTokenToId,omitempty"`
 	ExpenseClientTokenToJobID map[string]map[string]string `json:"expenseClientTokenToJobId,omitempty"`
 	LendingClientTokenToJobID map[string]map[string]string `json:"lendingClientTokenToJobId,omitempty"`
-	Version                   int                          `json:"version"`
+	// ClientTokenCreatedAt is additive: see InMemoryBackend.clientTokenCreatedAt. Absent on
+	// an older snapshot, in which case every restored token is treated as expired on next
+	// write (restoredTokenMap/touchClientToken), not as permanently idempotency-immune.
+	ClientTokenCreatedAt map[string]time.Time `json:"clientTokenCreatedAt,omitempty"`
+	Version              int                  `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -159,6 +164,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
+	clientTokenCreatedAt := make(map[string]time.Time, len(b.clientTokenCreatedAt))
+	maps.Copy(clientTokenCreatedAt, b.clientTokenCreatedAt)
+
 	snap := backendSnapshot{
 		Version:                   textractSnapshotVersion,
 		Tables:                    tables,
@@ -166,6 +174,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AdapterClientTokenToID:    cloneRegionTokenMap(b.adapterClientTokenToID),
 		ExpenseClientTokenToJobID: cloneRegionTokenMap(b.expenseClientTokenToJobID),
 		LendingClientTokenToJobID: cloneRegionTokenMap(b.lendingClientTokenToJobID),
+		ClientTokenCreatedAt:      clientTokenCreatedAt,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "textract", snap)
@@ -284,6 +293,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.adapterClientTokenToID = restoredTokenMap(snap.AdapterClientTokenToID)
 	b.expenseClientTokenToJobID = restoredTokenMap(snap.ExpenseClientTokenToJobID)
 	b.lendingClientTokenToJobID = restoredTokenMap(snap.LendingClientTokenToJobID)
+
+	if snap.ClientTokenCreatedAt != nil {
+		b.clientTokenCreatedAt = snap.ClientTokenCreatedAt
+	} else {
+		b.clientTokenCreatedAt = make(map[string]time.Time)
+	}
 
 	return nil
 }

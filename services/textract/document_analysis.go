@@ -94,7 +94,8 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 
 		// Idempotency: if token already seen, return existing job.
 		if clientRequestToken != "" {
-			if existingID, ok := b.clientTokenToJobIDStore(region)[clientRequestToken]; ok {
+			if existingID, ok := b.clientTokenToJobIDStore(region)[clientRequestToken]; ok &&
+				b.clientTokenFresh("job", region, clientRequestToken, time.Now()) {
 				if existing, ok2 := b.jobs.Get(regionKey(region, existingID)); ok2 {
 					result = cloneJob(existing)
 					done = true
@@ -121,7 +122,9 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 		trimJobsIfNeeded(b.jobs, b.jobsByRegion, region, b.maxJobs)
 
 		if clientRequestToken != "" {
-			b.clientTokenToJobIDStore(region)[clientRequestToken] = jobID
+			tokens := b.clientTokenToJobIDStore(region)
+			b.touchClientToken("job", region, clientRequestToken, tokens, time.Now())
+			tokens[clientRequestToken] = jobID
 		}
 
 		if b.asyncJobDelay == 0 {

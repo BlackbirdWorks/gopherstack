@@ -134,7 +134,8 @@ func (b *InMemoryBackend) CreateAdapterWithToken(
 
 	// Idempotency check.
 	if clientRequestToken != "" {
-		if existingID, ok := b.adapterClientTokenToIDStore(region)[clientRequestToken]; ok {
+		if existingID, ok := b.adapterClientTokenToIDStore(region)[clientRequestToken]; ok &&
+			b.clientTokenFresh("adapter", region, clientRequestToken, time.Now()) {
 			if existing, ok2 := b.adapters.Get(regionKey(region, existingID)); ok2 {
 				return cloneAdapter(existing), nil
 			}
@@ -156,7 +157,9 @@ func (b *InMemoryBackend) CreateAdapterWithToken(
 	b.adapters.Put(adapter)
 
 	if clientRequestToken != "" {
-		b.adapterClientTokenToIDStore(region)[clientRequestToken] = adapterID
+		tokens := b.adapterClientTokenToIDStore(region)
+		b.touchClientToken("adapter", region, clientRequestToken, tokens, time.Now())
+		tokens[clientRequestToken] = adapterID
 	}
 
 	return cloneAdapter(adapter), nil

@@ -27031,6 +27031,7 @@
       "adapterSnapshot.Region string `json:\"region\"`",
       "adapterVersionSnapshot.Region string `json:\"region\"`",
       "backendSnapshot.AdapterClientTokenToID map[string]map[string]string `json:\"adapterClientTokenToId,omitempty\"`",
+      "backendSnapshot.ClientTokenCreatedAt map[string]time.Time `json:\"clientTokenCreatedAt,omitempty\"`",
       "backendSnapshot.ClientTokenToJobID map[string]map[string]string `json:\"clientTokenToJobId,omitempty\"`",
       "backendSnapshot.ExpenseClientTokenToJobID map[string]map[string]string `json:\"expenseClientTokenToJobId,omitempty\"`",
       "backendSnapshot.LendingClientTokenToJobID map[string]map[string]string `json:\"lendingClientTokenToJobId,omitempty\"`",

@@ -47,6 +47,12 @@ const MaxJobHistory = maxJobHistory
 // defaultAsyncJobDelay is the default time before a new async job transitions from IN_PROGRESS to SUCCEEDED.
 const defaultAsyncJobDelay = 200 * time.Millisecond
 
+// clientTokenTTL bounds how long a ClientRequestToken is remembered for idempotent
+// replay across the four dedup maps below. AWS's docs don't state an explicit
+// retention window for Textract's ClientRequestToken, so this uses the repo's
+// default for undocumented idempotency windows.
+const clientTokenTTL = 24 * time.Hour
+
 // InMemoryBackend is the in-memory store for Textract jobs.
 //
 // jobs/expenseJobs/lendingJobs/adapters/adapterVersions were formerly nested
@@ -63,23 +69,27 @@ type InMemoryBackend struct {
 	clientTokenToJobID        map[string]map[string]string // region → clientToken → jobID
 	expenseClientTokenToJobID map[string]map[string]string // region → clientToken → expense jobID
 	lendingClientTokenToJobID map[string]map[string]string // region → clientToken → lending jobID
-	jobs                      *store.Table[DocumentJob]
-	jobsByRegion              *store.Index[DocumentJob]
-	expenseJobs               *store.Table[ExpenseJob]
-	expenseJobsByRegion       *store.Index[ExpenseJob]
-	lendingJobs               *store.Table[LendingJob]
-	lendingJobsByRegion       *store.Index[LendingJob]
-	adapters                  *store.Table[Adapter]
-	adaptersByRegion          *store.Index[Adapter]
-	adapterVersions           *store.Table[AdapterVersion]
-	adapterVersionsByAdapter  *store.Index[AdapterVersion]
-	mu                        *lockmetrics.RWMutex
-	cancel                    context.CancelFunc
-	accountID                 string
-	region                    string // default region
-	wg                        sync.WaitGroup
-	asyncJobDelay             time.Duration
-	maxJobs                   int
+	// clientTokenCreatedAt tracks when each of the four maps above wrote an entry, flat-keyed
+	// by "domain\x00region\x00token" (see clientTokenKey), so sweepClientTokenMapLocked can
+	// bound their growth without changing the persisted maps' value type.
+	clientTokenCreatedAt     map[string]time.Time
+	jobs                     *store.Table[DocumentJob]
+	jobsByRegion             *store.Index[DocumentJob]
+	expenseJobs              *store.Table[ExpenseJob]
+	expenseJobsByRegion      *store.Index[ExpenseJob]
+	lendingJobs              *store.Table[LendingJob]
+	lendingJobsByRegion      *store.Index[LendingJob]
+	adapters                 *store.Table[Adapter]
+	adaptersByRegion         *store.Index[Adapter]
+	adapterVersions          *store.Table[AdapterVersion]
+	adapterVersionsByAdapter *store.Index[AdapterVersion]
+	mu                       *lockmetrics.RWMutex
+	cancel                   context.CancelFunc
+	accountID                string
+	region                   string // default region
+	wg                       sync.WaitGroup
+	asyncJobDelay            time.Duration
+	maxJobs                  int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
@@ -104,6 +114,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		adapterClientTokenToID:    make(map[string]map[string]string),
 		expenseClientTokenToJobID: make(map[string]map[string]string),
 		lendingClientTokenToJobID: make(map[string]map[string]string),
+		clientTokenCreatedAt:      make(map[string]time.Time),
 		mu:                        lockmetrics.New("textract"),
 		accountID:                 accountID,
 		region:                    region,
@@ -182,6 +193,39 @@ func (b *InMemoryBackend) resetClientTokenMapsLocked() {
 	b.adapterClientTokenToID = make(map[string]map[string]string)
 	b.expenseClientTokenToJobID = make(map[string]map[string]string)
 	b.lendingClientTokenToJobID = make(map[string]map[string]string)
+	b.clientTokenCreatedAt = make(map[string]time.Time)
+}
+
+// clientTokenKey builds the flat clientTokenCreatedAt key for a ClientRequestToken
+// belonging to one of the four per-domain dedup maps.
+func clientTokenKey(domain, region, token string) string {
+	return domain + "\x00" + region + "\x00" + token
+}
+
+// touchClientToken sweeps expired entries out of tokens (a region's ClientRequestToken
+// dedup map for domain) and records now as token's creation time, ahead of the caller
+// inserting token into tokens. Caller must hold b.mu (write).
+func (b *InMemoryBackend) touchClientToken(domain, region, token string, tokens map[string]string, now time.Time) {
+	for tok := range tokens {
+		key := clientTokenKey(domain, region, tok)
+
+		ts, ok := b.clientTokenCreatedAt[key]
+		if !ok || now.Sub(ts) >= clientTokenTTL {
+			delete(tokens, tok)
+			delete(b.clientTokenCreatedAt, key)
+		}
+	}
+
+	b.clientTokenCreatedAt[clientTokenKey(domain, region, token)] = now
+}
+
+// clientTokenFresh reports whether a previously-recorded token for domain/region is
+// still within clientTokenTTL (an entry with no recorded timestamp, e.g. restored from
+// a pre-TTL snapshot, is treated as stale). Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) clientTokenFresh(domain, region, token string, now time.Time) bool {
+	ts, ok := b.clientTokenCreatedAt[clientTokenKey(domain, region, token)]
+
+	return ok && now.Sub(ts) < clientTokenTTL
 }
 
 // The following lazy per-region store helpers return the resource map for the
