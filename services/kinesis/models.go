@@ -1,6 +1,7 @@
 package kinesis
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -175,7 +176,16 @@ type Shard struct {
 	// ClosedAt is when this shard was closed (zero if still open). Populated
 	// alongside Closed by closeShard. omitempty has no effect on a struct
 	// field like time.Time, so it is intentionally omitted here.
-	ClosedAt              time.Time    `json:"closedAt"`
+	ClosedAt time.Time `json:"closedAt"`
+	// cachedHashRangeStart/End and cachedIdx memoize the parsed forms of
+	// HashKeyRangeStart/HashKeyRangeEnd/ID, computed once on first use
+	// (shardForHashKey/nextSequenceNumber, both only ever called from
+	// PutRecord under stream.mu.Lock, so no extra synchronization is
+	// needed) instead of re-parsing the decimal strings on every record.
+	// Never persisted; nil after Restore until first use repopulates them.
+	cachedHashRangeStart  *big.Int
+	cachedHashRangeEnd    *big.Int
+	cachedIdx             *int64
 	ID                    string       `json:"id"`
 	HashKeyRangeStart     string       `json:"hashKeyRangeStart"`
 	HashKeyRangeEnd       string       `json:"hashKeyRangeEnd"`

@@ -41,16 +41,30 @@ func hashKey(partitionKey string) *big.Int {
 	return new(big.Int).SetBytes(sum[:])
 }
 
+// hashRangeBounds returns s's parsed HashKeyRangeStart/End, parsing them
+// once and caching the result on s (safe without locking: only ever called
+// from PutRecord while holding stream.mu.Lock, so never concurrently for
+// the same shard).
+func (s *Shard) hashRangeBounds() (*big.Int, *big.Int) {
+	if s.cachedHashRangeStart == nil {
+		s.cachedHashRangeStart = new(big.Int)
+		s.cachedHashRangeStart.SetString(s.HashKeyRangeStart, hashKeyDecimalBase)
+	}
+	if s.cachedHashRangeEnd == nil {
+		s.cachedHashRangeEnd = new(big.Int)
+		s.cachedHashRangeEnd.SetString(s.HashKeyRangeEnd, hashKeyDecimalBase)
+	}
+
+	return s.cachedHashRangeStart, s.cachedHashRangeEnd
+}
+
 // shardForHashKey selects the open shard whose hash key range contains h.
 func shardForHashKey(shards []*Shard, h *big.Int) *Shard {
 	for _, s := range shards {
 		if s.Closed {
 			continue
 		}
-		start := new(big.Int)
-		start.SetString(s.HashKeyRangeStart, hashKeyDecimalBase)
-		end := new(big.Int)
-		end.SetString(s.HashKeyRangeEnd, hashKeyDecimalBase)
+		start, end := s.hashRangeBounds()
 		if h.Cmp(start) >= 0 && h.Cmp(end) <= 0 {
 			return s
 		}
@@ -73,21 +87,32 @@ func shardForPartitionKey(shards []*Shard, partitionKey string) *Shard {
 	return shardForHashKey(shards, hashKey(partitionKey))
 }
 
+// shardIndex returns s's numeric index parsed out of its "shardId-NNNN" ID,
+// parsing it once and caching the result on s (safe without locking: only
+// ever called from PutRecord while holding stream.mu.Lock).
+func (s *Shard) shardIndex() int64 {
+	if s.cachedIdx == nil {
+		var idx int64
+		if _, err := fmt.Sscanf(s.ID, "shardId-%d", &idx); err != nil {
+			idx = 0
+		}
+		s.cachedIdx = &idx
+	}
+
+	return *s.cachedIdx
+}
+
 // nextSequenceNumber generates a new sequence number for a shard.
 func (s *Shard) nextSequenceNumber() string {
 	s.NextSeq++
 
-	var idx int64
-	if _, err := fmt.Sscanf(s.ID, "shardId-%d", &idx); err != nil {
-		idx = 0
-	}
 	const shardIDModulus = 10000
 
 	// AWS sequence numbers encode time and shard info. We use a 49-prefix, timestamp, shard index, and seq.
 	return fmt.Sprintf(
 		"49%014d%04d%020d",
 		time.Now().UnixNano()/int64(time.Millisecond),
-		idx%shardIDModulus,
+		s.shardIndex()%shardIDModulus,
 		s.NextSeq,
 	)
 }
