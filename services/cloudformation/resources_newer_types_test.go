@@ -588,9 +588,9 @@ func testLogsDelivery(t *testing.T) {
   "Dest": {"Type": "AWS::Logs::DeliveryDestination", "Properties": {
     "Name": "dest-1", "DestinationResourceArn": "arn:aws:s3:::my-delivery-bucket", "DeliveryDestinationType": "S3"
   }},
-  "Del": {"Type": "AWS::Logs::Delivery", "DependsOn": "Dest", "Properties": {
+  "Del": {"Type": "AWS::Logs::Delivery", "Properties": {
     "DeliverySourceName": {"Ref": "Src"},
-    "DeliveryDestinationArn": "arn:aws:logs:us-east-1:000000000000:delivery-destination:dest-1"
+    "DeliveryDestinationArn": {"Fn::GetAtt": ["Dest", "Arn"]}
   }}
 },
 "Outputs": {
@@ -603,8 +603,9 @@ func testLogsDelivery(t *testing.T) {
 	assert.NotEmpty(t, outputs["Ref"])
 	assert.Equal(t, "S3", outputs["Type"])
 
-	_, err := backends.CloudWatchLogs.Backend.GetDelivery(outputs["Ref"])
+	d, err := backends.CloudWatchLogs.Backend.GetDelivery(outputs["Ref"])
 	require.NoError(t, err)
+	assert.Contains(t, d.DeliveryDestinationArn, "delivery-destination:dest-1")
 
 	_, err = client.DeleteStack(t.Context(), &cfnsdk.DeleteStackInput{StackName: aws.String("del-stack")})
 	require.NoError(t, err)

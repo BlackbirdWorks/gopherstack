@@ -859,11 +859,18 @@ func resolveScalar(v any, params, physicalIDs map[string]string) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// ResolveValue resolves a CloudFormation property value, handling intrinsic functions.
+// ResolveValue resolves a CloudFormation property value, handling intrinsic
+// functions. It has no resourceTypes map of its own -- resolveGetAtt falls
+// back to the physIDResourceTypeKey side channel in physicalIDs instead (see
+// physIDResourceTypeKey), and accountID/region/stackName come from the same
+// side channel when present.
 func ResolveValue(v any, params map[string]string, physicalIDs map[string]string) string {
 	ctx := resolveCtx{
 		params:      params,
 		physicalIDs: physicalIDs,
+		accountID:   physicalIDs[physIDAccountIDKey],
+		region:      physicalIDs[physIDRegionKey],
+		stackName:   physicalIDs[physIDStackNameKey],
 	}
 
 	return resolveValueCtx(v, ctx)
@@ -1400,10 +1407,39 @@ func collectImportValuesFromValue(v any, params map[string]string, refs *[]strin
 	}
 }
 
+// Side-channel keys stashed into a plain physicalIDs map so property-time
+// resolution (ResolveValue, which has no resourceTypes map) can still find a
+// resource's declared type, account ID, region and stack name -- see
+// physIDResourceTypeKey and provisionResources/applyTemplateToStack, which
+// populate them before resources are created (gopherstack PARITY.md 2026-09-24
+// GetAtt-in-properties fix).
+const (
+	physIDResourceTypePrefix = "_Type/"
+	physIDAccountIDKey       = "_AccountId"
+	physIDRegionKey          = "_Region"
+	physIDStackNameKey       = "_StackName"
+)
+
+func physIDResourceTypeKey(logicalID string) string {
+	return physIDResourceTypePrefix + logicalID
+}
+
+// resourceTypeFor returns logicalID's declared resource type, preferring
+// ctx.resourceTypes (Outputs/preview, always fully populated) and falling
+// back to the physIDResourceTypeKey side channel (property-time resolution,
+// which has no resourceTypes map -- see ResolveValue).
+func resourceTypeFor(logicalID string, ctx resolveCtx) string {
+	if resType := ctx.resourceTypes[logicalID]; resType != "" {
+		return resType
+	}
+
+	return ctx.physicalIDs[physIDResourceTypeKey(logicalID)]
+}
+
 // resolveGetAtt resolves Fn::GetAtt [logicalID, attributeName] using the ctx (#9).
 func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 	physID := ctx.physicalIDs[logicalID]
-	resType := ctx.resourceTypes[logicalID]
+	resType := resourceTypeFor(logicalID, ctx)
 
 	// Custom resource Data outputs are stored in physicalIDs as "logicalID/Key".
 	if resType == cfnTypeCustomResource || strings.HasPrefix(resType, "Custom::") {

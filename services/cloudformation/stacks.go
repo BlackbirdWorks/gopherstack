@@ -524,6 +524,17 @@ func (b *InMemoryBackend) provisionResources(
 	physicalIDs["_StackId"] = arn
 	physicalIDs["_StackName"] = name
 
+	// Side channel so property-time Fn::GetAtt (ResolveValue, called by
+	// strProp/resolve while a resource's own Properties are resolved at
+	// create time) can find a referenced resource's declared type and the
+	// account/region, the same way Outputs-time resolution does via
+	// resolveCtx.resourceTypes -- see physIDResourceTypeKey.
+	physicalIDs[physIDAccountIDKey] = b.accountID
+	physicalIDs[physIDRegionKey] = b.region
+	for logicalID, res := range tmpl.Resources {
+		physicalIDs[physIDResourceTypeKey(logicalID)] = res.Type
+	}
+
 	// Lets a nested AWS::CloudFormation::Stack resource created below learn
 	// its ParentId (gopherstack-pbv1) without widening ResourceCreator.Create's
 	// signature.
@@ -822,6 +833,15 @@ func (b *InMemoryBackend) applyTemplateToStack(
 	physicalIDs := make(map[string]string, len(b.resources[stack.StackID]))
 	for logicalID, res := range b.resources[stack.StackID] {
 		physicalIDs[logicalID] = res.PhysicalID
+	}
+
+	// Side channel for property-time Fn::GetAtt during update -- see the
+	// matching block in provisionResources and physIDResourceTypeKey.
+	physicalIDs[physIDAccountIDKey] = b.accountID
+	physicalIDs[physIDRegionKey] = b.region
+	physicalIDs[physIDStackNameKey] = stack.StackName
+	for logicalID, res := range tmpl.Resources {
+		physicalIDs[physIDResourceTypeKey(logicalID)] = res.Type
 	}
 
 	// Validate that the update does not drop an export that another active

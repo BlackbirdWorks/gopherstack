@@ -205,6 +205,71 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 
 ## Notes
 
+### 2026-09-24 (property-time Fn::GetAtt fix): resolveGetAtt now sees a resource's real type, account ID and region while resolving another resource's Properties
+
+Fixed the bug class the wave-10 entry below originally flagged as
+"not fixed, pre-existing": `strProp`/`resolve` resolve a resource's own
+Properties at create time by calling `ResolveValue` with a bare
+`{params, physicalIDs}` `resolveCtx` -- no `resourceTypes` map, and no
+account ID/region, unlike Outputs-time resolution's fully-populated ctx.
+`resolveGetAtt`'s stashed-attribute gate switches on `resType`, so an
+`Fn::GetAtt` used as an *input property value* for another resource in the
+same stack always fell through to the plain-physID fallback for any
+attribute that wasn't the physical ID itself.
+
+Rather than widen `ResolveValue`'s signature (which would mean threading a
+`resourceTypes` map through the ~450 `create*` methods and ~1,150
+`strProp`/`resolve` call sites, most of which never touch GetAtt), a small
+side channel is now stashed directly into the `physicalIDs` map every
+`create*` method already receives -- `physIDResourceTypeKey(logicalID)` ->
+declared type, plus `_AccountId`/`_Region`/`_StackName` (`template.go`,
+alongside the pre-existing `_StackId`/`_StackName` custom-resource
+convention). `provisionResources` (create) and `applyTemplateToStack`
+(update, `stacks.go`) populate it before resource creation starts, from the
+same `tmpl.Resources`/`b.accountID`/`b.region` data Outputs-time resolution
+already uses. `resolveGetAtt` falls back to this side channel only when its
+`ctx.resourceTypes` map is empty (the Outputs/preview paths already pass a
+real one, so they're unaffected), and `ResolveValue` seeds
+accountID/region/stackName from it. No caller of `strProp`/`resolve`/
+`ResolveValue` changed.
+
+Fn::Sub `${Res.Attr}`, Fn::Join and Fn::Select already routed through the
+same `resolveGetAtt`/`resolveValueCtx` path, so they're fixed for free.
+Fn::ImportValue/Fn::If/Fn::FindInMap/Fn::Transform inside a resource's own
+Properties still resolve through a bare-ish context (no exports/
+conditions/mappings/macros side channel was added) -- out of scope for this
+fix, not a regression it introduces.
+
+Unknown-attribute behaviour is unchanged and intentionally so:
+`getResourceAttribute`/`getExtraResourceAttribute` silently fall back to the
+physical ID for an attribute name they don't recognize on a *known* type,
+both at Outputs time and now at property time -- this backend has no
+GetAtt-unknown-attribute error path anywhere (CloudFormation's real
+`No attribute named X found` error is unmodeled), so property-time
+resolution stays consistent with Outputs-time rather than inventing new
+behaviour here.
+
+Simplified `resources_newer_types_test.go`'s `logs_delivery` case to use a
+real `Fn::GetAtt: [Dest, Arn]` for `Delivery.DeliveryDestinationArn` instead
+of a literal ARN string plus `DependsOn` (Logs::Delivery deletes by its own
+physical ID, so this doesn't touch the delete path). The `codeartifact_repository`/
+`codeartifact_package_group` cases and the wave-9 MemoryDB
+`SubnetGroupName`+`DependsOn` case are left as-is: their delete paths
+re-resolve a sibling property (DomainName/SubnetGroupName) from a
+`stackPhysicalIDsSnapshot` map that's rebuilt fresh from
+`{logicalID: PhysicalID}` at DeleteStack time and carries none of the
+create-time attribute stash or side channel, so `Fn::GetAtt` there still
+can't recover a value distinct from the physical ID -- a separate,
+structural delete-path limitation this pass doesn't touch. New coverage
+added in `resources_property_getatt_test.go`
+(`TestCreateStack_PropertyTimeGetAtt`): the CodeArtifact and Logs::Delivery
+repros above via a real CreateStack round trip, a derived (non-stashed)
+attribute case (SQS Queue `Arn` computed via `arn.Build`, fed into an
+`AWS::SNS::Subscription`'s `Endpoint` -- the `sqs` protocol's ARN-shape
+validation means the pre-fix fallback to the queue's URL-shaped physical ID
+would have failed CreateStack outright, not just resolved wrong), and the
+same case via `Fn::Sub "${Queue.Arn}"`.
+
 ### 2026-09-24 (parity-sweep, wave 10): Lambda/Events/Scheduler/AppSync/Route53Resolver/CloudTrail/Logs/CodeArtifact -- 24 new resource types: 356 -> 380 supported types
 
 Added: `AWS::Lambda::CodeSigningConfig` (resources_lambda_csc.go);
@@ -264,27 +329,6 @@ are created via `CreateAPI`, which only `AWS::AppSync::Api` (not implemented
 this pass, see skipped list) would wire up; the test seeds an Event API
 directly on the backend and passes its ID in as a stack Parameter rather than
 provisioning it through CFN.
-
-REAL BUG CLASS FOUND (not fixed, pre-existing, affects every prior wave too):
-`strProp`/`resolve` (used to resolve a resource's own Properties at create
-time) calls `ResolveValue` with a bare `{params, physicalIDs}` `resolveCtx` --
-no `resourceTypes` map. `resolveGetAtt`'s stashed-attribute gate switches on
-`resType`, so an `Fn::GetAtt` used as an *input property value* for another
-resource in the same stack (as opposed to a stack Output, which resolves
-through a fully-populated ctx) always falls through to the plain-physID
-fallback for any attribute that isn't the physical ID itself -- it silently
-returns the wrong value instead of erroring. Hit while templating
-`CodeArtifact::Repository.DomainName: {Fn::GetAtt: [Dom, Name]}` (Domain's
-Ref is its ARN, not its Name, so this silently resolved to the ARN and the
-repository's domain lookup 404'd) and `Logs::Delivery.DeliveryDestinationArn:
-{Fn::GetAtt: [Dest, Arn]}` (silently resolved to Delivery's own about-to-be-assigned
-physID before Arn was ever computed). Both new tests route around it (literal
-strings/`DependsOn` instead of cross-resource `Fn::GetAtt` in Properties,
-matching the wave-9 MemoryDB test's existing convention of a literal
-`SubnetGroupName` + `DependsOn` rather than `Fn::GetAtt`) rather than fixing
-the shared `resolve()` plumbing, which is out of this pass's scope but affects
-any resource type across any wave whose GetAtt attribute isn't its own
-physical ID.
 
 Skipped (ops missing or out of scope, not stubbed): `Route53Resolver::
 {FirewallConfig,ResolverDNSSECConfig,ResolverConfig}` -- no create/delete
