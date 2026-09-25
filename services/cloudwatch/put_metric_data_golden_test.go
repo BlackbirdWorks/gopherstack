@@ -49,7 +49,9 @@ func TestPutMetricData_DatapointsGolden(t *testing.T) {
 		writes     = cloudwatch.CwMaxMetricDataPointsForTest + 50
 	)
 
-	base := time.Now().UTC().Add(-13 * 24 * time.Hour)
+	// Buckets are epoch-aligned; start on a period boundary so every write lands in one bucket.
+	period := int64(writes + 7200)
+	base := time.Unix(time.Now().Add(-13*24*time.Hour).Unix()/period*period, 0).UTC()
 	for i := range writes {
 		v := float64(i)
 		err := bk.PutMetricData(namespace, []cloudwatch.MetricDatum{{
@@ -74,7 +76,7 @@ func TestPutMetricData_DatapointsGolden(t *testing.T) {
 		"&MetricName=" + metricName +
 		"&StartTime=" + start +
 		"&EndTime=" + end +
-		"&Period=" + strconv.Itoa(writes+7200) +
+		"&Period=" + strconv.FormatInt(period, 10) +
 		"&Statistics.member.1=Sum" +
 		"&Statistics.member.2=SampleCount" +
 		"&Statistics.member.3=Minimum" +
