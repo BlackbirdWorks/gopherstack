@@ -51,13 +51,28 @@ func TestTerraform_DatasyncAndSesv2(t *testing.T) {
 	}
 }
 
-func verifyDatasyncAndSesv2DataSync(ctx context.Context, t *testing.T) {
-	t.Helper()
-	cfg := megaConfig(t)
+// firstDescribableLocation returns the first location among arns that
+// describe successfully via describe and satisfies match, or the zero value
+// of T if none do. The candidate ARNs come from one ListLocations call
+// spanning several location types, so callers other than DescribeLocationNfs
+// rely on the SDK rejecting a mismatched ARN to identify their location.
+func firstDescribableLocation[T any](arns []string, describe func(string) (T, error), match func(T) bool) T {
+	var zero T
 
-	client := datasyncsvc.NewFromConfig(cfg, func(o *datasyncsvc.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-	})
+	for _, a := range arns {
+		out, err := describe(a)
+		if err == nil && match(out) {
+			return out
+		}
+	}
+
+	return zero
+}
+
+func alwaysMatch[T any](T) bool { return true }
+
+func verifyDatasyncAgent(ctx context.Context, t *testing.T, client *datasyncsvc.Client) string {
+	t.Helper()
 
 	agentsOut, err := client.ListAgents(ctx, &datasyncsvc.ListAgentsInput{})
 	require.NoError(t, err, "ListAgents should succeed")
@@ -76,100 +91,11 @@ func verifyDatasyncAndSesv2DataSync(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "DescribeAgent should succeed")
 	assert.Equal(t, "dssv-agent", aws.ToString(agentOut.Name))
 
-	locsOut, err := client.ListLocations(ctx, &datasyncsvc.ListLocationsInput{})
-	require.NoError(t, err, "ListLocations should succeed")
-	require.GreaterOrEqual(t, len(locsOut.Locations), 6, "should have created 6 datasync locations")
+	return agentARN
+}
 
-	arns := make([]string, len(locsOut.Locations))
-	for i, l := range locsOut.Locations {
-		arns[i] = aws.ToString(l.LocationArn)
-	}
-
-	var efsOut *datasyncsvc.DescribeLocationEfsOutput
-
-	for _, a := range arns {
-		in := &datasyncsvc.DescribeLocationEfsInput{LocationArn: aws.String(a)}
-		if out, derr := client.DescribeLocationEfs(ctx, in); derr == nil {
-			efsOut = out
-
-			break
-		}
-	}
-
-	require.NotNil(t, efsOut, "EFS location should be describable")
-	require.NotNil(t, efsOut.Ec2Config)
-
-	var nfsOut *datasyncsvc.DescribeLocationNfsOutput
-
-	for _, a := range arns {
-		out, derr := client.DescribeLocationNfs(ctx, &datasyncsvc.DescribeLocationNfsInput{LocationArn: aws.String(a)})
-		if derr == nil && out.OnPremConfig != nil {
-			nfsOut = out
-
-			break
-		}
-	}
-
-	require.NotNil(t, nfsOut, "NFS location should be describable")
-	assert.Contains(t, nfsOut.OnPremConfig.AgentArns, agentARN)
-
-	var smbOut *datasyncsvc.DescribeLocationSmbOutput
-
-	for _, a := range arns {
-		in := &datasyncsvc.DescribeLocationSmbInput{LocationArn: aws.String(a)}
-		if out, derr := client.DescribeLocationSmb(ctx, in); derr == nil {
-			smbOut = out
-
-			break
-		}
-	}
-
-	require.NotNil(t, smbOut, "SMB location should be describable")
-	assert.Equal(t, "Guest", aws.ToString(smbOut.User))
-
-	var hdfsOut *datasyncsvc.DescribeLocationHdfsOutput
-
-	for _, a := range arns {
-		in := &datasyncsvc.DescribeLocationHdfsInput{LocationArn: aws.String(a)}
-		if out, derr := client.DescribeLocationHdfs(ctx, in); derr == nil {
-			hdfsOut = out
-
-			break
-		}
-	}
-
-	require.NotNil(t, hdfsOut, "HDFS location should be describable")
-	assert.Equal(t, "dssv-user", aws.ToString(hdfsOut.SimpleUser))
-	require.Len(t, hdfsOut.NameNodes, 1)
-	assert.Equal(t, "namenode.dssv.example.com", aws.ToString(hdfsOut.NameNodes[0].Hostname))
-
-	var osOut *datasyncsvc.DescribeLocationObjectStorageOutput
-
-	for _, a := range arns {
-		in := &datasyncsvc.DescribeLocationObjectStorageInput{LocationArn: aws.String(a)}
-		if out, derr := client.DescribeLocationObjectStorage(ctx, in); derr == nil {
-			osOut = out
-
-			break
-		}
-	}
-
-	require.NotNil(t, osOut, "object storage location should be describable")
-	assert.Equal(t, "dssv-bucket", bucketNameFromURI(aws.ToString(osOut.LocationUri)))
-
-	var azOut *datasyncsvc.DescribeLocationAzureBlobOutput
-
-	for _, a := range arns {
-		in := &datasyncsvc.DescribeLocationAzureBlobInput{LocationArn: aws.String(a)}
-		if out, derr := client.DescribeLocationAzureBlob(ctx, in); derr == nil {
-			azOut = out
-
-			break
-		}
-	}
-
-	require.NotNil(t, azOut, "Azure Blob location should be describable")
-	assert.Equal(t, datasynctypes.AzureBlobAuthenticationTypeSas, azOut.AuthenticationType)
+func verifyDatasyncTask(ctx context.Context, t *testing.T, client *datasyncsvc.Client) {
+	t.Helper()
 
 	taskOut, err := client.ListTasks(ctx, &datasyncsvc.ListTasksInput{})
 	require.NoError(t, err, "ListTasks should succeed")
@@ -187,6 +113,74 @@ func verifyDatasyncAndSesv2DataSync(ctx context.Context, t *testing.T) {
 	describeTaskOut, err := client.DescribeTask(ctx, &datasyncsvc.DescribeTaskInput{TaskArn: aws.String(taskARN)})
 	require.NoError(t, err, "DescribeTask should succeed")
 	assert.Equal(t, "dssv-task", aws.ToString(describeTaskOut.Name))
+}
+
+func verifyDatasyncLocations(ctx context.Context, t *testing.T, client *datasyncsvc.Client, agentARN string) {
+	t.Helper()
+
+	locsOut, err := client.ListLocations(ctx, &datasyncsvc.ListLocationsInput{})
+	require.NoError(t, err, "ListLocations should succeed")
+	require.GreaterOrEqual(t, len(locsOut.Locations), 6, "should have created 6 datasync locations")
+
+	arns := make([]string, len(locsOut.Locations))
+	for i, l := range locsOut.Locations {
+		arns[i] = aws.ToString(l.LocationArn)
+	}
+
+	efsOut := firstDescribableLocation(arns, func(a string) (*datasyncsvc.DescribeLocationEfsOutput, error) {
+		return client.DescribeLocationEfs(ctx, &datasyncsvc.DescribeLocationEfsInput{LocationArn: aws.String(a)})
+	}, alwaysMatch)
+	require.NotNil(t, efsOut, "EFS location should be describable")
+	require.NotNil(t, efsOut.Ec2Config)
+
+	nfsOut := firstDescribableLocation(arns, func(a string) (*datasyncsvc.DescribeLocationNfsOutput, error) {
+		return client.DescribeLocationNfs(ctx, &datasyncsvc.DescribeLocationNfsInput{LocationArn: aws.String(a)})
+	}, func(out *datasyncsvc.DescribeLocationNfsOutput) bool { return out.OnPremConfig != nil })
+	require.NotNil(t, nfsOut, "NFS location should be describable")
+	assert.Contains(t, nfsOut.OnPremConfig.AgentArns, agentARN)
+
+	smbOut := firstDescribableLocation(arns, func(a string) (*datasyncsvc.DescribeLocationSmbOutput, error) {
+		return client.DescribeLocationSmb(ctx, &datasyncsvc.DescribeLocationSmbInput{LocationArn: aws.String(a)})
+	}, alwaysMatch)
+	require.NotNil(t, smbOut, "SMB location should be describable")
+	assert.Equal(t, "Guest", aws.ToString(smbOut.User))
+
+	hdfsOut := firstDescribableLocation(arns, func(a string) (*datasyncsvc.DescribeLocationHdfsOutput, error) {
+		return client.DescribeLocationHdfs(ctx, &datasyncsvc.DescribeLocationHdfsInput{LocationArn: aws.String(a)})
+	}, alwaysMatch)
+	require.NotNil(t, hdfsOut, "HDFS location should be describable")
+	assert.Equal(t, "dssv-user", aws.ToString(hdfsOut.SimpleUser))
+	require.Len(t, hdfsOut.NameNodes, 1)
+	assert.Equal(t, "namenode.dssv.example.com", aws.ToString(hdfsOut.NameNodes[0].Hostname))
+
+	osOut := firstDescribableLocation(arns, func(a string) (*datasyncsvc.DescribeLocationObjectStorageOutput, error) {
+		return client.DescribeLocationObjectStorage(
+			ctx, &datasyncsvc.DescribeLocationObjectStorageInput{LocationArn: aws.String(a)},
+		)
+	}, alwaysMatch)
+	require.NotNil(t, osOut, "object storage location should be describable")
+	assert.Equal(t, "dssv-bucket", bucketNameFromURI(aws.ToString(osOut.LocationUri)))
+
+	azOut := firstDescribableLocation(arns, func(a string) (*datasyncsvc.DescribeLocationAzureBlobOutput, error) {
+		return client.DescribeLocationAzureBlob(
+			ctx, &datasyncsvc.DescribeLocationAzureBlobInput{LocationArn: aws.String(a)},
+		)
+	}, alwaysMatch)
+	require.NotNil(t, azOut, "Azure Blob location should be describable")
+	assert.Equal(t, datasynctypes.AzureBlobAuthenticationTypeSas, azOut.AuthenticationType)
+}
+
+func verifyDatasyncAndSesv2DataSync(ctx context.Context, t *testing.T) {
+	t.Helper()
+	cfg := megaConfig(t)
+
+	client := datasyncsvc.NewFromConfig(cfg, func(o *datasyncsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+
+	agentARN := verifyDatasyncAgent(ctx, t, client)
+	verifyDatasyncLocations(ctx, t, client, agentARN)
+	verifyDatasyncTask(ctx, t, client)
 }
 
 // bucketNameFromURI extracts the bucket name from an

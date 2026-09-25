@@ -56,6 +56,11 @@ resource "aws_opensearch_domain" "opsh_remote" {
   domain_name    = "opsh-remote-domain"
   engine_version = "OpenSearch_2.3"
 
+  domain_endpoint_options {
+    enforce_https       = true
+    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
+  }
+
   timeouts {
     create = "5s"
     delete = "5s"
@@ -199,10 +204,11 @@ resource "aws_subnet" "opsh_shield_b" {
 }
 
 resource "aws_lb" "opsh_shield" {
-  name               = "opsh-shield-alb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = [aws_subnet.opsh_shield_a.id, aws_subnet.opsh_shield_b.id]
+  name                       = "opsh-shield-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  subnets                    = [aws_subnet.opsh_shield_a.id, aws_subnet.opsh_shield_b.id]
+  drop_invalid_header_fields = true
 }
 
 resource "aws_shield_subscription" "opsh" {

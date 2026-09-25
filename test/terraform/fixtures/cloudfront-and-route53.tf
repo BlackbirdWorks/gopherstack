@@ -271,10 +271,11 @@ resource "aws_subnet" "cfb" {
 }
 
 resource "aws_lb" "cf_origin" {
-  name               = "cfr5-cf-alb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = [aws_subnet.cfa.id, aws_subnet.cfb.id]
+  name                       = "cfr5-cf-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  subnets                    = [aws_subnet.cfa.id, aws_subnet.cfb.id]
+  drop_invalid_header_fields = true
 }
 
 resource "aws_cloudfront_vpc_origin" "example" {

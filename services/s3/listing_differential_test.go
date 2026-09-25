@@ -90,16 +90,8 @@ type bruteForceEntry struct {
 // the sorted-key-index optimization (missed/duplicated/misordered keys,
 // off-by-one seeks) -- not to re-validate delimiter-grouping edge cases
 // already covered elsewhere.
-func bruteForceList(keys []string, prefix, delimiter, marker string, maxKeys int32) (
-	[]string, []string, bool, string,
-) {
-	var contents, commonPrefixes []string
-	var isTruncated bool
-	var nextMarker string
-
-	sorted := append([]string(nil), keys...)
-	sort.Strings(sorted)
-
+// filterByPrefix returns the keys in sorted that start with prefix, in order.
+func filterByPrefix(sorted []string, prefix string) []string {
 	var filtered []string
 	for _, k := range sorted {
 		if strings.HasPrefix(k, prefix) {
@@ -107,6 +99,13 @@ func bruteForceList(keys []string, prefix, delimiter, marker string, maxKeys int
 		}
 	}
 
+	return filtered
+}
+
+// filterAfterMarker returns the prefix-filtered keys that lexicographically
+// follow marker, honoring the S3 rule that a marker ending in delimiter
+// skips the whole common-prefix group it names, not just that exact key.
+func filterAfterMarker(filtered []string, delimiter, marker string) []string {
 	skipWholePrefix := delimiter != "" && marker != "" && strings.HasSuffix(marker, delimiter)
 
 	var after []string
@@ -123,43 +122,64 @@ func bruteForceList(keys []string, prefix, delimiter, marker string, maxKeys int
 		}
 	}
 
+	return after
+}
+
+// groupByDelimiter turns the post-marker keys into the lexicographically
+// ordered mix of plain keys and collapsed common-prefix groups that
+// delimiter grouping produces.
+func groupByDelimiter(after []string, prefix, delimiter string) []bruteForceEntry {
 	var entries []bruteForceEntry
-	var lastCP string
-	haveCP := false
 
 	if delimiter == "" {
 		for _, k := range after {
 			entries = append(entries, bruteForceEntry{key: k})
 		}
-	} else {
-		for _, k := range after {
-			rest := strings.TrimPrefix(k, prefix)
-			if idx := strings.Index(rest, delimiter); idx != -1 {
-				cp := prefix + rest[:idx+len(delimiter)]
-				if !haveCP || cp != lastCP {
-					lastCP = cp
-					haveCP = true
-					entries = append(entries, bruteForceEntry{key: cp, isCP: true})
-				}
 
-				continue
-			}
-
-			entries = append(entries, bruteForceEntry{key: k})
-		}
+		return entries
 	}
 
+	var lastCP string
+
+	haveCP := false
+
+	for _, k := range after {
+		rest := strings.TrimPrefix(k, prefix)
+		if idx := strings.Index(rest, delimiter); idx != -1 {
+			cp := prefix + rest[:idx+len(delimiter)]
+			if !haveCP || cp != lastCP {
+				lastCP = cp
+				haveCP = true
+				entries = append(entries, bruteForceEntry{key: cp, isCP: true})
+			}
+
+			continue
+		}
+
+		entries = append(entries, bruteForceEntry{key: k})
+	}
+
+	return entries
+}
+
+// paginateEntries applies MaxKeys truncation to entries and splits the
+// resulting page back into S3's separate Contents/CommonPrefixes lists.
+func paginateEntries(entries []bruteForceEntry, maxKeys int32) ([]string, []string, bool, string) {
 	if maxKeys <= 0 {
 		return nil, nil, len(entries) > 0, ""
 	}
 
-	isTruncated = int64(len(entries)) > int64(maxKeys)
+	isTruncated := int64(len(entries)) > int64(maxKeys)
 	page := entries
+
+	var nextMarker string
 
 	if isTruncated {
 		page = entries[:maxKeys]
 		nextMarker = page[len(page)-1].key
 	}
+
+	var contents, commonPrefixes []string
 
 	for _, e := range page {
 		if e.isCP {
@@ -170,6 +190,19 @@ func bruteForceList(keys []string, prefix, delimiter, marker string, maxKeys int
 	}
 
 	return contents, commonPrefixes, isTruncated, nextMarker
+}
+
+func bruteForceList(keys []string, prefix, delimiter, marker string, maxKeys int32) (
+	[]string, []string, bool, string,
+) {
+	sorted := append([]string(nil), keys...)
+	sort.Strings(sorted)
+
+	filtered := filterByPrefix(sorted, prefix)
+	after := filterAfterMarker(filtered, delimiter, marker)
+	entries := groupByDelimiter(after, prefix, delimiter)
+
+	return paginateEntries(entries, maxKeys)
 }
 
 func contentKeys(objs []sdk_s3types.Object) []string {

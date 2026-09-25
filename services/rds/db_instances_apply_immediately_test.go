@@ -89,6 +89,154 @@ func TestApplyImmediately_True(t *testing.T) {
 	}
 }
 
+// verifyPendingClass checks that a deferred instance-class change is
+// reflected in PendingModifiedValues.
+func verifyPendingClass(t *testing.T, pv *rds.PendingModifiedValues) {
+	t.Helper()
+
+	if pv == nil {
+		t.Fatal("PendingModifiedValues is nil, want non-nil")
+	}
+
+	if pv.DBInstanceClass != "db.r5.large" {
+		t.Errorf("pending DBInstanceClass = %q, want db.r5.large", pv.DBInstanceClass)
+	}
+}
+
+// verifyAfterFlushClass checks that a deferred instance-class change applied
+// once the reconciler flushed pending modifications.
+func verifyAfterFlushClass(t *testing.T, inst rds.DBInstance) {
+	t.Helper()
+
+	if inst.DBInstanceClass != "db.r5.large" {
+		t.Errorf("after flush DBInstanceClass = %q, want db.r5.large", inst.DBInstanceClass)
+	}
+
+	if inst.PendingModifiedValues != nil {
+		t.Errorf("PendingModifiedValues should be nil after flush")
+	}
+}
+
+// verifyPendingStorage checks that a deferred storage change is reflected in
+// PendingModifiedValues.
+func verifyPendingStorage(t *testing.T, pv *rds.PendingModifiedValues) {
+	t.Helper()
+
+	if pv == nil {
+		t.Fatal("PendingModifiedValues is nil")
+	}
+
+	if pv.AllocatedStorage != 200 {
+		t.Errorf("pending AllocatedStorage = %d, want 200", pv.AllocatedStorage)
+	}
+}
+
+// verifyAfterFlushStorage checks that a deferred storage change applied once
+// the reconciler flushed pending modifications.
+func verifyAfterFlushStorage(t *testing.T, inst rds.DBInstance) {
+	t.Helper()
+
+	if inst.AllocatedStorage != 200 {
+		t.Errorf("after flush AllocatedStorage = %d, want 200", inst.AllocatedStorage)
+	}
+}
+
+// verifyPendingEngineVersion checks that a deferred engine-version change is
+// reflected in PendingModifiedValues.
+func verifyPendingEngineVersion(t *testing.T, pv *rds.PendingModifiedValues) {
+	t.Helper()
+
+	if pv == nil {
+		t.Fatal("PendingModifiedValues is nil")
+	}
+
+	if pv.EngineVersion != "16.0" {
+		t.Errorf("pending EngineVersion = %q, want 16.0", pv.EngineVersion)
+	}
+}
+
+// verifyAfterFlushEngineVersion checks that a deferred engine-version change
+// applied once the reconciler flushed pending modifications.
+func verifyAfterFlushEngineVersion(t *testing.T, inst rds.DBInstance) {
+	t.Helper()
+
+	if inst.EngineVersion != "16.0" {
+		t.Errorf("after flush EngineVersion = %q, want 16.0", inst.EngineVersion)
+	}
+}
+
+// verifyPendingIops checks that a deferred IOPS change is reflected in
+// PendingModifiedValues.
+func verifyPendingIops(t *testing.T, pv *rds.PendingModifiedValues) {
+	t.Helper()
+
+	if pv == nil {
+		t.Fatal("PendingModifiedValues is nil")
+	}
+
+	if pv.Iops != 5000 {
+		t.Errorf("pending Iops = %d, want 5000", pv.Iops)
+	}
+}
+
+// verifyAfterFlushIops checks that a deferred IOPS change applied once the
+// reconciler flushed pending modifications.
+func verifyAfterFlushIops(t *testing.T, inst rds.DBInstance) {
+	t.Helper()
+
+	if inst.Iops != 5000 {
+		t.Errorf("after flush Iops = %d, want 5000", inst.Iops)
+	}
+}
+
+// verifyPendingMultiAZ checks that a deferred MultiAZ change is reflected in
+// PendingModifiedValues.
+func verifyPendingMultiAZ(t *testing.T, pv *rds.PendingModifiedValues) {
+	t.Helper()
+
+	if pv == nil {
+		t.Fatal("PendingModifiedValues is nil")
+	}
+
+	if pv.MultiAZChange == nil || !*pv.MultiAZChange {
+		t.Errorf("pending MultiAZChange should be &true")
+	}
+}
+
+// verifyAfterFlushMultiAZ checks that a deferred MultiAZ change applied once
+// the reconciler flushed pending modifications.
+func verifyAfterFlushMultiAZ(t *testing.T, inst rds.DBInstance) {
+	t.Helper()
+
+	if !inst.MultiAZ {
+		t.Errorf("after flush MultiAZ = false, want true")
+	}
+}
+
+// verifyPendingStorageType checks that a deferred storage-type change is
+// reflected in PendingModifiedValues.
+func verifyPendingStorageType(t *testing.T, pv *rds.PendingModifiedValues) {
+	t.Helper()
+
+	if pv == nil {
+		t.Fatal("PendingModifiedValues is nil")
+	}
+
+	if pv.StorageType != "io2" {
+		t.Errorf("pending StorageType = %q, want io2", pv.StorageType)
+	}
+}
+
+// verifyAfterFlushStorageType checks that a deferred storage-type change
+// applied once the reconciler flushed pending modifications.
+func verifyAfterFlushStorageType(t *testing.T, inst rds.DBInstance) {
+	t.Helper()
+
+	if inst.StorageType != "io2" {
+		t.Errorf("after flush StorageType = %q, want io2", inst.StorageType)
+	}
+}
+
 // TestApplyImmediately_False verifies that deferrable changes are stored in
 // PendingModifiedValues and applied only when the instance next becomes available.
 func TestApplyImmediately_False(t *testing.T) {
@@ -103,123 +251,42 @@ func TestApplyImmediately_False(t *testing.T) {
 		allocSt        int
 	}{
 		{
-			name:          "class deferred",
-			instanceClass: "db.r5.large",
-			opts:          rds.DBInstanceOptions{ApplyImmediately: false},
-			wantPending: func(t *testing.T, pv *rds.PendingModifiedValues) {
-				t.Helper()
-				if pv == nil {
-					t.Fatal("PendingModifiedValues is nil, want non-nil")
-				}
-				if pv.DBInstanceClass != "db.r5.large" {
-					t.Errorf("pending DBInstanceClass = %q, want db.r5.large", pv.DBInstanceClass)
-				}
-			},
-			wantAfterFlush: func(t *testing.T, inst rds.DBInstance) {
-				t.Helper()
-				if inst.DBInstanceClass != "db.r5.large" {
-					t.Errorf("after flush DBInstanceClass = %q, want db.r5.large", inst.DBInstanceClass)
-				}
-				if inst.PendingModifiedValues != nil {
-					t.Errorf("PendingModifiedValues should be nil after flush")
-				}
-			},
+			name:           "class deferred",
+			instanceClass:  "db.r5.large",
+			opts:           rds.DBInstanceOptions{ApplyImmediately: false},
+			wantPending:    verifyPendingClass,
+			wantAfterFlush: verifyAfterFlushClass,
 		},
 		{
-			name:    "storage deferred",
-			allocSt: 200,
-			opts:    rds.DBInstanceOptions{ApplyImmediately: false},
-			wantPending: func(t *testing.T, pv *rds.PendingModifiedValues) {
-				t.Helper()
-				if pv == nil {
-					t.Fatal("PendingModifiedValues is nil")
-				}
-				if pv.AllocatedStorage != 200 {
-					t.Errorf("pending AllocatedStorage = %d, want 200", pv.AllocatedStorage)
-				}
-			},
-			wantAfterFlush: func(t *testing.T, inst rds.DBInstance) {
-				t.Helper()
-				if inst.AllocatedStorage != 200 {
-					t.Errorf("after flush AllocatedStorage = %d, want 200", inst.AllocatedStorage)
-				}
-			},
+			name:           "storage deferred",
+			allocSt:        200,
+			opts:           rds.DBInstanceOptions{ApplyImmediately: false},
+			wantPending:    verifyPendingStorage,
+			wantAfterFlush: verifyAfterFlushStorage,
 		},
 		{
-			name: "engine version deferred",
-			opts: rds.DBInstanceOptions{ApplyImmediately: false, EngineVersion: "16.0"},
-			wantPending: func(t *testing.T, pv *rds.PendingModifiedValues) {
-				t.Helper()
-				if pv == nil {
-					t.Fatal("PendingModifiedValues is nil")
-				}
-				if pv.EngineVersion != "16.0" {
-					t.Errorf("pending EngineVersion = %q, want 16.0", pv.EngineVersion)
-				}
-			},
-			wantAfterFlush: func(t *testing.T, inst rds.DBInstance) {
-				t.Helper()
-				if inst.EngineVersion != "16.0" {
-					t.Errorf("after flush EngineVersion = %q, want 16.0", inst.EngineVersion)
-				}
-			},
+			name:           "engine version deferred",
+			opts:           rds.DBInstanceOptions{ApplyImmediately: false, EngineVersion: "16.0"},
+			wantPending:    verifyPendingEngineVersion,
+			wantAfterFlush: verifyAfterFlushEngineVersion,
 		},
 		{
-			name: "iops deferred",
-			opts: rds.DBInstanceOptions{ApplyImmediately: false, Iops: 5000},
-			wantPending: func(t *testing.T, pv *rds.PendingModifiedValues) {
-				t.Helper()
-				if pv == nil {
-					t.Fatal("PendingModifiedValues is nil")
-				}
-				if pv.Iops != 5000 {
-					t.Errorf("pending Iops = %d, want 5000", pv.Iops)
-				}
-			},
-			wantAfterFlush: func(t *testing.T, inst rds.DBInstance) {
-				t.Helper()
-				if inst.Iops != 5000 {
-					t.Errorf("after flush Iops = %d, want 5000", inst.Iops)
-				}
-			},
+			name:           "iops deferred",
+			opts:           rds.DBInstanceOptions{ApplyImmediately: false, Iops: 5000},
+			wantPending:    verifyPendingIops,
+			wantAfterFlush: verifyAfterFlushIops,
 		},
 		{
-			name: "multiAZ deferred",
-			opts: rds.DBInstanceOptions{ApplyImmediately: false, MultiAZ: true, MultiAZSet: true},
-			wantPending: func(t *testing.T, pv *rds.PendingModifiedValues) {
-				t.Helper()
-				if pv == nil {
-					t.Fatal("PendingModifiedValues is nil")
-				}
-				if pv.MultiAZChange == nil || !*pv.MultiAZChange {
-					t.Errorf("pending MultiAZChange should be &true")
-				}
-			},
-			wantAfterFlush: func(t *testing.T, inst rds.DBInstance) {
-				t.Helper()
-				if !inst.MultiAZ {
-					t.Errorf("after flush MultiAZ = false, want true")
-				}
-			},
+			name:           "multiAZ deferred",
+			opts:           rds.DBInstanceOptions{ApplyImmediately: false, MultiAZ: true, MultiAZSet: true},
+			wantPending:    verifyPendingMultiAZ,
+			wantAfterFlush: verifyAfterFlushMultiAZ,
 		},
 		{
-			name: "storage type deferred",
-			opts: rds.DBInstanceOptions{ApplyImmediately: false, StorageType: "io2"},
-			wantPending: func(t *testing.T, pv *rds.PendingModifiedValues) {
-				t.Helper()
-				if pv == nil {
-					t.Fatal("PendingModifiedValues is nil")
-				}
-				if pv.StorageType != "io2" {
-					t.Errorf("pending StorageType = %q, want io2", pv.StorageType)
-				}
-			},
-			wantAfterFlush: func(t *testing.T, inst rds.DBInstance) {
-				t.Helper()
-				if inst.StorageType != "io2" {
-					t.Errorf("after flush StorageType = %q, want io2", inst.StorageType)
-				}
-			},
+			name:           "storage type deferred",
+			opts:           rds.DBInstanceOptions{ApplyImmediately: false, StorageType: "io2"},
+			wantPending:    verifyPendingStorageType,
+			wantAfterFlush: verifyAfterFlushStorageType,
 		},
 	}
 

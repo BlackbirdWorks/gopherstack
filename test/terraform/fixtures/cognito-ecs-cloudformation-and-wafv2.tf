@@ -448,10 +448,11 @@ resource "aws_subnet" "cecw_b" {
 }
 
 resource "aws_lb" "cecw" {
-  name               = "cecw-alb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = [aws_subnet.cecw_a.id, aws_subnet.cecw_b.id]
+  name                       = "cecw-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  subnets                    = [aws_subnet.cecw_a.id, aws_subnet.cecw_b.id]
+  drop_invalid_header_fields = true
 }
 
 resource "aws_wafv2_web_acl_association" "cecw" {

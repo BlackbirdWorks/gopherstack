@@ -8,15 +8,20 @@ import "testing"
 // resources; use this instead of indexing [0] or asserting an exact count.
 func findBy[T any](t *testing.T, items []T, match func(T) bool, what string) T {
 	t.Helper()
-	for _, item := range items {
+
+	idx := -1
+
+	for i, item := range items {
 		if match(item) {
-			return item
+			idx = i
+
+			break
 		}
 	}
-	//nolint:revive // Fatalf doesn't stop control flow at compile time; a return value is still required
-	t.Fatalf("did not find %s among %d items", what, len(items))
 
-	var zero T
+	if idx < 0 {
+		t.Fatalf("did not find %s among %d items", what, len(items))
+	}
 
-	return zero
+	return items[idx]
 }

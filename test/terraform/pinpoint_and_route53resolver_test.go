@@ -121,20 +121,10 @@ func verifyPinpointAndRoute53resolverPinpoint(ctx context.Context, t *testing.T)
 	assert.Equal(t, "MEGA28", aws.ToString(smsOut.SMSChannelResponse.SenderId))
 }
 
-func verifyPinpointAndRoute53resolverRoute53Resolver(ctx context.Context, t *testing.T) {
+func verifyRoute53ResolverBaseConfigs(
+	ctx context.Context, t *testing.T, client *route53resolversvc.Client, vpcID string,
+) {
 	t.Helper()
-
-	client := createRoute53ResolverClient(t)
-	ec2Client := createEC2Client(t)
-
-	vpcsOut, err := ec2Client.DescribeVpcs(ctx, &ec2svc.DescribeVpcsInput{
-		Filters: []ec2types.Filter{
-			{Name: aws.String("cidr-block"), Values: []string{"10.170.0.0/16"}},
-		},
-	})
-	require.NoError(t, err, "DescribeVpcs should succeed")
-	require.Len(t, vpcsOut.Vpcs, 1)
-	vpcID := aws.ToString(vpcsOut.Vpcs[0].VpcId)
 
 	configOut, err := client.GetResolverConfig(ctx,
 		&route53resolversvc.GetResolverConfigInput{ResourceId: aws.String(vpcID)})
@@ -150,6 +140,12 @@ func verifyPinpointAndRoute53resolverRoute53Resolver(ctx context.Context, t *tes
 		&route53resolversvc.GetFirewallConfigInput{ResourceId: aws.String(vpcID)})
 	require.NoError(t, err, "GetFirewallConfig should succeed")
 	assert.Equal(t, "ENABLED", string(firewallConfigOut.FirewallConfig.FirewallFailOpen))
+}
+
+func verifyRoute53ResolverFirewall(
+	ctx context.Context, t *testing.T, client *route53resolversvc.Client, vpcID string,
+) {
+	t.Helper()
 
 	domainListsOut, err := client.ListFirewallDomainLists(ctx, &route53resolversvc.ListFirewallDomainListsInput{})
 	require.NoError(t, err, "ListFirewallDomainLists should succeed")
@@ -204,6 +200,12 @@ func verifyPinpointAndRoute53resolverRoute53Resolver(ctx context.Context, t *tes
 	}
 
 	assert.True(t, found, "pnrr-firewall-rule-group-association not found")
+}
+
+func verifyRoute53ResolverQueryLogging(
+	ctx context.Context, t *testing.T, client *route53resolversvc.Client, vpcID string,
+) {
+	t.Helper()
 
 	queryLogConfigsOut, err := client.ListResolverQueryLogConfigs(ctx,
 		&route53resolversvc.ListResolverQueryLogConfigsInput{})
@@ -241,6 +243,12 @@ func verifyPinpointAndRoute53resolverRoute53Resolver(ctx context.Context, t *tes
 	}
 
 	assert.True(t, assocFound, "resolver query log config association not found")
+}
+
+func verifyRoute53ResolverRules(
+	ctx context.Context, t *testing.T, client *route53resolversvc.Client, vpcID string,
+) {
+	t.Helper()
 
 	rulesListOut, err := client.ListResolverRules(ctx, &route53resolversvc.ListResolverRulesInput{})
 	require.NoError(t, err, "ListResolverRules should succeed")
@@ -271,4 +279,25 @@ func verifyPinpointAndRoute53resolverRoute53Resolver(ctx context.Context, t *tes
 	}
 
 	assert.True(t, ruleAssocFound, "resolver rule association not found")
+}
+
+func verifyPinpointAndRoute53resolverRoute53Resolver(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	client := createRoute53ResolverClient(t)
+	ec2Client := createEC2Client(t)
+
+	vpcsOut, err := ec2Client.DescribeVpcs(ctx, &ec2svc.DescribeVpcsInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("cidr-block"), Values: []string{"10.170.0.0/16"}},
+		},
+	})
+	require.NoError(t, err, "DescribeVpcs should succeed")
+	require.Len(t, vpcsOut.Vpcs, 1)
+	vpcID := aws.ToString(vpcsOut.Vpcs[0].VpcId)
+
+	verifyRoute53ResolverBaseConfigs(ctx, t, client, vpcID)
+	verifyRoute53ResolverFirewall(ctx, t, client, vpcID)
+	verifyRoute53ResolverQueryLogging(ctx, t, client, vpcID)
+	verifyRoute53ResolverRules(ctx, t, client, vpcID)
 }

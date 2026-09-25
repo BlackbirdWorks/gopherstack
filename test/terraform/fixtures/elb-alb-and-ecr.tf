@@ -56,10 +56,11 @@ resource "aws_acm_certificate" "lb_extra" {
 }
 
 resource "aws_alb" "example" {
-  name               = "elae-alb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = [aws_subnet.elbv2b_a.id, aws_subnet.elbv2b_b.id]
+  name                       = "elae-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  subnets                    = [aws_subnet.elbv2b_a.id, aws_subnet.elbv2b_b.id]
+  drop_invalid_header_fields = true
 }
 
 resource "aws_alb_target_group" "example" {

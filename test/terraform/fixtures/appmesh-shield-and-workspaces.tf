@@ -58,6 +58,7 @@ resource "aws_vpc_endpoint" "aswm" {
 resource "aws_api_gateway_domain_name" "aswm" {
   domain_name              = "aswm-api.example.com"
   regional_certificate_arn = aws_acm_certificate_validation.aswm.certificate_arn
+  security_policy          = "TLS_1_2"
 
   endpoint_configuration {
     types = ["REGIONAL"]

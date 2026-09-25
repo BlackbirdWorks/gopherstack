@@ -271,6 +271,7 @@ resource "aws_acm_certificate" "domain" {
 resource "aws_api_gateway_domain_name" "this" {
   domain_name              = "lagw.example.test"
   regional_certificate_arn = aws_acm_certificate.domain.arn
+  security_policy          = "TLS_1_2"
 
   endpoint_configuration {
     types = ["REGIONAL"]

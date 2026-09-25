@@ -59,7 +59,7 @@ func TestTerraform_CloudfrontAndRoute53(t *testing.T) {
 	}
 }
 
-func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+func verifyCloudfrontPublicKeysAndKeyGroups(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
 	t.Helper()
 
 	pkOut, err := cf.ListPublicKeys(ctx, &cloudfrontsvc.ListPublicKeysInput{})
@@ -89,6 +89,10 @@ func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf 
 	}
 
 	assert.True(t, foundKeyGroup, "key group cfr5-key-group should be listed")
+}
+
+func verifyCloudfrontFieldLevelEncryption(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+	t.Helper()
 
 	fleProfileOut, err := cf.ListFieldLevelEncryptionProfiles(
 		ctx,
@@ -118,6 +122,10 @@ func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf 
 	}
 
 	assert.True(t, foundFLEConfig, "field-level encryption config should be listed")
+}
+
+func verifyCloudfrontAccessControlsAndPolicies(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+	t.Helper()
 
 	oacOut, err := cf.ListOriginAccessControls(ctx, &cloudfrontsvc.ListOriginAccessControlsInput{})
 	require.NoError(t, err, "ListOriginAccessControls should succeed")
@@ -176,6 +184,10 @@ func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf 
 	}
 
 	assert.True(t, foundCachePolicy, "cache policy should be listed")
+}
+
+func verifyCloudfrontFunctionAndRealtimeLog(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+	t.Helper()
 
 	fnOut, err := cf.GetFunction(ctx, &cloudfrontsvc.GetFunctionInput{
 		Name: aws.String("cfr5-function"),
@@ -188,6 +200,10 @@ func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf 
 	})
 	require.NoError(t, err, "GetRealtimeLogConfig should succeed")
 	assert.EqualValues(t, 75, aws.ToInt64(rtlOut.RealtimeLogConfig.SamplingRate))
+}
+
+func verifyCloudfrontDistributionAndMonitoring(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+	t.Helper()
 
 	distOut, err := cf.ListDistributions(ctx, &cloudfrontsvc.ListDistributionsInput{})
 	require.NoError(t, err, "ListDistributions should succeed")
@@ -212,6 +228,10 @@ func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf 
 		cftypes.RealtimeMetricsSubscriptionStatusEnabled,
 		monOut.MonitoringSubscription.RealtimeMetricsSubscriptionConfig.RealtimeMetricsSubscriptionStatus,
 	)
+}
+
+func verifyCloudfrontContinuousDeploymentAndVPCOrigin(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+	t.Helper()
 
 	cdpOut, err := cf.ListContinuousDeploymentPolicies(ctx, &cloudfrontsvc.ListContinuousDeploymentPoliciesInput{})
 	require.NoError(t, err, "ListContinuousDeploymentPolicies should succeed")
@@ -242,7 +262,18 @@ func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf 
 	assert.True(t, foundVPCOrigin, "VPC origin should be listed")
 }
 
-func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
+func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+	t.Helper()
+
+	verifyCloudfrontPublicKeysAndKeyGroups(ctx, t, cf)
+	verifyCloudfrontFieldLevelEncryption(ctx, t, cf)
+	verifyCloudfrontAccessControlsAndPolicies(ctx, t, cf)
+	verifyCloudfrontFunctionAndRealtimeLog(ctx, t, cf)
+	verifyCloudfrontDistributionAndMonitoring(ctx, t, cf)
+	verifyCloudfrontContinuousDeploymentAndVPCOrigin(ctx, t, cf)
+}
+
+func verifyRoute53DelegationAndHealthChecks(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
 	t.Helper()
 
 	dsOut, err := r53.ListReusableDelegationSets(ctx, &route53svc.ListReusableDelegationSetsInput{})
@@ -270,6 +301,10 @@ func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *r
 	}
 
 	assert.True(t, foundHealthCheck, "health check cfr5.example.com should be listed")
+}
+
+func verifyRoute53CidrCollections(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
+	t.Helper()
 
 	collOut, err := r53.ListCidrCollections(ctx, &route53svc.ListCidrCollectionsInput{})
 	require.NoError(t, err, "ListCidrCollections should succeed")
@@ -298,6 +333,12 @@ func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *r
 	}
 
 	assert.True(t, foundCidrBlock, "CIDR location cfr5-location should be listed")
+}
+
+// verifyRoute53DNSSECAndQueryLogging returns the DNSSEC-enabled hosted zone
+// ID, since ListQueryLoggingConfigs is scoped to it.
+func verifyRoute53DNSSECAndQueryLogging(ctx context.Context, t *testing.T, r53 *route53svc.Client) string {
+	t.Helper()
 
 	zonesOut, err := r53.ListHostedZonesByName(ctx, &route53svc.ListHostedZonesByNameInput{
 		DNSName: aws.String("cfr5-dnssec.example.com"),
@@ -330,6 +371,12 @@ func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *r
 	require.NoError(t, err, "ListQueryLoggingConfigs should succeed")
 	require.NotEmpty(t, qlOut.QueryLoggingConfigs, "query logging config should be listed")
 
+	return dnssecZoneID
+}
+
+func verifyRoute53TrafficPolicies(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
+	t.Helper()
+
 	tpOut, err := r53.ListTrafficPolicies(ctx, &route53svc.ListTrafficPoliciesInput{})
 	require.NoError(t, err, "ListTrafficPolicies should succeed")
 
@@ -355,6 +402,10 @@ func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *r
 	}
 
 	assert.True(t, foundTrafficPolicyInstance, "traffic policy instance should be listed")
+}
+
+func verifyRoute53RecordsExclusiveAndPrivateZone(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
+	t.Helper()
 
 	exclZonesOut, err := r53.ListHostedZonesByName(ctx, &route53svc.ListHostedZonesByNameInput{
 		DNSName: aws.String("cfr5-excl.example.com"),
@@ -388,4 +439,14 @@ func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *r
 	})
 	require.NoError(t, err, "GetHostedZone should succeed")
 	assert.Len(t, privZoneOut.VPCs, 2, "both VPCs should be associated with the private hosted zone")
+}
+
+func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
+	t.Helper()
+
+	verifyRoute53DelegationAndHealthChecks(ctx, t, r53)
+	verifyRoute53CidrCollections(ctx, t, r53)
+	verifyRoute53DNSSECAndQueryLogging(ctx, t, r53)
+	verifyRoute53TrafficPolicies(ctx, t, r53)
+	verifyRoute53RecordsExclusiveAndPrivateZone(ctx, t, r53)
 }
