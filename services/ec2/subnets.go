@@ -324,7 +324,7 @@ func (b *InMemoryBackend) CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn st
 	for _, existing := range b.subnets.All() {
 		if existing.VPCID == vpcID && cidrsOverlap(cidr, existing.CIDRBlock) {
 			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing subnet %s (%s)",
-				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
+				ErrSubnetCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
 		}
 	}
 

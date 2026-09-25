@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -482,7 +483,10 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 
 // ---- AssociateVpcCidrBlock ----
 
-// AssociateVpcCidrBlock associates a secondary CIDR block with a VPC.
+// AssociateVpcCidrBlock associates a secondary CIDR block with a VPC. Real
+// AWS rejects a CIDR outside the /16-/28 size range or one overlapping any
+// CIDR already associated with the SAME VPC (vpc-cidr-blocks.html); it does
+// NOT reject overlap with a different VPC's CIDR blocks.
 func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	vpcID, cidrBlock string,
 ) (*VpcCidrBlockAssociation, error) {
@@ -493,8 +497,28 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	b.mu.Lock("AssociateVpcCidrBlock")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs.Get(vpcID); !ok {
+	vpc, ok := b.vpcs.Get(vpcID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+	}
+
+	if cidrBlock != "" {
+		if !vpcCIDRPrefixLenValid(cidrBlock) {
+			return nil, fmt.Errorf("%w: the CIDR %s is invalid", ErrVpcCIDRRange, cidrBlock)
+		}
+
+		if cidrsOverlap(cidrBlock, vpc.CIDRBlock) {
+			return nil, fmt.Errorf("%w: %s conflicts with the VPC's CIDR %s",
+				ErrVpcCIDRRange, cidrBlock, vpc.CIDRBlock)
+		}
+
+		prefix := vpcID + ":"
+		for key, existing := range b.vpcCidrAssociations {
+			if strings.HasPrefix(key, prefix) && cidrsOverlap(cidrBlock, existing.CidrBlock) {
+				return nil, fmt.Errorf("%w: %s conflicts with existing association %s (%s)",
+					ErrVpcCIDRRange, cidrBlock, existing.AssociationID, existing.CidrBlock)
+			}
+		}
 	}
 
 	assoc := &VpcCidrBlockAssociation{

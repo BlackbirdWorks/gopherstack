@@ -976,6 +976,12 @@ items_still_open:
     (6) aws_ebs_snapshot_copy's description drifts on every re-plan; the resource's schema
     does not mark description Computed, so this matches real AWS's own well-known drift for
     this exact resource, not a gopherstack gap."
+  - "AssociateVpcCidrBlock (2026-09-25, cross-VPC CIDR overlap fix below): enforces the
+    documented /16-/28 size range and same-VPC overlap rejection, but not the full
+    vpc-cidr-blocks.html 'IPv4 CIDR block association restrictions' matrix (e.g. rejecting a
+    172.16.0.0/12-range CIDR on a VPC whose existing block is from 10.0.0.0/8, or the
+    198.19.0.0/16 / 100.64.0.0/10 cross-family rules) -- fixable, just not implemented yet;
+    left open rather than half-modeled."
 structural_gaps:
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always
@@ -6499,3 +6505,45 @@ Gates: `go build ./...`, `go vet ./services/ec2/...`, `go test -race
 -count=1 ./services/ec2/...`, `golangci-lint run ./services/ec2/...` --
 all clean. `go test ./pkgs/persistence/...` required `-update` to refresh
 `snapshot_inventory.json` (purely additive fields; no version bump needed).
+
+## 2026-09-25 -- CreateVpc no longer rejects cross-VPC CIDR overlap
+
+`CreateVpc` rejected any new VPC whose CIDR overlapped ANY existing VPC in
+the backend (`ErrCIDRConflict`/`InvalidVpc.Conflict`), which broke a
+Terraform CI shard: two fixtures sharing one emulator both used
+`10.250.0.0/16` in separate VPCs. Real AWS allows overlapping CIDR blocks
+across separate VPCs -- overlap is only rejected within a single VPC
+(`CreateSubnet`, `AssociateVpcCidrBlock`) or by operations that route
+between VPCs (peering, TGW routes), none of which is `CreateVpc`. Checked
+the real EC2 error-code reference (docs.aws.amazon.com/AWSEC2 errors-overview)
+directly: `InvalidVpc.Conflict` was never a real, documented AWS error code
+at all -- it was fabricated.
+
+Fixed: removed the cross-VPC overlap check from `CreateVpc` entirely.
+`CreateSubnet`'s existing same-VPC subnet-overlap rejection is real AWS
+behavior and was kept, but its error code was wrong too -- it also mapped to
+`InvalidVpc.Conflict`; real AWS uses `InvalidSubnet.Conflict` (confirmed
+documented). Renamed to `ErrSubnetCIDRConflict` ("InvalidSubnet.Conflict").
+`AssociateVpcCidrBlock` had no overlap validation at all; real AWS rejects a
+secondary CIDR overlapping the SAME VPC's existing CIDR blocks and enforces
+the documented `/16`-`/28` size range (vpc-cidr-blocks.html), both mapped to
+`InvalidVpc.Range` (the real, confirmed code for VPC CIDR range/conflict
+issues -- `InvalidVpc.Conflict` does not exist). Added both checks as
+`ErrVpcCIDRRange`. The full cross-RFC1918-family restriction matrix
+(vpc-cidr-blocks.html's "IPv4 CIDR block association restrictions" table)
+is NOT implemented -- left as an honest gap in items_still_open rather than
+half-modeled.
+
+`ErrCIDRConflict` removed (no longer referenced anywhere).
+
+Tests: `TestCreateVpc_OverlappingCIDRAllowed` (renamed from
+`TestCreateVpc_CIDRConflict`, now asserts success) replaces the pinned-wrong
+behavior; `TestCreateSubnet_CIDRConflict` now asserts `ErrSubnetCIDRConflict`;
+new `TestEC2Core_AssociateVpcCidrBlock_SameVPCRejections` covers the primary-
+CIDR overlap, secondary-association overlap, and oversized/undersized CIDR
+cases.
+
+Gates: `gofmt -l services/ec2`, `go build ./...`, `go vet
+./services/ec2/...`, `go test -race -count=1 ./services/ec2/...`,
+`golangci-lint run ./services/ec2/...`, `go run ./cmd/parityfmtcheck -dir
+services` -- all clean. No persisted-struct fields changed; no version bump.

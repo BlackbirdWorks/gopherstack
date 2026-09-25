@@ -416,13 +416,9 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 	b.mu.Lock("CreateVpc")
 	defer b.mu.Unlock()
 
-	for _, existing := range b.vpcs.All() {
-		if cidrsOverlap(cidr, existing.CIDRBlock) {
-			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing VPC %s (%s)",
-				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
-		}
-	}
-
+	// Real AWS allows overlapping CIDRs across separate VPCs; overlap is only
+	// rejected within a VPC (subnets, AssociateVpcCidrBlock) or for
+	// operations that route between VPCs (peering, TGW routes).
 	id := newVPCID()
 	v := &VPC{
 		ID:            id,

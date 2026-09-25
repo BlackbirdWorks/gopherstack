@@ -142,6 +142,52 @@ func TestEC2Core_AssociateVpcCidrBlock(t *testing.T) {
 	require.Error(t, err3)
 }
 
+// TestEC2Core_AssociateVpcCidrBlock_SameVPCRejections verifies real AWS
+// behaviour: a CIDR overlapping the SAME VPC's existing CIDR blocks, or
+// outside the documented /16-/28 size range, is rejected -- but overlap with
+// a DIFFERENT VPC's CIDR is allowed (see TestCreateVpc_OverlappingCIDRAllowed).
+func TestEC2Core_AssociateVpcCidrBlock_SameVPCRejections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cidr string
+	}{
+		{name: "overlaps_primary_cidr", cidr: "10.0.1.0/24"},
+		{name: "too_large", cidr: "10.5.0.0/8"},
+		{name: "too_small", cidr: "10.5.0.0/32"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := newTestBackend()
+			vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
+			require.NoError(t, err)
+
+			_, err = bk.AssociateVpcCidrBlock(vpc.ID, tt.cidr)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ec2.ErrVpcCIDRRange)
+		})
+	}
+
+	t.Run("overlaps_existing_secondary_association", func(t *testing.T) {
+		t.Parallel()
+
+		bk := newTestBackend()
+		vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
+		require.NoError(t, err)
+
+		_, err = bk.AssociateVpcCidrBlock(vpc.ID, "10.1.0.0/16")
+		require.NoError(t, err)
+
+		_, err = bk.AssociateVpcCidrBlock(vpc.ID, "10.1.1.0/24")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ec2.ErrVpcCIDRRange)
+	})
+}
+
 // ---- Transit Gateway Route Tables ----
 
 func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {

@@ -26,7 +26,8 @@ var (
 	ErrDuplicateSGName           = errors.New("InvalidGroup.Duplicate")
 	ErrInvalidInstanceState      = errors.New("IncorrectInstanceState")
 	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
-	ErrCIDRConflict              = errors.New("InvalidVpc.Conflict")
+	ErrSubnetCIDRConflict        = errors.New("InvalidSubnet.Conflict")
+	ErrVpcCIDRRange              = errors.New("InvalidVpc.Range")
 	ErrDryRunOperation           = errors.New("request would have succeeded, but DryRun flag is set")
 	ErrDuplicatePermission       = errors.New("InvalidPermission.Duplicate")
 
@@ -1168,4 +1169,18 @@ func cidrContains(outer, inner string) bool {
 	ones2, _ := innerNet.Mask.Size()
 
 	return outerNet.Contains(innerNet.IP) && ones1 <= ones2
+}
+
+// vpcCIDRPrefixLenValid reports whether an IPv4 CIDR's prefix length falls
+// within the documented VPC CIDR block size (vpc-cidr-blocks.html: /16 to
+// /28 netmask). A malformed or non-IPv4 CIDR is treated as invalid.
+func vpcCIDRPrefixLenValid(cidr string) bool {
+	_, n, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return false
+	}
+
+	ones, bits := n.Mask.Size()
+
+	return bits == 32 && ones >= 16 && ones <= 28
 }
