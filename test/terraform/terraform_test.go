@@ -5917,9 +5917,20 @@ func TestTerraform_Organizations(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockOrganizations(t)
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// organizationsMu serialises fixtures that create the per-account Organizations singleton.
+var organizationsMu sync.Mutex //nolint:gochecknoglobals // shared across parallel fixtures
+
+// lockOrganizations holds organizationsMu until the test's destroy cleanup has run.
+func lockOrganizations(t *testing.T) {
+	t.Helper()
+	organizationsMu.Lock()
+	t.Cleanup(organizationsMu.Unlock)
 }
 
 // TestTerraform_MWAA provisions an MWAA environment via Terraform, then verifies

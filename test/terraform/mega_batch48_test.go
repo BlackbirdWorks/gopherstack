@@ -44,6 +44,7 @@ func TestTerraform_MegaBatch48(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockOrganizations(t)
 			runTFTest(t, tc)
 		})
 	}
