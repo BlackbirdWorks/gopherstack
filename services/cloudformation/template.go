@@ -1424,6 +1424,35 @@ func physIDResourceTypeKey(logicalID string) string {
 	return physIDResourceTypePrefix + logicalID
 }
 
+// extractAttrStash filters a create/update-time physicalIDs map down to the
+// "<logicalID>/<Attr>" side-channel entries for resources still in
+// liveResourceTypes -- the values genuinely not derivable from a resource's
+// own PhysicalID+Type at delete time (e.g. CodeArtifact Domain's Name; see
+// the writers across resources_*.go). This is what gets persisted onto
+// Stack.ResourceAttrs; the plain logicalID->PhysicalID and "_Type/..."/
+// "_AccountId"/"_Region"/"_StackName" side-channel entries are dropped since
+// deleteResolveContext rebuilds those fresh from StackResource/the backend.
+func extractAttrStash(physicalIDs map[string]string, liveResourceTypes map[string]string) map[string]string {
+	stash := make(map[string]string)
+
+	for k, v := range physicalIDs {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+
+		logicalID, _, hasAttr := strings.Cut(k, "/")
+		if !hasAttr {
+			continue
+		}
+
+		if _, live := liveResourceTypes[logicalID]; live {
+			stash[k] = v
+		}
+	}
+
+	return stash
+}
+
 // resourceTypeFor returns logicalID's declared resource type, preferring
 // ctx.resourceTypes (Outputs/preview, always fully populated) and falling
 // back to the physIDResourceTypeKey side channel (property-time resolution,

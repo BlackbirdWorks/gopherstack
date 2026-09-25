@@ -205,6 +205,77 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 
 ## Notes
 
+### 2026-09-24 (GetAtt follow-ups): delete-time attribute stash persists on the stack; Fn::GetAtt on an undocumented attribute is a ValidationError
+
+Two follow-ups to the property-time Fn::GetAtt fix below.
+
+**gopherstack-9e44r.** DeleteStack (and UpdateStack's stale-resource delete
+and both rollback paths) rebuilt the physicalIDs map passed to `Delete` from
+`stackPhysicalIDsSnapshot` alone -- plain `{logicalID: PhysicalID}`, none of
+property-time resolution's side channel. A props-based delete that
+re-resolves a sibling `Fn::GetAtt` (e.g. CodeArtifact Repository/PackageGroup
+`DomainName: {Fn::GetAtt: [Dom, Name]}`) therefore resolved to the sibling's
+physical ID instead of the requested attribute. Fixed two ways:
+
+- `deleteResolveContext` (resources.go) rebuilds the `_Type/<logicalID>`
+  side channel and account/region/stack name fresh from `StackResource.Type`
+  and the backend every time -- always accurate, no persistence needed.
+- The genuinely non-derivable part -- backend-computed attribute values
+  stashed as `<logicalID>/<Attr>` at create time (CodeArtifact Domain's
+  Name/Owner/EncryptionKey, IAM AccessKey's SecretAccessKey, ServiceDiscovery
+  HostedZoneId, ...) -- is now persisted on a new `Stack.ResourceAttrs`
+  field, refreshed after every successful CreateStack/UpdateStack
+  (`extractAttrStash`, filtered to the currently-live resource set) and
+  merged back in by `deleteResolveContext`.
+
+`Stack.ResourceAttrs` is a plain additive `map[string]string` field on a
+`store.Table[*Stack]`-registered type, so it rides along in `Snapshot()`'s
+existing `Tables["stacks"]` blob with no `backendSnapshot` change and no
+`cfnSnapshotVersion` bump. `go test ./pkgs/persistence/ -update` inventory
+diff: one new line, `Stack.ResourceAttrs map[string]string`, plus
+column-realignment noise on its four struct-tag neighbors from gofmt
+regrouping around the new field's comment (no field's tag/type/name
+changed, only whitespace). Verified via
+`TestDeleteStack_PropertyGetAtt` (resources_delete_getatt_test.go) and by
+converting `testCodeArtifactRepository`/`testCodeArtifactPackageGroup`
+(resources_newer_types_test.go) from a literal `DomainName` + `DependsOn` to
+real `Fn::GetAtt: [Dom, Name]`.
+
+**gopherstack-p7pvq.** `getResourceAttribute`/`getExtraResourceAttribute`
+silently fell back to the physical ID for an attribute name a resource type
+doesn't support, instead of real CloudFormation's `CreateStack`/`UpdateStack`
+ValidationError ("Template error: resource `<X>` does not support attribute
+type `<Y>` in Fn::GetAtt"). Fixed by validating `Fn::GetAtt`/`Fn::Sub
+${Logical.Attr}` attribute names against a generated table
+(`cfn_attributes_gen.go`, `cmd/cfnattrgen`) built from the CloudFormation
+resource specification's `ResourceTypes.<T>.Attributes`. A type absent from
+the table is untouched (falls back to today's behaviour) -- the table only
+covers types with a declared `resTypeXxx` constant in this package AND whose
+*entire* documented attribute set can be re-quoted without tripping this
+repo's `goconst` (an attribute already re-used as a Go string constant, e.g.
+`attrNameArn`/`attrNameName`, is referenced by identifier instead of
+re-quoted; a type with even one attribute that can't be safely emitted is
+dropped whole, never partially, since a partial table would reject a real
+documented attribute the table simply declined to re-quote). This kept the
+table to 76 of the ~360 types this backend emulates -- conservative, not
+lossy, per the same "unknown falls back" rule.
+
+The check runs synchronously (`preflightGetAttAttributeErr`, called from
+`CreateStack`/`UpdateStack` before the stack is created/mutated, unless
+`DisableValidation`), unlike this file's other intrinsic-reference checks
+(undefined logical ID, unsupported resource Type), which fail the stack
+asynchronously (`ROLLBACK_COMPLETE`/`UPDATE_ROLLBACK_COMPLETE`) -- matching
+this specific error's own real-AWS `ValidationError` semantics. Fixed two
+latent test bugs this validation caught: `testAthenaNamedQuery` GetAtt'd
+`Name` (not `NamedQueryId`, NamedQuery's only documented attribute) and
+`testCodeArtifactPackageGroup` GetAtt'd `Pattern` (not `Arn`, PackageGroup's
+only documented attribute) -- both switched to the documented attribute.
+Verified via `TestCreateStack_GetAttAttributeValidation`
+(intrinsics_getatt_attribute_test.go): an unknown attribute on a table-listed
+type fails through the typed SDK client with a `ValidationError`; a
+documented attribute on the same type still works; a type absent from the
+table still falls back for any attribute name.
+
 ### 2026-09-24 (property-time Fn::GetAtt fix): resolveGetAtt now sees a resource's real type, account ID and region while resolving another resource's Properties
 
 Fixed the bug class the wave-10 entry below originally flagged as

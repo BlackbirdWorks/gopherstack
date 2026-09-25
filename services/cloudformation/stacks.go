@@ -119,7 +119,7 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 		liveIDs = append(liveIDs, logicalID)
 	}
 
-	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
+	physIDs := b.deleteResolveContext(stack)
 
 	for _, logicalID := range reverseDependencyOrder(liveIDs, stack.TemplateBody) {
 		res := b.resources[stack.StackID][logicalID]
@@ -267,6 +267,25 @@ func (b *InMemoryBackend) CreateStack(
 	return b.createStackLocked(ctx, name, templateBody, params, opts, "")
 }
 
+// validateCreateStackPreflight runs CreateStack's synchronous, pre-mutation
+// checks: RoleARN/IAM capability requirements (top-level stacks only) and the
+// Fn::GetAtt attribute check (both nested and top-level, unless
+// DisableValidation), split out of createStackLocked to keep its cognitive
+// complexity down (no //nolint:gocognit, per repo convention).
+func validateCreateStackPreflight(templateBody string, opts StackOptions, parentID string) error {
+	if parentID == "" {
+		if err := validateStackOptions(templateBody, opts); err != nil {
+			return err
+		}
+	}
+
+	if opts.DisableValidation {
+		return nil
+	}
+
+	return preflightGetAttAttributeErr(templateBody)
+}
+
 // createStackLocked is the lock-free body of CreateStack — callers must hold b.mu.
 // parentID is set when provisioning a nested stack.
 func (b *InMemoryBackend) createStackLocked(
@@ -276,11 +295,8 @@ func (b *InMemoryBackend) createStackLocked(
 	opts StackOptions,
 	parentID string,
 ) (*Stack, error) {
-	// Validate RoleARN format and IAM capability requirements (top-level stacks only).
-	if parentID == "" {
-		if err := validateStackOptions(templateBody, opts); err != nil {
-			return nil, err
-		}
+	if err := validateCreateStackPreflight(templateBody, opts, parentID); err != nil {
+		return nil, err
 	}
 
 	if existing, ok := b.stacks.Get(name); ok {
@@ -444,6 +460,7 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	for logicalID, res := range tmpl.Resources {
 		resourceTypes[logicalID] = res.Type
 	}
+	stack.ResourceAttrs = extractAttrStash(physicalIDs, resourceTypes)
 	rctx := resolveCtx{
 		params:        resolvedParams,
 		physicalIDs:   physicalIDs,
@@ -621,7 +638,7 @@ func (b *InMemoryBackend) rollbackCreateResources(
 	retainExceptOnCreate bool,
 ) bool {
 	ok := true
-	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
+	physIDs := b.deleteResolveContext(stack)
 
 	for _, v := range slices.Backward(created) {
 		logicalID := v
@@ -682,6 +699,12 @@ func (b *InMemoryBackend) UpdateStack(
 	// Validate RoleARN format and IAM capability requirements.
 	if err := validateStackOptions(templateBody, opts); err != nil {
 		return nil, err
+	}
+
+	if !opts.DisableValidation {
+		if err := preflightGetAttAttributeErr(templateBody); err != nil {
+			return nil, err
+		}
 	}
 
 	stack, ok := b.resolveStack(nameOrID)
@@ -863,6 +886,7 @@ func (b *InMemoryBackend) applyTemplateToStack(
 	for logicalID, res := range tmpl.Resources {
 		updateResourceTypes[logicalID] = res.Type
 	}
+	stack.ResourceAttrs = extractAttrStash(physicalIDs, updateResourceTypes)
 	rctx := resolveCtx{
 		params:        resolvedParams,
 		physicalIDs:   physicalIDs,
@@ -1102,7 +1126,7 @@ func (b *InMemoryBackend) deleteStaleResources(
 	stale = reverseDependencyOrder(stale, oldTemplateBody)
 
 	ok := true
-	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
+	physIDs := b.deleteResolveContext(stack)
 
 	for _, logicalID := range stale {
 		res := b.resources[stack.StackID][logicalID]
@@ -1160,7 +1184,7 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 	)
 
 	rollbackOK := true
-	physIDs := stackPhysicalIDsSnapshot(b.resources[stack.StackID])
+	physIDs := b.deleteResolveContext(stack)
 
 	for _, logicalID := range created {
 		res, exists := b.resources[stack.StackID][logicalID]

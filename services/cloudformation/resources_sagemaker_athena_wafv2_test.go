@@ -469,13 +469,13 @@ func testAthenaNamedQuery(t *testing.T) {
 }}},
 "Outputs": {
   "Id": {"Value": {"Ref": "NQ"}},
-  "Name": {"Value": {"Fn::GetAtt": ["NQ", "Name"]}}
+  "NamedQueryId": {"Value": {"Fn::GetAtt": ["NQ", "NamedQueryId"]}}
 }
 }`
 
 	outputs := createStackAndGetOutputs(t, client, "athena-nq-stack", tmpl)
 	assert.NotEmpty(t, outputs["Id"])
-	assert.Equal(t, "query-1", outputs["Name"])
+	assert.Equal(t, outputs["Id"], outputs["NamedQueryId"])
 
 	_, err := backends.Athena.Backend.GetNamedQuery(outputs["Id"])
 	require.NoError(t, err)

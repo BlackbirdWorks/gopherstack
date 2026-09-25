@@ -822,8 +822,8 @@ func testCodeArtifactRepository(t *testing.T) {
 	tmpl := `{
 "Resources": {
   "Dom": {"Type": "AWS::CodeArtifact::Domain", "Properties": {"DomainName": "repo-domain"}},
-  "Repo": {"Type": "AWS::CodeArtifact::Repository", "DependsOn": "Dom", "Properties": {
-    "DomainName": "repo-domain",
+  "Repo": {"Type": "AWS::CodeArtifact::Repository", "Properties": {
+    "DomainName": {"Fn::GetAtt": ["Dom", "Name"]},
     "RepositoryName": "my-repo",
     "Description": "test repo"
   }}
@@ -856,20 +856,20 @@ func testCodeArtifactPackageGroup(t *testing.T) {
 	tmpl := `{
 "Resources": {
   "Dom": {"Type": "AWS::CodeArtifact::Domain", "Properties": {"DomainName": "pg-domain"}},
-  "PG": {"Type": "AWS::CodeArtifact::PackageGroup", "DependsOn": "Dom", "Properties": {
-    "DomainName": "pg-domain",
+  "PG": {"Type": "AWS::CodeArtifact::PackageGroup", "Properties": {
+    "DomainName": {"Fn::GetAtt": ["Dom", "Name"]},
     "Pattern": "/npm/*"
   }}
 },
 "Outputs": {
   "Ref": {"Value": {"Ref": "PG"}},
-  "Pattern": {"Value": {"Fn::GetAtt": ["PG", "Pattern"]}}
+  "Arn": {"Value": {"Fn::GetAtt": ["PG", "Arn"]}}
 }
 }`
 
 	outputs := createStackAndGetOutputs(t, client, "pg-stack", tmpl)
 	assert.Contains(t, outputs["Ref"], "package-group")
-	assert.Equal(t, "/npm/*", outputs["Pattern"])
+	assert.Equal(t, outputs["Ref"], outputs["Arn"])
 
 	_, err := backends.CodeArtifact.Backend.DescribePackageGroup(t.Context(), "pg-domain", "/npm/*")
 	require.NoError(t, err)

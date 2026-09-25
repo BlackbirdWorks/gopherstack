@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -1342,6 +1343,35 @@ func stackPhysicalIDsSnapshot(resources map[string]*StackResource) map[string]st
 	for logicalID, res := range resources {
 		out[logicalID] = res.PhysicalID
 	}
+
+	return out
+}
+
+// deleteResolveContext builds the physicalIDs map used to resolve Fn::GetAtt
+// (and Fn::Sub ${Logical.Attr}) in a resource's Properties during deletion
+// and rollback: stackPhysicalIDsSnapshot's plain logicalID->PhysicalID, each
+// live resource's declared Type (from StackResource.Type -- always accurate,
+// unlike create-time resolution's physIDResourceTypeKey side channel), the
+// account/region/stack name, and the stack's persisted GetAtt attribute
+// stash for values not derivable from PhysicalID+Type alone (see
+// extractAttrStash / Stack.ResourceAttrs). Without this, delete-time
+// property resolution only sees {logicalID: PhysicalID} and a sibling
+// Fn::GetAtt in a resource's own Properties silently resolves to that
+// resource's physical ID instead of the requested attribute
+// (gopherstack-9e44r).
+func (b *InMemoryBackend) deleteResolveContext(stack *Stack) map[string]string {
+	resources := b.resources[stack.StackID]
+	out := stackPhysicalIDsSnapshot(resources)
+
+	for logicalID, res := range resources {
+		out[physIDResourceTypeKey(logicalID)] = res.Type
+	}
+
+	out[physIDAccountIDKey] = b.accountID
+	out[physIDRegionKey] = b.region
+	out[physIDStackNameKey] = stack.StackName
+
+	maps.Copy(out, stack.ResourceAttrs)
 
 	return out
 }
