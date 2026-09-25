@@ -299,14 +299,7 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created processing job",
-		"name",
-		pj.ProcessingJobName,
-		"arn",
-		pj.ProcessingJobArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created processing job", "name", pj.ProcessingJobName)
 
 	return json.Marshal(map[string]string{keyProcessingJobArn: pj.ProcessingJobArn})
 }

@@ -1108,19 +1108,19 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: DestinationArn is required", errInvalidRequest)
 	}
 
-	assoc, err := h.Backend.AddAssociation(
+	if _, err := h.Backend.AddAssociation(
 		ctx,
 		req.SourceArn,
 		req.DestinationArn,
 		req.AssociationType,
 		nil,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, err
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: added association", "arn", assoc.AssociationArn)
+	log.InfoContext(ctx, "sagemaker: added association",
+		"source", req.SourceArn, "destination", req.DestinationArn)
 
 	// AddAssociationOutput has no AssociationArn member at all -- it echoes
 	// back SourceArn and DestinationArn (api_op_AddAssociation.go).
@@ -1157,7 +1157,7 @@ func (h *Handler) handleAssociateTrialComponent(ctx context.Context, body []byte
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: associated trial component",
-		"trial", assoc.TrialArn, "component", assoc.TrialComponentArn)
+		"trial", req.TrialName, "component", req.TrialComponentName)
 
 	return json.Marshal(map[string]string{
 		"TrialArn":          assoc.TrialArn,
@@ -1219,7 +1219,7 @@ func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: created action", "name", a.ActionName, "arn", a.ActionArn)
+	log.InfoContext(ctx, "sagemaker: created action", "name", a.ActionName)
 
 	return json.Marshal(map[string]string{"ActionArn": a.ActionArn})
 }

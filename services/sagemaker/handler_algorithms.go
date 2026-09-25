@@ -49,14 +49,7 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created algorithm",
-		"name",
-		al.AlgorithmName,
-		"arn",
-		al.AlgorithmArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created algorithm", "name", al.AlgorithmName)
 
 	return json.Marshal(map[string]string{"AlgorithmArn": al.AlgorithmArn})
 }

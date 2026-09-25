@@ -98,14 +98,7 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created training job (full)",
-		"name",
-		tj.TrainingJobName,
-		"arn",
-		tj.TrainingJobArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created training job (full)", "name", tj.TrainingJobName)
 
 	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn})
 }

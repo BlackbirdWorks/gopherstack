@@ -459,9 +459,13 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 	return nil
 }
 
+// maxTagsPerResource mirrors the AWS tag limit, bounding mergeTags' allocation.
+const maxTagsPerResource = 50
+
 // mergeTags merges new tags into existing ones, returning a new map.
 func mergeTags(existing, incoming map[string]string) map[string]string {
-	result := make(map[string]string, len(existing)+len(incoming))
+	capHint := min(len(existing), maxTagsPerResource) + min(len(incoming), maxTagsPerResource)
+	result := make(map[string]string, capHint)
 	maps.Copy(result, existing)
 	maps.Copy(result, incoming)
 
