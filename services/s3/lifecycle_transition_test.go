@@ -150,9 +150,6 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			wantClass: "GLACIER",
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				// Let janitor run two ticks — transition must appear only once.
-				time.Sleep(30 * time.Millisecond)
-
 				history := s3.StorageClassTransitionsForObject(b, "tr-idem", "obj.txt")
 				// Must have been transitioned at least once; no duplicates.
 				assert.NotEmpty(t, history)
@@ -194,8 +191,6 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				time.Sleep(50 * time.Millisecond)
-
 				out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
 					Bucket: aws.String("tr-disabled"),
 					Key:    aws.String("file.txt"),
@@ -224,10 +219,10 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			err := b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-
-			go newFastJanitor(b).Run(ctx)
+			// Two sweeps: transitions fire once and must stay idempotent.
+			j := newFastJanitor(b)
+			j.SweepOnce(t.Context())
+			j.SweepOnce(t.Context())
 
 			tt.verify(t, b)
 		})
