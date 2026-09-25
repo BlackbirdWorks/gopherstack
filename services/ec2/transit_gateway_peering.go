@@ -176,6 +176,20 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnects(ids []string) []*Transi
 	return out
 }
 
+// tgwConnectPeerDefaultBgpAsn is applied when a Connect peer is created
+// without BgpOptions.PeerAsn. AWS does not document an explicit default,
+// but this mirrors tgwDefaultAmazonSideAsn, this codebase's existing
+// default-ASN convention, so a Connect peer never surfaces a zero ASN.
+const tgwConnectPeerDefaultBgpAsn = 64512
+
+// Per api_op_CreateTransitGatewayConnectPeer.go, "The first address from
+// the range must be configured on the appliance as the BGP IP address";
+// the transit gateway side takes the next host address.
+const (
+	bgpAppliancePeerHostOffset  = 1
+	bgpTransitGatewayHostOffset = 2
+)
+
 // CreateTransitGatewayConnectPeer creates a TGW connect peer. When
 // transitGatewayAddress is empty, it is auto-assigned as the first host
 // address of the parent transit gateway's first CIDR block, matching the
@@ -185,6 +199,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnects(ids []string) []*Transi
 func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 	connectAttachmentID, peerAddress, transitGatewayAddress string,
 	insideCidrBlocks []string,
+	bgpAsn int64,
 ) (*TransitGatewayConnectPeer, error) {
 	if connectAttachmentID == "" || peerAddress == "" {
 		return nil, fmt.Errorf(
@@ -210,6 +225,15 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 		transitGatewayAddress = firstCIDRHostAddress(insideCidrBlocks[0])
 	}
 
+	if bgpAsn == 0 {
+		bgpAsn = tgwConnectPeerDefaultBgpAsn
+	}
+
+	tgwAsn := int64(tgwDefaultAmazonSideAsn)
+	if tgw, foundTGW := b.transitGateways.Get(conn.TransitGatewayID); foundTGW {
+		tgwAsn = tgw.Options.AmazonSideAsn
+	}
+
 	id := "tgw-connect-peer-" + uuid.New().String()[:8]
 	peer := &TransitGatewayConnectPeer{
 		TransitGatewayConnectPeerID: id,
@@ -218,10 +242,34 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 		InsideCidrBlocks:            insideCidrBlocks,
 		PeerAddress:                 peerAddress,
 		TransitGatewayAddress:       transitGatewayAddress,
+		BgpConfigurations:           bgpConfigurationsForInsideCidrBlocks(insideCidrBlocks, bgpAsn, tgwAsn),
 	}
 	b.tgwConnectPeers.Put(peer)
 
 	return peer, nil
+}
+
+// bgpConfigurationsForInsideCidrBlocks derives one BGP peering session per
+// inside CIDR block: per api_op_CreateTransitGatewayConnectPeer.go, "The
+// first address from the range must be configured on the appliance as the
+// BGP IP address", so the appliance (PeerAddress) takes the first host and
+// the transit gateway takes the second.
+func bgpConfigurationsForInsideCidrBlocks(
+	insideCidrBlocks []string,
+	peerAsn, tgwAsn int64,
+) []TransitGatewayBgpConfiguration {
+	configs := make([]TransitGatewayBgpConfiguration, 0, len(insideCidrBlocks))
+	for _, cidr := range insideCidrBlocks {
+		configs = append(configs, TransitGatewayBgpConfiguration{
+			BgpStatus:             "up",
+			PeerAddress:           nthCIDRHostAddress(cidr, bgpAppliancePeerHostOffset),
+			PeerAsn:               peerAsn,
+			TransitGatewayAddress: nthCIDRHostAddress(cidr, bgpTransitGatewayHostOffset),
+			TransitGatewayAsn:     tgwAsn,
+		})
+	}
+
+	return configs
 }
 
 // firstTGWCidrHostAddressLocked returns the first host address of tgwID's
@@ -252,6 +300,30 @@ func firstCIDRHostAddress(cidr string) string {
 	host := make(net.IP, len(ip))
 	copy(host, ip)
 	host[len(host)-1]++
+
+	return host.String()
+}
+
+// nthCIDRHostAddress returns the address at network+n within cidr, or "" if
+// cidr doesn't parse. Unlike firstCIDRHostAddress it supports IPv6, needed
+// for Connect peers' optional /125 InsideCidrBlocks entry. Safe for the /29
+// (IPv4) and /125 (IPv6) blocks Connect peers require: n never overflows the
+// last byte since those prefixes align to a byte boundary of 8 or fewer
+// addresses.
+func nthCIDRHostAddress(cidr string, n byte) string {
+	_, network, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return ""
+	}
+
+	ip := network.IP
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+
+	host := make(net.IP, len(ip))
+	copy(host, ip)
+	host[len(host)-1] += n
 
 	return host.String()
 }

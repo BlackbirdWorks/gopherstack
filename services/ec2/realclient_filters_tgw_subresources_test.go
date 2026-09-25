@@ -102,9 +102,9 @@ func TestRealClient_DescribeTransitGatewayConnectPeersFilters(t *testing.T) {
 	conn, err := backend.CreateTransitGatewayConnect(att1.TransitGatewayAttachmentID, tgw.ID)
 	require.NoError(t, err)
 
-	peer1, err := backend.CreateTransitGatewayConnectPeer(conn.TransitGatewayAttachmentID, "169.254.6.1", "", nil)
+	peer1, err := backend.CreateTransitGatewayConnectPeer(conn.TransitGatewayAttachmentID, "169.254.6.1", "", nil, 0)
 	require.NoError(t, err)
-	peer2, err := backend.CreateTransitGatewayConnectPeer(conn.TransitGatewayAttachmentID, "169.254.6.2", "", nil)
+	peer2, err := backend.CreateTransitGatewayConnectPeer(conn.TransitGatewayAttachmentID, "169.254.6.2", "", nil, 0)
 	require.NoError(t, err)
 
 	tests := []struct {

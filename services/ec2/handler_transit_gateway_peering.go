@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -53,15 +54,30 @@ type describeTransitGatewayConnectsResponse struct {
 	} `xml:"transitGatewayConnectSet"`
 }
 
+// tgwBgpConfigurationItem mirrors TransitGatewayAttachmentBgpConfiguration
+// (ec2@v1.329.0 deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayAttachmentBgpConfiguration).
+// terraform-provider-aws's finder (internal/service/ec2/find.go,
+// findTransitGatewayConnectPeer) requires at least one of these on the
+// wire, or it treats an otherwise-available peer as not found.
+type tgwBgpConfigurationItem struct {
+	BgpStatus             string `xml:"bgpStatus,omitempty"`
+	PeerAddress           string `xml:"peerAddress,omitempty"`
+	TransitGatewayAddress string `xml:"transitGatewayAddress,omitempty"`
+	PeerAsn               int64  `xml:"peerAsn,omitempty"`
+	TransitGatewayAsn     int64  `xml:"transitGatewayAsn,omitempty"`
+}
+
 // tgwConnectPeerConfigurationItem mirrors the real
 // TransitGatewayConnectPeerConfiguration wire shape: PeerAddress and
 // InsideCidrBlocks nest under connectPeerConfiguration, not flat top-level
 // fields (ec2@v1.319.1 deserializers.go,
 // awsEc2query_deserializeDocumentTransitGatewayConnectPeerConfiguration).
 type tgwConnectPeerConfigurationItem struct {
-	PeerAddress           string   `xml:"peerAddress,omitempty"`
-	TransitGatewayAddress string   `xml:"transitGatewayAddress,omitempty"`
-	InsideCidrBlocks      []string `xml:"insideCidrBlocks>item,omitempty"`
+	PeerAddress           string                    `xml:"peerAddress,omitempty"`
+	TransitGatewayAddress string                    `xml:"transitGatewayAddress,omitempty"`
+	InsideCidrBlocks      []string                  `xml:"insideCidrBlocks>item,omitempty"`
+	BgpConfigurations     []tgwBgpConfigurationItem `xml:"bgpConfigurations>item,omitempty"`
 }
 
 type tgwConnectPeerItem struct {
@@ -347,6 +363,15 @@ func (h *Handler) handleDescribeTransitGatewayConnects(vals url.Values, reqID st
 	return resp, nil
 }
 
+func toTGWBgpConfigurationItems(configs []TransitGatewayBgpConfiguration) []tgwBgpConfigurationItem {
+	items := make([]tgwBgpConfigurationItem, 0, len(configs))
+	for _, c := range configs {
+		items = append(items, tgwBgpConfigurationItem(c))
+	}
+
+	return items
+}
+
 func toTGWConnectPeerItem(peer *TransitGatewayConnectPeer, tags map[string]string) tgwConnectPeerItem {
 	return tgwConnectPeerItem{
 		TransitGatewayConnectPeerID: peer.TransitGatewayConnectPeerID,
@@ -356,6 +381,7 @@ func toTGWConnectPeerItem(peer *TransitGatewayConnectPeer, tags map[string]strin
 			PeerAddress:           peer.PeerAddress,
 			TransitGatewayAddress: peer.TransitGatewayAddress,
 			InsideCidrBlocks:      peer.InsideCidrBlocks,
+			BgpConfigurations:     toTGWBgpConfigurationItems(peer.BgpConfigurations),
 		},
 		TagSet: tagItemsFromMap(tags),
 	}
@@ -366,8 +392,9 @@ func (h *Handler) handleCreateTransitGatewayConnectPeer(vals url.Values, reqID s
 	peerAddress := vals.Get("PeerAddress")
 	tgwAddress := vals.Get("TransitGatewayAddress")
 	insideCidrs := parseMemberList(vals, "InsideCidrBlocks")
+	bgpAsn, _ := strconv.ParseInt(vals.Get("BgpOptions.PeerAsn"), 10, 64)
 
-	peer, err := h.Backend.CreateTransitGatewayConnectPeer(connectID, peerAddress, tgwAddress, insideCidrs)
+	peer, err := h.Backend.CreateTransitGatewayConnectPeer(connectID, peerAddress, tgwAddress, insideCidrs, bgpAsn)
 	if err != nil {
 		return nil, err
 	}

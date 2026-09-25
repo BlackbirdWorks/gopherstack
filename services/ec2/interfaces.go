@@ -1611,6 +1611,7 @@ type Backend interface {
 	CreateTransitGatewayConnectPeer(
 		connectAttachmentID, peerAddress, transitGatewayAddress string,
 		insideCidrBlocks []string,
+		bgpAsn int64,
 	) (*TransitGatewayConnectPeer, error)
 	DeleteTransitGatewayConnectPeer(id string) (*TransitGatewayConnectPeer, error)
 	DescribeTransitGatewayConnectPeers(ids []string) []*TransitGatewayConnectPeer

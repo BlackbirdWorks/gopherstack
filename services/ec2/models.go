@@ -344,12 +344,27 @@ type TransitGatewayConnect struct {
 
 // TransitGatewayConnectPeer represents a TGW connect peer.
 type TransitGatewayConnectPeer struct {
-	TransitGatewayConnectPeerID string   `json:"transitGatewayConnectPeerId,omitempty"`
-	TransitGatewayAttachmentID  string   `json:"transitGatewayAttachmentId,omitempty"`
-	PeerAddress                 string   `json:"peerAddress,omitempty"`
-	TransitGatewayAddress       string   `json:"transitGatewayAddress,omitempty"`
-	State                       string   `json:"state,omitempty"`
-	InsideCidrBlocks            []string `json:"insideCidrBlocks,omitempty"`
+	TransitGatewayConnectPeerID string                           `json:"transitGatewayConnectPeerId,omitempty"`
+	TransitGatewayAttachmentID  string                           `json:"transitGatewayAttachmentId,omitempty"`
+	PeerAddress                 string                           `json:"peerAddress,omitempty"`
+	TransitGatewayAddress       string                           `json:"transitGatewayAddress,omitempty"`
+	State                       string                           `json:"state,omitempty"`
+	InsideCidrBlocks            []string                         `json:"insideCidrBlocks,omitempty"`
+	BgpConfigurations           []TransitGatewayBgpConfiguration `json:"bgpConfigurations,omitempty"`
+}
+
+// TransitGatewayBgpConfiguration is one BGP peering session for a TGW
+// Connect peer (real AWS: TransitGatewayAttachmentBgpConfiguration),
+// derived from one entry of the peer's InsideCidrBlocks. Terraform's
+// find/waiter (internal/service/ec2/find.go:findTransitGatewayConnectPeer)
+// treats a peer with no BgpConfigurations as not-found, so this must never
+// be empty once the peer exists.
+type TransitGatewayBgpConfiguration struct {
+	BgpStatus             string `json:"bgpStatus,omitempty"`
+	PeerAddress           string `json:"peerAddress,omitempty"`
+	TransitGatewayAddress string `json:"transitGatewayAddress,omitempty"`
+	PeerAsn               int64  `json:"peerAsn,omitempty"`
+	TransitGatewayAsn     int64  `json:"transitGatewayAsn,omitempty"`
 }
 
 // TransitGatewayPrefixListReference represents a TGW prefix list reference.

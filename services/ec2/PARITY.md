@@ -6454,3 +6454,48 @@ terraform-provider-aws 5.100.0 client:
 Gates: `go build ./...`, `go vet ./services/ec2/...`, `go test -race -count=1
 ./services/ec2/...`, `golangci-lint run ./services/ec2/...` -- all clean. No
 persisted-struct fields changed; no version bump.
+
+## gopherstack-zfrof: TGW Connect peer BgpConfigurations (2026-09-24)
+
+`aws_ec2_transit_gateway_connect_peer`'s create waiter never converged even
+though `DescribeTransitGatewayConnectPeers` returned the peer with
+`State=available` on every poll. Root cause, confirmed by reading the pinned
+provider source: terraform-provider-aws v5.100.0's
+`internal/service/ec2/find.go:findTransitGatewayConnectPeer` (line ~4602)
+runs `tfresource.AssertSingleValueResult` with a predicate requiring
+`len(ConnectPeerConfiguration.BgpConfigurations) > 0`; a zero-length slice
+makes the finder return `NewEmptyResultError`, which the waiter treats as
+not-found. Our wire response's `tgwConnectPeerConfigurationItem` had no
+`BgpConfigurations` field at all, so the predicate failed on every poll
+regardless of `State`.
+
+Fixed: `CreateTransitGatewayConnectPeer` now derives one
+`TransitGatewayBgpConfiguration` entry per `InsideCidrBlocks` entry (IPv4 and
+IPv6), per `api_op_CreateTransitGatewayConnectPeer.go`'s documented "the
+first address from the range must be configured on the appliance as the BGP
+IP address": the appliance/peer side takes the first host address, the
+transit gateway side the second. `PeerAsn` comes from the request's
+`BgpOptions.PeerAsn` when set, else a default of 64512 (undocumented by AWS,
+chosen to match this codebase's existing `tgwDefaultAmazonSideAsn`
+convention so a peer never reports a zero ASN). `TransitGatewayAsn` is the
+parent transit gateway's real `Options.AmazonSideAsn`. New persisted field
+`TransitGatewayConnectPeer.BgpConfigurations` (purely additive; golden
+snapshot inventory updated, no version bump).
+
+Verified against the real v5.100.0 provider binary end to end (`tofu apply`/
+`tofu destroy` against a locally run server): `aws_ec2_transit_gateway_connect_peer`
+now creates and destroys immediately instead of exhausting its retry budget,
+and the dependent `aws_networkmanager_transit_gateway_connect_peer_association`
+(already correctly implemented) creates/destroys cleanly once the peer
+exists. Files: `models.go`, `interfaces.go`, `transit_gateway_peering.go`,
+`handler_transit_gateway_peering.go`. New table-driven test:
+`transit_gateway_connect_peer_bgp_test.go`
+(`TestTransitGatewayConnectPeer_BgpConfigurations`), covering the default
+ASN, an explicit `BgpOptions.PeerAsn`, and a dual-stack (IPv4+IPv6)
+`InsideCidrBlocks` case, each re-deriving the same non-empty-BgpConfigurations
+check the provider's finder performs.
+
+Gates: `go build ./...`, `go vet ./services/ec2/...`, `go test -race
+-count=1 ./services/ec2/...`, `golangci-lint run ./services/ec2/...` --
+all clean. `go test ./pkgs/persistence/...` required `-update` to refresh
+`snapshot_inventory.json` (purely additive fields; no version bump needed).
