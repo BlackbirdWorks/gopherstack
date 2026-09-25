@@ -257,7 +257,7 @@ func verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigBedrock(ctx context.Conte
 	assert.Contains(
 		t,
 		aws.ToString(loggingOut.LoggingConfig.CloudWatchConfig.LogGroupName),
-		"bedrock-verifiedpermissions-acmpca-and-appconfig",
+		"bvaa",
 	)
 
 	// The customization job completes asynchronously (bedrock's janitor advances

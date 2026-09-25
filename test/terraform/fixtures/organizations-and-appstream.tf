@@ -17,7 +17,7 @@ resource "aws_opsworks_ecs_cluster_layer" "orap" {
 
 resource "aws_opsworks_ganglia_layer" "orap" {
   stack_id = aws_opsworks_stack.orap.id
-  password = "orappw"
+  password = "orappassword1"
 }
 
 resource "aws_opsworks_haproxy_layer" "orap" {

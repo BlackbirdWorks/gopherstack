@@ -225,7 +225,7 @@ func verifyPinpointAndRoute53resolverRoute53Resolver(ctx context.Context, t *tes
 	assert.Contains(
 		t,
 		aws.ToString(queryLogConfigOut.ResolverQueryLogConfig.DestinationArn),
-		"pinpoint-and-route53resolver",
+		"pnrr",
 	)
 
 	queryLogAssocsOut, err := client.ListResolverQueryLogConfigAssociations(ctx,

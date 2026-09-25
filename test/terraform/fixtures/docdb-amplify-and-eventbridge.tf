@@ -210,7 +210,7 @@ resource "aws_docdb_cluster" "dbae" {
   cluster_identifier              = "dbae-docdb"
   engine                          = "docdb"
   master_username                 = "admin"
-  master_password                 = "dbaepw"
+  master_password                 = "dbaepassword1"
   db_subnet_group_name            = aws_docdb_subnet_group.dbae.name
   db_cluster_parameter_group_name = aws_docdb_cluster_parameter_group.dbae.name
   skip_final_snapshot             = true
