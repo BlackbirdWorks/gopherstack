@@ -176,7 +176,7 @@ resource "aws_appsync_type" "lana" {
   format = "SDL"
 
   definition = <<EOF
-type LakeformationAppsyncNeptuneAndAthenaWidget {
+type LanaWidget {
   id: ID!
 }
 EOF
@@ -332,7 +332,7 @@ resource "aws_subnet" "lana_b" {
 
 resource "aws_directory_service_directory" "lana" {
   name     = "lana.test"
-  password = "LakeformationAppsyncNeptuneAndAthenaPassw0rd!"
+  password = "LanaPassw0rd!"
   type     = "SimpleAD"
   size     = "Small"
 
@@ -379,7 +379,7 @@ resource "aws_directory_service_radius_settings" "lana" {
 
 resource "aws_directory_service_directory" "lana_msad" {
   name     = "lana-msad.test"
-  password = "LakeformationAppsyncNeptuneAndAthenaMsadPassw0rd!"
+  password = "LanaMsadPassw0rd!"
   edition  = "Enterprise"
   type     = "MicrosoftAD"
 

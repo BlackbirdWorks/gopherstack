@@ -321,7 +321,7 @@ func verifyElasticsearchGrafanaAndRAMElasticsearch(ctx context.Context, t *testi
 	assert.Contains(
 		t,
 		aws.ToString(configOut.DomainConfig.AccessPolicies.Options),
-		"ElasticsearchGrafanaAndRAMESPolicy",
+		"EgarESPolicy",
 	)
 
 	require.NotNil(t, configOut.DomainConfig.AdvancedSecurityOptions)

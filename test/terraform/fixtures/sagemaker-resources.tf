@@ -244,7 +244,7 @@ resource "aws_sagemaker_endpoint" "example" {
 
 resource "aws_sagemaker_pipeline" "example" {
   pipeline_name         = "smkr-pipeline"
-  pipeline_display_name = "SagemakerResourcesPipeline"
+  pipeline_display_name = "SmkrPipeline"
   role_arn              = aws_iam_role.sagemaker.arn
 
   pipeline_definition = jsonencode({

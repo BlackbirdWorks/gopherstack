@@ -42,7 +42,7 @@ resource "aws_efs_file_system_policy" "dbae" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "DocdbAmplifyAndEventbridge"
+      Sid       = "Dbae"
       Effect    = "Allow"
       Principal = { AWS = "*" }
       Action    = "elasticfilesystem:ClientMount"
@@ -70,7 +70,7 @@ resource "aws_xray_resource_policy" "dbae" {
   policy_document = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "DocdbAmplifyAndEventbridgeXRay"
+      Sid       = "DbaeXRay"
       Effect    = "Allow"
       Principal = { Service = "xray.amazonaws.com" }
       Action    = "xray:PutTraceSegments"
@@ -108,7 +108,7 @@ resource "aws_cloudwatch_event_bus_policy" "dbae" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "DocdbAmplifyAndEventbridgeBus"
+      Sid       = "DbaeBus"
       Effect    = "Allow"
       Principal = { AWS = "999999999999" }
       Action    = "events:PutEvents"
@@ -123,7 +123,7 @@ resource "aws_cloudwatch_event_bus" "dbae_perm" {
 
 resource "aws_cloudwatch_event_permission" "dbae" {
   principal      = "888888888888"
-  statement_id   = "DocdbAmplifyAndEventbridgePermission"
+  statement_id   = "DbaePermission"
   event_bus_name = aws_cloudwatch_event_bus.dbae_perm.name
 }
 
@@ -257,7 +257,7 @@ resource "aws_sns_topic" "dbae_anomaly" {
   policy = jsonencode({
     Version = "2008-10-17"
     Statement = [{
-      Sid       = "DocdbAmplifyAndEventbridgeAllowCE"
+      Sid       = "DbaeAllowCE"
       Effect    = "Allow"
       Principal = { Service = "costalerts.amazonaws.com" }
       Action    = "SNS:Publish"

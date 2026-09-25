@@ -82,7 +82,7 @@ resource "aws_appstream_directory_config" "orap" {
 
   service_account_credentials {
     account_name     = "orap-service-account"
-    account_password = "OrganizationsAndAppstreamPassword1!"
+    account_password = "OrapPassword1!"
   }
 }
 
@@ -168,7 +168,7 @@ resource "aws_organizations_policy" "orap" {
   content = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid      = "OrganizationsAndAppstream"
+      Sid      = "Orap"
       Effect   = "Allow"
       Action   = "*"
       Resource = "*"
@@ -187,7 +187,7 @@ resource "aws_organizations_resource_policy" "orap" {
   content = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "OrganizationsAndAppstreamResourcePolicy"
+      Sid       = "OrapResourcePolicy"
       Effect    = "Allow"
       Principal = { AWS = "arn:aws:iam::999999999999:root" }
       Action    = "organizations:DescribeResourcePolicy"

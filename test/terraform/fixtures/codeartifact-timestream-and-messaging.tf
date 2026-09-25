@@ -116,7 +116,7 @@ resource "aws_memorydb_user" "ctmm" {
 
   authentication_mode {
     type      = "password"
-    passwords = ["CodeartifactTimestreamAndMessagingPassword1234567890"]
+    passwords = ["CtmmPassword1234567890"]
   }
 }
 

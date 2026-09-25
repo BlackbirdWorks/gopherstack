@@ -248,5 +248,5 @@ func verifyOrganizationsAndAppstreamOrganizations(ctx context.Context, t *testin
 
 	rpOut, err := client.DescribeResourcePolicy(ctx, &organizationssvc48.DescribeResourcePolicyInput{})
 	require.NoError(t, err, "DescribeResourcePolicy should succeed")
-	assert.Contains(t, aws.ToString(rpOut.ResourcePolicy.Content), "OrganizationsAndAppstreamResourcePolicy")
+	assert.Contains(t, aws.ToString(rpOut.ResourcePolicy.Content), "OrapResourcePolicy")
 }

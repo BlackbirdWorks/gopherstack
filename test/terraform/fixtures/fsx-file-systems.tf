@@ -113,7 +113,7 @@ resource "aws_fsx_windows_file_system" "fsxf" {
   self_managed_active_directory {
     dns_ips     = ["10.192.0.10", "10.192.0.11"]
     domain_name = "fsxf.example.test"
-    password    = "FsxFileSystemsPassword!"
+    password    = "FsxfPassword!"
     username    = "Admin"
   }
 

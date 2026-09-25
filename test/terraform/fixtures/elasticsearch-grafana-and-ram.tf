@@ -286,7 +286,7 @@ resource "aws_elasticsearch_domain_policy" "egar" {
   access_policies = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "ElasticsearchGrafanaAndRamESPolicy"
+      Sid       = "EgarESPolicy"
       Effect    = "Allow"
       Principal = { AWS = "*" }
       Action    = "es:*"

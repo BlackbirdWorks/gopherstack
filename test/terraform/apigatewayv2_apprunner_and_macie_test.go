@@ -88,7 +88,7 @@ func verifyApigatewayv2ApprunnerAndMacieAPIGatewayV2(ctx context.Context, t *tes
 	modelsOut, err := client.GetModels(ctx, &apigwv2svc.GetModelsInput{ApiId: aws.String(httpAPIID)})
 	require.NoError(t, err, "GetModels should succeed")
 	require.Len(t, modelsOut.Items, 1)
-	assert.Equal(t, "Apigatewayv2ApprunnerAndMacieModel", aws.ToString(modelsOut.Items[0].Name))
+	assert.Equal(t, "AgamModel", aws.ToString(modelsOut.Items[0].Name))
 
 	integsOut, err := client.GetIntegrations(ctx, &apigwv2svc.GetIntegrationsInput{ApiId: aws.String(httpAPIID)})
 	require.NoError(t, err, "GetIntegrations should succeed")

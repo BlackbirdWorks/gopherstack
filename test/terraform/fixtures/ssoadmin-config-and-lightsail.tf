@@ -122,7 +122,7 @@ resource "aws_lightsail_database" "example" {
   availability_zone        = "us-east-1a"
   master_database_name     = "ssol"
   master_username          = "ssoladmin"
-  master_password          = "SsoadminConfigAndLightsailPassword!"
+  master_password          = "SsolPassword!"
   blueprint_id             = "mysql_8_0"
   bundle_id                = "micro_2_0"
   skip_final_snapshot      = true

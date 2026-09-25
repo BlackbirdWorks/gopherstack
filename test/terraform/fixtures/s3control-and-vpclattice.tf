@@ -121,7 +121,7 @@ resource "aws_s3control_multi_region_access_point_policy" "example" {
     policy = jsonencode({
       Version = "2012-10-17"
       Statement = [{
-        Sid       = "S3controlAndVpclatticeMRAPPolicy"
+        Sid       = "S3vlMRAPPolicy"
         Effect    = "Allow"
         Principal = { AWS = "000000000000" }
         Action    = ["s3:GetObject", "s3:PutObject"]

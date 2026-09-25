@@ -119,7 +119,7 @@ func verifyDocdbAmplifyAndEventbridgeEFS(ctx context.Context, t *testing.T) {
 		FileSystemId: aws.String(fsID),
 	})
 	require.NoError(t, err, "DescribeFileSystemPolicy should succeed")
-	assert.Contains(t, aws.ToString(polOut.Policy), "DocdbAmplifyAndEventbridge")
+	assert.Contains(t, aws.ToString(polOut.Policy), "Dbae")
 }
 
 func verifyDocdbAmplifyAndEventbridgeXRay(ctx context.Context, t *testing.T) {
@@ -179,13 +179,13 @@ func verifyDocdbAmplifyAndEventbridgeEventBridge(ctx context.Context, t *testing
 		Name: aws.String("dbae-bus"),
 	})
 	require.NoError(t, err, "DescribeEventBus should succeed")
-	assert.Contains(t, aws.ToString(busOut.Policy), "DocdbAmplifyAndEventbridgeBus")
+	assert.Contains(t, aws.ToString(busOut.Policy), "DbaeBus")
 
 	permBusOut, err := client.DescribeEventBus(ctx, &eventbridgesvc46.DescribeEventBusInput{
 		Name: aws.String("dbae-perm-bus"),
 	})
 	require.NoError(t, err, "DescribeEventBus for perm bus should succeed")
-	assert.Contains(t, aws.ToString(permBusOut.Policy), "DocdbAmplifyAndEventbridgePermission")
+	assert.Contains(t, aws.ToString(permBusOut.Policy), "DbaePermission")
 
 	targetsOut, err := client.ListTargetsByRule(ctx, &eventbridgesvc46.ListTargetsByRuleInput{
 		Rule:         aws.String("dbae-rule"),

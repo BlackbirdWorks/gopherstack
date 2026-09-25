@@ -121,7 +121,7 @@ resource "aws_securityhub_account" "example" {
 resource "aws_securityhub_action_target" "example" {
   depends_on  = [aws_securityhub_account.example]
   name        = "gdsh-action"
-  identifier  = "GuarddutyAndSecurityhubAction"
+  identifier  = "GdshAction"
   description = "gdsh custom action"
 }
 

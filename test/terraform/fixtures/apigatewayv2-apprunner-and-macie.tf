@@ -90,11 +90,11 @@ resource "aws_apigatewayv2_authorizer" "http" {
 resource "aws_apigatewayv2_model" "http" {
   api_id       = aws_apigatewayv2_api.http.id
   content_type = "application/json"
-  name         = "Apigatewayv2ApprunnerAndMacieModel"
+  name         = "AgamModel"
 
   schema = jsonencode({
     "$schema" = "http://json-schema.org/draft-04/schema#"
-    title     = "Apigatewayv2ApprunnerAndMacieModel"
+    title     = "AgamModel"
     type      = "object"
 
     properties = {

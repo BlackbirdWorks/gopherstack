@@ -150,7 +150,7 @@ func verifyLakeformationAppsyncNeptuneAndAthenaAppSync(ctx context.Context, t *t
 	typeOut, err := client.GetType(ctx, &appsyncsvc39.GetTypeInput{
 		ApiId:    aws.String(apiID),
 		Format:   appsynctypes39.TypeDefinitionFormatSdl,
-		TypeName: aws.String("LakeformationAppsyncNeptuneAndAthenaWidget"),
+		TypeName: aws.String("LanaWidget"),
 	})
 	require.NoError(t, err, "GetType should succeed")
 	require.NotNil(t, typeOut.Type)

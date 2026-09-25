@@ -94,7 +94,7 @@ resource "aws_fsx_windows_file_system" "dsfx" {
   self_managed_active_directory {
     dns_ips     = ["10.216.0.10", "10.216.0.11"]
     domain_name = "dsfx.example.test"
-    password    = "DatasyncFsxLocationsPassword!"
+    password    = "DsfxPassword!"
     username    = "Admin"
   }
 
@@ -143,5 +143,5 @@ resource "aws_datasync_location_fsx_windows_file_system" "dsfx" {
   fsx_filesystem_arn  = aws_fsx_windows_file_system.dsfx.arn
   security_group_arns = [aws_security_group.dsfx.arn]
   user                = "Admin"
-  password            = "DatasyncFsxLocationsPassword!"
+  password            = "DsfxPassword!"
 }

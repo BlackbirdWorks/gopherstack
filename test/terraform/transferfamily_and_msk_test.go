@@ -209,7 +209,7 @@ func verifyTransferfamilyAndMskKafka(ctx context.Context, t *testing.T) {
 
 	policyOut, err := client.GetClusterPolicy(ctx, &kafkasvc.GetClusterPolicyInput{ClusterArn: aws.String(targetArn)})
 	require.NoError(t, err, "GetClusterPolicy should succeed")
-	assert.Contains(t, aws.ToString(policyOut.Policy), "TransferfamilyAndMskClusterPolicy")
+	assert.Contains(t, aws.ToString(policyOut.Policy), "TrfmClusterPolicy")
 
 	vpcConnsOut, err := client.ListVpcConnections(ctx, &kafkasvc.ListVpcConnectionsInput{})
 	require.NoError(t, err, "ListVpcConnections should succeed")

@@ -14,7 +14,7 @@ resource "aws_cognito_user_pool_client" "cecw" {
 
 resource "aws_cognito_identity_provider" "cecw" {
   user_pool_id  = aws_cognito_user_pool.cecw.id
-  provider_name = "CognitoEcsCloudformationAndWafv2Google"
+  provider_name = "CecwGoogle"
   provider_type = "Google"
 
   provider_details = {
@@ -224,7 +224,7 @@ resource "aws_cloudformation_stack_instances" "cecw" {
 
 resource "aws_cloudformation_type" "cecw" {
   type                   = "RESOURCE"
-  type_name              = "CognitoEcsCloudformationAndWafv2::Example::Resource"
+  type_name              = "Cecw::Example::Resource"
   schema_handler_package = "s3://cecw-bucket/schema-handler.zip"
 }
 

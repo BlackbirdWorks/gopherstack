@@ -81,7 +81,7 @@ func verifyCognitoEcsCloudformationAndWafv2Cognito(ctx context.Context, t *testi
 	})
 	require.NoError(t, err, "ListIdentityProviders should succeed")
 	require.NotEmpty(t, idpOut.Providers)
-	assert.Equal(t, "CognitoEcsCloudformationAndWafv2Google", aws.ToString(idpOut.Providers[0].ProviderName))
+	assert.Equal(t, "CecwGoogle", aws.ToString(idpOut.Providers[0].ProviderName))
 
 	rsOut, err := client.DescribeResourceServer(ctx, &cidpsvc37.DescribeResourceServerInput{
 		UserPoolId: aws.String(poolID),
@@ -212,10 +212,10 @@ func verifyCognitoEcsCloudformationAndWafv2CloudFormation(ctx context.Context, t
 
 	typeOut, err := client.DescribeType(ctx, &cfnsvc37.DescribeTypeInput{
 		Type:     cfntypes37.RegistryTypeResource,
-		TypeName: aws.String("CognitoEcsCloudformationAndWafv2::Example::Resource"),
+		TypeName: aws.String("Cecw::Example::Resource"),
 	})
 	require.NoError(t, err, "DescribeType should succeed")
-	assert.Equal(t, "CognitoEcsCloudformationAndWafv2::Example::Resource", aws.ToString(typeOut.TypeName))
+	assert.Equal(t, "Cecw::Example::Resource", aws.ToString(typeOut.TypeName))
 }
 
 func verifyCognitoEcsCloudformationAndWafv2CodeBuild(ctx context.Context, t *testing.T) {

@@ -182,7 +182,7 @@ resource "aws_msk_cluster_policy" "trfm" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "TransferfamilyAndMskClusterPolicy"
+      Sid       = "TrfmClusterPolicy"
       Effect    = "Allow"
       Principal = { AWS = "arn:aws:iam::000000000000:root" }
       Action    = "kafka:GetBootstrapBrokers"

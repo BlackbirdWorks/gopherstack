@@ -383,7 +383,7 @@ resource "aws_timestreamquery_scheduled_query" "aswm" {
 
 resource "aws_directory_service_directory" "aswm" {
   name     = "aswm.example.com"
-  password = "AppmeshShieldAndWorkspacesPass!"
+  password = "AswmPass!"
   size     = "Small"
   type     = "SimpleAD"
 
@@ -496,7 +496,7 @@ resource "aws_kinesisanalyticsv2_application_snapshot" "aswm" {
 
 resource "aws_directory_service_directory" "aswm_msad" {
   name     = "aswmmsad.example.com"
-  password = "AppmeshShieldAndWorkspacesMsadPass!"
+  password = "AswmMsadPass!"
   edition  = "Standard"
   type     = "MicrosoftAD"
 
@@ -513,6 +513,6 @@ resource "aws_directory_service_directory" "aswm_msad" {
 resource "aws_directory_service_trust" "aswm" {
   directory_id       = aws_directory_service_directory.aswm_msad.id
   remote_domain_name = "remote-aswm.example.com"
-  trust_password     = "AppmeshShieldAndWorkspacesTrustPass!"
+  trust_password     = "AswmTrustPass!"
   trust_direction    = "One-Way: Outgoing"
 }

@@ -211,7 +211,7 @@ func verifySagemakerResourcesSageMaker(ctx context.Context, t *testing.T) {
 		PipelineName: aws.String("smkr-pipeline"),
 	})
 	require.NoError(t, err, "DescribePipeline should succeed")
-	assert.Equal(t, "SagemakerResourcesPipeline", aws.ToString(pipelineOut.PipelineDisplayName))
+	assert.Equal(t, "SmkrPipeline", aws.ToString(pipelineOut.PipelineDisplayName))
 
 	projOut, err := client.DescribeProject(ctx, &sagemakersvc.DescribeProjectInput{
 		ProjectName: aws.String("smkr-project"),
