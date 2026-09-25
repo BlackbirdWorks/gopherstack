@@ -3,11 +3,22 @@ package cloudformation
 
 //nolint:gochecknoglobals // generated static lookup table
 var cfnResourceAttributes = map[string]map[string]struct{}{
+	resTypeAccessAnalyzerAnalyzer: {
+		attrNameArn: {},
+	},
+	resTypeAccessAnalyzerArchiveRule: {
+		attrNameArn: {},
+		"CreatedAt": {},
+		"UpdatedAt": {},
+	},
 	resTypeAPIGatewayV2Integ: {
 		"IntegrationId": {},
 	},
 	resTypeAPIGatewayV2Route: {
 		"RouteId": {},
+	},
+	resTypeAppConfigEnvironment: {
+		"EnvironmentId": {},
 	},
 	resTypeAppSyncChannelNamespace: {
 		"ChannelNamespaceArn": {},
@@ -30,6 +41,12 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 	},
 	resTypeBackupReportPlan: {
 		"ReportPlanArn": {},
+	},
+	resTypeBatchSchedulingPolicy: {
+		attrNameArn: {},
+	},
+	resTypeBatchServiceEnvironment: {
+		"ServiceEnvironmentArn": {},
 	},
 	resTypeCloudTrailChannel: {
 		"ChannelArn": {},
@@ -60,6 +77,14 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 	resTypeConfigStoredQuery: {
 		"QueryArn": {},
 		"QueryId":  {},
+	},
+	resTypeDataSyncAgent: {
+		"AgentArn":     {},
+		"EndpointType": {},
+	},
+	resTypeDataSyncLocationS3: {
+		"LocationArn": {},
+		"LocationUri": {},
 	},
 	resTypeDocDBGlobalCluster: {
 		"GlobalClusterArn":        {},
@@ -99,6 +124,10 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 	},
 	resTypeECSCluster: {
 		attrNameArn: {},
+	},
+	resTypeEFSAccessPoint: {
+		"AccessPointId": {},
+		attrNameArn:     {},
 	},
 	resTypeEKSAccessEntry: {
 		"AccessEntryArn": {},
@@ -222,6 +251,9 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 		"ARN":                   {},
 		"SupportedNetworkTypes": {},
 	},
+	resTypeRedshiftClusterSubnetGroup: {
+		"ClusterSubnetGroupName": {},
+	},
 	resTypeR53RResolverRuleAssoc: {
 		attrNameName:                {},
 		"ResolverRuleAssociationId": {},
@@ -284,5 +316,13 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 		attrNameArn:              {},
 		attrNameName:             {},
 		"StateMachineRevisionId": {},
+	},
+	resTypeTransferProfile: {
+		attrNameArn: {},
+		"ProfileId": {},
+	},
+	resTypeTransferWorkflow: {
+		attrNameArn:  {},
+		"WorkflowId": {},
 	},
 }

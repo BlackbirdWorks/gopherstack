@@ -1531,7 +1531,19 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeCloudTrailEventDataStore,
 			resTypeLogsDelivery, resTypeLogsDeliveryDestination, resTypeLogsDeliverySource,
 			resTypeLogsIntegration, resTypeLogsAnomalyDetector, resTypeLogsScheduledQuery,
-			resTypeCodeArtifactDomain, resTypeCodeArtifactRepository, resTypeCodeArtifactPackageGroup:
+			resTypeCodeArtifactDomain, resTypeCodeArtifactRepository, resTypeCodeArtifactPackageGroup,
+			resTypeGlueBlueprint,
+			resTypeDataSyncAgent, resTypeDataSyncLocationS3, resTypeDataSyncTask,
+			resTypeTransferProfile, resTypeTransferWorkflow,
+			resTypeAppConfigApplication, resTypeAppConfigEnvironment,
+			resTypeAppConfigConfigurationProfile, resTypeAppConfigDeploymentStrategy,
+			resTypeMacieAllowList, resTypeMacieFindingsFilter,
+			resTypeGuardDutyDetector,
+			resTypeAccessAnalyzerAnalyzer,
+			resTypeAmplifyApp, resTypeAmplifyBranch,
+			resTypeBatchSchedulingPolicy, resTypeBatchServiceEnvironment,
+			resTypeEFSAccessPoint,
+			resTypeRedshiftClusterSubnetGroup:
 			return v
 		}
 	}

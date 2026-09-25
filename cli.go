@@ -397,6 +397,10 @@ type CLI struct {
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
+	datasyncHandler               service.Registerable
+	macie2Handler                 service.Registerable
+	accessanalyzerHandler         service.Registerable
+	fsxHandler                    service.Registerable
 	ssmClient                     *ssmsdk.Client
 	ecsClient                     *ecs.Client
 	amplifyClient                 *amplifysdk.Client
@@ -1752,6 +1756,26 @@ func (c *CLI) GetCognitoIDPHandler() service.Registerable { return c.cognitoIDPH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCognitoIdentityHandler() service.Registerable { return c.cognitoIdentityHandler }
 
+// GetDataSyncHandler returns the DataSync handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDataSyncHandler() service.Registerable { return c.datasyncHandler }
+
+// GetMacie2Handler returns the Macie2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMacie2Handler() service.Registerable { return c.macie2Handler }
+
+// GetAccessAnalyzerHandler returns the AccessAnalyzer handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAccessAnalyzerHandler() service.Registerable { return c.accessanalyzerHandler }
+
+// GetFSxHandler returns the FSx handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetFSxHandler() service.Registerable { return c.fsxHandler }
+
 // GetFaultStore returns the chaos fault store (dashboard.AWSSDKProvider).
 func (c *CLI) GetFaultStore() *chaos.FaultStore { return c.faultStore }
 
@@ -2840,6 +2864,10 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.networkmanagerHandler = byName["NetworkManager"]
 	cli.lightsailHandler = byName["Lightsail"]
 	cli.directoryServiceHandler = byName["DirectoryService"]
+	cli.datasyncHandler = byName["DataSync"]
+	cli.macie2Handler = byName["Macie2"]
+	cli.accessanalyzerHandler = byName["AccessAnalyzer"]
+	cli.fsxHandler = byName["FSx"]
 }
 
 // initializeServices initializes all service providers, wires the

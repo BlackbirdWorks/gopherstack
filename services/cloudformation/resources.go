@@ -70,10 +70,16 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
+	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
+	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
+	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
@@ -151,8 +157,15 @@ type ServiceBackends struct {
 	SageMaker        *sagemakerbackend.Handler
 	Athena           *athenabackend.Handler
 	CodeArtifact     *codeartifactbackend.Handler
-	AccountID        string
-	Region           string
+	// Phase-6 backends
+	DataSync       *datasyncbackend.Handler
+	AppConfig      *appconfigbackend.Handler
+	Macie2         *macie2backend.Handler
+	GuardDuty      *guarddutybackend.Handler
+	AccessAnalyzer *accessanalyzerbackend.Handler
+	Amplify        *amplifybackend.Handler
+	AccountID      string
+	Region         string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
@@ -1476,8 +1489,24 @@ func (rc *ResourceCreator) deletePropsBasedResource(
 	case resTypeCodeArtifactPackageGroup:
 		return true, rc.deleteCodeArtifactPackageGroup(ctx, props, stackPhysicalIDs)
 	default:
-		return rc.deleteMorePropsBasedResource(resourceType, props, stackPhysicalIDs)
+		return rc.deleteOverflowPropsBasedResource(physicalID, resourceType, props, stackPhysicalIDs)
 	}
+}
+
+// deleteOverflowPropsBasedResource chains deleteNewestPropsBasedResource
+// (which needs physicalID) ahead of deleteMorePropsBasedResource (which
+// doesn't), keeping deletePropsBasedResource's own switch -- already at its
+// cyclop budget -- to a single call in its default case.
+func (rc *ResourceCreator) deleteOverflowPropsBasedResource(
+	physicalID, resourceType string, props map[string]any, stackPhysicalIDs map[string]string,
+) (bool, error) {
+	if handled, err := rc.deleteNewestPropsBasedResource(
+		physicalID, resourceType, props, stackPhysicalIDs,
+	); handled {
+		return true, err
+	}
+
+	return rc.deleteMorePropsBasedResource(resourceType, props, stackPhysicalIDs)
 }
 
 // deleteCoreResource handles deletion of the original 7 core AWS resource types.
@@ -2156,7 +2185,7 @@ func (rc *ResourceCreator) createNewerSupplementalResource(
 		return id, true, err
 	}
 
-	return "", false, nil
+	return rc.createNewestSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
 // deleteSupplementalResource handles deletion for the supplemental resource types
@@ -2286,7 +2315,7 @@ func (rc *ResourceCreator) deleteNewerSupplementalResource(
 		return true, err
 	}
 
-	return false, nil
+	return rc.deleteNewestSupplementalResource(ctx, resourceType, physicalID)
 }
 
 // deleteComputePlatformResource handles EKS, EFS, Batch, CloudFront, AutoScaling,

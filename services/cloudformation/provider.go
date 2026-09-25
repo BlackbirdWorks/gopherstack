@@ -4,9 +4,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
+	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -22,6 +25,7 @@ import (
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -34,12 +38,14 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
@@ -142,6 +148,12 @@ type BackendsProvider interface {
 	GetAWSConfigHandler() service.Registerable
 	GetSageMakerHandler() service.Registerable
 	GetAthenaHandler() service.Registerable
+	GetDataSyncHandler() service.Registerable
+	GetAppConfigHandler() service.Registerable
+	GetMacie2Handler() service.Registerable
+	GetGuardDutyHandler() service.Registerable
+	GetAccessAnalyzerHandler() service.Registerable
+	GetAmplifyHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -187,6 +199,12 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.SageMaker, _ = getHandler[*sagemakerbackend.Handler](bp.GetSageMakerHandler())
 	backends.Athena, _ = getHandler[*athenabackend.Handler](bp.GetAthenaHandler())
 	backends.CodeArtifact, _ = getHandler[*codeartifactbackend.Handler](bp.GetCodeArtifactHandler())
+	backends.DataSync, _ = getHandler[*datasyncbackend.Handler](bp.GetDataSyncHandler())
+	backends.AppConfig, _ = getHandler[*appconfigbackend.Handler](bp.GetAppConfigHandler())
+	backends.Macie2, _ = getHandler[*macie2backend.Handler](bp.GetMacie2Handler())
+	backends.GuardDuty, _ = getHandler[*guarddutybackend.Handler](bp.GetGuardDutyHandler())
+	backends.AccessAnalyzer, _ = getHandler[*accessanalyzerbackend.Handler](bp.GetAccessAnalyzerHandler())
+	backends.Amplify, _ = getHandler[*amplifybackend.Handler](bp.GetAmplifyHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

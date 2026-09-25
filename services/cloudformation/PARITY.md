@@ -1,7 +1,41 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 43e38e92b  # 2026-09-24 24 new resource types added: Lambda
+last_audit_commit: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
+                               # Blueprint/CustomEntityType/Workflow (3 types);
+                               # DataSync Agent/LocationS3/Task (3 types);
+                               # Transfer Profile/Workflow (2 types); AppConfig
+                               # Application/Environment/ConfigurationProfile/
+                               # DeploymentStrategy (4 types); Macie
+                               # AllowList/FindingsFilter (2 types); GuardDuty
+                               # Detector/IPSet (2 types); AccessAnalyzer
+                               # Analyzer/ArchiveRule (2 types); Amplify
+                               # App/Branch (2 types); Batch
+                               # SchedulingPolicy/ServiceEnvironment (2 types);
+                               # EFS AccessPoint (1 type); Redshift
+                               # ClusterParameterGroup/ClusterSubnetGroup (2
+                               # types) (380 -> 405 supported types); DataSync,
+                               # AppConfig, Macie2, AccessAnalyzer newly wired
+                               # into the CloudFormation backend (cli.go
+                               # gained datasyncHandler/macie2Handler/
+                               # accessanalyzerHandler fields + getters --
+                               # FSx was NOT wired: every FSx InMemoryBackend
+                               # Create* method takes an unexported input
+                               # struct pointer, uncallable from outside the
+                               # fsx package, so AWS::FSx::FileSystem/Backup
+                               # were skipped rather than stubbed; GuardDuty/
+                               # Amplify/AppConfig already had cli.go getters,
+                               # just needed BackendsProvider/ServiceBackends
+                               # wiring); cfn_attributes_gen.go regenerated
+                               # (cmd/cfnattrgen) -- most new attribute names
+                               # (Id, Status, ApplicationId, AppId, ...) were
+                               # excluded by its goconst-safety rule (already
+                               # common literals elsewhere in the package),
+                               # which is documented conservative behavior,
+                               # not a regression: an excluded attribute falls
+                               # back to pre-existing permissive resolution
+                               # rather than being wrongly rejected;
+                               # prior: 43e38e92b  # 2026-09-24 24 new resource types added: Lambda
                                # CodeSigningConfig; Events Endpoint; Scheduler
                                # ScheduleGroup; AppSync DomainName/GraphQLSchema/
                                # ChannelNamespace (3 types); Route53Resolver
@@ -204,6 +238,90 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-24 (parity sweep): 25 new resource types (380 -> 405), 6 new backend families wired
+
+Added real create+delete support for 25 `AWS::*` resource types across 11
+service families, each backed by a genuine `InMemoryBackend` call (no
+stubs), with Ref/Fn::GetAtt verified against the live AWS CloudFormation
+Template Reference docs (fetched this pass):
+
+- **Glue**: Blueprint, CustomEntityType, Workflow (`resources_glue_newer.go`)
+- **DataSync**: Agent, LocationS3, Task (`resources_datasync.go`)
+- **Transfer**: Profile, Workflow (`resources_transfer_more.go`)
+- **AppConfig**: Application, Environment, ConfigurationProfile,
+  DeploymentStrategy (`resources_appconfig.go`)
+- **Macie**: AllowList, FindingsFilter (`resources_macie.go`)
+- **GuardDuty**: Detector, IPSet (`resources_guardduty.go`)
+- **AccessAnalyzer**: Analyzer, ArchiveRule (`resources_accessanalyzer.go`)
+- **Amplify**: App, Branch (`resources_amplify.go`)
+- **Batch**: SchedulingPolicy, ServiceEnvironment (`resources_batch_more.go`)
+- **EFS**: AccessPoint (`resources_efs_more.go`)
+- **Redshift**: ClusterParameterGroup, ClusterSubnetGroup
+  (`resources_redshift_more.go`)
+
+Dispatch wiring lives in `resources_newest_dispatch.go`, chained off the end
+of `createNewerSupplementalResource`/`deleteNewerSupplementalResource`
+(create/delete-by-physicalID) and off `deletePropsBasedResource`'s default
+case via a new `deleteOverflowPropsBasedResource` (delete-needing-sibling-
+properties, for AppConfig Environment/ConfigurationProfile, GuardDuty IPSet,
+Amplify Branch, and AccessAnalyzer ArchiveRule). The extra indirection
+(`deleteOverflowPropsBasedResource`) exists solely to keep
+`deletePropsBasedResource`'s own switch -- already at its cyclop budget --
+to a single call in its `default` case.
+
+**Backend wiring.** DataSync, AppConfig, Macie2, and AccessAnalyzer were not
+previously reachable from CloudFormation at all: `cli.go` gained
+`datasyncHandler`/`macie2Handler`/`accessanalyzerHandler` fields, `byName[...]`
+assignments, and `GetDataSyncHandler`/`GetMacie2Handler`/
+`GetAccessAnalyzerHandler` getters (mirroring the existing pattern for every
+other service). GuardDuty, Amplify, and AppConfig already had cli.go getters
+from earlier work; they only needed `BackendsProvider` interface entries and
+`ServiceBackends` struct fields/extraction wiring in `provider.go`/
+`resources.go`.
+
+**FSx was skipped, not stubbed.** Every `fsx.InMemoryBackend` `Create*`
+method (`CreateFileSystem`, `CreateBackup`, `CreateStorageVirtualMachine`,
+`CreateVolume`, `CreateSnapshot`, ...) takes an *unexported* input struct
+pointer (e.g. `*createFileSystemInput`) as its sole parameter -- even though
+the methods themselves are exported and part of the exported
+`StorageBackend` interface, no code outside the `fsx` package can construct
+that argument, so none of them is callable from `services/cloudformation`.
+This differs from every other family added this pass (and from FSx's own
+sibling packages), where `Create*` takes either plain scalars or an exported
+struct. `AWS::FSx::FileSystem` and `AWS::FSx::Backup` were dropped from the
+candidate list rather than worked around (e.g. by hand-marshaling JSON
+through the HTTP-level op dispatch) to avoid a fragile, unprecedented
+integration shape for two resource types.
+
+**cfn_attributes_gen.go regenerated** via
+`go run ./cmd/cfnattrgen -spec <cfn-resource-spec.json> -src services/cloudformation -out services/cloudformation/cfn_attributes_gen.go`.
+Most of the new types' attribute names that are also common English words
+used as struct/JSON keys elsewhere in this package (`Id`, `Status`,
+`ApplicationId`, `AppId`, `ConfigurationProfileId`, ...) were excluded by the
+generator's own goconst-safety rule -- adding them as new map-key literals
+would have tipped an already-frequent literal over golangci-lint's
+`goconst` `min-occurrences: 3` threshold. Per the generator's documented
+contract this is conservative, not lossy: an attribute absent from the table
+falls back to today's pre-existing (permissive) `Fn::GetAtt` resolution
+rather than being wrongly rejected as undocumented. Attribute names distinct
+enough to clear the threshold (`AgentArn`, `LocationArn`, `EndpointType`,
+`ServiceEnvironmentArn`, `ClusterSubnetGroupName`, `ProfileId`,
+`WorkflowId`, ...) made it into the table normally.
+
+Tests: `resources_newest_sweep_test.go`, table-driven with `t.Parallel()`
+throughout, one real `CreateStack` -> `Fn::GetAtt`/`Outputs` -> `DeleteStack`
+round trip per type, asserting the backend object exists after create and is
+gone after delete. Several deliberately exercise real `Fn::GetAtt`
+cross-references between resources rather than `Ref`: `DataSync::Task`'s
+`SourceLocationArn`/`DestinationLocationArn` from two `LocationS3` resources'
+`LocationArn` attribute; `AppConfig::Environment`/`ConfigurationProfile`'s
+`ApplicationId` from the owning `Application`; `GuardDuty::IPSet`'s
+`DetectorId` from the owning `Detector`; `Amplify::Branch`'s `AppId` from the
+owning `App`; and `AccessAnalyzer::ArchiveRule`'s `AnalyzerName` from the
+owning `Analyzer`'s `Arn` attribute (requiring the same ARN-to-name
+conversion `resourceNameFromARN` already provides for
+`AccessAnalyzer::Analyzer`'s own ARN-shaped `Ref`).
 
 ### 2026-09-24 (GetAtt follow-ups): delete-time attribute stash persists on the stack; Fn::GetAtt on an undocumented attribute is a ValidationError
 
