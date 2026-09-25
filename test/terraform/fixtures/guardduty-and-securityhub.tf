@@ -14,7 +14,7 @@ resource "aws_guardduty_detector_feature" "example" {
 
 resource "aws_guardduty_filter" "example" {
   detector_id = aws_guardduty_detector.example.id
-  name        = "mega-batch-19-filter"
+  name        = "gdsh-filter"
   action      = "ARCHIVE"
   rank        = 1
 
@@ -27,7 +27,7 @@ resource "aws_guardduty_filter" "example" {
 }
 
 resource "aws_s3_bucket" "guardduty" {
-  bucket        = "mega-batch-19-guardduty"
+  bucket        = "gdsh-guardduty"
   force_destroy = true
 }
 
@@ -36,7 +36,7 @@ resource "aws_guardduty_ipset" "example" {
   detector_id = aws_guardduty_detector.example.id
   format      = "TXT"
   location    = "https://${aws_s3_bucket.guardduty.bucket}.s3.amazonaws.com/ipset.txt"
-  name        = "mega-batch-19-ipset"
+  name        = "gdsh-ipset"
 }
 
 resource "aws_guardduty_threatintelset" "example" {
@@ -44,11 +44,11 @@ resource "aws_guardduty_threatintelset" "example" {
   detector_id = aws_guardduty_detector.example.id
   format      = "TXT"
   location    = "https://${aws_s3_bucket.guardduty.bucket}.s3.amazonaws.com/threatintelset.txt"
-  name        = "mega-batch-19-threatintelset"
+  name        = "gdsh-threatintelset"
 }
 
 resource "aws_iam_role" "guardduty_malware" {
-  name = "mega-batch-19-gd-malware-role"
+  name = "gdsh-gd-malware-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -71,7 +71,7 @@ resource "aws_guardduty_malware_protection_plan" "example" {
 }
 
 resource "aws_kms_key" "guardduty" {
-  description             = "mega-batch-19 guardduty publishing key"
+  description             = "gdsh guardduty publishing key"
   deletion_window_in_days = 7
 }
 
@@ -84,7 +84,7 @@ resource "aws_guardduty_publishing_destination" "example" {
 resource "aws_guardduty_member" "example" {
   account_id  = "111122223333"
   detector_id = aws_guardduty_detector.example.id
-  email       = "member@mega-batch-19.example.com"
+  email       = "member@gdsh.example.com"
   invite      = true
 }
 
@@ -100,7 +100,7 @@ resource "aws_guardduty_organization_admin_account" "example" {
 }
 
 resource "aws_guardduty_organization_configuration" "example" {
-  detector_id                       = aws_guardduty_detector.example.id
+  detector_id                      = aws_guardduty_detector.example.id
   auto_enable_organization_members = "ALL"
 }
 
@@ -120,9 +120,9 @@ resource "aws_securityhub_account" "example" {
 
 resource "aws_securityhub_action_target" "example" {
   depends_on  = [aws_securityhub_account.example]
-  name        = "mega-batch-19-action"
-  identifier  = "MegaBatch19Action"
-  description = "mega batch 19 custom action"
+  name        = "gdsh-action"
+  identifier  = "GuarddutyAndSecurityhubAction"
+  description = "gdsh custom action"
 }
 
 resource "aws_securityhub_finding_aggregator" "example" {
@@ -132,7 +132,7 @@ resource "aws_securityhub_finding_aggregator" "example" {
 
 resource "aws_securityhub_insight" "example" {
   depends_on         = [aws_securityhub_account.example]
-  name               = "mega-batch-19-insight"
+  name               = "gdsh-insight"
   group_by_attribute = "ResourceId"
 
   filters {
@@ -145,8 +145,8 @@ resource "aws_securityhub_insight" "example" {
 
 resource "aws_securityhub_automation_rule" "example" {
   depends_on  = [aws_securityhub_account.example]
-  rule_name   = "mega-batch-19-automation-rule"
-  description = "mega batch 19 automation rule"
+  rule_name   = "gdsh-automation-rule"
+  description = "gdsh automation rule"
   rule_order  = 1
   rule_status = "ENABLED"
 
@@ -175,15 +175,15 @@ resource "aws_securityhub_standards_subscription" "example" {
 
 resource "aws_securityhub_standards_control" "example" {
   standards_control_arn = "${aws_securityhub_standards_subscription.example.id}/1"
-  control_status         = "DISABLED"
-  disabled_reason         = "mega batch 19 test"
+  control_status        = "DISABLED"
+  disabled_reason       = "gdsh test"
 }
 
 resource "aws_securityhub_standards_control_association" "example" {
   security_control_id = "IAM.1"
-  standards_arn        = "arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0"
-  association_status   = "DISABLED"
-  updated_reason       = "mega batch 19 test"
+  standards_arn       = "arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0"
+  association_status  = "DISABLED"
+  updated_reason      = "gdsh test"
 
   depends_on = [aws_securityhub_standards_subscription.example]
 }
@@ -196,13 +196,13 @@ resource "aws_securityhub_product_subscription" "example" {
 resource "aws_securityhub_member" "example" {
   depends_on = [aws_securityhub_account.example]
   account_id = "111122223333"
-  email      = "member@mega-batch-19.example.com"
+  email      = "member@gdsh.example.com"
   invite     = true
 }
 
 resource "aws_securityhub_configuration_policy" "example" {
   depends_on = [aws_securityhub_account.example]
-  name       = "mega-batch-19-config-policy"
+  name       = "gdsh-config-policy"
 
   configuration_policy {
     service_enabled = true

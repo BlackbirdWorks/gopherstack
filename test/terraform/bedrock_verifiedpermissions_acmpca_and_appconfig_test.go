@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch42 provisions a Bedrock Agents supervisor/collaborator
+// TestTerraform_BedrockVerifiedpermissionsAcmpcaAndAppconfig provisions a Bedrock Agents supervisor/collaborator
 // pair with an alias, collaborator association, Lambda action group, and a
 // knowledge base with an S3 data source and association; Bedrock guardrail
 // version, inference profile, model invocation logging, a custom model
@@ -28,17 +28,17 @@ import (
 // application/environment/hosted configuration/deployment plus an extension
 // and its association -- via Terraform, verifying each through its own SDK
 // client.
-func TestTerraform_MegaBatch42(t *testing.T) {
+func TestTerraform_BedrockVerifiedpermissionsAcmpcaAndAppconfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-42",
+			fixture: "bedrock-verifiedpermissions-acmpca-and-appconfig",
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 
-				functionZip := filepath.Join(dir, "mega-batch-42-function.zip")
+				functionZip := filepath.Join(dir, "bvaa-function.zip")
 				writeZipFixture(t, functionZip, "index.js",
 					"exports.handler = async () => ({statusCode: 200});\n")
 
@@ -48,11 +48,11 @@ func TestTerraform_MegaBatch42(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch42BedrockAgent(ctx, t)
-				verifyMegaBatch42Bedrock(ctx, t)
-				verifyMegaBatch42VerifiedPermissions(ctx, t)
-				verifyMegaBatch42ACMPCA(ctx, t)
-				verifyMegaBatch42AppConfig(ctx, t)
+				verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigBedrockAgent(ctx, t)
+				verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigBedrock(ctx, t)
+				verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigVerifiedPermissions(ctx, t)
+				verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigACMPCA(ctx, t)
+				verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigAppConfig(ctx, t)
 			},
 		},
 	}
@@ -65,7 +65,7 @@ func TestTerraform_MegaBatch42(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
+func verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigBedrockAgent(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -80,9 +80,9 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 
 	for _, a := range agentsOut.AgentSummaries {
 		switch aws.ToString(a.AgentName) {
-		case "mb42-supervisor-agent":
+		case "bvaa-supervisor-agent":
 			supervisorID = aws.ToString(a.AgentId)
-		case "mb42-collaborator-agent":
+		case "bvaa-collaborator-agent":
 			collaboratorID = aws.ToString(a.AgentId)
 		}
 	}
@@ -104,7 +104,7 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 	var aliasID string
 
 	for _, al := range aliasesOut.AgentAliasSummaries {
-		if aws.ToString(al.AgentAliasName) == "mb42-collaborator-alias" {
+		if aws.ToString(al.AgentAliasName) == "bvaa-collaborator-alias" {
 			aliasID = aws.ToString(al.AgentAliasId)
 		}
 	}
@@ -116,7 +116,7 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 		AgentAliasId: aws.String(aliasID),
 	})
 	require.NoError(t, err, "GetAgentAlias should succeed")
-	assert.Equal(t, "mb42-collaborator-alias", aws.ToString(getAlias.AgentAlias.AgentAliasName))
+	assert.Equal(t, "bvaa-collaborator-alias", aws.ToString(getAlias.AgentAlias.AgentAliasName))
 
 	collabsOut, err := client.ListAgentCollaborators(ctx, &bedrockagentsvc42.ListAgentCollaboratorsInput{
 		AgentId:      aws.String(supervisorID),
@@ -128,7 +128,7 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 	var collaboratorAssocID string
 
 	for _, c := range collabsOut.AgentCollaboratorSummaries {
-		if aws.ToString(c.CollaboratorName) == "mb42-collaborator" {
+		if aws.ToString(c.CollaboratorName) == "bvaa-collaborator" {
 			collaboratorAssocID = aws.ToString(c.CollaboratorId)
 		}
 	}
@@ -153,7 +153,7 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 	var actionGroupID string
 
 	for _, ag := range actionGroupsOut.ActionGroupSummaries {
-		if aws.ToString(ag.ActionGroupName) == "mb42-action-group" {
+		if aws.ToString(ag.ActionGroupName) == "bvaa-action-group" {
 			actionGroupID = aws.ToString(ag.ActionGroupId)
 		}
 	}
@@ -174,7 +174,7 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 	var kbID string
 
 	for _, kb := range kbsOut.KnowledgeBaseSummaries {
-		if aws.ToString(kb.Name) == "mb42-knowledge-base" {
+		if aws.ToString(kb.Name) == "bvaa-knowledge-base" {
 			kbID = aws.ToString(kb.KnowledgeBaseId)
 		}
 	}
@@ -197,7 +197,7 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 	var dataSourceID string
 
 	for _, ds := range dsOut.DataSourceSummaries {
-		if aws.ToString(ds.Name) == "mb42-data-source" {
+		if aws.ToString(ds.Name) == "bvaa-data-source" {
 			dataSourceID = aws.ToString(ds.DataSourceId)
 		}
 	}
@@ -209,10 +209,10 @@ func verifyMegaBatch42BedrockAgent(ctx context.Context, t *testing.T) {
 		DataSourceId:    aws.String(dataSourceID),
 	})
 	require.NoError(t, err, "GetDataSource should succeed")
-	assert.Equal(t, "mb42-data-source", aws.ToString(getDS.DataSource.Name))
+	assert.Equal(t, "bvaa-data-source", aws.ToString(getDS.DataSource.Name))
 }
 
-func verifyMegaBatch42Bedrock(ctx context.Context, t *testing.T) {
+func verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigBedrock(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -226,7 +226,7 @@ func verifyMegaBatch42Bedrock(ctx context.Context, t *testing.T) {
 	var guardrailID string
 
 	for _, g := range guardrailsOut.Guardrails {
-		if aws.ToString(g.Name) == "mega-batch-42-guardrail" {
+		if aws.ToString(g.Name) == "bvaa-guardrail" {
 			guardrailID = aws.ToString(g.Id)
 		}
 	}
@@ -241,10 +241,10 @@ func verifyMegaBatch42Bedrock(ctx context.Context, t *testing.T) {
 	assert.Equal(t, "1", aws.ToString(getGuardrailVersion.Version))
 
 	profOut, err := client.GetInferenceProfile(ctx, &bedrocksvc42.GetInferenceProfileInput{
-		InferenceProfileIdentifier: aws.String("mega-batch-42-inference-profile"),
+		InferenceProfileIdentifier: aws.String("bvaa-inference-profile"),
 	})
 	require.NoError(t, err, "GetInferenceProfile should succeed")
-	assert.Equal(t, "mega-batch-42-inference-profile", aws.ToString(profOut.InferenceProfileName))
+	assert.Equal(t, "bvaa-inference-profile", aws.ToString(profOut.InferenceProfileName))
 
 	loggingOut, err := client.GetModelInvocationLoggingConfiguration(
 		ctx, &bedrocksvc42.GetModelInvocationLoggingConfigurationInput{},
@@ -252,9 +252,13 @@ func verifyMegaBatch42Bedrock(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "GetModelInvocationLoggingConfiguration should succeed")
 	require.NotNil(t, loggingOut.LoggingConfig)
 	require.NotNil(t, loggingOut.LoggingConfig.S3Config)
-	assert.Equal(t, "mega-batch-42-logging-bucket", aws.ToString(loggingOut.LoggingConfig.S3Config.BucketName))
+	assert.Equal(t, "bvaa-logging-bucket", aws.ToString(loggingOut.LoggingConfig.S3Config.BucketName))
 	require.NotNil(t, loggingOut.LoggingConfig.CloudWatchConfig)
-	assert.Contains(t, aws.ToString(loggingOut.LoggingConfig.CloudWatchConfig.LogGroupName), "mega-batch-42")
+	assert.Contains(
+		t,
+		aws.ToString(loggingOut.LoggingConfig.CloudWatchConfig.LogGroupName),
+		"bedrock-verifiedpermissions-acmpca-and-appconfig",
+	)
 
 	// The customization job completes asynchronously (bedrock's janitor advances
 	// InProgress jobs to Completed on a short fixed delay); poll until the
@@ -265,22 +269,22 @@ func verifyMegaBatch42Bedrock(ctx context.Context, t *testing.T) {
 		var getErr error
 
 		customModelOut, getErr = client.GetCustomModel(ctx, &bedrocksvc42.GetCustomModelInput{
-			ModelIdentifier: aws.String("mega-batch-42-custom-model"),
+			ModelIdentifier: aws.String("bvaa-custom-model"),
 		})
 
 		return getErr == nil
 	}, 20*time.Second, 500*time.Millisecond,
 		"GetCustomModel should eventually succeed once the customization job completes")
-	assert.Equal(t, "mega-batch-42-custom-model", aws.ToString(customModelOut.ModelName))
+	assert.Equal(t, "bvaa-custom-model", aws.ToString(customModelOut.ModelName))
 
 	provisionedOut, err := client.GetProvisionedModelThroughput(ctx, &bedrocksvc42.GetProvisionedModelThroughputInput{
-		ProvisionedModelId: aws.String("mega-batch-42-provisioned-throughput"),
+		ProvisionedModelId: aws.String("bvaa-provisioned-throughput"),
 	})
 	require.NoError(t, err, "GetProvisionedModelThroughput should succeed")
 	assert.EqualValues(t, 1, aws.ToInt32(provisionedOut.DesiredModelUnits))
 }
 
-func verifyMegaBatch42VerifiedPermissions(ctx context.Context, t *testing.T) {
+func verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigVerifiedPermissions(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -294,7 +298,7 @@ func verifyMegaBatch42VerifiedPermissions(ctx context.Context, t *testing.T) {
 	var storeID string
 
 	for _, s := range storesOut.PolicyStores {
-		if aws.ToString(s.Description) == "mega-batch-42 policy store" {
+		if aws.ToString(s.Description) == "bvaa policy store" {
 			storeID = aws.ToString(s.PolicyStoreId)
 		}
 	}
@@ -364,7 +368,7 @@ func verifyMegaBatch42VerifiedPermissions(ctx context.Context, t *testing.T) {
 	require.NotNil(t, getIDSource.Configuration)
 }
 
-func verifyMegaBatch42ACMPCA(ctx context.Context, t *testing.T) {
+func verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigACMPCA(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -379,12 +383,12 @@ func verifyMegaBatch42ACMPCA(ctx context.Context, t *testing.T) {
 
 	for _, ca := range listOut.CertificateAuthorities {
 		if ca.CertificateAuthorityConfiguration != nil && ca.CertificateAuthorityConfiguration.Subject != nil &&
-			aws.ToString(ca.CertificateAuthorityConfiguration.Subject.CommonName) == "mega-batch-42.example.com" {
+			aws.ToString(ca.CertificateAuthorityConfiguration.Subject.CommonName) == "bvaa.example.com" {
 			caArn = aws.ToString(ca.Arn)
 		}
 	}
 
-	require.NotEmpty(t, caArn, "mega-batch-42 CA should be listed")
+	require.NotEmpty(t, caArn, "bvaa CA should be listed")
 
 	describeOut, err := client.DescribeCertificateAuthority(ctx, &acmpcasvc42.DescribeCertificateAuthorityInput{
 		CertificateAuthorityArn: aws.String(caArn),
@@ -416,7 +420,7 @@ func verifyMegaBatch42ACMPCA(ctx context.Context, t *testing.T) {
 	assert.Contains(t, aws.ToString(policyOut.Policy), "MB42AcmPcaPolicy")
 }
 
-func verifyMegaBatch42AppConfig(ctx context.Context, t *testing.T) {
+func verifyBedrockVerifiedpermissionsAcmpcaAndAppconfigAppConfig(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -430,7 +434,7 @@ func verifyMegaBatch42AppConfig(ctx context.Context, t *testing.T) {
 	var appID string
 
 	for _, a := range appsOut.Items {
-		if aws.ToString(a.Name) == "mega-batch-42-app" {
+		if aws.ToString(a.Name) == "bvaa-app" {
 			appID = aws.ToString(a.Id)
 		}
 	}
@@ -445,7 +449,7 @@ func verifyMegaBatch42AppConfig(ctx context.Context, t *testing.T) {
 	var envID string
 
 	for _, e := range envsOut.Items {
-		if aws.ToString(e.Name) == "mega-batch-42-env" {
+		if aws.ToString(e.Name) == "bvaa-env" {
 			envID = aws.ToString(e.Id)
 		}
 	}
@@ -460,7 +464,7 @@ func verifyMegaBatch42AppConfig(ctx context.Context, t *testing.T) {
 	var profileID string
 
 	for _, p := range profilesOut.Items {
-		if aws.ToString(p.Name) == "mega-batch-42-profile" {
+		if aws.ToString(p.Name) == "bvaa-profile" {
 			profileID = aws.ToString(p.Id)
 		}
 	}
@@ -493,7 +497,7 @@ func verifyMegaBatch42AppConfig(ctx context.Context, t *testing.T) {
 	var strategyID string
 
 	for _, s := range strategiesOut.Items {
-		if aws.ToString(s.Name) == "mega-batch-42-deployment-strategy" {
+		if aws.ToString(s.Name) == "bvaa-deployment-strategy" {
 			strategyID = aws.ToString(s.Id)
 		}
 	}
@@ -513,7 +517,7 @@ func verifyMegaBatch42AppConfig(ctx context.Context, t *testing.T) {
 		DeploymentNumber: aws.Int32(deploymentsOut.Items[0].DeploymentNumber),
 	})
 	require.NoError(t, err, "GetDeployment should succeed")
-	assert.Equal(t, "mega-batch-42 deployment", aws.ToString(getDeployment.Description))
+	assert.Equal(t, "bvaa deployment", aws.ToString(getDeployment.Description))
 
 	extsOut, err := client.ListExtensions(ctx, &appconfigsvc42.ListExtensionsInput{})
 	require.NoError(t, err, "ListExtensions should succeed")
@@ -521,7 +525,7 @@ func verifyMegaBatch42AppConfig(ctx context.Context, t *testing.T) {
 	var extensionArn string
 
 	for _, e := range extsOut.Items {
-		if aws.ToString(e.Name) == "mega-batch-42-extension" {
+		if aws.ToString(e.Name) == "bvaa-extension" {
 			extensionArn = aws.ToString(e.Arn)
 		}
 	}

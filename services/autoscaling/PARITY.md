@@ -1,7 +1,7 @@
 ---
 service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
-last_audit_commit: cd027034c  # mega-batch-35 terraform sweep: DescribeAutoScalingGroups/DescribeLaunchConfigurations names-filter fix
+last_audit_commit: cd027034c  # autoscaling-dynamodb-kms-and-cloudwatch terraform sweep: DescribeAutoScalingGroups/DescribeLaunchConfigurations names-filter fix
 last_audit_date: 2026-09-20
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (autoscaling@v1.70.4 deserializers.go,
@@ -146,7 +146,7 @@ leaks: {status: clean, note: "go test -race passes (verified this pass). The pen
 
 ## Notes
 
-### 2026-09-20 mega-batch-35 terraform sweep
+### 2026-09-20 autoscaling-dynamodb-kms-and-cloudwatch terraform sweep
 
 `describeByNames` (shared by DescribeAutoScalingGroups/DescribeLaunchConfigurations)
 errored on any unmatched name in the filter; real AWS silently omits misses

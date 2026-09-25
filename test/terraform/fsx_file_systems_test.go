@@ -11,22 +11,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch32 provisions FSx (OpenZFS file system + volume +
+// TestTerraform_FsxFileSystems provisions FSx (OpenZFS file system + volume +
 // snapshot, backup, ONTAP file system + storage virtual machine + volume,
 // Windows file system, Lustre file system + data repository association,
 // file cache) resources via Terraform and verifies each through the FSx
 // SDK's Describe* path.
-func TestTerraform_MegaBatch32(t *testing.T) {
+func TestTerraform_FsxFileSystems(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-32",
+			fixture: "fsx-file-systems",
 			setup:   setupEndpoint,
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch32(ctx, t)
+				verifyFsxFileSystems(ctx, t)
 			},
 		},
 	}
@@ -45,7 +45,7 @@ func createFSxClient(t *testing.T) *fsxsdk.Client {
 	return createClientWithEndpoint(t, fsxsdk.NewFromConfig, endpoint)
 }
 
-func verifyMegaBatch32(ctx context.Context, t *testing.T) {
+func verifyFsxFileSystems(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createFSxClient(t)
@@ -87,17 +87,17 @@ func verifyMegaBatch32(ctx context.Context, t *testing.T) {
 
 	for _, v := range volOut.Volumes {
 		switch aws.ToString(v.Name) {
-		case "mega-batch-32-oz-vol":
+		case "fsxf-oz-vol":
 			foundOZVolume = true
 			assert.Equal(t, fsxtypes.VolumeTypeOpenzfs, v.VolumeType)
-		case "mb32vol":
+		case "fsxfvol":
 			foundOntapVolume = true
 			assert.Equal(t, fsxtypes.VolumeTypeOntap, v.VolumeType)
 		}
 	}
 
-	assert.True(t, foundOZVolume, "mega-batch-32 OpenZFS volume should be listed")
-	assert.True(t, foundOntapVolume, "mega-batch-32 ONTAP volume should be listed")
+	assert.True(t, foundOZVolume, "fsxf OpenZFS volume should be listed")
+	assert.True(t, foundOntapVolume, "fsxf ONTAP volume should be listed")
 
 	svmOut, err := client.DescribeStorageVirtualMachines(ctx, &fsxsdk.DescribeStorageVirtualMachinesInput{})
 	require.NoError(t, err, "DescribeStorageVirtualMachines should succeed")
@@ -105,13 +105,13 @@ func verifyMegaBatch32(ctx context.Context, t *testing.T) {
 	var foundSVM bool
 
 	for _, svm := range svmOut.StorageVirtualMachines {
-		if aws.ToString(svm.Name) == "mb32svm" {
+		if aws.ToString(svm.Name) == "fsxfsvm" {
 			foundSVM = true
 			assert.Equal(t, ontapFSID, aws.ToString(svm.FileSystemId))
 		}
 	}
 
-	assert.True(t, foundSVM, "mega-batch-32 storage virtual machine should be listed")
+	assert.True(t, foundSVM, "fsxf storage virtual machine should be listed")
 
 	snapOut, err := client.DescribeSnapshots(ctx, &fsxsdk.DescribeSnapshotsInput{})
 	require.NoError(t, err, "DescribeSnapshots should succeed")
@@ -119,12 +119,12 @@ func verifyMegaBatch32(ctx context.Context, t *testing.T) {
 	var foundSnapshot bool
 
 	for _, s := range snapOut.Snapshots {
-		if aws.ToString(s.Name) == "mega-batch-32-oz-snap" {
+		if aws.ToString(s.Name) == "fsxf-oz-snap" {
 			foundSnapshot = true
 		}
 	}
 
-	assert.True(t, foundSnapshot, "mega-batch-32 snapshot should be listed")
+	assert.True(t, foundSnapshot, "fsxf snapshot should be listed")
 
 	backupOut, err := client.DescribeBackups(ctx, &fsxsdk.DescribeBackupsInput{})
 	require.NoError(t, err, "DescribeBackups should succeed")
@@ -138,7 +138,7 @@ func verifyMegaBatch32(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundBackup, "mega-batch-32 backup should be listed")
+	assert.True(t, foundBackup, "fsxf backup should be listed")
 
 	draOut, err := client.DescribeDataRepositoryAssociations(ctx, &fsxsdk.DescribeDataRepositoryAssociationsInput{})
 	require.NoError(t, err, "DescribeDataRepositoryAssociations should succeed")
@@ -146,12 +146,12 @@ func verifyMegaBatch32(ctx context.Context, t *testing.T) {
 	var foundDRA bool
 
 	for _, d := range draOut.Associations {
-		if aws.ToString(d.DataRepositoryPath) == "s3://mega-batch-32-dra-bucket" {
+		if aws.ToString(d.DataRepositoryPath) == "s3://fsxf-dra-bucket" {
 			foundDRA = true
 		}
 	}
 
-	assert.True(t, foundDRA, "mega-batch-32 data repository association should be listed")
+	assert.True(t, foundDRA, "fsxf data repository association should be listed")
 
 	cacheOut, err := client.DescribeFileCaches(ctx, &fsxsdk.DescribeFileCachesInput{})
 	require.NoError(t, err, "DescribeFileCaches should succeed")

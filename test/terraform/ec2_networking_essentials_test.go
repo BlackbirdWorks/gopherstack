@@ -11,19 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch44 provisions everyday EC2 networking resources
+// TestTerraform_Ec2NetworkingEssentials provisions everyday EC2 networking resources
 // (EIP family, NAT gateway, routes, security group / network ACL rules,
 // DHCP options, VPC CIDR associations, subnet CIDR reservations, account
 // defaults, EBS/AMI block-public-access singletons) plus the VPC endpoint
 // service/connection/association family, then verifies each through the
 // EC2 SDK.
-func TestTerraform_MegaBatch44(t *testing.T) {
+func TestTerraform_Ec2NetworkingEssentials(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-44",
+			fixture: "ec2-networking-essentials",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -33,11 +33,11 @@ func TestTerraform_MegaBatch44(t *testing.T) {
 				t.Helper()
 				client := createEC2Client(t)
 
-				verifyMegaBatch44Networking(ctx, t, client)
-				verifyMegaBatch44ElasticIPsAndNAT(ctx, t, client)
-				verifyMegaBatch44SGAndNACLRules(ctx, t, client)
-				verifyMegaBatch44AccountSettings(ctx, t, client)
-				verifyMegaBatch44VpcEndpointFamily(ctx, t, client)
+				verifyEc2NetworkingEssentialsNetworking(ctx, t, client)
+				verifyEc2NetworkingEssentialsElasticIPsAndNAT(ctx, t, client)
+				verifyEc2NetworkingEssentialsSGAndNACLRules(ctx, t, client)
+				verifyEc2NetworkingEssentialsAccountSettings(ctx, t, client)
+				verifyEc2NetworkingEssentialsVpcEndpointFamily(ctx, t, client)
 			},
 		},
 	}
@@ -50,14 +50,14 @@ func TestTerraform_MegaBatch44(t *testing.T) {
 	}
 }
 
-// verifyMegaBatch44Networking checks the VPC's secondary IPv4/IPv6 CIDR
+// verifyEc2NetworkingEssentialsNetworking checks the VPC's secondary IPv4/IPv6 CIDR
 // associations, DHCP options association, and subnet CIDR reservation.
-func verifyMegaBatch44Networking(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2NetworkingEssentialsNetworking(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	vpcsOut, err := client.DescribeVpcs(ctx, &ec2svc.DescribeVpcsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-vpc"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-vpc"}},
 		},
 	})
 	require.NoError(t, err, "DescribeVpcs should succeed")
@@ -81,7 +81,7 @@ func verifyMegaBatch44Networking(ctx context.Context, t *testing.T, client *ec2s
 
 	dhcpOut, err := client.DescribeDhcpOptions(ctx, &ec2svc.DescribeDhcpOptionsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-dhcp-opts"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-dhcp-opts"}},
 		},
 	})
 	require.NoError(t, err, "DescribeDhcpOptions should succeed")
@@ -89,7 +89,7 @@ func verifyMegaBatch44Networking(ctx context.Context, t *testing.T, client *ec2s
 
 	subnetsOut, err := client.DescribeSubnets(ctx, &ec2svc.DescribeSubnetsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-subnet"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-subnet"}},
 		},
 	})
 	require.NoError(t, err, "DescribeSubnets should succeed")
@@ -103,14 +103,14 @@ func verifyMegaBatch44Networking(ctx context.Context, t *testing.T, client *ec2s
 	assert.NotEmpty(t, resOut.SubnetIpv4CidrReservations, "aws_ec2_subnet_cidr_reservation should create a reservation")
 }
 
-// verifyMegaBatch44ElasticIPsAndNAT checks the EIP, its reverse-DNS domain
+// verifyEc2NetworkingEssentialsElasticIPsAndNAT checks the EIP, its reverse-DNS domain
 // name, its association to an instance, and the NAT gateway plus route.
-func verifyMegaBatch44ElasticIPsAndNAT(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2NetworkingEssentialsElasticIPsAndNAT(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	addrOut, err := client.DescribeAddresses(ctx, &ec2svc.DescribeAddressesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-eip"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-eip"}},
 		},
 	})
 	require.NoError(t, err, "DescribeAddresses should succeed")
@@ -124,12 +124,12 @@ func verifyMegaBatch44ElasticIPsAndNAT(ctx context.Context, t *testing.T, client
 	})
 	require.NoError(t, err, "DescribeAddressesAttribute should succeed")
 	require.Len(t, attrOut.Addresses, 1)
-	assert.Equal(t, "mega-batch-44.example.com", aws.ToString(attrOut.Addresses[0].PtrRecord),
+	assert.Equal(t, "ecne.example.com", aws.ToString(attrOut.Addresses[0].PtrRecord),
 		"aws_eip_domain_name should set the PTR record")
 
 	natOut, err := client.DescribeNatGateways(ctx, &ec2svc.DescribeNatGatewaysInput{
 		Filter: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-natgw"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-natgw"}},
 		},
 	})
 	require.NoError(t, err, "DescribeNatGateways should succeed")
@@ -138,7 +138,7 @@ func verifyMegaBatch44ElasticIPsAndNAT(ctx context.Context, t *testing.T, client
 
 	rtOut, err := client.DescribeRouteTables(ctx, &ec2svc.DescribeRouteTablesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-rt"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-rt"}},
 		},
 	})
 	require.NoError(t, err, "DescribeRouteTables should succeed")
@@ -163,14 +163,14 @@ func verifyMegaBatch44ElasticIPsAndNAT(ctx context.Context, t *testing.T, client
 	assert.True(t, foundAssoc, "aws_route_table_association should associate the subnet")
 }
 
-// verifyMegaBatch44SGAndNACLRules checks the security group rule family and
+// verifyEc2NetworkingEssentialsSGAndNACLRules checks the security group rule family and
 // the network ACL rule.
-func verifyMegaBatch44SGAndNACLRules(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2NetworkingEssentialsSGAndNACLRules(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	sgOut, err := client.DescribeSecurityGroups(ctx, &ec2svc.DescribeSecurityGroupsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("group-name"), Values: []string{"mega-batch-44-sg-rule"}},
+			{Name: aws.String("group-name"), Values: []string{"ecne-sg-rule"}},
 		},
 	})
 	require.NoError(t, err, "DescribeSecurityGroups should succeed")
@@ -188,7 +188,7 @@ func verifyMegaBatch44SGAndNACLRules(ctx context.Context, t *testing.T, client *
 
 	sgOut2, err := client.DescribeSecurityGroups(ctx, &ec2svc.DescribeSecurityGroupsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("group-name"), Values: []string{"mega-batch-44-sg"}},
+			{Name: aws.String("group-name"), Values: []string{"ecne-sg"}},
 		},
 	})
 	require.NoError(t, err, "DescribeSecurityGroups should succeed")
@@ -217,7 +217,7 @@ func verifyMegaBatch44SGAndNACLRules(ctx context.Context, t *testing.T, client *
 
 	naclOut, err := client.DescribeNetworkAcls(ctx, &ec2svc.DescribeNetworkAclsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-nacl"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-nacl"}},
 		},
 	})
 	require.NoError(t, err, "DescribeNetworkAcls should succeed")
@@ -234,10 +234,10 @@ func verifyMegaBatch44SGAndNACLRules(ctx context.Context, t *testing.T, client *
 	assert.True(t, foundNACLRule, "aws_network_acl_rule should add the ingress entry")
 }
 
-// verifyMegaBatch44AccountSettings checks the account-wide singletons: EBS
+// verifyEc2NetworkingEssentialsAccountSettings checks the account-wide singletons: EBS
 // snapshot block-public-access, VPC block-public-access options/exclusion,
 // instance metadata defaults, and default credit specification.
-func verifyMegaBatch44AccountSettings(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2NetworkingEssentialsAccountSettings(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	snapBPAOut, err := client.GetSnapshotBlockPublicAccessState(ctx, &ec2svc.GetSnapshotBlockPublicAccessStateInput{})
@@ -268,7 +268,7 @@ func verifyMegaBatch44AccountSettings(ctx context.Context, t *testing.T, client 
 	require.NoError(t, err, "DescribeVpcBlockPublicAccessExclusions should succeed")
 	findBy(t, exclOut.VpcBlockPublicAccessExclusions, func(e ec2types.VpcBlockPublicAccessExclusion) bool {
 		return e.InternetGatewayExclusionMode == ec2types.InternetGatewayExclusionModeAllowBidirectional
-	}, "mega-batch-44 VPC block-public-access exclusion")
+	}, "ecne VPC block-public-access exclusion")
 
 	imdOut, err := client.GetInstanceMetadataDefaults(ctx, &ec2svc.GetInstanceMetadataDefaultsInput{})
 	require.NoError(t, err, "GetInstanceMetadataDefaults should succeed")
@@ -283,18 +283,18 @@ func verifyMegaBatch44AccountSettings(ctx context.Context, t *testing.T, client 
 	assert.Equal(t, "standard", aws.ToString(creditOut.InstanceFamilyCreditSpecification.CpuCredits))
 }
 
-// verifyMegaBatch44VpcEndpointFamily checks the VPC endpoint service, its
+// verifyEc2NetworkingEssentialsVpcEndpointFamily checks the VPC endpoint service, its
 // allowed principal, connection notification, and the gateway/interface
 // endpoints with their policy, route table, subnet, security group, and
 // private DNS associations.
-func verifyMegaBatch44VpcEndpointFamily(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2NetworkingEssentialsVpcEndpointFamily(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	svcOut, err := client.DescribeVpcEndpointServiceConfigurations(
 		ctx,
 		&ec2svc.DescribeVpcEndpointServiceConfigurationsInput{
 			Filters: []ec2types.Filter{
-				{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-vpces"}},
+				{Name: aws.String("tag:Name"), Values: []string{"ecne-vpces"}},
 			},
 		},
 	)
@@ -331,7 +331,7 @@ func verifyMegaBatch44VpcEndpointFamily(ctx context.Context, t *testing.T, clien
 
 	gwOut, err := client.DescribeVpcEndpoints(ctx, &ec2svc.DescribeVpcEndpointsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-vpce-gateway"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-vpce-gateway"}},
 		},
 	})
 	require.NoError(t, err, "DescribeVpcEndpoints (gateway) should succeed")
@@ -346,7 +346,7 @@ func verifyMegaBatch44VpcEndpointFamily(ctx context.Context, t *testing.T, clien
 
 	ifaceOut, err := client.DescribeVpcEndpoints(ctx, &ec2svc.DescribeVpcEndpointsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-44-vpce-interface"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecne-vpce-interface"}},
 		},
 	})
 	require.NoError(t, err, "DescribeVpcEndpoints (interface) should succeed")

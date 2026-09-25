@@ -6,7 +6,7 @@ resource "aws_vpc" "elbv2b" {
   cidr_block = "10.115.0.0/16"
 
   tags = {
-    Name = "mega-batch-15-vpc"
+    Name = "elae-vpc"
   }
 }
 
@@ -15,7 +15,7 @@ resource "aws_subnet" "elbv2b_a" {
   cidr_block = "10.115.1.0/24"
 
   tags = {
-    Name = "mega-batch-15-subnet-a"
+    Name = "elae-subnet-a"
   }
 }
 
@@ -24,12 +24,12 @@ resource "aws_subnet" "elbv2b_b" {
   cidr_block = "10.115.2.0/24"
 
   tags = {
-    Name = "mega-batch-15-subnet-b"
+    Name = "elae-subnet-b"
   }
 }
 
 resource "aws_acm_certificate" "default" {
-  domain_name       = "mega-batch-15-default.example.com"
+  domain_name       = "elae-default.example.com"
   validation_method = "DNS"
 
   lifecycle {
@@ -38,7 +38,7 @@ resource "aws_acm_certificate" "default" {
 }
 
 resource "aws_acm_certificate" "alb_extra" {
-  domain_name       = "mega-batch-15-alb-extra.example.com"
+  domain_name       = "elae-alb-extra.example.com"
   validation_method = "DNS"
 
   lifecycle {
@@ -47,7 +47,7 @@ resource "aws_acm_certificate" "alb_extra" {
 }
 
 resource "aws_acm_certificate" "lb_extra" {
-  domain_name       = "mega-batch-15-lb-extra.example.com"
+  domain_name       = "elae-lb-extra.example.com"
   validation_method = "DNS"
 
   lifecycle {
@@ -56,14 +56,14 @@ resource "aws_acm_certificate" "lb_extra" {
 }
 
 resource "aws_alb" "example" {
-  name               = "mega-batch-15-alb"
+  name               = "elae-alb"
   internal           = false
   load_balancer_type = "application"
   subnets            = [aws_subnet.elbv2b_a.id, aws_subnet.elbv2b_b.id]
 }
 
 resource "aws_alb_target_group" "example" {
-  name        = "mega-batch-15-tg"
+  name        = "elae-tg"
   port        = 80
   protocol    = "HTTP"
   vpc_id      = aws_vpc.elbv2b.id
@@ -137,14 +137,14 @@ resource "aws_lb_target_group_attachment" "example" {
 }
 
 resource "aws_lb_trust_store" "example" {
-  name                             = "mega-batch-15-ts"
-  ca_certificates_bundle_s3_bucket = "mega-batch-15-ts-bucket"
+  name                             = "elae-ts"
+  ca_certificates_bundle_s3_bucket = "elae-ts-bucket"
   ca_certificates_bundle_s3_key    = "ca-bundle.pem"
 }
 
 resource "aws_lb_trust_store_revocation" "example" {
   trust_store_arn       = aws_lb_trust_store.example.arn
-  revocations_s3_bucket = "mega-batch-15-ts-bucket"
+  revocations_s3_bucket = "elae-ts-bucket"
   revocations_s3_key    = "revocation.crl"
 }
 
@@ -154,7 +154,7 @@ resource "aws_lb_trust_store_revocation" "example" {
 ##############################################################################
 
 resource "aws_elb" "classic" {
-  name               = "mega-batch-15-elb"
+  name               = "elae-elb"
   availability_zones = ["us-east-1a"]
 
   listener {
@@ -174,14 +174,14 @@ resource "aws_elb" "classic" {
 }
 
 resource "aws_lb_cookie_stickiness_policy" "example" {
-  name                     = "mega-batch-15-cookie-policy"
+  name                     = "elae-cookie-policy"
   load_balancer            = aws_elb.classic.id
   lb_port                  = 80
   cookie_expiration_period = 600
 }
 
 resource "aws_lb_ssl_negotiation_policy" "example" {
-  name          = "mega-batch-15-ssl-policy"
+  name          = "elae-ssl-policy"
   load_balancer = aws_elb.classic.id
   lb_port       = 443
 
@@ -201,7 +201,7 @@ resource "aws_lb_ssl_negotiation_policy" "example" {
 ##############################################################################
 
 resource "aws_ecr_repository" "example" {
-  name = "mega-batch-15-repo"
+  name = "elae-repo"
 }
 
 resource "aws_ecr_repository_policy" "example" {
@@ -248,13 +248,13 @@ resource "aws_ecr_registry_policy" "example" {
 }
 
 resource "aws_ecr_pull_through_cache_rule" "example" {
-  ecr_repository_prefix = "mega-batch-15-ptc"
+  ecr_repository_prefix = "elae-ptc"
   upstream_registry_url = "public.ecr.aws"
 }
 
 resource "aws_ecr_repository_creation_template" "example" {
-  prefix               = "mega-batch-15-tmpl"
-  description          = "mega batch 15 template"
+  prefix               = "elae-tmpl"
+  description          = "elae template"
   image_tag_mutability = "IMMUTABLE"
 
   applied_for = ["PULL_THROUGH_CACHE"]

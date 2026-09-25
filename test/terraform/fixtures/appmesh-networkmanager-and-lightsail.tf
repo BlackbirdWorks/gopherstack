@@ -1,11 +1,11 @@
 resource "aws_accessanalyzer_analyzer" "example" {
-  analyzer_name = "mega-batch-8-analyzer"
+  analyzer_name = "anwl-analyzer"
   type          = "ACCOUNT"
 }
 
 resource "aws_accessanalyzer_archive_rule" "example" {
   analyzer_name = aws_accessanalyzer_analyzer.example.analyzer_name
-  rule_name     = "mega-batch-8-archive-rule"
+  rule_name     = "anwl-archive-rule"
 
   filter {
     criteria = "resource"
@@ -14,11 +14,11 @@ resource "aws_accessanalyzer_archive_rule" "example" {
 }
 
 resource "aws_appmesh_mesh" "example" {
-  name = "mega-batch-8-mesh"
+  name = "anwl-mesh"
 }
 
 resource "aws_appmesh_virtual_node" "example" {
-  name      = "mega-batch-8-vnode"
+  name      = "anwl-vnode"
   mesh_name = aws_appmesh_mesh.example.id
 
   spec {
@@ -31,7 +31,7 @@ resource "aws_appmesh_virtual_node" "example" {
 }
 
 resource "aws_appmesh_virtual_router" "example" {
-  name      = "mega-batch-8-vrouter"
+  name      = "anwl-vrouter"
   mesh_name = aws_appmesh_mesh.example.id
 
   spec {
@@ -45,7 +45,7 @@ resource "aws_appmesh_virtual_router" "example" {
 }
 
 resource "aws_appmesh_route" "example" {
-  name                = "mega-batch-8-route"
+  name                = "anwl-route"
   mesh_name           = aws_appmesh_mesh.example.id
   virtual_router_name = aws_appmesh_virtual_router.example.name
 
@@ -66,7 +66,7 @@ resource "aws_appmesh_route" "example" {
 }
 
 resource "aws_appmesh_virtual_service" "example" {
-  name      = "mega-batch-8-vservice.local"
+  name      = "anwl-vservice.local"
   mesh_name = aws_appmesh_mesh.example.id
 
   spec {
@@ -79,49 +79,49 @@ resource "aws_appmesh_virtual_service" "example" {
 }
 
 resource "aws_cleanrooms_collaboration" "example" {
-  name                     = "mega-batch-8-collab"
-  description              = "mega batch 8 collaboration"
-  creator_display_name     = "mega-batch-8-creator"
+  name                     = "anwl-collab"
+  description              = "anwl collaboration"
+  creator_display_name     = "anwl-creator"
   creator_member_abilities = ["CAN_QUERY", "CAN_RECEIVE_RESULTS"]
   query_log_status         = "DISABLED"
 }
 
 resource "aws_cleanrooms_configured_table" "example" {
-  name            = "mega-batch-8-table"
+  name            = "anwl-table"
   allowed_columns = ["col1", "col2"]
   analysis_method = "DIRECT_QUERY"
 
   table_reference {
-    database_name = "mega_batch_8_db"
-    table_name    = "mega_batch_8_tbl"
+    database_name = "anwl_db"
+    table_name    = "anwl_tbl"
   }
 }
 
 resource "aws_cloudfront_key_value_store" "example" {
-  name    = "mega-batch-8-kvs"
-  comment = "mega batch 8 kvs"
+  name    = "anwl-kvs"
+  comment = "anwl kvs"
 }
 
 resource "aws_cloudfrontkeyvaluestore_key" "example" {
   key_value_store_arn = aws_cloudfront_key_value_store.example.arn
-  key                 = "mega-batch-8-key"
-  value               = "mega-batch-8-value"
+  key                 = "anwl-key"
+  value               = "anwl-value"
 }
 
 resource "aws_dlm_lifecycle_policy" "example" {
-  description        = "mega batch 8 dlm policy"
-  execution_role_arn = "arn:aws:iam::000000000000:role/mega-batch-8-dlm-role"
+  description        = "anwl dlm policy"
+  execution_role_arn = "arn:aws:iam::000000000000:role/anwl-dlm-role"
   state              = "ENABLED"
 
   policy_details {
     resource_types = ["VOLUME"]
 
     target_tags = {
-      Snapshot = "mega-batch-8"
+      Snapshot = "appmesh-networkmanager-and-lightsail"
     }
 
     schedule {
-      name = "mega-batch-8-schedule"
+      name = "anwl-schedule"
 
       create_rule {
         interval      = 24
@@ -137,47 +137,47 @@ resource "aws_dlm_lifecycle_policy" "example" {
 }
 
 resource "aws_grafana_workspace" "example" {
-  name                     = "mega-batch-8-grafana"
+  name                     = "anwl-grafana"
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["AWS_SSO"]
   permission_type          = "SERVICE_MANAGED"
 }
 
 resource "aws_lightsail_static_ip" "example" {
-  name = "mega-batch-8-staticip"
+  name = "anwl-staticip"
 }
 
 resource "aws_lightsail_bucket" "example" {
-  name      = "mega-batch-8-bucket"
+  name      = "anwl-bucket"
   bundle_id = "small_1_0"
 }
 
 resource "aws_lightsail_instance" "example" {
-  name              = "mega-batch-8-instance"
+  name              = "anwl-instance"
   availability_zone = "us-east-1a"
   blueprint_id      = "amazon_linux_2023"
   bundle_id         = "nano_3_0"
 }
 
 resource "aws_networkmanager_global_network" "example" {
-  description = "mega batch 8 global network"
+  description = "anwl global network"
 }
 
 resource "aws_networkmanager_site" "example" {
   global_network_id = aws_networkmanager_global_network.example.id
-  description       = "mega batch 8 site"
+  description       = "anwl site"
 }
 
 resource "aws_networkmanager_device" "example" {
   global_network_id = aws_networkmanager_global_network.example.id
   site_id           = aws_networkmanager_site.example.id
-  description       = "mega batch 8 device"
+  description       = "anwl device"
 }
 
 resource "aws_networkmanager_link" "example" {
   global_network_id = aws_networkmanager_global_network.example.id
   site_id           = aws_networkmanager_site.example.id
-  description       = "mega batch 8 link"
+  description       = "anwl link"
 
   bandwidth {
     download_speed = 100

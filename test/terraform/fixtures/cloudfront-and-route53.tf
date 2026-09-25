@@ -3,8 +3,8 @@
 ##############################################################################
 
 resource "aws_cloudfront_public_key" "example" {
-  name        = "mega-batch-14-public-key"
-  comment     = "mega batch 14 public key"
+  name        = "cfr5-public-key"
+  comment     = "cfr5 public key"
   encoded_key = <<-EOT
   -----BEGIN PUBLIC KEY-----
   MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuKUWTWVo77dy9tJXJfTt
@@ -19,19 +19,19 @@ resource "aws_cloudfront_public_key" "example" {
 }
 
 resource "aws_cloudfront_key_group" "example" {
-  name    = "mega-batch-14-key-group"
-  comment = "mega batch 14 key group"
+  name    = "cfr5-key-group"
+  comment = "cfr5 key group"
   items   = [aws_cloudfront_public_key.example.id]
 }
 
 resource "aws_cloudfront_field_level_encryption_profile" "example" {
-  name    = "mega-batch-14-fle-profile"
-  comment = "mega batch 14 field level encryption profile"
+  name    = "cfr5-fle-profile"
+  comment = "cfr5 field level encryption profile"
 
   encryption_entities {
     items {
       public_key_id = aws_cloudfront_public_key.example.id
-      provider_id   = "mega-batch-14-provider"
+      provider_id   = "cfr5-provider"
 
       field_patterns {
         items = ["DateOfBirth"]
@@ -41,7 +41,7 @@ resource "aws_cloudfront_field_level_encryption_profile" "example" {
 }
 
 resource "aws_cloudfront_field_level_encryption_config" "example" {
-  comment = "mega batch 14 field level encryption config"
+  comment = "cfr5 field level encryption config"
 
   content_type_profile_config {
     forward_when_content_type_is_unknown = true
@@ -68,16 +68,16 @@ resource "aws_cloudfront_field_level_encryption_config" "example" {
 }
 
 resource "aws_cloudfront_origin_access_control" "example" {
-  name                              = "mega-batch-14-oac"
-  description                       = "mega batch 14 origin access control"
+  name                              = "cfr5-oac"
+  description                       = "cfr5 origin access control"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
 resource "aws_cloudfront_origin_request_policy" "example" {
-  name    = "mega-batch-14-orp"
-  comment = "mega batch 14 origin request policy"
+  name    = "cfr5-orp"
+  comment = "cfr5 origin request policy"
 
   cookies_config {
     cookie_behavior = "none"
@@ -91,8 +91,8 @@ resource "aws_cloudfront_origin_request_policy" "example" {
 }
 
 resource "aws_cloudfront_response_headers_policy" "example" {
-  name    = "mega-batch-14-rhp"
-  comment = "mega batch 14 response headers policy"
+  name    = "cfr5-rhp"
+  comment = "cfr5 response headers policy"
 
   cors_config {
     access_control_allow_credentials = false
@@ -111,8 +111,8 @@ resource "aws_cloudfront_response_headers_policy" "example" {
 }
 
 resource "aws_cloudfront_cache_policy" "example" {
-  name        = "mega-batch-14-cache-policy"
-  comment     = "mega batch 14 cache policy"
+  name        = "cfr5-cache-policy"
+  comment     = "cfr5 cache policy"
   default_ttl = 86400
   max_ttl     = 31536000
   min_ttl     = 1
@@ -131,9 +131,9 @@ resource "aws_cloudfront_cache_policy" "example" {
 }
 
 resource "aws_cloudfront_function" "example" {
-  name    = "mega-batch-14-function"
+  name    = "cfr5-function"
   runtime = "cloudfront-js-2.0"
-  comment = "mega batch 14 function"
+  comment = "cfr5 function"
   publish = true
 
   code = <<-EOT
@@ -146,11 +146,11 @@ resource "aws_cloudfront_function" "example" {
 resource "aws_cloudfront_distribution" "staging" {
   enabled = true
   staging = true
-  comment = "mega-batch-14 staging distribution"
+  comment = "cfr5 staging distribution"
 
   origin {
-    domain_name = "origin.mega-batch-14.example.com"
-    origin_id   = "mega-batch-14-origin"
+    domain_name = "origin.cfr5.example.com"
+    origin_id   = "cfr5-origin"
 
     custom_origin_config {
       http_port              = 80
@@ -163,7 +163,7 @@ resource "aws_cloudfront_distribution" "staging" {
   default_cache_behavior {
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = "mega-batch-14-origin"
+    target_origin_id       = "cfr5-origin"
     viewer_protocol_policy = "redirect-to-https"
 
     forwarded_values {
@@ -212,13 +212,13 @@ resource "aws_cloudfront_monitoring_subscription" "example" {
 }
 
 resource "aws_kinesis_stream" "cf_logs" {
-  name             = "mega-batch-14-cf-logs"
+  name             = "cfr5-cf-logs"
   shard_count      = 1
   retention_period = 24
 }
 
 resource "aws_iam_role" "cf_realtime_logs" {
-  name = "mega-batch-14-cf-realtime-logs-role"
+  name = "cfr5-cf-realtime-logs-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -230,7 +230,7 @@ resource "aws_iam_role" "cf_realtime_logs" {
 }
 
 resource "aws_cloudfront_realtime_log_config" "example" {
-  name          = "mega-batch-14-realtime-log-config"
+  name          = "cfr5-realtime-log-config"
   sampling_rate = 75
   fields        = ["timestamp", "c-ip"]
 
@@ -248,7 +248,7 @@ resource "aws_vpc" "cfvpc" {
   cidr_block = "10.118.0.0/16"
 
   tags = {
-    Name = "mega-batch-14-cf-vpc"
+    Name = "cfr5-cf-vpc"
   }
 }
 
@@ -257,7 +257,7 @@ resource "aws_subnet" "cfa" {
   cidr_block = "10.118.1.0/24"
 
   tags = {
-    Name = "mega-batch-14-cf-subnet-a"
+    Name = "cfr5-cf-subnet-a"
   }
 }
 
@@ -266,12 +266,12 @@ resource "aws_subnet" "cfb" {
   cidr_block = "10.118.2.0/24"
 
   tags = {
-    Name = "mega-batch-14-cf-subnet-b"
+    Name = "cfr5-cf-subnet-b"
   }
 }
 
 resource "aws_lb" "cf_origin" {
-  name               = "mega-batch-14-cf-alb"
+  name               = "cfr5-cf-alb"
   internal           = false
   load_balancer_type = "application"
   subnets            = [aws_subnet.cfa.id, aws_subnet.cfb.id]
@@ -279,7 +279,7 @@ resource "aws_lb" "cf_origin" {
 
 resource "aws_cloudfront_vpc_origin" "example" {
   vpc_origin_endpoint_config {
-    name                   = "mega-batch-14-vpc-origin"
+    name                   = "cfr5-vpc-origin"
     arn                    = aws_lb.cf_origin.arn
     http_port              = 8080
     https_port             = 8443
@@ -297,11 +297,11 @@ resource "aws_cloudfront_vpc_origin" "example" {
 ##############################################################################
 
 resource "aws_route53_delegation_set" "example" {
-  reference_name = "mega-batch-14"
+  reference_name = "cloudfront-and-route53"
 }
 
 resource "aws_route53_health_check" "example" {
-  fqdn              = "mega-batch-14.example.com"
+  fqdn              = "cfr5.example.com"
   port              = 80
   type              = "HTTP"
   resource_path     = "/healthz"
@@ -310,17 +310,17 @@ resource "aws_route53_health_check" "example" {
 }
 
 resource "aws_route53_cidr_collection" "example" {
-  name = "mega-batch-14-cidr-collection"
+  name = "cfr5-cidr-collection"
 }
 
 resource "aws_route53_cidr_location" "example" {
   cidr_collection_id = aws_route53_cidr_collection.example.id
-  name               = "mb14-location"
+  name               = "cfr5-location"
   cidr_blocks        = ["10.114.32.0/24"]
 }
 
 resource "aws_route53_zone" "dnssec" {
-  name = "mega-batch-14-dnssec.example.com"
+  name = "cfr5-dnssec.example.com"
 }
 
 resource "aws_kms_key" "dnssec" {
@@ -351,7 +351,7 @@ resource "aws_kms_key" "dnssec" {
 resource "aws_route53_key_signing_key" "example" {
   hosted_zone_id             = aws_route53_zone.dnssec.id
   key_management_service_arn = aws_kms_key.dnssec.arn
-  name                       = "mega_batch_14_ksk"
+  name                       = "cfr5_ksk"
 }
 
 resource "aws_route53_hosted_zone_dnssec" "example" {
@@ -360,7 +360,7 @@ resource "aws_route53_hosted_zone_dnssec" "example" {
 }
 
 resource "aws_cloudwatch_log_group" "route53" {
-  name = "/aws/route53/mega-batch-14"
+  name = "/aws/route53/cfr5"
 }
 
 resource "aws_route53_query_log" "example" {
@@ -369,8 +369,8 @@ resource "aws_route53_query_log" "example" {
 }
 
 resource "aws_route53_traffic_policy" "example" {
-  name    = "mega-batch-14-traffic-policy"
-  comment = "mega batch 14"
+  name    = "cfr5-traffic-policy"
+  comment = "cfr5"
   document = jsonencode({
     AWSPolicyFormatVersion = "2015-10-01"
     RecordType             = "A"
@@ -385,7 +385,7 @@ resource "aws_route53_traffic_policy" "example" {
 }
 
 resource "aws_route53_traffic_policy_instance" "example" {
-  name                   = "tp.mega-batch-14-dnssec.example.com"
+  name                   = "tp.cfr5-dnssec.example.com"
   traffic_policy_id      = aws_route53_traffic_policy.example.id
   traffic_policy_version = aws_route53_traffic_policy.example.version
   hosted_zone_id         = aws_route53_zone.dnssec.zone_id
@@ -393,7 +393,7 @@ resource "aws_route53_traffic_policy_instance" "example" {
 }
 
 resource "aws_route53_zone" "excl" {
-  name          = "mega-batch-14-excl.example.com"
+  name          = "cfr5-excl.example.com"
   force_destroy = true
 }
 
@@ -401,7 +401,7 @@ resource "aws_route53_records_exclusive" "example" {
   zone_id = aws_route53_zone.excl.zone_id
 
   resource_record_set {
-    name = "sub.mega-batch-14-excl.example.com"
+    name = "sub.cfr5-excl.example.com"
     type = "A"
     ttl  = 30
 
@@ -417,7 +417,7 @@ resource "aws_vpc" "r53a" {
   enable_dns_hostnames = true
 
   tags = {
-    Name = "mega-batch-14-r53-vpc-a"
+    Name = "cfr5-r53-vpc-a"
   }
 }
 
@@ -427,12 +427,12 @@ resource "aws_vpc" "r53b" {
   enable_dns_hostnames = true
 
   tags = {
-    Name = "mega-batch-14-r53-vpc-b"
+    Name = "cfr5-r53-vpc-b"
   }
 }
 
 resource "aws_route53_zone" "private" {
-  name = "mega-batch-14-private.internal"
+  name = "cfr5-private.internal"
 
   vpc {
     vpc_id = aws_vpc.r53a.id

@@ -35,7 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch52 provisions 24 previously-uncovered class-A
+// TestTerraform_S3tablesMessagingAndStreaming provisions 24 previously-uncovered class-A
 // terraform resource types (Application Auto Scaling, Bedrock Agents,
 // ECR registry scanning, Glacier vault lock, Roles Anywhere, Rekognition,
 // QuickSight account subscription/settings, Kinesis resource policy/stream
@@ -45,13 +45,13 @@ import (
 // policy, Transcribe vocabulary filter, CodePipeline custom action type,
 // API Gateway PutRestApi, and a classic ELB attachment) via Terraform,
 // verifying each through its own SDK client.
-func TestTerraform_MegaBatch52(t *testing.T) {
+func TestTerraform_S3tablesMessagingAndStreaming(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-52",
+			fixture: "s3tables-messaging-and-streaming",
 			// aws_quicksight_account_subscription needs a real account ID (see
 			// macie2ProviderBlock's doc comment); skip_requesting_account_id
 			// omitted here for the same reason.
@@ -59,24 +59,24 @@ func TestTerraform_MegaBatch52(t *testing.T) {
 			setup:      setupEndpoint,
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch52ApplicationAutoScaling(ctx, t)
-				verifyMegaBatch52BedrockAgent(ctx, t)
-				verifyMegaBatch52ECR(ctx, t)
-				verifyMegaBatch52Glacier(ctx, t)
-				verifyMegaBatch52RolesAnywhere(ctx, t)
-				verifyMegaBatch52Rekognition(ctx, t)
-				verifyMegaBatch52QuickSight(ctx, t)
-				verifyMegaBatch52Kinesis(ctx, t)
-				verifyMegaBatch52LakeFormation(ctx, t)
-				verifyMegaBatch52MediaStore(ctx, t)
-				verifyMegaBatch52S3Tables(ctx, t)
-				verifyMegaBatch52ServiceDiscovery(ctx, t)
-				verifyMegaBatch52SNS(ctx, t)
-				verifyMegaBatch52SQS(ctx, t)
-				verifyMegaBatch52Transcribe(ctx, t)
-				verifyMegaBatch52CodePipeline(ctx, t)
-				verifyMegaBatch52APIGateway(ctx, t)
-				verifyMegaBatch52ELB(ctx, t)
+				verifyS3tablesMessagingAndStreamingApplicationAutoScaling(ctx, t)
+				verifyS3tablesMessagingAndStreamingBedrockAgent(ctx, t)
+				verifyS3tablesMessagingAndStreamingECR(ctx, t)
+				verifyS3tablesMessagingAndStreamingGlacier(ctx, t)
+				verifyS3tablesMessagingAndStreamingRolesAnywhere(ctx, t)
+				verifyS3tablesMessagingAndStreamingRekognition(ctx, t)
+				verifyS3tablesMessagingAndStreamingQuickSight(ctx, t)
+				verifyS3tablesMessagingAndStreamingKinesis(ctx, t)
+				verifyS3tablesMessagingAndStreamingLakeFormation(ctx, t)
+				verifyS3tablesMessagingAndStreamingMediaStore(ctx, t)
+				verifyS3tablesMessagingAndStreamingS3Tables(ctx, t)
+				verifyS3tablesMessagingAndStreamingServiceDiscovery(ctx, t)
+				verifyS3tablesMessagingAndStreamingSNS(ctx, t)
+				verifyS3tablesMessagingAndStreamingSQS(ctx, t)
+				verifyS3tablesMessagingAndStreamingTranscribe(ctx, t)
+				verifyS3tablesMessagingAndStreamingCodePipeline(ctx, t)
+				verifyS3tablesMessagingAndStreamingAPIGateway(ctx, t)
+				verifyS3tablesMessagingAndStreamingELB(ctx, t)
 			},
 		},
 	}
@@ -89,7 +89,7 @@ func TestTerraform_MegaBatch52(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch52ApplicationAutoScaling(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingApplicationAutoScaling(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := applicationautoscalingsvc52.NewFromConfig(megaConfig(t), func(o *applicationautoscalingsvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -97,25 +97,25 @@ func verifyMegaBatch52ApplicationAutoScaling(ctx context.Context, t *testing.T) 
 
 	policyOut, err := client.DescribeScalingPolicies(ctx, &applicationautoscalingsvc52.DescribeScalingPoliciesInput{
 		ServiceNamespace: applicationautoscalingtypes52.ServiceNamespaceDynamodb,
-		ResourceId:       aws.String("table/mega-batch-52-ddb"),
+		ResourceId:       aws.String("table/s3ms-ddb"),
 	})
 	require.NoError(t, err, "DescribeScalingPolicies should succeed")
 	policy := findBy(t, policyOut.ScalingPolicies, func(p applicationautoscalingtypes52.ScalingPolicy) bool {
-		return aws.ToString(p.PolicyName) == "mega-batch-52-scaling-policy"
-	}, "scaling policy mega-batch-52-scaling-policy")
+		return aws.ToString(p.PolicyName) == "s3ms-scaling-policy"
+	}, "scaling policy s3ms-scaling-policy")
 	assert.Equal(t, applicationautoscalingtypes52.PolicyTypeTargetTrackingScaling, policy.PolicyType)
 
 	actionOut, err := client.DescribeScheduledActions(ctx, &applicationautoscalingsvc52.DescribeScheduledActionsInput{
 		ServiceNamespace: applicationautoscalingtypes52.ServiceNamespaceDynamodb,
-		ResourceId:       aws.String("table/mega-batch-52-ddb"),
+		ResourceId:       aws.String("table/s3ms-ddb"),
 	})
 	require.NoError(t, err, "DescribeScheduledActions should succeed")
 	findBy(t, actionOut.ScheduledActions, func(a applicationautoscalingtypes52.ScheduledAction) bool {
-		return aws.ToString(a.ScheduledActionName) == "mega-batch-52-scheduled-action"
-	}, "scheduled action mega-batch-52-scheduled-action")
+		return aws.ToString(a.ScheduledActionName) == "s3ms-scheduled-action"
+	}, "scheduled action s3ms-scheduled-action")
 }
 
-func verifyMegaBatch52BedrockAgent(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingBedrockAgent(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := bedrockagentsvc52.NewFromConfig(megaConfig(t), func(o *bedrockagentsvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -124,17 +124,17 @@ func verifyMegaBatch52BedrockAgent(ctx context.Context, t *testing.T) {
 	listOut, err := client.ListPrompts(ctx, &bedrockagentsvc52.ListPromptsInput{})
 	require.NoError(t, err, "ListPrompts should succeed")
 	prompt := findBy(t, listOut.PromptSummaries, func(p bedrockagenttypes52.PromptSummary) bool {
-		return aws.ToString(p.Name) == "mega-batch-52-prompt"
-	}, "prompt mega-batch-52-prompt")
+		return aws.ToString(p.Name) == "s3ms-prompt"
+	}, "prompt s3ms-prompt")
 
 	getOut, err := client.GetPrompt(ctx, &bedrockagentsvc52.GetPromptInput{
 		PromptIdentifier: prompt.Id,
 	})
 	require.NoError(t, err, "GetPrompt should succeed")
-	assert.Equal(t, "mega-batch-52-prompt", aws.ToString(getOut.Name))
+	assert.Equal(t, "s3ms-prompt", aws.ToString(getOut.Name))
 }
 
-func verifyMegaBatch52ECR(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingECR(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := ecrsvc52.NewFromConfig(megaConfig(t), func(o *ecrsvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -148,7 +148,7 @@ func verifyMegaBatch52ECR(ctx context.Context, t *testing.T) {
 	assert.Equal(t, "SCAN_ON_PUSH", string(out.ScanningConfiguration.Rules[0].ScanFrequency))
 }
 
-func verifyMegaBatch52Glacier(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingGlacier(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := glaciersvc52.NewFromConfig(megaConfig(t), func(o *glaciersvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -156,20 +156,20 @@ func verifyMegaBatch52Glacier(ctx context.Context, t *testing.T) {
 
 	descOut, err := client.DescribeVault(ctx, &glaciersvc52.DescribeVaultInput{
 		AccountId: aws.String("-"),
-		VaultName: aws.String("mega-batch-52-vault"),
+		VaultName: aws.String("s3ms-vault"),
 	})
 	require.NoError(t, err, "DescribeVault should succeed")
-	assert.Equal(t, "mega-batch-52-vault", aws.ToString(descOut.VaultName))
+	assert.Equal(t, "s3ms-vault", aws.ToString(descOut.VaultName))
 
 	lockOut, err := client.GetVaultLock(ctx, &glaciersvc52.GetVaultLockInput{
 		AccountId: aws.String("-"),
-		VaultName: aws.String("mega-batch-52-vault"),
+		VaultName: aws.String("s3ms-vault"),
 	})
 	require.NoError(t, err, "GetVaultLock should succeed")
 	assert.Equal(t, "InProgress", aws.ToString(lockOut.State))
 }
 
-func verifyMegaBatch52RolesAnywhere(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingRolesAnywhere(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := rolesanywheresvc52.NewFromConfig(megaConfig(t), func(o *rolesanywheresvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -178,26 +178,26 @@ func verifyMegaBatch52RolesAnywhere(ctx context.Context, t *testing.T) {
 	out, err := client.ListProfiles(ctx, &rolesanywheresvc52.ListProfilesInput{})
 	require.NoError(t, err, "ListProfiles should succeed")
 	profile := findBy(t, out.Profiles, func(p rolesanywheretypes52.ProfileDetail) bool {
-		return aws.ToString(p.Name) == "mega-batch-52-profile"
-	}, "profile mega-batch-52-profile")
-	assert.Contains(t, profile.RoleArns, "arn:aws:iam::000000000000:role/mega-batch-52-rolesanywhere-role")
+		return aws.ToString(p.Name) == "s3ms-profile"
+	}, "profile s3ms-profile")
+	assert.Contains(t, profile.RoleArns, "arn:aws:iam::000000000000:role/s3ms-rolesanywhere-role")
 }
 
-func verifyMegaBatch52Rekognition(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingRekognition(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := rekognitionsvc52.NewFromConfig(megaConfig(t), func(o *rekognitionsvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.DescribeProjects(ctx, &rekognitionsvc52.DescribeProjectsInput{
-		ProjectNames: []string{"mega-batch-52-project"},
+		ProjectNames: []string{"s3ms-project"},
 	})
 	require.NoError(t, err, "DescribeProjects should succeed")
 	require.Len(t, out.ProjectDescriptions, 1)
 	assert.Equal(t, "CREATED", string(out.ProjectDescriptions[0].Status))
 }
 
-func verifyMegaBatch52QuickSight(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingQuickSight(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := quicksightsvc52.NewFromConfig(megaConfig(t), func(o *quicksightsvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -208,7 +208,7 @@ func verifyMegaBatch52QuickSight(ctx context.Context, t *testing.T) {
 	})
 	require.NoError(t, err, "DescribeAccountSubscription should succeed")
 	require.NotNil(t, subOut.AccountInfo)
-	assert.Equal(t, "mega-batch-52-qs", aws.ToString(subOut.AccountInfo.AccountName))
+	assert.Equal(t, "s3ms-qs", aws.ToString(subOut.AccountInfo.AccountName))
 
 	settingsOut, err := client.DescribeAccountSettings(ctx, &quicksightsvc52.DescribeAccountSettingsInput{
 		AwsAccountId: aws.String("000000000000"),
@@ -218,13 +218,13 @@ func verifyMegaBatch52QuickSight(ctx context.Context, t *testing.T) {
 	assert.False(t, settingsOut.AccountSettings.TerminationProtectionEnabled)
 }
 
-func verifyMegaBatch52Kinesis(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingKinesis(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := kinesissvc52.NewFromConfig(megaConfig(t), func(o *kinesissvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
-	streamARN := "arn:aws:kinesis:us-east-1:000000000000:stream/mega-batch-52-stream"
+	streamARN := "arn:aws:kinesis:us-east-1:000000000000:stream/s3ms-stream"
 
 	policyOut, err := client.GetResourcePolicy(ctx, &kinesissvc52.GetResourcePolicyInput{
 		ResourceARN: aws.String(streamARN),
@@ -236,10 +236,10 @@ func verifyMegaBatch52Kinesis(ctx context.Context, t *testing.T) {
 		StreamARN: aws.String(streamARN),
 	})
 	require.NoError(t, err, "ListStreamConsumers should succeed")
-	assert.NotEmpty(t, consumersOut.Consumers, "consumer mega-batch-52-consumer should be listed")
+	assert.NotEmpty(t, consumersOut.Consumers, "consumer s3ms-consumer should be listed")
 }
 
-func verifyMegaBatch52LakeFormation(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingLakeFormation(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := lakeformationsvc52.NewFromConfig(megaConfig(t), func(o *lakeformationsvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -247,41 +247,41 @@ func verifyMegaBatch52LakeFormation(ctx context.Context, t *testing.T) {
 
 	tagOut, err := client.GetLFTag(ctx, &lakeformationsvc52.GetLFTagInput{
 		CatalogId: aws.String("000000000000"),
-		TagKey:    aws.String("mega-batch-52-tag"),
+		TagKey:    aws.String("s3ms-tag"),
 	})
 	require.NoError(t, err, "GetLFTag should succeed")
 	assert.ElementsMatch(t, []string{"blue", "green"}, tagOut.TagValues)
 
 	resOut, err := client.GetResourceLFTags(ctx, &lakeformationsvc52.GetResourceLFTagsInput{
 		Resource: &lakeformationtypes52.Resource{
-			Database: &lakeformationtypes52.DatabaseResource{Name: aws.String("mega_batch_52_db")},
+			Database: &lakeformationtypes52.DatabaseResource{Name: aws.String("s3ms_db")},
 		},
 	})
 	require.NoError(t, err, "GetResourceLFTags should succeed")
 	require.NotEmpty(t, resOut.LFTagOnDatabase)
-	assert.Equal(t, "mega-batch-52-tag", aws.ToString(resOut.LFTagOnDatabase[0].TagKey))
+	assert.Equal(t, "s3ms-tag", aws.ToString(resOut.LFTagOnDatabase[0].TagKey))
 }
 
-func verifyMegaBatch52MediaStore(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingMediaStore(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := mediastoresvc52.NewFromConfig(megaConfig(t), func(o *mediastoresvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.GetContainerPolicy(ctx, &mediastoresvc52.GetContainerPolicyInput{
-		ContainerName: aws.String("mega_batch_52_container"),
+		ContainerName: aws.String("s3ms_container"),
 	})
 	require.NoError(t, err, "GetContainerPolicy should succeed")
 	assert.Contains(t, aws.ToString(out.Policy), "mediastore:GetObject")
 }
 
-func verifyMegaBatch52S3Tables(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingS3Tables(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := s3tablessvc52.NewFromConfig(megaConfig(t), func(o *s3tablessvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
-	bucketARN := "arn:aws:s3tables:us-east-1:000000000000:bucket/mega-batch-52-tb"
+	bucketARN := "arn:aws:s3tables:us-east-1:000000000000:bucket/s3ms-tb"
 
 	bucketPolicyOut, err := client.GetTableBucketPolicy(ctx, &s3tablessvc52.GetTableBucketPolicyInput{
 		TableBucketARN: aws.String(bucketARN),
@@ -291,14 +291,14 @@ func verifyMegaBatch52S3Tables(ctx context.Context, t *testing.T) {
 
 	tablePolicyOut, err := client.GetTablePolicy(ctx, &s3tablessvc52.GetTablePolicyInput{
 		TableBucketARN: aws.String(bucketARN),
-		Namespace:      aws.String("mega_batch_52_ns"),
-		Name:           aws.String("mega_batch_52_table"),
+		Namespace:      aws.String("s3ms_ns"),
+		Name:           aws.String("s3ms_table"),
 	})
 	require.NoError(t, err, "GetTablePolicy should succeed")
 	assert.Contains(t, aws.ToString(tablePolicyOut.ResourcePolicy), "s3tables:GetTable")
 }
 
-func verifyMegaBatch52ServiceDiscovery(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingServiceDiscovery(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := servicediscoverysvc52.NewFromConfig(megaConfig(t), func(o *servicediscoverysvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -308,17 +308,17 @@ func verifyMegaBatch52ServiceDiscovery(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "ListNamespaces should succeed")
 
 	pub := findBy(t, out.Namespaces, func(ns servicediscoverytypes52.NamespaceSummary) bool {
-		return aws.ToString(ns.Name) == "mega-batch-52.example.com"
-	}, "public namespace mega-batch-52.example.com")
+		return aws.ToString(ns.Name) == "s3ms.example.com"
+	}, "public namespace s3ms.example.com")
 	assert.Equal(t, servicediscoverytypes52.NamespaceTypeDnsPublic, pub.Type)
 
 	priv := findBy(t, out.Namespaces, func(ns servicediscoverytypes52.NamespaceSummary) bool {
-		return aws.ToString(ns.Name) == "mega-batch-52.private"
-	}, "private namespace mega-batch-52.private")
+		return aws.ToString(ns.Name) == "s3ms.private"
+	}, "private namespace s3ms.private")
 	assert.Equal(t, servicediscoverytypes52.NamespaceTypeDnsPrivate, priv.Type)
 }
 
-func verifyMegaBatch52SNS(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingSNS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := snssvc52.NewFromConfig(megaConfig(t), func(o *snssvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -329,20 +329,20 @@ func verifyMegaBatch52SNS(ctx context.Context, t *testing.T) {
 	assert.Equal(t, "Transactional", smsOut.Attributes["DefaultSMSType"])
 
 	dppOut, err := client.GetDataProtectionPolicy(ctx, &snssvc52.GetDataProtectionPolicyInput{
-		ResourceArn: aws.String("arn:aws:sns:us-east-1:000000000000:mega-batch-52-topic"),
+		ResourceArn: aws.String("arn:aws:sns:us-east-1:000000000000:s3ms-topic"),
 	})
 	require.NoError(t, err, "GetDataProtectionPolicy should succeed")
-	assert.Contains(t, aws.ToString(dppOut.DataProtectionPolicy), "mega-batch-52-dpp")
+	assert.Contains(t, aws.ToString(dppOut.DataProtectionPolicy), "s3ms-dpp")
 }
 
-func verifyMegaBatch52SQS(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingSQS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := sqssvc52.NewFromConfig(megaConfig(t), func(o *sqssvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	urlOut, err := client.GetQueueUrl(ctx, &sqssvc52.GetQueueUrlInput{
-		QueueName: aws.String("mega-batch-52-src"),
+		QueueName: aws.String("s3ms-src"),
 	})
 	require.NoError(t, err, "GetQueueUrl should succeed")
 
@@ -351,23 +351,23 @@ func verifyMegaBatch52SQS(ctx context.Context, t *testing.T) {
 		AttributeNames: []sqstypes52.QueueAttributeName{sqstypes52.QueueAttributeNameRedrivePolicy},
 	})
 	require.NoError(t, err, "GetQueueAttributes should succeed")
-	assert.Contains(t, attrOut.Attributes["RedrivePolicy"], "mega-batch-52-dlq")
+	assert.Contains(t, attrOut.Attributes["RedrivePolicy"], "s3ms-dlq")
 }
 
-func verifyMegaBatch52Transcribe(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingTranscribe(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := transcribesvc52.NewFromConfig(megaConfig(t), func(o *transcribesvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.GetVocabularyFilter(ctx, &transcribesvc52.GetVocabularyFilterInput{
-		VocabularyFilterName: aws.String("mega-batch-52-filter"),
+		VocabularyFilterName: aws.String("s3ms-filter"),
 	})
 	require.NoError(t, err, "GetVocabularyFilter should succeed")
 	assert.Equal(t, "en-US", string(out.LanguageCode))
 }
 
-func verifyMegaBatch52CodePipeline(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingCodePipeline(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := codepipelinesvc52.NewFromConfig(megaConfig(t), func(o *codepipelinesvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -378,13 +378,13 @@ func verifyMegaBatch52CodePipeline(ctx context.Context, t *testing.T) {
 	})
 	require.NoError(t, err, "ListActionTypes should succeed")
 	action := findBy(t, out.ActionTypes, func(a codepipelinetypes52.ActionType) bool {
-		return a.Id != nil && aws.ToString(a.Id.Provider) == "mega-batch-52-provider"
-	}, "custom action type mega-batch-52-provider")
+		return a.Id != nil && aws.ToString(a.Id.Provider) == "s3ms-provider"
+	}, "custom action type s3ms-provider")
 	assert.Equal(t, codepipelinetypes52.ActionCategoryBuild, action.Id.Category)
 	assert.Equal(t, "1", aws.ToString(action.Id.Version))
 }
 
-func verifyMegaBatch52APIGateway(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingAPIGateway(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := apigatewaysvc52.NewFromConfig(megaConfig(t), func(o *apigatewaysvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -393,26 +393,26 @@ func verifyMegaBatch52APIGateway(ctx context.Context, t *testing.T) {
 	apisOut, err := client.GetRestApis(ctx, &apigatewaysvc52.GetRestApisInput{})
 	require.NoError(t, err, "GetRestApis should succeed")
 	api := findBy(t, apisOut.Items, func(a apigatewaytypes52.RestApi) bool {
-		return aws.ToString(a.Name) == "mega-batch-52-api"
-	}, "rest api mega-batch-52-api")
+		return aws.ToString(a.Name) == "s3ms-api"
+	}, "rest api s3ms-api")
 
 	resOut, err := client.GetResources(ctx, &apigatewaysvc52.GetResourcesInput{
 		RestApiId: api.Id,
 	})
 	require.NoError(t, err, "GetResources should succeed")
 	findBy(t, resOut.Items, func(r apigatewaytypes52.Resource) bool {
-		return aws.ToString(r.Path) == "/mb52"
-	}, "resource /mb52")
+		return aws.ToString(r.Path) == "/s3ms"
+	}, "resource /s3ms")
 }
 
-func verifyMegaBatch52ELB(ctx context.Context, t *testing.T) {
+func verifyS3tablesMessagingAndStreamingELB(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := elbsvc52.NewFromConfig(megaConfig(t), func(o *elbsvc52.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.DescribeLoadBalancers(ctx, &elbsvc52.DescribeLoadBalancersInput{
-		LoadBalancerNames: []string{"mega-batch-52-lb"},
+		LoadBalancerNames: []string{"s3ms-lb"},
 	})
 	require.NoError(t, err, "DescribeLoadBalancers should succeed")
 	require.Len(t, out.LoadBalancerDescriptions, 1)

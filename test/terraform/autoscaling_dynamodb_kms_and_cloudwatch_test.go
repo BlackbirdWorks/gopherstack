@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch35 provisions an Auto Scaling group with an
+// TestTerraform_AutoscalingDynamodbKmsAndCloudwatch provisions an Auto Scaling group with an
 // attachment, traffic-source attachment, group tag, lifecycle hook,
 // notification, scaling policy and scheduled action; a DynamoDB table with
 // contributor insights, a Kinesis streaming destination, a resource policy,
@@ -23,13 +23,13 @@ import (
 // grant, key policy and an external key; and CloudWatch composite alarm,
 // insight rule, managed insight rule and metric stream resources, verifying
 // each through its own SDK client.
-func TestTerraform_MegaBatch35(t *testing.T) {
+func TestTerraform_AutoscalingDynamodbKmsAndCloudwatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-35",
+			fixture:    "autoscaling-dynamodb-kms-and-cloudwatch",
 			providerFn: macie2ProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -41,10 +41,10 @@ func TestTerraform_MegaBatch35(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch35AutoScaling(ctx, t)
-				verifyMegaBatch35DynamoDB(ctx, t)
-				verifyMegaBatch35KMS(ctx, t)
-				verifyMegaBatch35CloudWatch(ctx, t)
+				verifyAutoscalingDynamodbKmsAndCloudwatchAutoScaling(ctx, t)
+				verifyAutoscalingDynamodbKmsAndCloudwatchDynamoDB(ctx, t)
+				verifyAutoscalingDynamodbKmsAndCloudwatchKMS(ctx, t)
+				verifyAutoscalingDynamodbKmsAndCloudwatchCloudWatch(ctx, t)
 			},
 		},
 	}
@@ -57,7 +57,7 @@ func TestTerraform_MegaBatch35(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch35AutoScaling(ctx context.Context, t *testing.T) {
+func verifyAutoscalingDynamodbKmsAndCloudwatchAutoScaling(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -66,7 +66,7 @@ func verifyMegaBatch35AutoScaling(ctx context.Context, t *testing.T) {
 	})
 
 	groupsOut, err := client.DescribeAutoScalingGroups(ctx, &autoscalingsdk.DescribeAutoScalingGroupsInput{
-		AutoScalingGroupNames: []string{"mega-batch-35-asg"},
+		AutoScalingGroupNames: []string{"adkc-asg"},
 	})
 	require.NoError(t, err, "DescribeAutoScalingGroups should succeed")
 	require.Len(t, groupsOut.AutoScalingGroups, 1)
@@ -87,7 +87,7 @@ func verifyMegaBatch35AutoScaling(ctx context.Context, t *testing.T) {
 	foundTag := false
 
 	for _, tag := range group.Tags {
-		if aws.ToString(tag.Key) == "mega-batch-35-tag" {
+		if aws.ToString(tag.Key) == "adkc-tag" {
 			foundTag = true
 
 			assert.Equal(t, "true", aws.ToString(tag.Value))
@@ -97,35 +97,35 @@ func verifyMegaBatch35AutoScaling(ctx context.Context, t *testing.T) {
 	assert.True(t, foundTag, "group tag should be listed")
 
 	hooksOut, err := client.DescribeLifecycleHooks(ctx, &autoscalingsdk.DescribeLifecycleHooksInput{
-		AutoScalingGroupName: aws.String("mega-batch-35-asg"),
+		AutoScalingGroupName: aws.String("adkc-asg"),
 	})
 	require.NoError(t, err, "DescribeLifecycleHooks should succeed")
 	require.NotEmpty(t, hooksOut.LifecycleHooks)
-	assert.Equal(t, "mega-batch-35-hook", aws.ToString(hooksOut.LifecycleHooks[0].LifecycleHookName))
+	assert.Equal(t, "adkc-hook", aws.ToString(hooksOut.LifecycleHooks[0].LifecycleHookName))
 
 	notifOut, err := client.DescribeNotificationConfigurations(
 		ctx, &autoscalingsdk.DescribeNotificationConfigurationsInput{
-			AutoScalingGroupNames: []string{"mega-batch-35-asg"},
+			AutoScalingGroupNames: []string{"adkc-asg"},
 		},
 	)
 	require.NoError(t, err, "DescribeNotificationConfigurations should succeed")
 	require.NotEmpty(t, notifOut.NotificationConfigurations)
 
 	policiesOut, err := client.DescribePolicies(ctx, &autoscalingsdk.DescribePoliciesInput{
-		AutoScalingGroupName: aws.String("mega-batch-35-asg"),
+		AutoScalingGroupName: aws.String("adkc-asg"),
 	})
 	require.NoError(t, err, "DescribePolicies should succeed")
 	require.NotEmpty(t, policiesOut.ScalingPolicies)
-	assert.Equal(t, "mega-batch-35-policy", aws.ToString(policiesOut.ScalingPolicies[0].PolicyName))
+	assert.Equal(t, "adkc-policy", aws.ToString(policiesOut.ScalingPolicies[0].PolicyName))
 
 	schedOut, err := client.DescribeScheduledActions(ctx, &autoscalingsdk.DescribeScheduledActionsInput{
-		AutoScalingGroupName: aws.String("mega-batch-35-asg"),
+		AutoScalingGroupName: aws.String("adkc-asg"),
 	})
 	require.NoError(t, err, "DescribeScheduledActions should succeed")
 	require.NotEmpty(t, schedOut.ScheduledUpdateGroupActions)
 }
 
-func verifyMegaBatch35DynamoDB(ctx context.Context, t *testing.T) {
+func verifyAutoscalingDynamodbKmsAndCloudwatchDynamoDB(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -134,19 +134,19 @@ func verifyMegaBatch35DynamoDB(ctx context.Context, t *testing.T) {
 	})
 
 	descOut, err := client.DescribeContributorInsights(ctx, &ddbsdk.DescribeContributorInsightsInput{
-		TableName: aws.String("mega-batch-35-table"),
+		TableName: aws.String("adkc-table"),
 	})
 	require.NoError(t, err, "DescribeContributorInsights should succeed")
 	assert.NotEmpty(t, descOut.ContributorInsightsStatus)
 
 	kinOut, err := client.DescribeKinesisStreamingDestination(ctx, &ddbsdk.DescribeKinesisStreamingDestinationInput{
-		TableName: aws.String("mega-batch-35-table"),
+		TableName: aws.String("adkc-table"),
 	})
 	require.NoError(t, err, "DescribeKinesisStreamingDestination should succeed")
 	require.NotEmpty(t, kinOut.KinesisDataStreamDestinations)
 
 	descTable, err := client.DescribeTable(ctx, &ddbsdk.DescribeTableInput{
-		TableName: aws.String("mega-batch-35-table"),
+		TableName: aws.String("adkc-table"),
 	})
 	require.NoError(t, err, "DescribeTable should succeed")
 	tableArn := aws.ToString(descTable.Table.TableArn)
@@ -158,9 +158,9 @@ func verifyMegaBatch35DynamoDB(ctx context.Context, t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(policyOut.Policy))
 
 	itemOut, err := client.GetItem(ctx, &ddbsdk.GetItemInput{
-		TableName: aws.String("mega-batch-35-table"),
+		TableName: aws.String("adkc-table"),
 		Key: map[string]ddbtypes2.AttributeValue{
-			"id": &ddbtypes2.AttributeValueMemberS{Value: "mega-batch-35-item"},
+			"id": &ddbtypes2.AttributeValueMemberS{Value: "adkc-item"},
 		},
 	})
 	require.NoError(t, err, "GetItem should succeed")
@@ -175,7 +175,7 @@ func verifyMegaBatch35DynamoDB(ctx context.Context, t *testing.T) {
 	foundTag := false
 
 	for _, tag := range tagsOut.Tags {
-		if aws.ToString(tag.Key) == "mega-batch-35-tag" {
+		if aws.ToString(tag.Key) == "adkc-tag" {
 			foundTag = true
 		}
 	}
@@ -189,7 +189,7 @@ func verifyMegaBatch35DynamoDB(ctx context.Context, t *testing.T) {
 	require.NotEmpty(t, exportsOut.ExportSummaries)
 }
 
-func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
+func verifyAutoscalingDynamodbKmsAndCloudwatchKMS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -207,7 +207,7 @@ func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
 		descOut, descErr := client.DescribeKey(ctx, &kmssdk.DescribeKeyInput{KeyId: k.KeyId})
 		require.NoError(t, descErr, "DescribeKey should succeed")
 
-		if aws.ToString(descOut.KeyMetadata.Description) == "mega-batch-35 kms key" {
+		if aws.ToString(descOut.KeyMetadata.Description) == "adkc kms key" {
 			keyID = aws.ToString(k.KeyId)
 		}
 	}
@@ -217,14 +217,14 @@ func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
 	grantsOut, err := client.ListGrants(ctx, &kmssdk.ListGrantsInput{KeyId: aws.String(keyID)})
 	require.NoError(t, err, "ListGrants should succeed")
 	require.NotEmpty(t, grantsOut.Grants)
-	assert.Equal(t, "mega-batch-35-grant", aws.ToString(grantsOut.Grants[0].Name))
+	assert.Equal(t, "adkc-grant", aws.ToString(grantsOut.Grants[0].Name))
 
 	policyOut, err := client.GetKeyPolicy(ctx, &kmssdk.GetKeyPolicyInput{
 		KeyId:      aws.String(keyID),
 		PolicyName: aws.String("default"),
 	})
 	require.NoError(t, err, "GetKeyPolicy should succeed")
-	assert.Contains(t, aws.ToString(policyOut.Policy), "mega-batch-35-key-policy")
+	assert.Contains(t, aws.ToString(policyOut.Policy), "adkc-key-policy")
 
 	externalFound := false
 
@@ -232,7 +232,7 @@ func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
 		descOut, descErr := client.DescribeKey(ctx, &kmssdk.DescribeKeyInput{KeyId: k.KeyId})
 		require.NoError(t, descErr, "DescribeKey should succeed")
 
-		if aws.ToString(descOut.KeyMetadata.Description) == "mega-batch-35 external key" {
+		if aws.ToString(descOut.KeyMetadata.Description) == "adkc external key" {
 			externalFound = true
 
 			assert.Equal(t, "EXTERNAL", string(descOut.KeyMetadata.Origin))
@@ -242,11 +242,11 @@ func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
 	assert.True(t, externalFound, "external key should be listed")
 
 	cksOut, err := client.DescribeCustomKeyStores(ctx, &kmssdk.DescribeCustomKeyStoresInput{
-		CustomKeyStoreName: aws.String("mega-batch-35-cks"),
+		CustomKeyStoreName: aws.String("adkc-cks"),
 	})
 	require.NoError(t, err, "DescribeCustomKeyStores should succeed")
 	require.Len(t, cksOut.CustomKeyStores, 1)
-	assert.Equal(t, "cluster-megabatch35", aws.ToString(cksOut.CustomKeyStores[0].CloudHsmClusterId))
+	assert.Equal(t, "cluster-adkc", aws.ToString(cksOut.CustomKeyStores[0].CloudHsmClusterId))
 
 	var replicaPrimaryKeyID, replicaExternalPrimaryKeyID string
 
@@ -255,9 +255,9 @@ func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
 		require.NoError(t, descErr, "DescribeKey should succeed")
 
 		switch aws.ToString(descOut.KeyMetadata.Description) {
-		case "mega-batch-35 replica primary key":
+		case "adkc replica primary key":
 			replicaPrimaryKeyID = aws.ToString(k.KeyId)
-		case "mega-batch-35 replica primary external key":
+		case "adkc replica primary external key":
 			replicaExternalPrimaryKeyID = aws.ToString(k.KeyId)
 		}
 	}
@@ -279,7 +279,7 @@ func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
 
 	replicaDesc, err := replicaClient.DescribeKey(ctx, &kmssdk.DescribeKeyInput{KeyId: aws.String(replicaKeyArn)})
 	require.NoError(t, err, "DescribeKey on replica should succeed")
-	assert.Equal(t, "mega-batch-35 replica key", aws.ToString(replicaDesc.KeyMetadata.Description))
+	assert.Equal(t, "adkc replica key", aws.ToString(replicaDesc.KeyMetadata.Description))
 
 	extPrimaryDesc, err := client.DescribeKey(
 		ctx, &kmssdk.DescribeKeyInput{KeyId: aws.String(replicaExternalPrimaryKeyID)},
@@ -292,11 +292,11 @@ func verifyMegaBatch35KMS(ctx context.Context, t *testing.T) {
 
 	extReplicaDesc, err := replicaClient.DescribeKey(ctx, &kmssdk.DescribeKeyInput{KeyId: aws.String(extReplicaKeyArn)})
 	require.NoError(t, err, "DescribeKey on replica external key should succeed")
-	assert.Equal(t, "mega-batch-35 replica external key", aws.ToString(extReplicaDesc.KeyMetadata.Description))
+	assert.Equal(t, "adkc replica external key", aws.ToString(extReplicaDesc.KeyMetadata.Description))
 	assert.Equal(t, "Enabled", string(extReplicaDesc.KeyMetadata.KeyState))
 }
 
-func verifyMegaBatch35CloudWatch(ctx context.Context, t *testing.T) {
+func verifyAutoscalingDynamodbKmsAndCloudwatchCloudWatch(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -305,12 +305,12 @@ func verifyMegaBatch35CloudWatch(ctx context.Context, t *testing.T) {
 	})
 
 	alarmsOut, err := client.DescribeAlarms(ctx, &cwsdk.DescribeAlarmsInput{
-		AlarmNames: []string{"mega-batch-35-composite-alarm"},
+		AlarmNames: []string{"adkc-composite-alarm"},
 		AlarmTypes: []cwtypes2.AlarmType{cwtypes2.AlarmTypeCompositeAlarm},
 	})
 	require.NoError(t, err, "DescribeAlarms should succeed")
 	require.Len(t, alarmsOut.CompositeAlarms, 1)
-	assert.Contains(t, aws.ToString(alarmsOut.CompositeAlarms[0].AlarmRule), "mega-batch-35-leaf-a")
+	assert.Contains(t, aws.ToString(alarmsOut.CompositeAlarms[0].AlarmRule), "adkc-leaf-a")
 
 	rulesOut, err := client.DescribeInsightRules(ctx, &cwsdk.DescribeInsightRulesInput{})
 	require.NoError(t, err, "DescribeInsightRules should succeed")
@@ -318,7 +318,7 @@ func verifyMegaBatch35CloudWatch(ctx context.Context, t *testing.T) {
 	foundRule := false
 
 	for _, r := range rulesOut.InsightRules {
-		if aws.ToString(r.Name) == "mega-batch-35-insight-rule" {
+		if aws.ToString(r.Name) == "adkc-insight-rule" {
 			foundRule = true
 		}
 	}
@@ -337,7 +337,7 @@ func verifyMegaBatch35CloudWatch(ctx context.Context, t *testing.T) {
 	foundStream := false
 
 	for _, s := range streamsOut.Entries {
-		if aws.ToString(s.Name) == "mega-batch-35-metric-stream" {
+		if aws.ToString(s.Name) == "adkc-metric-stream" {
 			foundStream = true
 		}
 	}
@@ -345,7 +345,7 @@ func verifyMegaBatch35CloudWatch(ctx context.Context, t *testing.T) {
 	assert.True(t, foundStream, "metric stream should be listed")
 }
 
-// descTableArn resolves the mega-batch-35 DynamoDB table's ARN for the
+// descTableArn resolves the adkc DynamoDB table's ARN for the
 // CloudWatch managed insight rule lookup.
 func descTableArn(ctx context.Context, t *testing.T) *string {
 	t.Helper()
@@ -356,7 +356,7 @@ func descTableArn(ctx context.Context, t *testing.T) *string {
 	})
 
 	out, err := client.DescribeTable(ctx, &ddbsdk.DescribeTableInput{
-		TableName: aws.String("mega-batch-35-table"),
+		TableName: aws.String("adkc-table"),
 	})
 	require.NoError(t, err, "DescribeTable should succeed")
 

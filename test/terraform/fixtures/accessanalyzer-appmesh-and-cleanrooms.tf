@@ -1,15 +1,15 @@
 resource "aws_accessanalyzer_analyzer" "example" {
-  analyzer_name = "mega-batch-5-analyzer"
+  analyzer_name = "aacr-analyzer"
   type          = "ACCOUNT"
 }
 
 resource "aws_appmesh_mesh" "example" {
-  name = "mega-batch-5-mesh"
+  name = "aacr-mesh"
 }
 
 resource "aws_cleanrooms_collaboration" "example" {
-  name                     = "mega-batch-5-collab"
-  description              = "mega-batch-5 clean rooms collaboration"
+  name                     = "aacr-collab"
+  description              = "aacr clean rooms collaboration"
   creator_display_name     = "gopherstack"
   creator_member_abilities = ["CAN_QUERY", "CAN_RECEIVE_RESULTS"]
   query_log_status         = "DISABLED"
@@ -23,20 +23,20 @@ resource "aws_cleanrooms_collaboration" "example" {
 }
 
 resource "aws_dax_cluster" "example" {
-  cluster_name       = "mega-batch-5-dax"
+  cluster_name       = "aacr-dax"
   iam_role_arn       = "arn:aws:iam::000000000000:role/dax-role"
   node_type          = "dax.r4.large"
   replication_factor = 1
 }
 
 resource "aws_dx_connection" "example" {
-  name      = "mega-batch-5-dx"
+  name      = "aacr-dx"
   bandwidth = "1Gbps"
   location  = "EqDC2"
 }
 
 resource "aws_dlm_lifecycle_policy" "example" {
-  description        = "mega-batch-5 DLM lifecycle policy"
+  description        = "aacr DLM lifecycle policy"
   execution_role_arn = "arn:aws:iam::000000000000:role/dlm-lifecycle-role"
   state              = "ENABLED"
 

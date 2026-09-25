@@ -603,7 +603,7 @@ accept/reject shape as CodeBuild/Lambda. Proven by
 items_still_open: 14 -> 11 (4 wlab entries merged into 1; CodeDeploy's
 now-fixed text stays as 1 entry, updated in place). No snapshot version bump.
 
-## mega-batch-54 terraform coverage (2026-09-24)
+## appmesh-shield-and-workspaces terraform coverage (2026-09-24)
 
 `webhookDefinitionView.AuthenticationConfiguration` had `omitempty` on its
 JSON tag, so a webhook with no `allowed_ip_range`/`secret_token` set (e.g.

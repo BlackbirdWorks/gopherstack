@@ -885,7 +885,7 @@ Create/Describe/Update/Delete/List call for that resource. Additive
 `deleted_resource_expiry_test.go` (synctest, evicted-after-TTL +
 kept-within-TTL for both resources).
 
-**2026-09-24 (mega-batch-49):** FIXED MultiplexProgramSettings.ServiceDescriptor/
+**2026-09-24 (elasticsearch-grafana-and-ram):** FIXED MultiplexProgramSettings.ServiceDescriptor/
 VideoSettings -- both are optional real members (`*MultiplexProgramServiceDescriptor`/
 `*MultiplexVideoSettings`), but this backend always emitted `serviceDescriptor`
 (even empty) and never modeled `videoSettings` at all, so terraform-provider-aws's
@@ -1712,5 +1712,5 @@ of completing: those waiters need the resource to keep describing as
 State=="DELETED", not disappear. Both now flip State to DELETED in place and
 keep the row (DeleteMultiplex previously did both: set State=DELETED, then
 immediately deleted the row anyway). Verified via
-TestTerraform_MegaBatch49 destroy (TF_LOG=trace): both resources destroy
+TestTerraform_ElasticsearchGrafanaAndRam destroy (TF_LOG=trace): both resources destroy
 clean now, no more logged errors.

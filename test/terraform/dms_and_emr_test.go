@@ -13,20 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch40 provisions DMS certificate/replication subnet
+// TestTerraform_DmsAndEmr provisions DMS certificate/replication subnet
 // group/S3 source and target endpoints/event subscription/replication
 // instance/task/serverless replication config, and EMR block public access
 // configuration/security configuration/instance-group and instance-fleet
 // clusters with a task instance group, a task instance fleet, and a managed
 // scaling policy, plus a studio with a user session mapping, via Terraform,
 // verifying each through its own SDK client.
-func TestTerraform_MegaBatch40(t *testing.T) {
+func TestTerraform_DmsAndEmr(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-40",
+			fixture: "dms-and-emr",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -34,8 +34,8 @@ func TestTerraform_MegaBatch40(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch40DMS(ctx, t)
-				verifyMegaBatch40EMR(ctx, t)
+				verifyDmsAndEmrDMS(ctx, t)
+				verifyDmsAndEmrEMR(ctx, t)
 			},
 		},
 	}
@@ -48,7 +48,7 @@ func TestTerraform_MegaBatch40(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch40DMS(ctx context.Context, t *testing.T) {
+func verifyDmsAndEmrDMS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -57,14 +57,14 @@ func verifyMegaBatch40DMS(ctx context.Context, t *testing.T) {
 	})
 
 	certOut, err := client.DescribeCertificates(ctx, &dmssvc40.DescribeCertificatesInput{
-		Filters: []dmstypes40.Filter{{Name: aws.String("certificate-id"), Values: []string{"mega-batch-40-cert"}}},
+		Filters: []dmstypes40.Filter{{Name: aws.String("certificate-id"), Values: []string{"dmse-cert"}}},
 	})
 	require.NoError(t, err, "DescribeCertificates should succeed")
 	require.Len(t, certOut.Certificates, 1)
 
 	sgOut, err := client.DescribeReplicationSubnetGroups(ctx, &dmssvc40.DescribeReplicationSubnetGroupsInput{
 		Filters: []dmstypes40.Filter{
-			{Name: aws.String("replication-subnet-group-id"), Values: []string{"mega-batch-40-subnet-group"}},
+			{Name: aws.String("replication-subnet-group-id"), Values: []string{"dmse-subnet-group"}},
 		},
 	})
 	require.NoError(t, err, "DescribeReplicationSubnetGroups should succeed")
@@ -72,25 +72,25 @@ func verifyMegaBatch40DMS(ctx context.Context, t *testing.T) {
 	assert.Len(t, sgOut.ReplicationSubnetGroups[0].Subnets, 2)
 
 	srcOut, err := client.DescribeEndpoints(ctx, &dmssvc40.DescribeEndpointsInput{
-		Filters: []dmstypes40.Filter{{Name: aws.String("endpoint-id"), Values: []string{"mega-batch-40-source"}}},
+		Filters: []dmstypes40.Filter{{Name: aws.String("endpoint-id"), Values: []string{"dmse-source"}}},
 	})
 	require.NoError(t, err, "DescribeEndpoints (source) should succeed")
 	require.Len(t, srcOut.Endpoints, 1)
 	assert.Equal(t, "s3", aws.ToString(srcOut.Endpoints[0].EngineName))
 	require.NotNil(t, srcOut.Endpoints[0].S3Settings)
-	assert.Equal(t, "mega-batch-40-dms-source-bucket", aws.ToString(srcOut.Endpoints[0].S3Settings.BucketName))
+	assert.Equal(t, "dmse-dms-source-bucket", aws.ToString(srcOut.Endpoints[0].S3Settings.BucketName))
 
 	tgtOut, err := client.DescribeEndpoints(ctx, &dmssvc40.DescribeEndpointsInput{
-		Filters: []dmstypes40.Filter{{Name: aws.String("endpoint-id"), Values: []string{"mega-batch-40-target-s3"}}},
+		Filters: []dmstypes40.Filter{{Name: aws.String("endpoint-id"), Values: []string{"dmse-target-s3"}}},
 	})
 	require.NoError(t, err, "DescribeEndpoints (target) should succeed")
 	require.Len(t, tgtOut.Endpoints, 1)
 	require.NotNil(t, tgtOut.Endpoints[0].S3Settings)
-	assert.Equal(t, "mega-batch-40-dms-target-bucket", aws.ToString(tgtOut.Endpoints[0].S3Settings.BucketName))
+	assert.Equal(t, "dmse-dms-target-bucket", aws.ToString(tgtOut.Endpoints[0].S3Settings.BucketName))
 
 	evOut, err := client.DescribeEventSubscriptions(ctx, &dmssvc40.DescribeEventSubscriptionsInput{
 		Filters: []dmstypes40.Filter{
-			{Name: aws.String("event-subscription-arn"), Values: []string{"mega-batch-40-event-subscription"}},
+			{Name: aws.String("event-subscription-arn"), Values: []string{"dmse-event-subscription"}},
 		},
 	})
 	// Real DMS DescribeEventSubscriptions doesn't filter by name reliably across
@@ -104,7 +104,7 @@ func verifyMegaBatch40DMS(ctx context.Context, t *testing.T) {
 	var foundSub bool
 
 	for _, s := range evOut.EventSubscriptionsList {
-		if aws.ToString(s.CustSubscriptionId) == "mega-batch-40-event-subscription" {
+		if aws.ToString(s.CustSubscriptionId) == "dmse-event-subscription" {
 			foundSub = true
 		}
 	}
@@ -113,14 +113,14 @@ func verifyMegaBatch40DMS(ctx context.Context, t *testing.T) {
 
 	riOut, err := client.DescribeReplicationInstances(ctx, &dmssvc40.DescribeReplicationInstancesInput{
 		Filters: []dmstypes40.Filter{
-			{Name: aws.String("replication-instance-id"), Values: []string{"mega-batch-40-instance"}},
+			{Name: aws.String("replication-instance-id"), Values: []string{"dmse-instance"}},
 		},
 	})
 	require.NoError(t, err, "DescribeReplicationInstances should succeed")
 	require.Len(t, riOut.ReplicationInstances, 1)
 
 	taskOut, err := client.DescribeReplicationTasks(ctx, &dmssvc40.DescribeReplicationTasksInput{
-		Filters: []dmstypes40.Filter{{Name: aws.String("replication-task-id"), Values: []string{"mega-batch-40-task"}}},
+		Filters: []dmstypes40.Filter{{Name: aws.String("replication-task-id"), Values: []string{"dmse-task"}}},
 	})
 	require.NoError(t, err, "DescribeReplicationTasks should succeed")
 	require.Len(t, taskOut.ReplicationTasks, 1)
@@ -131,17 +131,17 @@ func verifyMegaBatch40DMS(ctx context.Context, t *testing.T) {
 	var foundConfig bool
 
 	for _, rc := range rcOut.ReplicationConfigs {
-		if aws.ToString(rc.ReplicationConfigIdentifier) == "mega-batch-40-serverless" {
+		if aws.ToString(rc.ReplicationConfigIdentifier) == "dmse-serverless" {
 			foundConfig = true
 			require.NotNil(t, rc.ComputeConfig)
-			assert.Equal(t, "mega-batch-40-subnet-group", aws.ToString(rc.ComputeConfig.ReplicationSubnetGroupId))
+			assert.Equal(t, "dmse-subnet-group", aws.ToString(rc.ComputeConfig.ReplicationSubnetGroupId))
 		}
 	}
 
 	assert.True(t, foundConfig, "serverless replication config should be listed")
 }
 
-func verifyMegaBatch40EMR(ctx context.Context, t *testing.T) {
+func verifyDmsAndEmrEMR(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -155,7 +155,7 @@ func verifyMegaBatch40EMR(ctx context.Context, t *testing.T) {
 	assert.True(t, aws.ToBool(bpaOut.BlockPublicAccessConfiguration.BlockPublicSecurityGroupRules))
 
 	secOut, err := client.DescribeSecurityConfiguration(ctx, &emrsvc40.DescribeSecurityConfigurationInput{
-		Name: aws.String("mega-batch-40-security-config"),
+		Name: aws.String("dmse-security-config"),
 	})
 	require.NoError(t, err, "DescribeSecurityConfiguration should succeed")
 	assert.Contains(t, aws.ToString(secOut.SecurityConfiguration), "SSE-S3")
@@ -167,9 +167,9 @@ func verifyMegaBatch40EMR(ctx context.Context, t *testing.T) {
 
 	for _, c := range clustersOut.Clusters {
 		switch aws.ToString(c.Name) {
-		case "mega-batch-40-emr-groups":
+		case "dmse-emr-groups":
 			groupsClusterID = aws.ToString(c.Id)
-		case "mega-batch-40-emr-fleets":
+		case "dmse-emr-fleets":
 			fleetsClusterID = aws.ToString(c.Id)
 		}
 	}
@@ -185,7 +185,7 @@ func verifyMegaBatch40EMR(ctx context.Context, t *testing.T) {
 	var foundTaskGroup bool
 
 	for _, g := range groupsOut.InstanceGroups {
-		if aws.ToString(g.Name) == "mega-batch-40-task-group" {
+		if aws.ToString(g.Name) == "dmse-task-group" {
 			foundTaskGroup = true
 			assert.Equal(t, emrtypes40.InstanceGroupTypeTask, g.InstanceGroupType)
 		}
@@ -209,7 +209,7 @@ func verifyMegaBatch40EMR(ctx context.Context, t *testing.T) {
 	var foundTaskFleet bool
 
 	for _, f := range fleetsOut.InstanceFleets {
-		if aws.ToString(f.Name) == "mega-batch-40-task-fleet" {
+		if aws.ToString(f.Name) == "dmse-task-fleet" {
 			foundTaskFleet = true
 			require.NotEmpty(t, f.InstanceTypeSpecifications)
 			assert.Equal(t, "m4.large", aws.ToString(f.InstanceTypeSpecifications[0].InstanceType))
@@ -224,7 +224,7 @@ func verifyMegaBatch40EMR(ctx context.Context, t *testing.T) {
 	var studioID string
 
 	for _, s := range studiosOut.Studios {
-		if aws.ToString(s.Name) == "mega-batch-40-studio" {
+		if aws.ToString(s.Name) == "dmse-studio" {
 			studioID = aws.ToString(s.StudioId)
 		}
 	}
@@ -238,9 +238,9 @@ func verifyMegaBatch40EMR(ctx context.Context, t *testing.T) {
 	mappingOut, err := client.GetStudioSessionMapping(ctx, &emrsvc40.GetStudioSessionMappingInput{
 		StudioId:     aws.String(studioID),
 		IdentityType: emrtypes40.IdentityTypeUser,
-		IdentityName: aws.String("mega-batch-40-user"),
+		IdentityName: aws.String("dmse-user"),
 	})
 	require.NoError(t, err, "GetStudioSessionMapping should succeed")
 	require.NotNil(t, mappingOut.SessionMapping)
-	assert.Contains(t, aws.ToString(mappingOut.SessionMapping.SessionPolicyArn), "mega-batch-40-session-policy")
+	assert.Contains(t, aws.ToString(mappingOut.SessionMapping.SessionPolicyArn), "dmse-session-policy")
 }

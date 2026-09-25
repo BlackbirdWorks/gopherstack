@@ -1,37 +1,37 @@
 # --- Shared networking ---
 
-resource "aws_vpc" "mb31" {
+resource "aws_vpc" "agam" {
   cidr_block = "10.191.0.0/16"
 
   tags = {
-    Name = "mega-batch-31-vpc"
+    Name = "agam-vpc"
   }
 }
 
-resource "aws_subnet" "mb31" {
-  vpc_id     = aws_vpc.mb31.id
+resource "aws_subnet" "agam" {
+  vpc_id     = aws_vpc.agam.id
   cidr_block = "10.191.1.0/24"
 
   tags = {
-    Name = "mega-batch-31-subnet"
+    Name = "agam-subnet"
   }
 }
 
-resource "aws_security_group" "mb31" {
-  name   = "mega-batch-31-sg"
-  vpc_id = aws_vpc.mb31.id
+resource "aws_security_group" "agam" {
+  name   = "agam-sg"
+  vpc_id = aws_vpc.agam.id
 }
 
-resource "aws_vpc_endpoint" "mb31_apprunner" {
-  vpc_id             = aws_vpc.mb31.id
+resource "aws_vpc_endpoint" "agam_apprunner" {
+  vpc_id             = aws_vpc.agam.id
   service_name       = "com.amazonaws.us-east-1.apprunner.requests"
   vpc_endpoint_type  = "Interface"
-  subnet_ids         = [aws_subnet.mb31.id]
-  security_group_ids = [aws_security_group.mb31.id]
+  subnet_ids         = [aws_subnet.agam.id]
+  security_group_ids = [aws_security_group.agam.id]
 }
 
-resource "aws_iam_role" "mb31_lambda" {
-  name = "mega-batch-31-lambda-role"
+resource "aws_iam_role" "agam_lambda" {
+  name = "agam-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -43,9 +43,9 @@ resource "aws_iam_role" "mb31_lambda" {
   })
 }
 
-resource "aws_lambda_function" "mb31" {
-  function_name    = "mega-batch-31-fn"
-  role             = aws_iam_role.mb31_lambda.arn
+resource "aws_lambda_function" "agam" {
+  function_name    = "agam-fn"
+  role             = aws_iam_role.agam_lambda.arn
   handler          = "index.handler"
   runtime          = "python3.12"
   filename         = "{{.FunctionZip}}"
@@ -55,14 +55,14 @@ resource "aws_lambda_function" "mb31" {
 # --- API Gateway V2 (HTTP API) ---
 
 resource "aws_apigatewayv2_api" "http" {
-  name          = "mega-batch-31-http-api"
+  name          = "agam-http-api"
   protocol_type = "HTTP"
 }
 
 resource "aws_apigatewayv2_integration" "http" {
   api_id                 = aws_apigatewayv2_api.http.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.mb31.invoke_arn
+  integration_uri        = aws_lambda_function.agam.invoke_arn
   payload_format_version = "2.0"
 }
 
@@ -81,20 +81,20 @@ resource "aws_apigatewayv2_route" "http" {
 resource "aws_apigatewayv2_authorizer" "http" {
   api_id                            = aws_apigatewayv2_api.http.id
   authorizer_type                   = "REQUEST"
-  authorizer_uri                    = aws_lambda_function.mb31.invoke_arn
+  authorizer_uri                    = aws_lambda_function.agam.invoke_arn
   identity_sources                  = ["$request.header.Authorization"]
-  name                              = "mega-batch-31-authorizer"
+  name                              = "agam-authorizer"
   authorizer_payload_format_version = "2.0"
 }
 
 resource "aws_apigatewayv2_model" "http" {
   api_id       = aws_apigatewayv2_api.http.id
   content_type = "application/json"
-  name         = "MegaBatch31Model"
+  name         = "Apigatewayv2ApprunnerAndMacieModel"
 
   schema = jsonencode({
     "$schema" = "http://json-schema.org/draft-04/schema#"
-    title     = "MegaBatch31Model"
+    title     = "Apigatewayv2ApprunnerAndMacieModel"
     type      = "object"
 
     properties = {
@@ -107,7 +107,7 @@ resource "aws_apigatewayv2_model" "http" {
 
 resource "aws_apigatewayv2_deployment" "http" {
   api_id      = aws_apigatewayv2_api.http.id
-  description = "mega-batch-31 deployment"
+  description = "agam deployment"
 
   depends_on = [aws_apigatewayv2_route.http]
 
@@ -122,8 +122,8 @@ resource "aws_apigatewayv2_stage" "http" {
   deployment_id = aws_apigatewayv2_deployment.http.id
 }
 
-resource "aws_acm_certificate" "mb31" {
-  domain_name       = "mega-batch-31.example.test"
+resource "aws_acm_certificate" "agam" {
+  domain_name       = "agam.example.test"
   validation_method = "DNS"
 
   lifecycle {
@@ -132,10 +132,10 @@ resource "aws_acm_certificate" "mb31" {
 }
 
 resource "aws_apigatewayv2_domain_name" "http" {
-  domain_name = "mega-batch-31.example.test"
+  domain_name = "agam.example.test"
 
   domain_name_configuration {
-    certificate_arn = aws_acm_certificate.mb31.arn
+    certificate_arn = aws_acm_certificate.agam.arn
     endpoint_type   = "REGIONAL"
     security_policy = "TLS_1_2"
   }
@@ -150,7 +150,7 @@ resource "aws_apigatewayv2_api_mapping" "http" {
 # --- API Gateway V2 (WebSocket API, for route response) ---
 
 resource "aws_apigatewayv2_api" "ws" {
-  name                       = "mega-batch-31-ws-api"
+  name                       = "agam-ws-api"
   protocol_type              = "WEBSOCKET"
   route_selection_expression = "$request.body.action"
 }
@@ -172,10 +172,10 @@ resource "aws_apigatewayv2_route_response" "ws" {
   route_response_key = "$default"
 }
 
-resource "aws_apigatewayv2_vpc_link" "mb31" {
-  name               = "mega-batch-31-vpc-link"
-  security_group_ids = [aws_security_group.mb31.id]
-  subnet_ids         = [aws_subnet.mb31.id]
+resource "aws_apigatewayv2_vpc_link" "agam" {
+  name               = "agam-vpc-link"
+  security_group_ids = [aws_security_group.agam.id]
+  subnet_ids         = [aws_subnet.agam.id]
 }
 
 # --- App Runner ---
@@ -192,21 +192,21 @@ resource "aws_apigatewayv2_vpc_link" "mb31" {
 # poll). This is a provider-side defect, not a gopherstack gap -- see
 # services/apprunner/PARITY.md.
 
-resource "aws_apprunner_observability_configuration" "mb31" {
-  observability_configuration_name = "mega-batch-31-obs"
+resource "aws_apprunner_observability_configuration" "agam" {
+  observability_configuration_name = "agam-obs"
 
   trace_configuration {
     vendor = "AWSXRAY"
   }
 }
 
-resource "aws_apprunner_connection" "mb31" {
-  connection_name = "mega-batch-31-connection"
+resource "aws_apprunner_connection" "agam" {
+  connection_name = "agam-connection"
   provider_type   = "GITHUB"
 }
 
-resource "aws_apprunner_service" "mb31" {
-  service_name = "mega-batch-31-service"
+resource "aws_apprunner_service" "agam" {
+  service_name = "agam-service"
 
   source_configuration {
     auto_deployments_enabled = false
@@ -218,77 +218,77 @@ resource "aws_apprunner_service" "mb31" {
   }
 }
 
-resource "aws_apprunner_deployment" "mb31" {
-  service_arn = aws_apprunner_service.mb31.arn
+resource "aws_apprunner_deployment" "agam" {
+  service_arn = aws_apprunner_service.agam.arn
 }
 
-resource "aws_apprunner_vpc_connector" "mb31" {
-  vpc_connector_name = "mega-batch-31-vpc-connector"
-  subnets            = [aws_subnet.mb31.id]
-  security_groups    = [aws_security_group.mb31.id]
+resource "aws_apprunner_vpc_connector" "agam" {
+  vpc_connector_name = "agam-vpc-connector"
+  subnets            = [aws_subnet.agam.id]
+  security_groups    = [aws_security_group.agam.id]
 }
 
-resource "aws_apprunner_vpc_ingress_connection" "mb31" {
-  name        = "mega-batch-31-ingress"
-  service_arn = aws_apprunner_service.mb31.arn
+resource "aws_apprunner_vpc_ingress_connection" "agam" {
+  name        = "agam-ingress"
+  service_arn = aws_apprunner_service.agam.arn
 
   ingress_vpc_configuration {
-    vpc_id          = aws_vpc.mb31.id
-    vpc_endpoint_id = aws_vpc_endpoint.mb31_apprunner.id
+    vpc_id          = aws_vpc.agam.id
+    vpc_endpoint_id = aws_vpc_endpoint.agam_apprunner.id
   }
 }
 
 # --- Macie2 ---
 
-resource "aws_macie2_account" "mb31" {}
+resource "aws_macie2_account" "agam" {}
 
-resource "aws_kms_key" "mb31_macie" {
-  description             = "mega-batch-31 macie export key"
+resource "aws_kms_key" "agam_macie" {
+  description             = "agam macie export key"
   deletion_window_in_days = 7
 }
 
-resource "aws_s3_bucket" "mb31_macie" {
-  bucket        = "mega-batch-31-macie-bucket"
+resource "aws_s3_bucket" "agam_macie" {
+  bucket        = "agam-macie-bucket"
   force_destroy = true
 }
 
-resource "aws_macie2_classification_export_configuration" "mb31" {
-  depends_on = [aws_macie2_account.mb31]
+resource "aws_macie2_classification_export_configuration" "agam" {
+  depends_on = [aws_macie2_account.agam]
 
   s3_destination {
-    bucket_name = aws_s3_bucket.mb31_macie.bucket
+    bucket_name = aws_s3_bucket.agam_macie.bucket
     key_prefix  = "exports/"
-    kms_key_arn = aws_kms_key.mb31_macie.arn
+    kms_key_arn = aws_kms_key.agam_macie.arn
   }
 }
 
-resource "aws_macie2_classification_job" "mb31" {
+resource "aws_macie2_classification_job" "agam" {
   job_type = "ONE_TIME"
-  name     = "mega-batch-31-classification-job"
+  name     = "agam-classification-job"
 
   s3_job_definition {
     bucket_definitions {
       account_id = "000000000000"
-      buckets    = [aws_s3_bucket.mb31_macie.bucket]
+      buckets    = [aws_s3_bucket.agam_macie.bucket]
     }
   }
 
-  depends_on = [aws_macie2_account.mb31]
+  depends_on = [aws_macie2_account.agam]
 }
 
-resource "aws_macie2_custom_data_identifier" "mb31" {
-  name                   = "mega-batch-31-custom-data-identifier"
+resource "aws_macie2_custom_data_identifier" "agam" {
+  name                   = "agam-custom-data-identifier"
   regex                  = "[0-9]{3}-[0-9]{2}-[0-9]{4}"
-  description            = "mega batch 31 CDI"
+  description            = "agam CDI"
   maximum_match_distance = 10
   keywords               = ["ssn"]
 
-  depends_on = [aws_macie2_account.mb31]
+  depends_on = [aws_macie2_account.agam]
 }
 
-resource "aws_macie2_findings_filter" "mb31" {
-  name        = "mega-batch-31-findings-filter"
-  description = "mega batch 31 filter"
+resource "aws_macie2_findings_filter" "agam" {
+  name        = "agam-findings-filter"
+  description = "agam filter"
   action      = "ARCHIVE"
 
   finding_criteria {
@@ -298,23 +298,23 @@ resource "aws_macie2_findings_filter" "mb31" {
     }
   }
 
-  depends_on = [aws_macie2_account.mb31]
+  depends_on = [aws_macie2_account.agam]
 }
 
-resource "aws_macie2_member" "mb31" {
+resource "aws_macie2_member" "agam" {
   account_id = "111111111111"
-  email      = "mega-batch-31-member@example.test"
+  email      = "agam-member@example.test"
   invite     = false
 
-  depends_on = [aws_macie2_account.mb31]
+  depends_on = [aws_macie2_account.agam]
 }
 
-resource "aws_macie2_organization_admin_account" "mb31" {
+resource "aws_macie2_organization_admin_account" "agam" {
   admin_account_id = "222222222222"
 
-  depends_on = [aws_macie2_account.mb31]
+  depends_on = [aws_macie2_account.agam]
 }
 
-resource "aws_macie2_organization_configuration" "mb31" {
+resource "aws_macie2_organization_configuration" "agam" {
   auto_enable = true
 }

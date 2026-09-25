@@ -2,7 +2,7 @@ resource "aws_vpc" "example" {
   cidr_block = "{{.VPCCidr}}"
 
   tags = {
-    Name = "mega-batch-44-vpc"
+    Name = "ecne-vpc"
   }
 }
 
@@ -22,7 +22,7 @@ resource "aws_subnet" "example" {
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-44-subnet"
+    Name = "ecne-subnet"
   }
 }
 
@@ -32,7 +32,7 @@ resource "aws_subnet" "b" {
   availability_zone = "us-east-1b"
 
   tags = {
-    Name = "mega-batch-44-subnet-b"
+    Name = "ecne-subnet-b"
   }
 }
 
@@ -46,7 +46,7 @@ resource "aws_vpc_dhcp_options" "example" {
   domain_name_servers = ["8.8.8.8", "8.8.4.4"]
 
   tags = {
-    Name = "mega-batch-44-dhcp-opts"
+    Name = "ecne-dhcp-opts"
   }
 }
 
@@ -59,7 +59,7 @@ resource "aws_internet_gateway" "example" {
   vpc_id = aws_vpc.example.id
 
   tags = {
-    Name = "mega-batch-44-igw"
+    Name = "ecne-igw"
   }
 }
 
@@ -67,13 +67,13 @@ resource "aws_eip" "example" {
   domain = "vpc"
 
   tags = {
-    Name = "mega-batch-44-eip"
+    Name = "ecne-eip"
   }
 }
 
 resource "aws_eip_domain_name" "example" {
   allocation_id = aws_eip.example.id
-  domain_name   = "mega-batch-44.example.com"
+  domain_name   = "ecne.example.com"
 }
 
 resource "aws_instance" "example" {
@@ -82,7 +82,7 @@ resource "aws_instance" "example" {
   subnet_id     = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-44-instance"
+    Name = "ecne-instance"
   }
 }
 
@@ -95,7 +95,7 @@ resource "aws_eip" "nat" {
   domain = "vpc"
 
   tags = {
-    Name = "mega-batch-44-nat-eip"
+    Name = "ecne-nat-eip"
   }
 }
 
@@ -104,7 +104,7 @@ resource "aws_nat_gateway" "example" {
   subnet_id     = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-44-natgw"
+    Name = "ecne-natgw"
   }
 }
 
@@ -112,7 +112,7 @@ resource "aws_route_table" "example" {
   vpc_id = aws_vpc.example.id
 
   tags = {
-    Name = "mega-batch-44-rt"
+    Name = "ecne-rt"
   }
 }
 
@@ -128,12 +128,12 @@ resource "aws_route_table_association" "example" {
 }
 
 resource "aws_security_group" "example" {
-  name   = "mega-batch-44-sg"
+  name   = "ecne-sg"
   vpc_id = aws_vpc.example.id
 }
 
 resource "aws_security_group" "rule" {
-  name   = "mega-batch-44-sg-rule"
+  name   = "ecne-sg-rule"
   vpc_id = aws_vpc.example.id
 }
 
@@ -164,7 +164,7 @@ resource "aws_network_acl" "example" {
   vpc_id = aws_vpc.example.id
 
   tags = {
-    Name = "mega-batch-44-nacl"
+    Name = "ecne-nacl"
   }
 }
 
@@ -184,7 +184,7 @@ resource "aws_ebs_volume" "example" {
   size              = 8
 
   tags = {
-    Name = "mega-batch-44-volume"
+    Name = "ecne-volume"
   }
 }
 
@@ -192,7 +192,7 @@ resource "aws_ebs_snapshot" "example" {
   volume_id = aws_ebs_volume.example.id
 
   tags = {
-    Name = "mega-batch-44-snapshot"
+    Name = "ecne-snapshot"
   }
 }
 
@@ -227,10 +227,10 @@ resource "aws_ec2_default_credit_specification" "example" {
 # actual required inputs (NetworkLoadBalancerArns is a list of ARN strings).
 resource "aws_vpc_endpoint_service" "example" {
   acceptance_required        = false
-  network_load_balancer_arns = ["arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/mega-batch-44-nlb/0123456789abcdef"]
+  network_load_balancer_arns = ["arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/ecne-nlb/0123456789abcdef"]
 
   tags = {
-    Name = "mega-batch-44-vpces"
+    Name = "ecne-vpces"
   }
 }
 
@@ -240,7 +240,7 @@ resource "aws_vpc_endpoint_service_allowed_principal" "example" {
 }
 
 resource "aws_sns_topic" "example" {
-  name = "mega-batch-44-topic"
+  name = "ecne-topic"
 }
 
 resource "aws_vpc_endpoint_connection_notification" "example" {
@@ -254,7 +254,7 @@ resource "aws_vpc_endpoint" "gateway" {
   service_name = "com.amazonaws.us-east-1.s3"
 
   tags = {
-    Name = "mega-batch-44-vpce-gateway"
+    Name = "ecne-vpce-gateway"
   }
 }
 
@@ -283,7 +283,7 @@ resource "aws_vpc_endpoint" "interface" {
   subnet_ids        = [aws_subnet.example.id]
 
   tags = {
-    Name = "mega-batch-44-vpce-interface"
+    Name = "ecne-vpce-interface"
   }
 }
 

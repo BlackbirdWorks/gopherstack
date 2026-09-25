@@ -1,12 +1,12 @@
 resource "aws_s3_bucket" "quicksight" {
-  bucket = "mega-batch-25-quicksight-bucket"
+  bucket = "qskr-quicksight-bucket"
 }
 
 resource "aws_vpc" "quicksight" {
   cidr_block = "10.140.0.0/16"
 
   tags = {
-    Name = "mega-batch-25-quicksight-vpc"
+    Name = "qskr-quicksight-vpc"
   }
 }
 
@@ -16,7 +16,7 @@ resource "aws_subnet" "quicksight" {
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-25-quicksight-subnet-a"
+    Name = "qskr-quicksight-subnet-a"
   }
 }
 
@@ -26,17 +26,17 @@ resource "aws_subnet" "quicksight2" {
   availability_zone = "us-east-1b"
 
   tags = {
-    Name = "mega-batch-25-quicksight-subnet-b"
+    Name = "qskr-quicksight-subnet-b"
   }
 }
 
 resource "aws_security_group" "quicksight" {
-  name   = "mega-batch-25-quicksight-sg"
+  name   = "qskr-quicksight-sg"
   vpc_id = aws_vpc.quicksight.id
 }
 
 resource "aws_iam_role" "quicksight" {
-  name = "mega-batch-25-quicksight-role"
+  name = "qskr-quicksight-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -49,7 +49,7 @@ resource "aws_iam_role" "quicksight" {
 }
 
 resource "aws_iam_policy" "quicksight" {
-  name = "mega-batch-25-quicksight-policy"
+  name = "qskr-quicksight-policy"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -63,38 +63,38 @@ resource "aws_iam_policy" "quicksight" {
 
 resource "aws_quicksight_namespace" "example" {
   aws_account_id = "000000000000"
-  namespace = "mega-batch-25-namespace"
+  namespace      = "qskr-namespace"
 }
 
 resource "aws_quicksight_group" "example" {
   aws_account_id = "000000000000"
-  group_name = "mega-batch-25-group"
+  group_name     = "qskr-group"
 }
 
 resource "aws_quicksight_user" "example" {
   aws_account_id = "000000000000"
-  user_name     = "mega-batch-25-user"
-  email         = "mega-batch-25-user@example.com"
-  identity_type = "QUICKSIGHT"
-  user_role     = "READER"
+  user_name      = "qskr-user"
+  email          = "qskr-user@example.com"
+  identity_type  = "QUICKSIGHT"
+  user_role      = "READER"
 }
 
 resource "aws_quicksight_group_membership" "example" {
   aws_account_id = "000000000000"
-  group_name  = aws_quicksight_group.example.group_name
-  member_name = aws_quicksight_user.example.user_name
+  group_name     = aws_quicksight_group.example.group_name
+  member_name    = aws_quicksight_user.example.user_name
 }
 
 resource "aws_quicksight_role_membership" "example" {
   aws_account_id = "000000000000"
-  role        = "READER"
-  member_name = aws_quicksight_group.example.group_name
+  role           = "READER"
+  member_name    = aws_quicksight_group.example.group_name
 }
 
 resource "aws_quicksight_data_source" "example" {
   aws_account_id = "000000000000"
-  data_source_id = "mega-batch-25-data-source"
-  name           = "mega-batch-25-data-source"
+  data_source_id = "qskr-data-source"
+  name           = "qskr-data-source"
 
   parameters {
     s3 {
@@ -110,9 +110,9 @@ resource "aws_quicksight_data_source" "example" {
 
 resource "aws_quicksight_data_set" "example" {
   aws_account_id = "000000000000"
-  data_set_id = "mega-batch-25-data-set"
-  name        = "mega-batch-25-data-set"
-  import_mode = "SPICE"
+  data_set_id    = "qskr-data-set"
+  name           = "qskr-data-set"
+  import_mode    = "SPICE"
 
   physical_table_map {
     physical_table_map_id = "table1"
@@ -135,14 +135,14 @@ resource "aws_quicksight_data_set" "example" {
 resource "aws_quicksight_ingestion" "example" {
   aws_account_id = "000000000000"
   data_set_id    = aws_quicksight_data_set.example.data_set_id
-  ingestion_id   = "mega-batch-25-ingestion"
+  ingestion_id   = "qskr-ingestion"
   ingestion_type = "FULL_REFRESH"
 }
 
 resource "aws_quicksight_refresh_schedule" "example" {
   aws_account_id = "000000000000"
-  data_set_id = aws_quicksight_data_set.example.data_set_id
-  schedule_id = "mega-batch-25-refresh-schedule"
+  data_set_id    = aws_quicksight_data_set.example.data_set_id
+  schedule_id    = "qskr-refresh-schedule"
 
   schedule {
     schedule_frequency {
@@ -155,8 +155,8 @@ resource "aws_quicksight_refresh_schedule" "example" {
 
 resource "aws_quicksight_analysis" "example" {
   aws_account_id = "000000000000"
-  analysis_id = "mega-batch-25-analysis"
-  name        = "mega-batch-25-analysis"
+  analysis_id    = "qskr-analysis"
+  name           = "qskr-analysis"
 
   definition {
     data_set_identifiers_declarations {
@@ -172,9 +172,9 @@ resource "aws_quicksight_analysis" "example" {
 }
 
 resource "aws_quicksight_template" "example" {
-  aws_account_id = "000000000000"
-  template_id         = "mega-batch-25-template"
-  name                = "mega-batch-25-template"
+  aws_account_id      = "000000000000"
+  template_id         = "qskr-template"
+  name                = "qskr-template"
   version_description = "v1"
 
   source_entity {
@@ -190,16 +190,16 @@ resource "aws_quicksight_template" "example" {
 }
 
 resource "aws_quicksight_template_alias" "example" {
-  aws_account_id = "000000000000"
+  aws_account_id          = "000000000000"
   template_id             = aws_quicksight_template.example.template_id
-  alias_name              = "mega-batch-25-alias"
+  alias_name              = "qskr-alias"
   template_version_number = aws_quicksight_template.example.version_number
 }
 
 resource "aws_quicksight_dashboard" "example" {
-  aws_account_id = "000000000000"
-  dashboard_id        = "mega-batch-25-dashboard"
-  name                = "mega-batch-25-dashboard"
+  aws_account_id      = "000000000000"
+  dashboard_id        = "qskr-dashboard"
+  name                = "qskr-dashboard"
   version_description = "v1"
 
   source_entity {
@@ -216,9 +216,9 @@ resource "aws_quicksight_dashboard" "example" {
 
 resource "aws_quicksight_theme" "example" {
   aws_account_id = "000000000000"
-  theme_id      = "mega-batch-25-theme"
-  name          = "mega-batch-25-theme"
-  base_theme_id = "MIDNIGHT"
+  theme_id       = "qskr-theme"
+  name           = "qskr-theme"
+  base_theme_id  = "MIDNIGHT"
 
   configuration {
     data_color_palette {
@@ -232,20 +232,20 @@ resource "aws_quicksight_theme" "example" {
 
 resource "aws_quicksight_folder" "example" {
   aws_account_id = "000000000000"
-  folder_id = "mega-batch-25-folder"
-  name      = "mega-batch-25-folder"
+  folder_id      = "qskr-folder"
+  name           = "qskr-folder"
 }
 
 resource "aws_quicksight_folder_membership" "example" {
   aws_account_id = "000000000000"
-  folder_id   = aws_quicksight_folder.example.folder_id
-  member_id   = aws_quicksight_data_set.example.data_set_id
-  member_type = "DATASET"
+  folder_id      = aws_quicksight_folder.example.folder_id
+  member_id      = aws_quicksight_data_set.example.data_set_id
+  member_type    = "DATASET"
 }
 
 resource "aws_quicksight_iam_policy_assignment" "example" {
-  aws_account_id = "000000000000"
-  assignment_name   = "mega-batch-25-iam-policy-assignment"
+  aws_account_id    = "000000000000"
+  assignment_name   = "qskr-iam-policy-assignment"
   assignment_status = "ENABLED"
   policy_arn        = aws_iam_policy.quicksight.arn
 
@@ -255,9 +255,9 @@ resource "aws_quicksight_iam_policy_assignment" "example" {
 }
 
 resource "aws_quicksight_vpc_connection" "example" {
-  aws_account_id = "000000000000"
-  vpc_connection_id  = "mega-batch-25-vpc-connection"
-  name               = "mega-batch-25-vpc-connection"
+  aws_account_id     = "000000000000"
+  vpc_connection_id  = "qskr-vpc-connection"
+  name               = "qskr-vpc-connection"
   role_arn           = aws_iam_role.quicksight.arn
   security_group_ids = [aws_security_group.quicksight.id]
   subnet_ids         = [aws_subnet.quicksight.id, aws_subnet.quicksight2.id]

@@ -12,17 +12,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch33 provisions WAF Classic match/rule/rule-group/web-ACL
+// TestTerraform_WafclassicAndDirectconnect provisions WAF Classic match/rule/rule-group/web-ACL
 // resources and Direct Connect virtual interfaces, hosted connections, BGP
 // peers, MACsec key association, and a gateway association proposal via
 // Terraform and verifies each through its own SDK client's Get/Describe path.
-func TestTerraform_MegaBatch33(t *testing.T) {
+func TestTerraform_WafclassicAndDirectconnect(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-33",
+			fixture: "wafclassic-and-directconnect",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -30,8 +30,8 @@ func TestTerraform_MegaBatch33(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch33WAF(ctx, t)
-				verifyMegaBatch33DirectConnect(ctx, t)
+				verifyWafclassicAndDirectconnectWAF(ctx, t)
+				verifyWafclassicAndDirectconnectDirectConnect(ctx, t)
 			},
 		},
 	}
@@ -44,7 +44,7 @@ func TestTerraform_MegaBatch33(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch33WAF(ctx context.Context, t *testing.T) {
+func verifyWafclassicAndDirectconnectWAF(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -156,7 +156,7 @@ func verifyMegaBatch33WAF(ctx context.Context, t *testing.T) {
 
 const dxWAFAllowAction = "ALLOW"
 
-func verifyMegaBatch33DirectConnect(ctx context.Context, t *testing.T) {
+func verifyWafclassicAndDirectconnectDirectConnect(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -170,7 +170,7 @@ func verifyMegaBatch33DirectConnect(ctx context.Context, t *testing.T) {
 	var hostedConnID string
 
 	for _, c := range connsOut.Connections {
-		if aws.ToString(c.ConnectionName) == "mega-batch-33-hosted-conn" {
+		if aws.ToString(c.ConnectionName) == "wfdc-hosted-conn" {
 			hostedConnID = aws.ToString(c.ConnectionId)
 		}
 	}
@@ -184,7 +184,7 @@ func verifyMegaBatch33DirectConnect(ctx context.Context, t *testing.T) {
 	var lagID string
 
 	for _, l := range lagsOut.Lags {
-		if aws.ToString(l.LagName) == "mega-batch-33-lag" {
+		if aws.ToString(l.LagName) == "wfdc-lag" {
 			lagID = aws.ToString(l.LagId)
 		}
 	}
@@ -203,7 +203,7 @@ func verifyMegaBatch33DirectConnect(ctx context.Context, t *testing.T) {
 	var macsecFound bool
 
 	for _, c := range macsecOut.Connections {
-		if aws.ToString(c.ConnectionName) == "mega-batch-33-dx-conn" && len(c.MacSecKeys) > 0 {
+		if aws.ToString(c.ConnectionName) == "wfdc-dx-conn" && len(c.MacSecKeys) > 0 {
 			macsecFound = true
 		}
 	}
@@ -219,17 +219,17 @@ func verifyMegaBatch33DirectConnect(ctx context.Context, t *testing.T) {
 	}
 
 	for _, name := range []string{
-		"mega-batch-33-private-vif",
-		"mega-batch-33-public-vif",
-		"mega-batch-33-transit-vif",
-		"mega-batch-33-hosted-private-vif",
-		"mega-batch-33-hosted-public-vif",
-		"mega-batch-33-hosted-transit-vif",
+		"wfdc-private-vif",
+		"wfdc-public-vif",
+		"wfdc-transit-vif",
+		"wfdc-hosted-private-vif",
+		"wfdc-hosted-public-vif",
+		"wfdc-hosted-transit-vif",
 	} {
 		require.Containsf(t, byName, name, "virtual interface %s should be listed", name)
 	}
 
-	privateVIF := byName["mega-batch-33-private-vif"]
+	privateVIF := byName["wfdc-private-vif"]
 	require.NotEmpty(t, privateVIF.BgpPeers, "BGP peer should be attached to the private VIF")
 
 	gwOut, err := client.DescribeDirectConnectGateways(ctx, &dxsvc.DescribeDirectConnectGatewaysInput{})
@@ -238,7 +238,7 @@ func verifyMegaBatch33DirectConnect(ctx context.Context, t *testing.T) {
 	var proposalGatewayID string
 
 	for _, g := range gwOut.DirectConnectGateways {
-		if aws.ToString(g.DirectConnectGatewayName) == "mega-batch-33-dxgw-proposal" {
+		if aws.ToString(g.DirectConnectGatewayName) == "wfdc-dxgw-proposal" {
 			proposalGatewayID = aws.ToString(g.DirectConnectGatewayId)
 		}
 	}

@@ -1,5 +1,5 @@
 resource "aws_iam_role" "example" {
-  name = "mega-batch-10-role"
+  name = "iams3-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -11,26 +11,26 @@ resource "aws_iam_role" "example" {
 }
 
 resource "aws_iam_instance_profile" "example" {
-  name = "mega-batch-10-instance-profile"
+  name = "iams3-instance-profile"
   role = aws_iam_role.example.name
 }
 
 resource "aws_iam_group" "example" {
-  name = "mega-batch-10-group"
+  name = "iams3-group"
 }
 
 resource "aws_iam_user" "example" {
-  name = "mega-batch-10-user"
+  name = "iams3-user"
 }
 
 resource "aws_iam_group_membership" "example" {
-  name  = "mega-batch-10-group-membership"
+  name  = "iams3-group-membership"
   users = [aws_iam_user.example.name]
   group = aws_iam_group.example.name
 }
 
 resource "aws_iam_policy" "example" {
-  name = "mega-batch-10-policy"
+  name = "iams3-policy"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -42,7 +42,7 @@ resource "aws_iam_policy" "example" {
 }
 
 resource "aws_iam_group_policy" "example" {
-  name  = "mega-batch-10-group-policy"
+  name  = "iams3-group-policy"
   group = aws_iam_group.example.name
   policy = jsonencode({
     Version = "2012-10-17"
@@ -60,7 +60,7 @@ resource "aws_iam_group_policy_attachment" "example" {
 }
 
 resource "aws_iam_user_policy" "example" {
-  name = "mega-batch-10-user-policy"
+  name = "iams3-user-policy"
   user = aws_iam_user.example.name
   policy = jsonencode({
     Version = "2012-10-17"
@@ -90,7 +90,7 @@ resource "aws_iam_user_login_profile" "example" {
 resource "aws_iam_user_ssh_key" "example" {
   username   = aws_iam_user.example.name
   encoding   = "SSH"
-  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDWabniWqjht+WYiPUNX1Wcw124S9Aue2prEAR3MZeENTxiZNLOAxPrwhcRDH+pGdlnZXZ8n9wZ+xOHCbVbqk+qkle3eem2iYqv+5xjAs7Ihs+ag2v94ZG+wEyRFXo+dFL53ApxC1Rc40AtoVQuG2D5Ix2sTRBrcAg8Qsy1EigDQlyDBT+NCO5qosuwmZsi364nghAhUsAa5thohbHua54npM0Y4ICyYLbQw3S6MsFBoxLmlxrd2q9dglUplLEs52w+cxRUoBkOJ1xaZyTmcE7/SrrerOTcpJr1zDs8tSJqAlGZL2+IzOR7PyFlDl6Ixn6X8vFK6FXS1yDuHg0PLAop mega-batch-10"
+  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDWabniWqjht+WYiPUNX1Wcw124S9Aue2prEAR3MZeENTxiZNLOAxPrwhcRDH+pGdlnZXZ8n9wZ+xOHCbVbqk+qkle3eem2iYqv+5xjAs7Ihs+ag2v94ZG+wEyRFXo+dFL53ApxC1Rc40AtoVQuG2D5Ix2sTRBrcAg8Qsy1EigDQlyDBT+NCO5qosuwmZsi364nghAhUsAa5thohbHua54npM0Y4ICyYLbQw3S6MsFBoxLmlxrd2q9dglUplLEs52w+cxRUoBkOJ1xaZyTmcE7/SrrerOTcpJr1zDs8tSJqAlGZL2+IzOR7PyFlDl6Ixn6X8vFK6FXS1yDuHg0PLAop iams3"
 }
 
 resource "aws_iam_service_specific_credential" "example" {
@@ -99,11 +99,11 @@ resource "aws_iam_service_specific_credential" "example" {
 }
 
 resource "aws_iam_virtual_mfa_device" "example" {
-  virtual_mfa_device_name = "mega-batch-10-mfa"
+  virtual_mfa_device_name = "iams3-mfa"
 }
 
 resource "aws_iam_account_alias" "example" {
-  account_alias = "mega-batch-10-alias"
+  account_alias = "iams3-alias"
 }
 
 resource "aws_iam_account_password_policy" "example" {
@@ -112,13 +112,13 @@ resource "aws_iam_account_password_policy" "example" {
 }
 
 resource "aws_iam_openid_connect_provider" "example" {
-  url             = "https://mega-batch-10.oidc.example.com"
+  url             = "https://iams3.oidc.example.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"]
 }
 
 resource "aws_iam_saml_provider" "example" {
-  name = "mega-batch-10-saml"
+  name = "iams3-saml"
   # The AWS provider requires saml_metadata_document to be at least 1000
   # bytes long, so this padding comment brings a minimal metadata document
   # over that threshold without affecting the parsed SAML content.
@@ -137,7 +137,7 @@ padding padding padding padding padding padding padding padding padding
 padding padding padding padding padding padding padding padding padding
 padding padding padding padding padding padding padding padding padding
 -->
-<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://mega-batch-10.example.com/saml">
+<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://iams3.example.com/saml">
   <IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"/>
 </EntityDescriptor>
 EOF
@@ -148,7 +148,7 @@ resource "aws_iam_service_linked_role" "example" {
 }
 
 resource "aws_s3_bucket" "example" {
-  bucket        = "mega-batch-10-bucket"
+  bucket        = "iams3-bucket"
   force_destroy = true
 }
 
@@ -173,7 +173,7 @@ resource "aws_s3_bucket_acl" "example" {
 
 resource "aws_s3_bucket_analytics_configuration" "example" {
   bucket = aws_s3_bucket.example.id
-  name   = "mega-batch-10-analytics"
+  name   = "iams3-analytics"
 
   storage_class_analysis {
     data_export {
@@ -197,7 +197,7 @@ resource "aws_s3_bucket_cors_configuration" "example" {
 
 resource "aws_s3_bucket_intelligent_tiering_configuration" "example" {
   bucket = aws_s3_bucket.example.id
-  name   = "mega-batch-10-tiering"
+  name   = "iams3-tiering"
 
   tiering {
     access_tier = "ARCHIVE_ACCESS"
@@ -207,7 +207,7 @@ resource "aws_s3_bucket_intelligent_tiering_configuration" "example" {
 
 resource "aws_s3_bucket_inventory" "example" {
   bucket = aws_s3_bucket.example.id
-  name   = "mega-batch-10-inventory"
+  name   = "iams3-inventory"
 
   included_object_versions = "All"
 
@@ -240,7 +240,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "example" {
 
 resource "aws_s3_bucket_metric" "example" {
   bucket = aws_s3_bucket.example.id
-  name   = "mega-batch-10-metric"
+  name   = "iams3-metric"
 }
 
 # aws_s3_bucket_object has no request_payer argument, but the terraform
@@ -249,8 +249,8 @@ resource "aws_s3_bucket_metric" "example" {
 # the bucket owner (see services/s3/requester_pays.go's owner exemption).
 resource "aws_s3_bucket_object" "example" {
   bucket  = aws_s3_bucket.example.id
-  key     = "mega-batch-10.txt"
-  content = "mega batch ten"
+  key     = "iams3.txt"
+  content = "iams3"
 }
 
 resource "aws_s3_bucket_request_payment_configuration" "example" {

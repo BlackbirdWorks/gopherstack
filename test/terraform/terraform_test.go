@@ -7268,14 +7268,14 @@ func TestTerraform_CachingMessagingComprehensive(t *testing.T) {
 	}
 }
 
-// TestTerraform_MegaBatch4 provisions Bedrock Agent resources and verifies they exist.
-func TestTerraform_MegaBatch4(t *testing.T) {
+// TestTerraform_BedrockAgentAndKnowledgeBase provisions Bedrock Agent resources and verifies they exist.
+func TestTerraform_BedrockAgentAndKnowledgeBase(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-4",
+			fixture: "bedrock-agent-and-knowledge-base",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 

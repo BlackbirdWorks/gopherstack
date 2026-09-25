@@ -1,26 +1,26 @@
 # FSx (Lustre, OpenZFS, ONTAP, Windows) + DataSync FSx locations.
 
-resource "aws_vpc" "mb55" {
+resource "aws_vpc" "dsfx" {
   cidr_block = "10.216.0.0/16"
 
   tags = {
-    Name = "mega-batch-55-vpc"
+    Name = "dsfx-vpc"
   }
 }
 
-resource "aws_subnet" "mb55" {
-  vpc_id            = aws_vpc.mb55.id
+resource "aws_subnet" "dsfx" {
+  vpc_id            = aws_vpc.dsfx.id
   cidr_block        = "10.216.1.0/24"
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-55-subnet"
+    Name = "dsfx-subnet"
   }
 }
 
-resource "aws_security_group" "mb55" {
-  name   = "mega-batch-55-sg"
-  vpc_id = aws_vpc.mb55.id
+resource "aws_security_group" "dsfx" {
+  name   = "dsfx-sg"
+  vpc_id = aws_vpc.dsfx.id
 }
 
 # --- FSx: each of the four fixed-timeout resources feeds a DataSync FSx
@@ -29,16 +29,16 @@ resource "aws_security_group" "mb55" {
 # a long fixed pre-poll Delay regardless of how fast the underlying API
 # confirms deletion, so a short delete timeout turns a multi-minute hang into
 # a fast, harmless "timeout while waiting for resource to be gone" error
-# without affecting apply or verify. See mega-batch-32.tf / fsx/PARITY.md.
+# without affecting apply or verify. See fsx-file-systems.tf / fsx/PARITY.md.
 
-resource "aws_fsx_lustre_file_system" "mb55" {
+resource "aws_fsx_lustre_file_system" "dsfx" {
   storage_capacity            = 1200
-  subnet_ids                  = [aws_subnet.mb55.id]
+  subnet_ids                  = [aws_subnet.dsfx.id]
   deployment_type             = "PERSISTENT_2"
   per_unit_storage_throughput = 125
 
   tags = {
-    Name = "mega-batch-55-lustre"
+    Name = "dsfx-lustre"
   }
 
   timeouts {
@@ -46,14 +46,14 @@ resource "aws_fsx_lustre_file_system" "mb55" {
   }
 }
 
-resource "aws_fsx_openzfs_file_system" "mb55" {
+resource "aws_fsx_openzfs_file_system" "dsfx" {
   storage_capacity    = 64
-  subnet_ids          = [aws_subnet.mb55.id]
+  subnet_ids          = [aws_subnet.dsfx.id]
   deployment_type     = "SINGLE_AZ_1"
   throughput_capacity = 64
 
   tags = {
-    Name = "mega-batch-55-openzfs"
+    Name = "dsfx-openzfs"
   }
 
   timeouts {
@@ -61,15 +61,15 @@ resource "aws_fsx_openzfs_file_system" "mb55" {
   }
 }
 
-resource "aws_fsx_ontap_file_system" "mb55" {
+resource "aws_fsx_ontap_file_system" "dsfx" {
   storage_capacity    = 1024
-  subnet_ids          = [aws_subnet.mb55.id]
-  preferred_subnet_id = aws_subnet.mb55.id
+  subnet_ids          = [aws_subnet.dsfx.id]
+  preferred_subnet_id = aws_subnet.dsfx.id
   deployment_type     = "SINGLE_AZ_1"
   throughput_capacity = 128
 
   tags = {
-    Name = "mega-batch-55-ontap"
+    Name = "dsfx-ontap"
   }
 
   timeouts {
@@ -77,29 +77,29 @@ resource "aws_fsx_ontap_file_system" "mb55" {
   }
 }
 
-resource "aws_fsx_ontap_storage_virtual_machine" "mb55" {
-  file_system_id = aws_fsx_ontap_file_system.mb55.id
-  name           = "mb55svm"
+resource "aws_fsx_ontap_storage_virtual_machine" "dsfx" {
+  file_system_id = aws_fsx_ontap_file_system.dsfx.id
+  name           = "dsfxsvm"
 
   timeouts {
     delete = "5s"
   }
 }
 
-resource "aws_fsx_windows_file_system" "mb55" {
-  subnet_ids          = [aws_subnet.mb55.id]
+resource "aws_fsx_windows_file_system" "dsfx" {
+  subnet_ids          = [aws_subnet.dsfx.id]
   throughput_capacity = 32
   storage_capacity    = 32
 
   self_managed_active_directory {
     dns_ips     = ["10.216.0.10", "10.216.0.11"]
-    domain_name = "mega-batch-55.example.test"
-    password    = "MegaBatch55Password!"
+    domain_name = "dsfx.example.test"
+    password    = "DatasyncFsxLocationsPassword!"
     username    = "Admin"
   }
 
   tags = {
-    Name = "mega-batch-55-windows"
+    Name = "dsfx-windows"
   }
 
   timeouts {
@@ -107,15 +107,15 @@ resource "aws_fsx_windows_file_system" "mb55" {
   }
 }
 
-resource "aws_datasync_location_fsx_lustre_file_system" "mb55" {
-  fsx_filesystem_arn  = aws_fsx_lustre_file_system.mb55.arn
-  security_group_arns = [aws_security_group.mb55.arn]
-  subdirectory        = "/mb55"
+resource "aws_datasync_location_fsx_lustre_file_system" "dsfx" {
+  fsx_filesystem_arn  = aws_fsx_lustre_file_system.dsfx.arn
+  security_group_arns = [aws_security_group.dsfx.arn]
+  subdirectory        = "/dsfx"
 }
 
-resource "aws_datasync_location_fsx_openzfs_file_system" "mb55" {
-  fsx_filesystem_arn  = aws_fsx_openzfs_file_system.mb55.arn
-  security_group_arns = [aws_security_group.mb55.arn]
+resource "aws_datasync_location_fsx_openzfs_file_system" "dsfx" {
+  fsx_filesystem_arn  = aws_fsx_openzfs_file_system.dsfx.arn
+  security_group_arns = [aws_security_group.dsfx.arn]
 
   protocol {
     nfs {
@@ -126,9 +126,9 @@ resource "aws_datasync_location_fsx_openzfs_file_system" "mb55" {
   }
 }
 
-resource "aws_datasync_location_fsx_ontap_file_system" "mb55" {
-  storage_virtual_machine_arn = aws_fsx_ontap_storage_virtual_machine.mb55.arn
-  security_group_arns         = [aws_security_group.mb55.arn]
+resource "aws_datasync_location_fsx_ontap_file_system" "dsfx" {
+  storage_virtual_machine_arn = aws_fsx_ontap_storage_virtual_machine.dsfx.arn
+  security_group_arns         = [aws_security_group.dsfx.arn]
 
   protocol {
     nfs {
@@ -139,9 +139,9 @@ resource "aws_datasync_location_fsx_ontap_file_system" "mb55" {
   }
 }
 
-resource "aws_datasync_location_fsx_windows_file_system" "mb55" {
-  fsx_filesystem_arn  = aws_fsx_windows_file_system.mb55.arn
-  security_group_arns = [aws_security_group.mb55.arn]
+resource "aws_datasync_location_fsx_windows_file_system" "dsfx" {
+  fsx_filesystem_arn  = aws_fsx_windows_file_system.dsfx.arn
+  security_group_arns = [aws_security_group.dsfx.arn]
   user                = "Admin"
-  password            = "MegaBatch55Password!"
+  password            = "DatasyncFsxLocationsPassword!"
 }

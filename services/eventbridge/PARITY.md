@@ -138,7 +138,7 @@ evicted-after-TTL + kept-within-TTL).
 
 ### 2026-09-24 event bus Policy was a bare statement array, not an IAM document
 
-mega-batch-46 terraform fixture (aws_cloudwatch_event_bus_policy +
+docdb-amplify-and-eventbridge terraform fixture (aws_cloudwatch_event_bus_policy +
 aws_cloudwatch_event_permission) found: GetEventBusPolicy/DescribeEventBus's
 Policy string and PutEventBusPolicy/PutPermission's Policy input were a bare
 JSON array of statements. Real AWS's Policy is always an IAM-style document,

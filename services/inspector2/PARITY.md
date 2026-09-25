@@ -202,7 +202,7 @@ sent the request, and now so does this handler (`ValidationException` when
 `autoEnable` is absent). See `required_output_members_test.go`. 0 false
 positives found this pass. Files touched: `handler_organization.go`.
 
-**2026-09-19 (gopherstack-fndhb)**: mega-batch-6 terraform coverage found status responses
+**2026-09-19 (gopherstack-fndhb)**: grafana-inspector-and-resiliencehub terraform coverage found status responses
 omitted codeRepository/lambdaCode, crashing terraform-provider-aws's reader. Fixed; apply+destroy verified against real provider v5.100.0.
 
 **2026-08-07 (fixed by a concurrent account-service pass, gopherstack-303i)**: `RouteMatcher`

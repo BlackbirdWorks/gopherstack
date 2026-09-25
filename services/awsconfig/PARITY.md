@@ -970,7 +970,7 @@ Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
 `golangci-lint run --new-from-rev=HEAD ./services/awsconfig/...`.
 `cmd/paritylint` stays at 0 missing-items-still-open FAIL.
 
-## 2026-09-20 (mega-batch-30 terraform coverage)
+## 2026-09-20 (ssoadmin-config-and-lightsail terraform coverage)
 
 Fixed three real bugs found via the terraform-aws provider: PutConfigurationAggregator
 returned an empty envelope (real output carries the created ConfigurationAggregator;

@@ -1,5 +1,5 @@
 resource "aws_grafana_workspace" "example" {
-  name                     = "mega-batch-6-grafana"
+  name                     = "gair-grafana"
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["SAML"]
   permission_type          = "SERVICE_MANAGED"
@@ -11,12 +11,12 @@ resource "aws_inspector2_enabler" "example" {
 }
 
 resource "aws_networkmanager_global_network" "example" {
-  description = "mega-batch-6 global network"
+  description = "gair global network"
 }
 
 resource "aws_resiliencehub_resiliency_policy" "example" {
-  name        = "megabatch6policy"
-  description = "mega-batch-6 resiliency policy"
+  name        = "gairpolicy"
+  description = "gair resiliency policy"
   tier        = "NonCritical"
 
   policy {
@@ -36,6 +36,6 @@ resource "aws_resiliencehub_resiliency_policy" "example" {
 }
 
 resource "aws_cloudfront_key_value_store" "example" {
-  name    = "megabatch6kvs"
-  comment = "mega-batch-6 kvs"
+  name    = "gairkvs"
+  comment = "gair kvs"
 }

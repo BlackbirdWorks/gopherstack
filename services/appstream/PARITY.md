@@ -178,7 +178,7 @@ assumption as the bug. Rewrote it to send all required fields plus a
 
 ## Notes
 
-**2026-09-24** (mega-batch-48): FIXED -- CreateImageBuilder started new
+**2026-09-24** (organizations-and-appstream): FIXED -- CreateImageBuilder started new
 builders in STOPPED; real AWS launches the build instance immediately
 (Pending->Running), and terraform-provider-aws's create waiter only accepts
 Running, never Stopped. Now starts RUNNING. Coverage added for

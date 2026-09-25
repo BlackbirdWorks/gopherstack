@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch49 provisions a RAM resource share with a principal
+// TestTerraform_ElasticsearchGrafanaAndRAM provisions a RAM resource share with a principal
 // association, a resource association, and a share accepter; a Grafana
 // workspace with a license association, a SAML authentication configuration,
 // a service account, and a service account token; an Inspector2 delegated
@@ -26,13 +26,13 @@ import (
 // client.
 //
 // aws_ram_sharing_with_organization is intentionally left out of the fixture
-// (see mega-batch-49.tf's comment): EnableSharingWithAwsOrganization now
+// (see elasticsearch-grafana-and-ram.tf's comment): EnableSharingWithAwsOrganization now
 // performs both cross-service side effects its Read depends on (IAM GetRole,
 // Organizations ListAWSServiceAccessForOrganization -- services/ram/PARITY.md),
 // but this fixture can't safely create or depend on an Organization: it's a
-// per-backend singleton and every mega-batch test runs against the same
+// per-backend singleton and every terraform-fixture test runs against the same
 // shared emulator in parallel.
-func TestTerraform_MegaBatch49(t *testing.T) {
+func TestTerraform_ElasticsearchGrafanaAndRAM(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
@@ -44,7 +44,7 @@ func TestTerraform_MegaBatch49(t *testing.T) {
 			// comes back empty -- and removes the resource from state right
 			// after creation -- under the default providerBlock's
 			// skip_requesting_account_id=true.
-			fixture:    "mega-batch-49",
+			fixture:    "elasticsearch-grafana-and-ram",
 			providerFn: macie2ProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -53,11 +53,11 @@ func TestTerraform_MegaBatch49(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch49RAM(ctx, t)
-				verifyMegaBatch49Grafana(ctx, t)
-				verifyMegaBatch49Inspector2(ctx, t)
-				verifyMegaBatch49MediaLive(ctx, t)
-				verifyMegaBatch49Elasticsearch(ctx, t)
+				verifyElasticsearchGrafanaAndRAMRAM(ctx, t)
+				verifyElasticsearchGrafanaAndRAMGrafana(ctx, t)
+				verifyElasticsearchGrafanaAndRAMInspector2(ctx, t)
+				verifyElasticsearchGrafanaAndRAMMediaLive(ctx, t)
+				verifyElasticsearchGrafanaAndRAMElasticsearch(ctx, t)
 			},
 		},
 	}
@@ -70,7 +70,7 @@ func TestTerraform_MegaBatch49(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch49RAM(ctx context.Context, t *testing.T) {
+func verifyElasticsearchGrafanaAndRAMRAM(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -79,7 +79,7 @@ func verifyMegaBatch49RAM(ctx context.Context, t *testing.T) {
 	})
 
 	sharesOut, err := client.GetResourceShares(ctx, &ramsvc49.GetResourceSharesInput{
-		Name:          aws.String("mega-batch-49-share"),
+		Name:          aws.String("egar-share"),
 		ResourceOwner: "SELF",
 	})
 	require.NoError(t, err, "GetResourceShares should succeed")
@@ -101,7 +101,7 @@ func verifyMegaBatch49RAM(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundPrincipal, "mega-batch-49 principal association should be listed")
+	assert.True(t, foundPrincipal, "egar principal association should be listed")
 
 	resourcesOut, err := client.ListResources(ctx, &ramsvc49.ListResourcesInput{
 		ResourceOwner:     "SELF",
@@ -112,7 +112,7 @@ func verifyMegaBatch49RAM(ctx context.Context, t *testing.T) {
 	assert.Contains(t, aws.ToString(resourcesOut.Resources[0].Arn), "subnet-")
 }
 
-func verifyMegaBatch49Grafana(ctx context.Context, t *testing.T) {
+func verifyElasticsearchGrafanaAndRAMGrafana(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -126,12 +126,12 @@ func verifyMegaBatch49Grafana(ctx context.Context, t *testing.T) {
 	var workspaceID string
 
 	for _, w := range wsOut.Workspaces {
-		if aws.ToString(w.Name) == "mega-batch-49-grafana" {
+		if aws.ToString(w.Name) == "egar-grafana" {
 			workspaceID = aws.ToString(w.Id)
 		}
 	}
 
-	require.NotEmpty(t, workspaceID, "mega-batch-49 grafana workspace should be listed")
+	require.NotEmpty(t, workspaceID, "egar grafana workspace should be listed")
 
 	descOut, err := client.DescribeWorkspace(ctx, &grafanasvc49.DescribeWorkspaceInput{
 		WorkspaceId: aws.String(workspaceID),
@@ -155,12 +155,12 @@ func verifyMegaBatch49Grafana(ctx context.Context, t *testing.T) {
 	var serviceAccountID string
 
 	for _, sa := range saOut.ServiceAccounts {
-		if aws.ToString(sa.Name) == "mega-batch-49-sa" {
+		if aws.ToString(sa.Name) == "egar-sa" {
 			serviceAccountID = aws.ToString(sa.Id)
 		}
 	}
 
-	require.NotEmpty(t, serviceAccountID, "mega-batch-49 grafana service account should be listed")
+	require.NotEmpty(t, serviceAccountID, "egar grafana service account should be listed")
 
 	tokensOut, err := client.ListWorkspaceServiceAccountTokens(
 		ctx,
@@ -174,15 +174,15 @@ func verifyMegaBatch49Grafana(ctx context.Context, t *testing.T) {
 	var foundToken bool
 
 	for _, tok := range tokensOut.ServiceAccountTokens {
-		if aws.ToString(tok.Name) == "mega-batch-49-token" {
+		if aws.ToString(tok.Name) == "egar-token" {
 			foundToken = true
 		}
 	}
 
-	assert.True(t, foundToken, "mega-batch-49 grafana service account token should be listed")
+	assert.True(t, foundToken, "egar grafana service account token should be listed")
 }
 
-func verifyMegaBatch49Inspector2(ctx context.Context, t *testing.T) {
+func verifyElasticsearchGrafanaAndRAMInspector2(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -201,13 +201,13 @@ func verifyMegaBatch49Inspector2(ctx context.Context, t *testing.T) {
 	var foundFilter bool
 
 	for _, f := range filtersOut.Filters {
-		if aws.ToString(f.Name) == "mega-batch-49-filter" {
+		if aws.ToString(f.Name) == "egar-filter" {
 			foundFilter = true
 			assert.Equal(t, "SUPPRESS", string(f.Action))
 		}
 	}
 
-	assert.True(t, foundFilter, "mega-batch-49 inspector2 filter should be listed")
+	assert.True(t, foundFilter, "egar inspector2 filter should be listed")
 
 	membersOut, err := client.ListMembers(ctx, &inspector2svc49.ListMembersInput{})
 	require.NoError(t, err, "ListMembers should succeed")
@@ -220,7 +220,7 @@ func verifyMegaBatch49Inspector2(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundMember, "mega-batch-49 inspector2 member should be listed")
+	assert.True(t, foundMember, "egar inspector2 member should be listed")
 
 	cfgOut, err := client.DescribeOrganizationConfiguration(
 		ctx,
@@ -233,7 +233,7 @@ func verifyMegaBatch49Inspector2(ctx context.Context, t *testing.T) {
 	assert.True(t, aws.ToBool(cfgOut.AutoEnable.Lambda))
 }
 
-func verifyMegaBatch49MediaLive(ctx context.Context, t *testing.T) {
+func verifyElasticsearchGrafanaAndRAMMediaLive(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -254,7 +254,7 @@ func verifyMegaBatch49MediaLive(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundSG, "mega-batch-49 medialive input security group should be listed")
+	assert.True(t, foundSG, "egar medialive input security group should be listed")
 
 	channelsOut, err := client.ListChannels(ctx, &medialivesvc49.ListChannelsInput{})
 	require.NoError(t, err, "ListChannels should succeed")
@@ -262,12 +262,12 @@ func verifyMegaBatch49MediaLive(ctx context.Context, t *testing.T) {
 	var channelID string
 
 	for _, c := range channelsOut.Channels {
-		if aws.ToString(c.Name) == "mega-batch-49-channel" {
+		if aws.ToString(c.Name) == "egar-channel" {
 			channelID = aws.ToString(c.Id)
 		}
 	}
 
-	require.NotEmpty(t, channelID, "mega-batch-49 medialive channel should be listed")
+	require.NotEmpty(t, channelID, "egar medialive channel should be listed")
 
 	descChOut, err := client.DescribeChannel(
 		ctx,
@@ -282,23 +282,23 @@ func verifyMegaBatch49MediaLive(ctx context.Context, t *testing.T) {
 	var multiplexID string
 
 	for _, m := range multiplexesOut.Multiplexes {
-		if aws.ToString(m.Name) == "mega-batch-49-multiplex" {
+		if aws.ToString(m.Name) == "egar-multiplex" {
 			multiplexID = aws.ToString(m.Id)
 		}
 	}
 
-	require.NotEmpty(t, multiplexID, "mega-batch-49 medialive multiplex should be listed")
+	require.NotEmpty(t, multiplexID, "egar medialive multiplex should be listed")
 
 	programOut, err := client.DescribeMultiplexProgram(ctx, &medialivesvc49.DescribeMultiplexProgramInput{
 		MultiplexId: aws.String(multiplexID),
-		ProgramName: aws.String("mega-batch-49-program"),
+		ProgramName: aws.String("egar-program"),
 	})
 	require.NoError(t, err, "DescribeMultiplexProgram should succeed")
 	require.NotNil(t, programOut.MultiplexProgramSettings.VideoSettings)
 	assert.Equal(t, int32(100000), aws.ToInt32(programOut.MultiplexProgramSettings.VideoSettings.ConstantBitrate))
 }
 
-func verifyMegaBatch49Elasticsearch(ctx context.Context, t *testing.T) {
+func verifyElasticsearchGrafanaAndRAMElasticsearch(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -307,18 +307,22 @@ func verifyMegaBatch49Elasticsearch(ctx context.Context, t *testing.T) {
 	})
 
 	domOut, err := client.DescribeElasticsearchDomain(ctx, &elasticsearchsvc49.DescribeElasticsearchDomainInput{
-		DomainName: aws.String("mega-batch-49-es"),
+		DomainName: aws.String("egar-es"),
 	})
 	require.NoError(t, err, "DescribeElasticsearchDomain should succeed")
 	require.NotNil(t, domOut.DomainStatus)
 
 	configOut, err := client.DescribeElasticsearchDomainConfig(
 		ctx,
-		&elasticsearchsvc49.DescribeElasticsearchDomainConfigInput{DomainName: aws.String("mega-batch-49-es")},
+		&elasticsearchsvc49.DescribeElasticsearchDomainConfigInput{DomainName: aws.String("egar-es")},
 	)
 	require.NoError(t, err, "DescribeElasticsearchDomainConfig should succeed")
 	require.NotNil(t, configOut.DomainConfig.AccessPolicies)
-	assert.Contains(t, aws.ToString(configOut.DomainConfig.AccessPolicies.Options), "MegaBatch49ESPolicy")
+	assert.Contains(
+		t,
+		aws.ToString(configOut.DomainConfig.AccessPolicies.Options),
+		"ElasticsearchGrafanaAndRAMESPolicy",
+	)
 
 	require.NotNil(t, configOut.DomainConfig.AdvancedSecurityOptions)
 	require.NotNil(t, configOut.DomainConfig.AdvancedSecurityOptions.Options)
@@ -328,7 +332,7 @@ func verifyMegaBatch49Elasticsearch(ctx context.Context, t *testing.T) {
 	domainARN := aws.ToString(domOut.DomainStatus.ARN)
 
 	listOut, err := client.ListVpcEndpointsForDomain(ctx, &elasticsearchsvc49.ListVpcEndpointsForDomainInput{
-		DomainName: aws.String("mega-batch-49-es"),
+		DomainName: aws.String("egar-es"),
 	})
 	require.NoError(t, err, "ListVpcEndpointsForDomain should succeed")
 	require.Len(t, listOut.VpcEndpointSummaryList, 1)

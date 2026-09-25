@@ -1,7 +1,7 @@
 ---
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.86.0
-last_audit_commit: 2bc650bf9  # 2026-09-19 terraform mega-batch-20 (anomaly detector visibility-time unit bug)
+last_audit_commit: 2bc650bf9  # 2026-09-19 terraform glue-and-cloudwatch-logs (anomaly detector visibility-time unit bug)
 last_audit_date: 2026-09-19
 overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType
                        # from the request body at all (not even a field on the decode struct),
@@ -143,7 +143,7 @@ leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDeliv
 
 ## Notes
 
-### 2026-09-19: terraform mega-batch-20 coverage (12 previously-uncovered resources)
+### 2026-09-19: terraform glue-and-cloudwatch-logs coverage (12 previously-uncovered resources)
 
 Real terraform apply of account_policy, anomaly_detector, data_protection_policy,
 delivery(+source/destination/destination_policy), destination(+policy),

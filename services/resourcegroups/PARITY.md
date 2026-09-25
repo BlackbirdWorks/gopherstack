@@ -3,14 +3,14 @@ service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
 last_audit_commit: e13b41148   # 2026-09-24 terraform-coverage sweep; prior: 4ad783e5c
 last_audit_date: 2026-09-24   # prior: 2026-09-20
-overall: A            # 2026-09-24 (mega-batch-51 terraform coverage): a real client
+overall: A            # 2026-09-24 (codeartifact-timestream-and-messaging terraform coverage): a real client
                       # (terraform-provider-aws) panics with a nil pointer dereference
                       # creating a Configuration-type aws_resourcegroups_group, because
                       # GetGroupQuery wrongly returned 200+null instead of
                       # BadRequestException. Fixed GetGroupQuery/GetGroupConfiguration to
                       # reject the wrong group type, matching real AWS and the provider's
                       # own doc comments. See Notes.
-                      # 2026-09-20 (mega-batch-24/25/26 terraform coverage, cross-service
+                      # 2026-09-20 (quicksight-resources/sagemaker-resources terraform coverage, cross-service
                       # routing fix): isResourceTagsPath (handler.go) matched ANY
                       # /resources/{Arn}/tags path with no ARN-service check -- a real
                       # route-prefix collision (RouteMatcher class) that swallowed
@@ -62,7 +62,7 @@ leaks: {status: clean, note: "no goroutines/janitors; CancelTagSyncTask fix remo
 
 ## Notes
 
-### 2026-09-24 terraform-coverage sweep (mega-batch-51)
+### 2026-09-24 terraform-coverage sweep (codeartifact-timestream-and-messaging)
 
 GetGroupQuery/GetGroupConfiguration wrongly succeeded for the wrong group type, nil-deref
 crashing terraform-provider-aws; now error like real AWS (BadRequestException).

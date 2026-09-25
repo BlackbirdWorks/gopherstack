@@ -1,7 +1,7 @@
 # --- Lightsail ---
 
 resource "aws_lightsail_instance" "example" {
-  name              = "mega-batch-30-instance"
+  name              = "ssol-instance"
   availability_zone = "us-east-1a"
   blueprint_id      = "amazon_linux_2023"
   bundle_id         = "nano_3_0"
@@ -18,7 +18,7 @@ resource "aws_lightsail_instance_public_ports" "example" {
 }
 
 resource "aws_lightsail_disk" "example" {
-  name              = "mega-batch-30-disk"
+  name              = "ssol-disk"
   availability_zone = "us-east-1a"
   size_in_gb        = 8
 }
@@ -30,7 +30,7 @@ resource "aws_lightsail_disk_attachment" "example" {
 }
 
 resource "aws_lightsail_static_ip" "example" {
-  name = "mega-batch-30-static-ip"
+  name = "ssol-static-ip"
 }
 
 resource "aws_lightsail_static_ip_attachment" "example" {
@@ -39,7 +39,7 @@ resource "aws_lightsail_static_ip_attachment" "example" {
 }
 
 resource "aws_lightsail_bucket" "example" {
-  name      = "mega-batch-30-bucket"
+  name      = "ssol-bucket"
   bundle_id = "small_1_0"
 }
 
@@ -48,7 +48,7 @@ resource "aws_lightsail_bucket_access_key" "example" {
 }
 
 resource "aws_lightsail_container_service" "example" {
-  name        = "mega-batch-30-container"
+  name        = "ssol-container"
   power       = "nano"
   scale       = 1
   is_disabled = false
@@ -87,7 +87,7 @@ resource "aws_lightsail_bucket_resource_access" "example" {
 }
 
 resource "aws_lightsail_distribution" "example" {
-  name      = "mega-batch-30-distribution"
+  name      = "ssol-distribution"
   bundle_id = "small_1_0"
 
   origin {
@@ -102,12 +102,12 @@ resource "aws_lightsail_distribution" "example" {
 }
 
 resource "aws_lightsail_certificate" "example" {
-  name        = "mega-batch-30-cert"
-  domain_name = "example-mega-batch-30.com"
+  name        = "ssol-cert"
+  domain_name = "example-ssol.com"
 }
 
 resource "aws_lightsail_domain" "example" {
-  domain_name = "mega-batch-30-domain.com"
+  domain_name = "ssol-domain.com"
 }
 
 resource "aws_lightsail_domain_entry" "example" {
@@ -118,18 +118,18 @@ resource "aws_lightsail_domain_entry" "example" {
 }
 
 resource "aws_lightsail_database" "example" {
-  relational_database_name = "mega-batch-30-db"
-  availability_zone         = "us-east-1a"
-  master_database_name      = "megabatch30"
-  master_username           = "megabatch30admin"
-  master_password            = "MegaBatch30Password!"
-  blueprint_id               = "mysql_8_0"
-  bundle_id                  = "micro_2_0"
-  skip_final_snapshot        = true
+  relational_database_name = "ssol-db"
+  availability_zone        = "us-east-1a"
+  master_database_name     = "ssol"
+  master_username          = "ssoladmin"
+  master_password          = "SsoadminConfigAndLightsailPassword!"
+  blueprint_id             = "mysql_8_0"
+  bundle_id                = "micro_2_0"
+  skip_final_snapshot      = true
 }
 
 resource "aws_lightsail_lb" "example" {
-  name              = "mega-batch-30-lb"
+  name              = "ssol-lb"
   health_check_path = "/"
   instance_port     = 80
 }
@@ -151,9 +151,9 @@ resource "aws_lightsail_lb_stickiness_policy" "example" {
 }
 
 resource "aws_lightsail_lb_certificate" "example" {
-  name        = "mega-batch-30-lb-cert"
+  name        = "ssol-lb-cert"
   lb_name     = aws_lightsail_lb.example.name
-  domain_name = "example-mega-batch-30-lb.com"
+  domain_name = "example-ssol-lb.com"
 }
 
 resource "aws_lightsail_lb_certificate_attachment" "example" {
@@ -166,7 +166,7 @@ resource "aws_lightsail_lb_certificate_attachment" "example" {
 data "aws_ssoadmin_instances" "this" {}
 
 resource "aws_ssoadmin_permission_set" "example" {
-  name         = "mega-batch-30-permission-set"
+  name         = "ssol-permission-set"
   instance_arn = tolist(data.aws_ssoadmin_instances.this.arns)[0]
 }
 
@@ -195,7 +195,7 @@ resource "aws_ssoadmin_customer_managed_policy_attachment" "example" {
   permission_set_arn = aws_ssoadmin_permission_set.example.arn
 
   customer_managed_policy_reference {
-    name = "mega-batch-30-cmp"
+    name = "ssol-cmp"
     path = "/"
   }
 }
@@ -211,8 +211,8 @@ resource "aws_ssoadmin_permissions_boundary_attachment" "example" {
 
 resource "aws_identitystore_group" "example" {
   identity_store_id = tolist(data.aws_ssoadmin_instances.this.identity_store_ids)[0]
-  display_name      = "mega-batch-30-group"
-  description       = "Mega Batch 30 group"
+  display_name      = "ssol-group"
+  description       = "Ssol group"
 }
 
 resource "aws_ssoadmin_account_assignment" "example" {
@@ -239,7 +239,7 @@ resource "aws_ssoadmin_instance_access_control_attributes" "example" {
 }
 
 resource "aws_ssoadmin_application" "example" {
-  name                     = "mega-batch-30-application"
+  name                     = "ssol-application"
   instance_arn             = tolist(data.aws_ssoadmin_instances.this.arns)[0]
   application_provider_arn = "arn:aws:sso::aws:applicationProvider/custom"
 }
@@ -250,7 +250,7 @@ resource "aws_ssoadmin_application_access_scope" "example" {
 }
 
 resource "aws_ssoadmin_application_assignment_configuration" "example" {
-  application_arn = aws_ssoadmin_application.example.application_arn
+  application_arn     = aws_ssoadmin_application.example.application_arn
   assignment_required = true
 }
 
@@ -261,16 +261,16 @@ resource "aws_ssoadmin_application_assignment" "example" {
 }
 
 resource "aws_ssoadmin_trusted_token_issuer" "example" {
-  name          = "mega-batch-30-tti"
-  instance_arn  = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+  name                      = "ssol-tti"
+  instance_arn              = tolist(data.aws_ssoadmin_instances.this.arns)[0]
   trusted_token_issuer_type = "OIDC_JWT"
 
   trusted_token_issuer_configuration {
     oidc_jwt_configuration {
-      claim_attribute_path      = "email"
+      claim_attribute_path          = "email"
       identity_store_attribute_path = "emails.value"
-      issuer_url                 = "https://mega-batch-30.example.com"
-      jwks_retrieval_option      = "OPEN_ID_DISCOVERY"
+      issuer_url                    = "https://ssol.example.com"
+      jwks_retrieval_option         = "OPEN_ID_DISCOVERY"
     }
   }
 }
@@ -278,7 +278,7 @@ resource "aws_ssoadmin_trusted_token_issuer" "example" {
 # --- AWS Config ---
 
 resource "aws_iam_role" "config" {
-  name = "mega-batch-30-config-role"
+  name = "ssol-config-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -291,16 +291,16 @@ resource "aws_iam_role" "config" {
 }
 
 resource "aws_s3_bucket" "config" {
-  bucket = "mega-batch-30-config-bucket"
+  bucket = "ssol-config-bucket"
 }
 
 resource "aws_config_configuration_recorder" "example" {
-  name     = "mega-batch-30-recorder"
+  name     = "ssol-recorder"
   role_arn = aws_iam_role.config.arn
 }
 
 resource "aws_config_delivery_channel" "example" {
-  name           = "mega-batch-30-channel"
+  name           = "ssol-channel"
   s3_bucket_name = aws_s3_bucket.config.bucket
 
   depends_on = [aws_config_configuration_recorder.example]
@@ -314,7 +314,7 @@ resource "aws_config_configuration_recorder_status" "example" {
 }
 
 resource "aws_config_config_rule" "example" {
-  name = "mega-batch-30-config-rule"
+  name = "ssol-config-rule"
 
   source {
     owner             = "AWS"
@@ -332,8 +332,8 @@ resource "aws_config_remediation_configuration" "example" {
   target_version   = "1"
 
   parameter {
-    name           = "AutomationAssumeRole"
-    static_value   = aws_iam_role.config.arn
+    name         = "AutomationAssumeRole"
+    static_value = aws_iam_role.config.arn
   }
 }
 
@@ -342,7 +342,7 @@ resource "aws_config_retention_configuration" "example" {
 }
 
 resource "aws_config_configuration_aggregator" "example" {
-  name = "mega-batch-30-aggregator"
+  name = "ssol-aggregator"
 
   account_aggregation_source {
     account_ids = ["000000000000"]
@@ -356,14 +356,14 @@ resource "aws_config_aggregate_authorization" "example" {
 }
 
 resource "aws_config_conformance_pack" "example" {
-  name = "mega-batch-30-conformance-pack"
+  name = "ssol-conformance-pack"
 
   template_body = <<EOT
 Resources:
   ConfigRule:
     Type: AWS::Config::ConfigRule
     Properties:
-      ConfigRuleName: mega-batch-30-cp-rule
+      ConfigRuleName: ssol-cp-rule
       Source:
         Owner: AWS
         SourceIdentifier: S3_BUCKET_VERSIONING_ENABLED
@@ -373,25 +373,25 @@ EOT
 }
 
 resource "aws_config_organization_custom_rule" "example" {
-  name                = "mega-batch-30-org-custom-rule"
+  name                = "ssol-org-custom-rule"
   lambda_function_arn = aws_lambda_function.config_custom_rule.arn
   trigger_types       = ["ConfigurationItemChangeNotification"]
 }
 
 resource "aws_config_organization_managed_rule" "example" {
-  name            = "mega-batch-30-org-managed-rule"
+  name            = "ssol-org-managed-rule"
   rule_identifier = "S3_BUCKET_VERSIONING_ENABLED"
 }
 
 resource "aws_config_organization_conformance_pack" "example" {
-  name = "mega-batch-30-org-conformance-pack"
+  name = "ssol-org-conformance-pack"
 
   template_body = <<EOT
 Resources:
   ConfigRule:
     Type: AWS::Config::ConfigRule
     Properties:
-      ConfigRuleName: mega-batch-30-org-cp-rule
+      ConfigRuleName: ssol-org-cp-rule
       Source:
         Owner: AWS
         SourceIdentifier: S3_BUCKET_VERSIONING_ENABLED
@@ -399,7 +399,7 @@ EOT
 }
 
 resource "aws_iam_role" "config_lambda" {
-  name = "mega-batch-30-config-lambda-role"
+  name = "ssol-config-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -412,7 +412,7 @@ resource "aws_iam_role" "config_lambda" {
 }
 
 resource "aws_lambda_function" "config_custom_rule" {
-  function_name    = "mega-batch-30-config-custom-rule"
+  function_name    = "ssol-config-custom-rule"
   role             = aws_iam_role.config_lambda.arn
   handler          = "index.handler"
   runtime          = "python3.12"

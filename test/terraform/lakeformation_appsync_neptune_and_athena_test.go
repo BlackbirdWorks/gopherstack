@@ -19,7 +19,7 @@ import (
 )
 
 // mega39ProviderBlock extends the shared providerBlock with the neptune
-// endpoint, which mega-batch-39 needs alongside lakeformation, appsync,
+// endpoint, which lana needs alongside lakeformation, appsync,
 // athena, and ds (all already present in providerBlock).
 func mega39ProviderBlock(addr string) string {
 	base := providerBlock(addr)
@@ -31,7 +31,7 @@ func quoteHCL(s string) string {
 	return `"` + s + `"`
 }
 
-// TestTerraform_MegaBatch39 provisions Lake Formation resource/tag/permission/
+// TestTerraform_LakeformationAppsyncNeptuneAndAthena provisions Lake Formation resource/tag/permission/
 // opt-in/data-cells-filter, AppSync API cache/domain name/domain association/
 // function/source API association/type, Neptune cluster endpoint/cluster and
 // instance parameter groups/cluster snapshot/event subscription/global
@@ -39,13 +39,13 @@ func quoteHCL(s string) string {
 // prepared statement, and Directory Service conditional forwarder/log
 // subscription/RADIUS settings/shared directory via Terraform, verifying each
 // through its own SDK client.
-func TestTerraform_MegaBatch39(t *testing.T) {
+func TestTerraform_LakeformationAppsyncNeptuneAndAthena(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-39",
+			fixture:    "lakeformation-appsync-neptune-and-athena",
 			providerFn: mega39ProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -54,11 +54,11 @@ func TestTerraform_MegaBatch39(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch39LakeFormation(ctx, t)
-				verifyMegaBatch39AppSync(ctx, t)
-				verifyMegaBatch39Neptune(ctx, t)
-				verifyMegaBatch39Athena(ctx, t)
-				verifyMegaBatch39DirectoryService(ctx, t)
+				verifyLakeformationAppsyncNeptuneAndAthenaLakeFormation(ctx, t)
+				verifyLakeformationAppsyncNeptuneAndAthenaAppSync(ctx, t)
+				verifyLakeformationAppsyncNeptuneAndAthenaNeptune(ctx, t)
+				verifyLakeformationAppsyncNeptuneAndAthenaAthena(ctx, t)
+				verifyLakeformationAppsyncNeptuneAndAthenaDirectoryService(ctx, t)
 			},
 		},
 	}
@@ -71,7 +71,7 @@ func TestTerraform_MegaBatch39(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch39LakeFormation(ctx context.Context, t *testing.T) {
+func verifyLakeformationAppsyncNeptuneAndAthenaLakeFormation(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -80,14 +80,14 @@ func verifyMegaBatch39LakeFormation(ctx context.Context, t *testing.T) {
 	})
 
 	tagOut, err := client.GetLFTag(ctx, &lfsvc39.GetLFTagInput{
-		TagKey: aws.String("mega-batch-39-tag"),
+		TagKey: aws.String("lana-tag"),
 	})
 	require.NoError(t, err, "GetLFTag should succeed")
 	assert.ElementsMatch(t, []string{"blue", "green"}, tagOut.TagValues)
 
 	resTagsOut, err := client.GetResourceLFTags(ctx, &lfsvc39.GetResourceLFTagsInput{
 		Resource: &lftypes39.Resource{
-			Database: &lftypes39.DatabaseResource{Name: aws.String("mega_batch_39_db")},
+			Database: &lftypes39.DatabaseResource{Name: aws.String("lana_db")},
 		},
 	})
 	require.NoError(t, err, "GetResourceLFTags should succeed")
@@ -98,16 +98,16 @@ func verifyMegaBatch39LakeFormation(ctx context.Context, t *testing.T) {
 	assert.NotEmpty(t, optInsOut.LakeFormationOptInsInfoList)
 
 	filterOut, err := client.GetDataCellsFilter(ctx, &lfsvc39.GetDataCellsFilterInput{
-		DatabaseName:   aws.String("mega_batch_39_db"),
-		Name:           aws.String("mega-batch-39-filter"),
+		DatabaseName:   aws.String("lana_db"),
+		Name:           aws.String("lana-filter"),
 		TableCatalogId: aws.String("000000000000"),
-		TableName:      aws.String("mega_batch_39_table"),
+		TableName:      aws.String("lana_table"),
 	})
 	require.NoError(t, err, "GetDataCellsFilter should succeed")
 	require.NotNil(t, filterOut.DataCellsFilter)
 }
 
-func verifyMegaBatch39AppSync(ctx context.Context, t *testing.T) {
+func verifyLakeformationAppsyncNeptuneAndAthenaAppSync(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -116,13 +116,13 @@ func verifyMegaBatch39AppSync(ctx context.Context, t *testing.T) {
 	})
 
 	associationOut, err := client.GetApiAssociation(ctx, &appsyncsvc39.GetApiAssociationInput{
-		DomainName: aws.String("mega-batch-39.example.test"),
+		DomainName: aws.String("lana.example.test"),
 	})
 	require.NoError(t, err, "GetApiAssociation should succeed")
 	require.NotNil(t, associationOut.ApiAssociation)
 
 	domainOut, err := client.GetDomainName(ctx, &appsyncsvc39.GetDomainNameInput{
-		DomainName: aws.String("mega-batch-39.example.test"),
+		DomainName: aws.String("lana.example.test"),
 	})
 	require.NoError(t, err, "GetDomainName should succeed")
 	require.NotNil(t, domainOut.DomainNameConfig)
@@ -140,23 +140,23 @@ func verifyMegaBatch39AppSync(ctx context.Context, t *testing.T) {
 	var foundFunc bool
 
 	for _, f := range funcsOut.Functions {
-		if aws.ToString(f.Name) == "mega_batch_39_function" {
+		if aws.ToString(f.Name) == "lana_function" {
 			foundFunc = true
 		}
 	}
 
-	assert.True(t, foundFunc, "mega-batch-39 function should be listed")
+	assert.True(t, foundFunc, "lana function should be listed")
 
 	typeOut, err := client.GetType(ctx, &appsyncsvc39.GetTypeInput{
 		ApiId:    aws.String(apiID),
 		Format:   appsynctypes39.TypeDefinitionFormatSdl,
-		TypeName: aws.String("MegaBatch39Widget"),
+		TypeName: aws.String("LakeformationAppsyncNeptuneAndAthenaWidget"),
 	})
 	require.NoError(t, err, "GetType should succeed")
 	require.NotNil(t, typeOut.Type)
 }
 
-func verifyMegaBatch39Neptune(ctx context.Context, t *testing.T) {
+func verifyLakeformationAppsyncNeptuneAndAthenaNeptune(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -165,43 +165,43 @@ func verifyMegaBatch39Neptune(ctx context.Context, t *testing.T) {
 	})
 
 	endpointsOut, err := client.DescribeDBClusterEndpoints(ctx, &neptunesvc39.DescribeDBClusterEndpointsInput{
-		DBClusterIdentifier: aws.String("mega-batch-39-neptune-cluster"),
+		DBClusterIdentifier: aws.String("lana-neptune-cluster"),
 	})
 	require.NoError(t, err, "DescribeDBClusterEndpoints should succeed")
 	require.NotEmpty(t, endpointsOut.DBClusterEndpoints)
 
 	cpgOut, err := client.DescribeDBClusterParameterGroups(ctx, &neptunesvc39.DescribeDBClusterParameterGroupsInput{
-		DBClusterParameterGroupName: aws.String("mega-batch-39-neptune-cpg"),
+		DBClusterParameterGroupName: aws.String("lana-neptune-cpg"),
 	})
 	require.NoError(t, err, "DescribeDBClusterParameterGroups should succeed")
 	require.Len(t, cpgOut.DBClusterParameterGroups, 1)
 
 	pgOut, err := client.DescribeDBParameterGroups(ctx, &neptunesvc39.DescribeDBParameterGroupsInput{
-		DBParameterGroupName: aws.String("mega-batch-39-neptune-pg"),
+		DBParameterGroupName: aws.String("lana-neptune-pg"),
 	})
 	require.NoError(t, err, "DescribeDBParameterGroups should succeed")
 	require.Len(t, pgOut.DBParameterGroups, 1)
 
 	snapOut, err := client.DescribeDBClusterSnapshots(ctx, &neptunesvc39.DescribeDBClusterSnapshotsInput{
-		DBClusterSnapshotIdentifier: aws.String("mega-batch-39-snapshot"),
+		DBClusterSnapshotIdentifier: aws.String("lana-snapshot"),
 	})
 	require.NoError(t, err, "DescribeDBClusterSnapshots should succeed")
 	require.Len(t, snapOut.DBClusterSnapshots, 1)
 
 	subOut, err := client.DescribeEventSubscriptions(ctx, &neptunesvc39.DescribeEventSubscriptionsInput{
-		SubscriptionName: aws.String("mega-batch-39-neptune-sub"),
+		SubscriptionName: aws.String("lana-neptune-sub"),
 	})
 	require.NoError(t, err, "DescribeEventSubscriptions should succeed")
 	require.Len(t, subOut.EventSubscriptionsList, 1)
 
 	globalOut, err := client.DescribeGlobalClusters(ctx, &neptunesvc39.DescribeGlobalClustersInput{
-		GlobalClusterIdentifier: aws.String("mega-batch-39-global"),
+		GlobalClusterIdentifier: aws.String("lana-global"),
 	})
 	require.NoError(t, err, "DescribeGlobalClusters should succeed")
 	require.Len(t, globalOut.GlobalClusters, 1)
 }
 
-func verifyMegaBatch39Athena(ctx context.Context, t *testing.T) {
+func verifyLakeformationAppsyncNeptuneAndAthenaAthena(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -210,26 +210,26 @@ func verifyMegaBatch39Athena(ctx context.Context, t *testing.T) {
 	})
 
 	reservationOut, err := client.GetCapacityReservation(ctx, &athenasvc39.GetCapacityReservationInput{
-		Name: aws.String("mega-batch-39-reservation"),
+		Name: aws.String("lana-reservation"),
 	})
 	require.NoError(t, err, "GetCapacityReservation should succeed")
 	assert.EqualValues(t, 24, aws.ToInt32(reservationOut.CapacityReservation.TargetDpus))
 
 	catalogOut, err := client.GetDataCatalog(ctx, &athenasvc39.GetDataCatalogInput{
-		Name: aws.String("mega-batch-39-catalog"),
+		Name: aws.String("lana-catalog"),
 	})
 	require.NoError(t, err, "GetDataCatalog should succeed")
 	require.NotNil(t, catalogOut.DataCatalog)
 
 	dbOut, err := client.GetDatabase(ctx, &athenasvc39.GetDatabaseInput{
 		CatalogName:  aws.String("AwsDataCatalog"),
-		DatabaseName: aws.String("mega_batch_39_athena_db"),
+		DatabaseName: aws.String("lana_athena_db"),
 	})
 	require.NoError(t, err, "GetDatabase should succeed")
 	require.NotNil(t, dbOut.Database)
 
 	namedOut, err := client.ListNamedQueries(ctx, &athenasvc39.ListNamedQueriesInput{
-		WorkGroup: aws.String("mega-batch-39-workgroup"),
+		WorkGroup: aws.String("lana-workgroup"),
 	})
 	require.NoError(t, err, "ListNamedQueries should succeed")
 	require.NotEmpty(t, namedOut.NamedQueryIds)
@@ -242,30 +242,30 @@ func verifyMegaBatch39Athena(ctx context.Context, t *testing.T) {
 	var foundQuery bool
 
 	for _, q := range batchOut.NamedQueries {
-		if aws.ToString(q.Name) == "mega-batch-39-named-query" {
+		if aws.ToString(q.Name) == "lana-named-query" {
 			foundQuery = true
 		}
 	}
 
-	assert.True(t, foundQuery, "mega-batch-39 named query should be listed")
+	assert.True(t, foundQuery, "lana named query should be listed")
 
 	preparedOut, err := client.ListPreparedStatements(ctx, &athenasvc39.ListPreparedStatementsInput{
-		WorkGroup: aws.String("mega-batch-39-workgroup"),
+		WorkGroup: aws.String("lana-workgroup"),
 	})
 	require.NoError(t, err, "ListPreparedStatements should succeed")
 
 	var foundPrepared bool
 
 	for _, p := range preparedOut.PreparedStatements {
-		if aws.ToString(p.StatementName) == "mega_batch_39_prepared" {
+		if aws.ToString(p.StatementName) == "lana_prepared" {
 			foundPrepared = true
 		}
 	}
 
-	assert.True(t, foundPrepared, "mega-batch-39 prepared statement should be listed")
+	assert.True(t, foundPrepared, "lana prepared statement should be listed")
 }
 
-func verifyMegaBatch39DirectoryService(ctx context.Context, t *testing.T) {
+func verifyLakeformationAppsyncNeptuneAndAthenaDirectoryService(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -279,17 +279,17 @@ func verifyMegaBatch39DirectoryService(ctx context.Context, t *testing.T) {
 	var directoryID string
 
 	for _, d := range dirsOut.DirectoryDescriptions {
-		if aws.ToString(d.Name) == "mega-batch-39.test" {
+		if aws.ToString(d.Name) == "lana.test" {
 			directoryID = aws.ToString(d.DirectoryId)
 		}
 	}
 
-	require.NotEmpty(t, directoryID, "mega-batch-39 directory should be listed")
+	require.NotEmpty(t, directoryID, "lana directory should be listed")
 
 	for _, d := range dirsOut.DirectoryDescriptions {
 		if aws.ToString(d.DirectoryId) == directoryID {
 			require.NotNil(t, d.RadiusSettings)
-			assert.Equal(t, "mega-batch-39-secret", aws.ToString(d.RadiusSettings.SharedSecret))
+			assert.Equal(t, "lana-secret", aws.ToString(d.RadiusSettings.SharedSecret))
 		}
 	}
 
@@ -298,24 +298,24 @@ func verifyMegaBatch39DirectoryService(ctx context.Context, t *testing.T) {
 	})
 	require.NoError(t, err, "DescribeConditionalForwarders should succeed")
 	require.Len(t, fwdOut.ConditionalForwarders, 1)
-	assert.Equal(t, "mega-batch-39-remote.test", aws.ToString(fwdOut.ConditionalForwarders[0].RemoteDomainName))
+	assert.Equal(t, "lana-remote.test", aws.ToString(fwdOut.ConditionalForwarders[0].RemoteDomainName))
 
 	subsOut, err := client.ListLogSubscriptions(ctx, &dssvc39.ListLogSubscriptionsInput{
 		DirectoryId: aws.String(directoryID),
 	})
 	require.NoError(t, err, "ListLogSubscriptions should succeed")
 	require.Len(t, subsOut.LogSubscriptions, 1)
-	assert.Equal(t, "/aws/directoryservice/mega-batch-39", aws.ToString(subsOut.LogSubscriptions[0].LogGroupName))
+	assert.Equal(t, "/aws/directoryservice/lana", aws.ToString(subsOut.LogSubscriptions[0].LogGroupName))
 
 	var msadID string
 
 	for _, d := range dirsOut.DirectoryDescriptions {
-		if aws.ToString(d.Name) == "mega-batch-39-msad.test" {
+		if aws.ToString(d.Name) == "lana-msad.test" {
 			msadID = aws.ToString(d.DirectoryId)
 		}
 	}
 
-	require.NotEmpty(t, msadID, "mega-batch-39 Microsoft AD directory should be listed")
+	require.NotEmpty(t, msadID, "lana Microsoft AD directory should be listed")
 
 	sharedOut, err := client.DescribeSharedDirectories(ctx, &dssvc39.DescribeSharedDirectoriesInput{
 		OwnerDirectoryId: aws.String(msadID),

@@ -1117,10 +1117,10 @@ Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1
 --new-from-rev=HEAD ./services/apigatewayv2/...` all clean. No persisted
 field changed; no version bump.
 
-## 2026-09-20 (mega-batch-31 terraform coverage)
+## 2026-09-20 (apigatewayv2-apprunner-and-macie terraform coverage)
 
-New Terraform coverage (test/terraform/fixtures/mega-batch-31.tf,
-mega_batch31_test.go) for api_mapping, authorizer, deployment, domain_name,
+New Terraform coverage (test/terraform/fixtures/apigatewayv2-apprunner-and-macie.tf,
+apigatewayv2_apprunner_and_macie_test.go) for api_mapping, authorizer, deployment, domain_name,
 integration_response, model, route_response, vpc_link -- all 8 resources
 the census flagged as uncovered. Zero bugs found; confirms the existing
 `ops:` table verdicts.

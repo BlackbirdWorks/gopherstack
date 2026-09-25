@@ -11,17 +11,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch45 provisions IPAM, traffic mirroring, client VPN,
+// TestTerraform_Ec2IpamAndTransitgatewayAdvanced provisions IPAM, traffic mirroring, client VPN,
 // instance connect endpoint, network insights, and transit gateway
 // connect/peering/multicast/policy-table resources, then verifies each
 // through the EC2 SDK.
-func TestTerraform_MegaBatch45(t *testing.T) {
+func TestTerraform_Ec2IpamAndTransitgatewayAdvanced(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-45",
+			fixture: "ec2-ipam-and-transitgateway-advanced",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -31,11 +31,11 @@ func TestTerraform_MegaBatch45(t *testing.T) {
 				t.Helper()
 				client := createEC2Client(t)
 
-				verifyMegaBatch45Ipam(ctx, t, client)
-				verifyMegaBatch45TrafficMirroring(ctx, t, client)
-				verifyMegaBatch45ClientVpn(ctx, t, client)
-				verifyMegaBatch45InstanceConnectAndInsights(ctx, t, client)
-				verifyMegaBatch45TransitGatewayExtras(ctx, t, client)
+				verifyEc2IpamAndTransitgatewayAdvancedIpam(ctx, t, client)
+				verifyEc2IpamAndTransitgatewayAdvancedTrafficMirroring(ctx, t, client)
+				verifyEc2IpamAndTransitgatewayAdvancedClientVpn(ctx, t, client)
+				verifyEc2IpamAndTransitgatewayAdvancedInstanceConnectAndInsights(ctx, t, client)
+				verifyEc2IpamAndTransitgatewayAdvancedTransitGatewayExtras(ctx, t, client)
 			},
 		},
 	}
@@ -48,14 +48,14 @@ func TestTerraform_MegaBatch45(t *testing.T) {
 	}
 }
 
-// verifyMegaBatch45Ipam checks the IPAM, scope, pool, pool CIDR, pool CIDR
+// verifyEc2IpamAndTransitgatewayAdvancedIpam checks the IPAM, scope, pool, pool CIDR, pool CIDR
 // allocation, resource discovery, and resource discovery association.
-func verifyMegaBatch45Ipam(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2IpamAndTransitgatewayAdvancedIpam(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	ipamOut, err := client.DescribeIpams(ctx, &ec2svc.DescribeIpamsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-ipam"}},
+			{Name: aws.String("tag:Name"), Values: []string{"eita-ipam"}},
 		},
 	})
 	require.NoError(t, err, "DescribeIpams should succeed")
@@ -73,7 +73,7 @@ func verifyMegaBatch45Ipam(ctx context.Context, t *testing.T, client *ec2svc.Cli
 
 	poolOut, err := client.DescribeIpamPools(ctx, &ec2svc.DescribeIpamPoolsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-ipam-pool"}},
+			{Name: aws.String("tag:Name"), Values: []string{"eita-ipam-pool"}},
 		},
 	})
 	require.NoError(t, err, "DescribeIpamPools should succeed")
@@ -112,7 +112,7 @@ func verifyMegaBatch45Ipam(ctx context.Context, t *testing.T, client *ec2svc.Cli
 
 	rdOut, err := client.DescribeIpamResourceDiscoveries(ctx, &ec2svc.DescribeIpamResourceDiscoveriesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-ipam-rd"}},
+			{Name: aws.String("tag:Name"), Values: []string{"eita-ipam-rd"}},
 		},
 	})
 	require.NoError(t, err, "DescribeIpamResourceDiscoveries should succeed")
@@ -135,9 +135,9 @@ func verifyMegaBatch45Ipam(ctx context.Context, t *testing.T, client *ec2svc.Cli
 	)
 }
 
-// verifyMegaBatch45TrafficMirroring checks the traffic mirror filter, its
+// verifyEc2IpamAndTransitgatewayAdvancedTrafficMirroring checks the traffic mirror filter, its
 // rule, target, and session.
-func verifyMegaBatch45TrafficMirroring(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2IpamAndTransitgatewayAdvancedTrafficMirroring(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	filterOut, err := client.DescribeTrafficMirrorFilters(ctx, &ec2svc.DescribeTrafficMirrorFiltersInput{})
@@ -146,7 +146,7 @@ func verifyMegaBatch45TrafficMirroring(ctx context.Context, t *testing.T, client
 	var filterID string
 
 	for _, f := range filterOut.TrafficMirrorFilters {
-		if aws.ToString(f.Description) == "mega-batch-45 filter" {
+		if aws.ToString(f.Description) == "eita filter" {
 			filterID = aws.ToString(f.TrafficMirrorFilterId)
 		}
 	}
@@ -175,7 +175,7 @@ func verifyMegaBatch45TrafficMirroring(ctx context.Context, t *testing.T, client
 	var targetID string
 
 	for _, tg := range targetOut.TrafficMirrorTargets {
-		if aws.ToString(tg.Description) == "mega-batch-45 target" {
+		if aws.ToString(tg.Description) == "eita target" {
 			targetID = aws.ToString(tg.TrafficMirrorTargetId)
 		}
 	}
@@ -196,14 +196,14 @@ func verifyMegaBatch45TrafficMirroring(ctx context.Context, t *testing.T, client
 	assert.True(t, foundSession, "aws_ec2_traffic_mirror_session should exist")
 }
 
-// verifyMegaBatch45ClientVpn checks the Client VPN endpoint, its network
+// verifyEc2IpamAndTransitgatewayAdvancedClientVpn checks the Client VPN endpoint, its network
 // association, authorization rule, and route.
-func verifyMegaBatch45ClientVpn(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2IpamAndTransitgatewayAdvancedClientVpn(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	epOut, err := client.DescribeClientVpnEndpoints(ctx, &ec2svc.DescribeClientVpnEndpointsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-cvpn"}},
+			{Name: aws.String("tag:Name"), Values: []string{"eita-cvpn"}},
 		},
 	})
 	require.NoError(t, err, "DescribeClientVpnEndpoints should succeed")
@@ -242,14 +242,18 @@ func verifyMegaBatch45ClientVpn(ctx context.Context, t *testing.T, client *ec2sv
 	assert.True(t, foundRoute, "aws_ec2_client_vpn_route should add the route")
 }
 
-// verifyMegaBatch45InstanceConnectAndInsights checks the instance connect
+// verifyEc2IpamAndTransitgatewayAdvancedInstanceConnectAndInsights checks the instance connect
 // endpoint plus the network insights path and analysis.
-func verifyMegaBatch45InstanceConnectAndInsights(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2IpamAndTransitgatewayAdvancedInstanceConnectAndInsights(
+	ctx context.Context,
+	t *testing.T,
+	client *ec2svc.Client,
+) {
 	t.Helper()
 
 	iceOut, err := client.DescribeInstanceConnectEndpoints(ctx, &ec2svc.DescribeInstanceConnectEndpointsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-ice"}},
+			{Name: aws.String("tag:Name"), Values: []string{"eita-ice"}},
 		},
 	})
 	require.NoError(t, err, "DescribeInstanceConnectEndpoints should succeed")
@@ -257,7 +261,7 @@ func verifyMegaBatch45InstanceConnectAndInsights(ctx context.Context, t *testing
 
 	destOut, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-destination"}},
+			{Name: aws.String("tag:Name"), Values: []string{"eita-destination"}},
 		},
 	})
 	require.NoError(t, err, "DescribeInstances should succeed")
@@ -277,7 +281,7 @@ func verifyMegaBatch45InstanceConnectAndInsights(ctx context.Context, t *testing
 	require.NoError(t, err, "DescribeNetworkInsightsPaths should succeed")
 	path := findBy(t, pathOut.NetworkInsightsPaths, func(p ec2types.NetworkInsightsPath) bool {
 		return aws.ToString(p.Destination) == destInstanceID && p.Protocol == ec2types.ProtocolTcp
-	}, "mega-batch-45 network insights path")
+	}, "eita network insights path")
 	pathID := aws.ToString(path.NetworkInsightsPathId)
 
 	analysisOut, err := client.DescribeNetworkInsightsAnalyses(ctx, &ec2svc.DescribeNetworkInsightsAnalysesInput{
@@ -289,14 +293,18 @@ func verifyMegaBatch45InstanceConnectAndInsights(ctx context.Context, t *testing
 	assert.NotEmpty(t, analysisOut.NetworkInsightsAnalyses, "aws_ec2_network_insights_analysis should exist")
 }
 
-// verifyMegaBatch45TransitGatewayExtras checks the TGW Connect attachment,
+// verifyEc2IpamAndTransitgatewayAdvancedTransitGatewayExtras checks the TGW Connect attachment,
 // peering attachment, multicast domain, and policy table.
-func verifyMegaBatch45TransitGatewayExtras(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2IpamAndTransitgatewayAdvancedTransitGatewayExtras(
+	ctx context.Context,
+	t *testing.T,
+	client *ec2svc.Client,
+) {
 	t.Helper()
 
 	connectOut, err := client.DescribeTransitGatewayConnects(ctx, &ec2svc.DescribeTransitGatewayConnectsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-tgw-connect"}},
+			{Name: aws.String("tag:Name"), Values: []string{"eita-tgw-connect"}},
 		},
 	})
 	require.NoError(t, err, "DescribeTransitGatewayConnects should succeed")
@@ -306,7 +314,7 @@ func verifyMegaBatch45TransitGatewayExtras(ctx context.Context, t *testing.T, cl
 		ctx,
 		&ec2svc.DescribeTransitGatewayPeeringAttachmentsInput{
 			Filters: []ec2types.Filter{
-				{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-tgw-peering"}},
+				{Name: aws.String("tag:Name"), Values: []string{"eita-tgw-peering"}},
 			},
 		},
 	)
@@ -317,7 +325,7 @@ func verifyMegaBatch45TransitGatewayExtras(ctx context.Context, t *testing.T, cl
 		ctx,
 		&ec2svc.DescribeTransitGatewayMulticastDomainsInput{
 			Filters: []ec2types.Filter{
-				{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-tgw-multicast"}},
+				{Name: aws.String("tag:Name"), Values: []string{"eita-tgw-multicast"}},
 			},
 		},
 	)
@@ -328,7 +336,7 @@ func verifyMegaBatch45TransitGatewayExtras(ctx context.Context, t *testing.T, cl
 		ctx,
 		&ec2svc.DescribeTransitGatewayPolicyTablesInput{
 			Filters: []ec2types.Filter{
-				{Name: aws.String("tag:Name"), Values: []string{"mega-batch-45-tgw-policy-table"}},
+				{Name: aws.String("tag:Name"), Values: []string{"eita-tgw-policy-table"}},
 			},
 		},
 	)

@@ -3,14 +3,14 @@
 # resource-based file system policy.
 ##############################################################################
 
-resource "aws_efs_file_system" "mb46" {
+resource "aws_efs_file_system" "dbae" {
   tags = {
-    Name = "mega-batch-46-efs"
+    Name = "dbae-efs"
   }
 }
 
-resource "aws_efs_access_point" "mb46" {
-  file_system_id = aws_efs_file_system.mb46.id
+resource "aws_efs_access_point" "dbae" {
+  file_system_id = aws_efs_file_system.dbae.id
 
   posix_user {
     gid = 1000
@@ -18,7 +18,7 @@ resource "aws_efs_access_point" "mb46" {
   }
 
   root_directory {
-    path = "/mega-batch-46"
+    path = "/dbae"
 
     creation_info {
       owner_gid   = 1000
@@ -28,25 +28,25 @@ resource "aws_efs_access_point" "mb46" {
   }
 }
 
-resource "aws_efs_backup_policy" "mb46" {
-  file_system_id = aws_efs_file_system.mb46.id
+resource "aws_efs_backup_policy" "dbae" {
+  file_system_id = aws_efs_file_system.dbae.id
 
   backup_policy {
     status = "ENABLED"
   }
 }
 
-resource "aws_efs_file_system_policy" "mb46" {
-  file_system_id = aws_efs_file_system.mb46.id
+resource "aws_efs_file_system_policy" "dbae" {
+  file_system_id = aws_efs_file_system.dbae.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "MegaBatch46"
+      Sid       = "DocdbAmplifyAndEventbridge"
       Effect    = "Allow"
       Principal = { AWS = "*" }
       Action    = "elasticfilesystem:ClientMount"
-      Resource  = aws_efs_file_system.mb46.arn
+      Resource  = aws_efs_file_system.dbae.arn
     }]
   })
 }
@@ -56,21 +56,21 @@ resource "aws_efs_file_system_policy" "mb46" {
 # rule.
 ##############################################################################
 
-resource "aws_xray_encryption_config" "mb46" {
+resource "aws_xray_encryption_config" "dbae" {
   type = "NONE"
 }
 
-resource "aws_xray_group" "mb46" {
-  group_name        = "mega-batch-46-group"
+resource "aws_xray_group" "dbae" {
+  group_name        = "dbae-group"
   filter_expression = "responsetime > 5"
 }
 
-resource "aws_xray_resource_policy" "mb46" {
-  policy_name     = "mega-batch-46-policy"
+resource "aws_xray_resource_policy" "dbae" {
+  policy_name = "dbae-policy"
   policy_document = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "MegaBatch46XRay"
+      Sid       = "DocdbAmplifyAndEventbridgeXRay"
       Effect    = "Allow"
       Principal = { Service = "xray.amazonaws.com" }
       Action    = "xray:PutTraceSegments"
@@ -79,8 +79,8 @@ resource "aws_xray_resource_policy" "mb46" {
   })
 }
 
-resource "aws_xray_sampling_rule" "mb46" {
-  rule_name      = "mega-batch-46-sampling"
+resource "aws_xray_sampling_rule" "dbae" {
+  rule_name      = "dbae-sampling"
   priority       = 1000
   version        = 1
   reservoir_size = 1
@@ -98,53 +98,53 @@ resource "aws_xray_sampling_rule" "mb46" {
 # rule target pointed at an SQS queue.
 ##############################################################################
 
-resource "aws_cloudwatch_event_bus" "mb46" {
-  name = "mega-batch-46-bus"
+resource "aws_cloudwatch_event_bus" "dbae" {
+  name = "dbae-bus"
 }
 
-resource "aws_cloudwatch_event_bus_policy" "mb46" {
-  event_bus_name = aws_cloudwatch_event_bus.mb46.name
+resource "aws_cloudwatch_event_bus_policy" "dbae" {
+  event_bus_name = aws_cloudwatch_event_bus.dbae.name
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "MegaBatch46Bus"
+      Sid       = "DocdbAmplifyAndEventbridgeBus"
       Effect    = "Allow"
       Principal = { AWS = "999999999999" }
       Action    = "events:PutEvents"
-      Resource  = aws_cloudwatch_event_bus.mb46.arn
+      Resource  = aws_cloudwatch_event_bus.dbae.arn
     }]
   })
 }
 
-resource "aws_cloudwatch_event_bus" "mb46_perm" {
-  name = "mega-batch-46-perm-bus"
+resource "aws_cloudwatch_event_bus" "dbae_perm" {
+  name = "dbae-perm-bus"
 }
 
-resource "aws_cloudwatch_event_permission" "mb46" {
+resource "aws_cloudwatch_event_permission" "dbae" {
   principal      = "888888888888"
-  statement_id   = "MegaBatch46Permission"
-  event_bus_name = aws_cloudwatch_event_bus.mb46_perm.name
+  statement_id   = "DocdbAmplifyAndEventbridgePermission"
+  event_bus_name = aws_cloudwatch_event_bus.dbae_perm.name
 }
 
-resource "aws_sqs_queue" "mb46_target" {
-  name = "mega-batch-46-target-queue"
+resource "aws_sqs_queue" "dbae_target" {
+  name = "dbae-target-queue"
 }
 
-resource "aws_cloudwatch_event_rule" "mb46" {
-  name           = "mega-batch-46-rule"
-  event_bus_name = aws_cloudwatch_event_bus.mb46.name
+resource "aws_cloudwatch_event_rule" "dbae" {
+  name           = "dbae-rule"
+  event_bus_name = aws_cloudwatch_event_bus.dbae.name
 
   event_pattern = jsonencode({
-    source = ["mega.batch.46"]
+    source = ["dbae"]
   })
 }
 
-resource "aws_cloudwatch_event_target" "mb46" {
-  rule           = aws_cloudwatch_event_rule.mb46.name
-  event_bus_name = aws_cloudwatch_event_bus.mb46.name
-  arn            = aws_sqs_queue.mb46_target.arn
-  target_id      = "mega-batch-46-target"
+resource "aws_cloudwatch_event_target" "dbae" {
+  rule           = aws_cloudwatch_event_rule.dbae.name
+  event_bus_name = aws_cloudwatch_event_bus.dbae.name
+  arn            = aws_sqs_queue.dbae_target.arn
+  target_id      = "dbae-target"
 }
 
 ##############################################################################
@@ -152,8 +152,8 @@ resource "aws_cloudwatch_event_target" "mb46" {
 # group via a standalone association resource, and a serverless cache.
 ##############################################################################
 
-resource "aws_elasticache_user" "mb46" {
-  user_id       = "mega-batch-46-user"
+resource "aws_elasticache_user" "dbae" {
+  user_id       = "dbae-user"
   user_name     = "mega46"
   access_string = "on ~* +@all"
   engine        = "REDIS"
@@ -163,14 +163,14 @@ resource "aws_elasticache_user" "mb46" {
   }
 }
 
-resource "aws_elasticache_user_group" "mb46" {
+resource "aws_elasticache_user_group" "dbae" {
   engine        = "REDIS"
-  user_group_id = "mega-batch-46-ug"
-  user_ids      = [aws_elasticache_user.mb46.user_id]
+  user_group_id = "dbae-ug"
+  user_ids      = [aws_elasticache_user.dbae.user_id]
 }
 
-resource "aws_elasticache_user" "mb46_extra" {
-  user_id       = "mega-batch-46-user-extra"
+resource "aws_elasticache_user" "dbae_extra" {
+  user_id       = "dbae-user-extra"
   user_name     = "mega46extra"
   access_string = "on ~* +@all"
   engine        = "REDIS"
@@ -180,14 +180,14 @@ resource "aws_elasticache_user" "mb46_extra" {
   }
 }
 
-resource "aws_elasticache_user_group_association" "mb46" {
-  user_group_id = aws_elasticache_user_group.mb46.user_group_id
-  user_id       = aws_elasticache_user.mb46_extra.user_id
+resource "aws_elasticache_user_group_association" "dbae" {
+  user_group_id = aws_elasticache_user_group.dbae.user_group_id
+  user_id       = aws_elasticache_user.dbae_extra.user_id
 }
 
-resource "aws_elasticache_serverless_cache" "mb46" {
+resource "aws_elasticache_serverless_cache" "dbae" {
   engine = "valkey"
-  name   = "mega-batch-46-serverless"
+  name   = "dbae-serverless"
 }
 
 ##############################################################################
@@ -195,48 +195,48 @@ resource "aws_elasticache_serverless_cache" "mb46" {
 # subscription, and a standalone global cluster.
 ##############################################################################
 
-resource "aws_docdb_subnet_group" "mb46" {
-  name       = "mega-batch-46-docdb-sg"
-  subnet_ids = ["subnet-mb46a", "subnet-mb46b"]
+resource "aws_docdb_subnet_group" "dbae" {
+  name       = "dbae-docdb-sg"
+  subnet_ids = ["subnet-dbaea", "subnet-dbaeb"]
 }
 
-resource "aws_docdb_cluster_parameter_group" "mb46" {
-  name        = "mega-batch-46-docdb-cpg"
+resource "aws_docdb_cluster_parameter_group" "dbae" {
+  name        = "dbae-docdb-cpg"
   family      = "docdb5.0"
-  description = "mega-batch-46 docdb cluster parameter group"
+  description = "dbae docdb cluster parameter group"
 }
 
-resource "aws_docdb_cluster" "mb46" {
-  cluster_identifier              = "mega-batch-46-docdb"
+resource "aws_docdb_cluster" "dbae" {
+  cluster_identifier              = "dbae-docdb"
   engine                          = "docdb"
   master_username                 = "admin"
-  master_password                 = "megabatch46pw"
-  db_subnet_group_name            = aws_docdb_subnet_group.mb46.name
-  db_cluster_parameter_group_name = aws_docdb_cluster_parameter_group.mb46.name
+  master_password                 = "dbaepw"
+  db_subnet_group_name            = aws_docdb_subnet_group.dbae.name
+  db_cluster_parameter_group_name = aws_docdb_cluster_parameter_group.dbae.name
   skip_final_snapshot             = true
 }
 
-resource "aws_docdb_cluster_snapshot" "mb46" {
-  db_cluster_identifier          = aws_docdb_cluster.mb46.id
-  db_cluster_snapshot_identifier = "mega-batch-46-docdb-snapshot"
+resource "aws_docdb_cluster_snapshot" "dbae" {
+  db_cluster_identifier          = aws_docdb_cluster.dbae.id
+  db_cluster_snapshot_identifier = "dbae-docdb-snapshot"
 }
 
-resource "aws_sns_topic" "mb46_events" {
-  name = "mega-batch-46-events-topic"
+resource "aws_sns_topic" "dbae_events" {
+  name = "dbae-events-topic"
 }
 
-resource "aws_docdb_event_subscription" "mb46" {
-  name          = "mega-batch-46-docdb-sub"
-  sns_topic_arn = aws_sns_topic.mb46_events.arn
+resource "aws_docdb_event_subscription" "dbae" {
+  name          = "dbae-docdb-sub"
+  sns_topic_arn = aws_sns_topic.dbae_events.arn
 
   source_type = "db-cluster"
-  source_ids  = [aws_docdb_cluster.mb46.cluster_identifier]
+  source_ids  = [aws_docdb_cluster.dbae.cluster_identifier]
 
   event_categories = ["maintenance"]
 }
 
-resource "aws_docdb_global_cluster" "mb46" {
-  global_cluster_identifier = "mega-batch-46-docdb-global"
+resource "aws_docdb_global_cluster" "dbae" {
+  global_cluster_identifier = "dbae-docdb-global"
   engine                    = "docdb"
   engine_version            = "5.0.0"
 }
@@ -245,36 +245,36 @@ resource "aws_docdb_global_cluster" "mb46" {
 # Cost Explorer: an anomaly monitor + subscription, and a cost allocation tag.
 ##############################################################################
 
-resource "aws_ce_anomaly_monitor" "mb46" {
-  name              = "mega-batch-46-monitor"
+resource "aws_ce_anomaly_monitor" "dbae" {
+  name              = "dbae-monitor"
   monitor_type      = "DIMENSIONAL"
   monitor_dimension = "SERVICE"
 }
 
-resource "aws_sns_topic" "mb46_anomaly" {
-  name = "mega-batch-46-anomaly-topic"
+resource "aws_sns_topic" "dbae_anomaly" {
+  name = "dbae-anomaly-topic"
 
   policy = jsonencode({
     Version = "2008-10-17"
     Statement = [{
-      Sid       = "MegaBatch46AllowCE"
+      Sid       = "DocdbAmplifyAndEventbridgeAllowCE"
       Effect    = "Allow"
       Principal = { Service = "costalerts.amazonaws.com" }
       Action    = "SNS:Publish"
-      Resource  = "arn:aws:sns:us-east-1:000000000000:mega-batch-46-anomaly-topic"
+      Resource  = "arn:aws:sns:us-east-1:000000000000:dbae-anomaly-topic"
     }]
   })
 }
 
-resource "aws_ce_anomaly_subscription" "mb46" {
-  name      = "mega-batch-46-subscription"
+resource "aws_ce_anomaly_subscription" "dbae" {
+  name      = "dbae-subscription"
   frequency = "DAILY"
 
-  monitor_arn_list = [aws_ce_anomaly_monitor.mb46.arn]
+  monitor_arn_list = [aws_ce_anomaly_monitor.dbae.arn]
 
   subscriber {
     type    = "SNS"
-    address = aws_sns_topic.mb46_anomaly.arn
+    address = aws_sns_topic.dbae_anomaly.arn
   }
 
   threshold_expression {
@@ -286,8 +286,8 @@ resource "aws_ce_anomaly_subscription" "mb46" {
   }
 }
 
-resource "aws_ce_cost_allocation_tag" "mb46" {
-  tag_key = "mega-batch-46-tag"
+resource "aws_ce_cost_allocation_tag" "dbae" {
+  tag_key = "dbae-tag"
   status  = "Active"
 }
 
@@ -296,12 +296,12 @@ resource "aws_ce_cost_allocation_tag" "mb46" {
 # trigger.
 ##############################################################################
 
-resource "aws_codecommit_repository" "mb46" {
-  repository_name = "mega-batch-46-repo"
+resource "aws_codecommit_repository" "dbae" {
+  repository_name = "dbae-repo"
 }
 
-resource "aws_codecommit_approval_rule_template" "mb46" {
-  name    = "mega-batch-46-approval-template"
+resource "aws_codecommit_approval_rule_template" "dbae" {
+  name = "dbae-approval-template"
   content = jsonencode({
     Version               = "2018-11-08"
     DestinationReferences = ["refs/heads/main"]
@@ -312,21 +312,21 @@ resource "aws_codecommit_approval_rule_template" "mb46" {
   })
 }
 
-resource "aws_codecommit_approval_rule_template_association" "mb46" {
-  approval_rule_template_name = aws_codecommit_approval_rule_template.mb46.name
-  repository_name             = aws_codecommit_repository.mb46.repository_name
+resource "aws_codecommit_approval_rule_template_association" "dbae" {
+  approval_rule_template_name = aws_codecommit_approval_rule_template.dbae.name
+  repository_name             = aws_codecommit_repository.dbae.repository_name
 }
 
-resource "aws_sns_topic" "mb46_trigger" {
-  name = "mega-batch-46-trigger-topic"
+resource "aws_sns_topic" "dbae_trigger" {
+  name = "dbae-trigger-topic"
 }
 
-resource "aws_codecommit_trigger" "mb46" {
-  repository_name = aws_codecommit_repository.mb46.repository_name
+resource "aws_codecommit_trigger" "dbae" {
+  repository_name = aws_codecommit_repository.dbae.repository_name
 
   trigger {
-    name            = "mega-batch-46-trigger"
-    destination_arn = aws_sns_topic.mb46_trigger.arn
+    name            = "dbae-trigger"
+    destination_arn = aws_sns_topic.dbae_trigger.arn
     events          = ["all"]
   }
 }
@@ -336,32 +336,32 @@ resource "aws_codecommit_trigger" "mb46" {
 # webhook.
 ##############################################################################
 
-resource "aws_amplify_app" "mb46" {
-  name = "mega-batch-46-app"
+resource "aws_amplify_app" "dbae" {
+  name = "dbae-app"
 }
 
-resource "aws_amplify_branch" "mb46" {
-  app_id      = aws_amplify_app.mb46.id
+resource "aws_amplify_branch" "dbae" {
+  app_id      = aws_amplify_app.dbae.id
   branch_name = "main"
 }
 
-resource "aws_amplify_backend_environment" "mb46" {
-  app_id           = aws_amplify_app.mb46.id
+resource "aws_amplify_backend_environment" "dbae" {
+  app_id           = aws_amplify_app.dbae.id
   environment_name = "mbfortysix"
 }
 
-resource "aws_amplify_domain_association" "mb46" {
-  app_id      = aws_amplify_app.mb46.id
-  domain_name = "mega-batch-46.example.test"
+resource "aws_amplify_domain_association" "dbae" {
+  app_id      = aws_amplify_app.dbae.id
+  domain_name = "dbae.example.test"
 
   sub_domain {
-    branch_name = aws_amplify_branch.mb46.branch_name
+    branch_name = aws_amplify_branch.dbae.branch_name
     prefix      = ""
   }
 }
 
-resource "aws_amplify_webhook" "mb46" {
-  app_id      = aws_amplify_app.mb46.id
-  branch_name = aws_amplify_branch.mb46.branch_name
-  description = "mega-batch-46 webhook"
+resource "aws_amplify_webhook" "dbae" {
+  app_id      = aws_amplify_app.dbae.id
+  branch_name = aws_amplify_branch.dbae.branch_name
+  description = "dbae webhook"
 }

@@ -3,7 +3,7 @@
 ##############################################################################
 
 resource "aws_iam_role" "ssm_activation" {
-  name = "mega-batch-17-ssm-activation-role"
+  name = "ssbk-ssm-activation-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -16,18 +16,18 @@ resource "aws_iam_role" "ssm_activation" {
 }
 
 resource "aws_ssm_activation" "example" {
-  name               = "mega-batch-17-activation"
+  name               = "ssbk-activation"
   iam_role           = aws_iam_role.ssm_activation.id
   registration_limit = 5
 }
 
 resource "aws_ssm_document" "example" {
-  name          = "mega-batch-17-document"
+  name          = "ssbk-document"
   document_type = "Command"
 
   content = jsonencode({
     schemaVersion = "2.2"
-    description   = "mega batch 17 document"
+    description   = "ssbk document"
     mainSteps = [{
       action = "aws:runShellScript"
       name   = "runShellScript"
@@ -43,12 +43,12 @@ resource "aws_ssm_association" "example" {
 
   targets {
     key    = "tag:Name"
-    values = ["mega-batch-17"]
+    values = ["ssm-and-backup"]
   }
 }
 
 resource "aws_ssm_maintenance_window" "example" {
-  name     = "mega-batch-17-window"
+  name     = "ssbk-window"
   schedule = "cron(0 16 ? * TUE *)"
   duration = 3
   cutoff   = 1
@@ -56,22 +56,22 @@ resource "aws_ssm_maintenance_window" "example" {
 
 resource "aws_ssm_maintenance_window_target" "example" {
   window_id     = aws_ssm_maintenance_window.example.id
-  name          = "mega-batch-17-window-target"
+  name          = "ssbk-window-target"
   resource_type = "INSTANCE"
 
   targets {
     key    = "tag:Name"
-    values = ["mega-batch-17"]
+    values = ["ssm-and-backup"]
   }
 }
 
 resource "aws_s3_bucket" "ssm_task_output" {
-  bucket        = "mega-batch-17-ssm-task-output"
+  bucket        = "ssbk-ssm-task-output"
   force_destroy = true
 }
 
 resource "aws_iam_role" "ssm_task" {
-  name = "mega-batch-17-ssm-task-role"
+  name = "ssbk-ssm-task-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -112,7 +112,7 @@ resource "aws_ssm_maintenance_window_task" "example" {
 }
 
 resource "aws_ssm_patch_baseline" "example" {
-  name             = "mega-batch-17-patch-baseline"
+  name             = "ssbk-patch-baseline"
   operating_system = "AMAZON_LINUX_2"
 
   approval_rule {
@@ -132,16 +132,16 @@ resource "aws_ssm_default_patch_baseline" "example" {
 
 resource "aws_ssm_patch_group" "example" {
   baseline_id = aws_ssm_patch_baseline.example.id
-  patch_group = "mega-batch-17-patch-group"
+  patch_group = "ssbk-patch-group"
 }
 
 resource "aws_s3_bucket" "ssm_sync" {
-  bucket        = "mega-batch-17-ssm-sync"
+  bucket        = "ssbk-ssm-sync"
   force_destroy = true
 }
 
 resource "aws_ssm_resource_data_sync" "example" {
-  name = "mega-batch-17-sync"
+  name = "ssbk-sync"
 
   s3_destination {
     bucket_name = aws_s3_bucket.ssm_sync.bucket
@@ -159,7 +159,7 @@ resource "aws_ssm_service_setting" "example" {
 ##############################################################################
 
 resource "aws_iam_role" "backup" {
-  name = "mega-batch-17-backup-role"
+  name = "ssbk-backup-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -172,14 +172,14 @@ resource "aws_iam_role" "backup" {
 }
 
 resource "aws_backup_vault" "example" {
-  name = "mega-batch-17-vault"
+  name = "ssbk-vault"
 }
 
 resource "aws_backup_plan" "example" {
-  name = "mega-batch-17-plan"
+  name = "ssbk-plan"
 
   rule {
-    rule_name         = "mega-batch-17-rule"
+    rule_name         = "ssbk-rule"
     target_vault_name = aws_backup_vault.example.name
     schedule          = "cron(0 12 * * ? *)"
   }
@@ -187,15 +187,15 @@ resource "aws_backup_plan" "example" {
 
 resource "aws_backup_selection" "example" {
   iam_role_arn = aws_iam_role.backup.arn
-  name         = "mega-batch-17-selection"
+  name         = "ssbk-selection"
   plan_id      = aws_backup_plan.example.id
 
   resources = ["*"]
 }
 
 resource "aws_backup_framework" "example" {
-  name        = "mega_batch_17_framework"
-  description = "mega batch 17 framework"
+  name        = "ssbk_framework"
+  description = "ssbk framework"
 
   control {
     name = "BACKUP_RECOVERY_POINT_MINIMUM_RETENTION_CHECK"
@@ -208,13 +208,13 @@ resource "aws_backup_framework" "example" {
 }
 
 resource "aws_s3_bucket" "backup_reports" {
-  bucket        = "mega-batch-17-backup-reports"
+  bucket        = "ssbk-backup-reports"
   force_destroy = true
 }
 
 resource "aws_backup_report_plan" "example" {
-  name        = "mega_batch_17_report_plan"
-  description = "mega batch 17 report plan"
+  name        = "ssbk_report_plan"
+  description = "ssbk report plan"
 
   report_delivery_channel {
     s3_bucket_name = aws_s3_bucket.backup_reports.bucket
@@ -227,7 +227,7 @@ resource "aws_backup_report_plan" "example" {
 }
 
 resource "aws_backup_restore_testing_plan" "example" {
-  name = "mega_batch_17_restore_testing_plan"
+  name = "ssbk_restore_testing_plan"
 
   recovery_point_selection {
     algorithm            = "LATEST_WITHIN_WINDOW"
@@ -239,10 +239,10 @@ resource "aws_backup_restore_testing_plan" "example" {
 }
 
 resource "aws_backup_restore_testing_selection" "example" {
-  name                       = "mega_batch_17_restore_testing_selection"
+  name                      = "ssbk_restore_testing_selection"
   restore_testing_plan_name = aws_backup_restore_testing_plan.example.name
-  iam_role_arn               = aws_iam_role.backup.arn
-  protected_resource_type    = "EC2"
+  iam_role_arn              = aws_iam_role.backup.arn
+  protected_resource_type   = "EC2"
 
   protected_resource_conditions {
     string_equals {
@@ -253,7 +253,7 @@ resource "aws_backup_restore_testing_selection" "example" {
 }
 
 resource "aws_backup_logically_air_gapped_vault" "example" {
-  name               = "mega-batch-17-lag-vault"
+  name               = "ssbk-lag-vault"
   max_retention_days = 100
   min_retention_days = 7
 }
@@ -266,7 +266,7 @@ resource "aws_backup_vault_lock_configuration" "example" {
 }
 
 resource "aws_sns_topic" "backup" {
-  name = "mega-batch-17-backup-topic"
+  name = "ssbk-backup-topic"
 }
 
 resource "aws_backup_vault_notifications" "example" {

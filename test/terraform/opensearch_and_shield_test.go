@@ -12,20 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch38 provisions an OpenSearch VPC domain with a
+// TestTerraform_OpensearchAndShield provisions an OpenSearch VPC domain with a
 // domain policy, SAML options, a custom package association, an authorized
 // VPC endpoint, and an outbound/inbound cross-cluster connection to a
 // second domain, plus Shield subscription/protection/protection group,
 // DRT role and log-bucket associations, proactive engagement, and an
 // application layer automatic response, via Terraform, verifying each
 // through its own SDK client.
-func TestTerraform_MegaBatch38(t *testing.T) {
+func TestTerraform_OpensearchAndShield(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-38",
+			fixture: "opensearch-and-shield",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -33,8 +33,8 @@ func TestTerraform_MegaBatch38(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch38OpenSearch(ctx, t)
-				verifyMegaBatch38Shield(ctx, t)
+				verifyOpensearchAndShieldOpenSearch(ctx, t)
+				verifyOpensearchAndShieldShield(ctx, t)
 			},
 		},
 	}
@@ -47,7 +47,7 @@ func TestTerraform_MegaBatch38(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch38OpenSearch(ctx context.Context, t *testing.T) {
+func verifyOpensearchAndShieldOpenSearch(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -56,14 +56,14 @@ func verifyMegaBatch38OpenSearch(ctx context.Context, t *testing.T) {
 	})
 
 	domOut, err := client.DescribeDomain(ctx, &opensearchsvc38.DescribeDomainInput{
-		DomainName: aws.String("mb38-domain"),
+		DomainName: aws.String("opsh-domain"),
 	})
 	require.NoError(t, err, "DescribeDomain should succeed")
 	require.NotNil(t, domOut.DomainStatus.VPCOptions, "domain should be VPC-based")
 	assert.Contains(t, aws.ToString(domOut.DomainStatus.AccessPolicies), "es:*", "domain policy should be applied")
 
 	cfgOut, err := client.DescribeDomainConfig(ctx, &opensearchsvc38.DescribeDomainConfigInput{
-		DomainName: aws.String("mb38-domain"),
+		DomainName: aws.String("opsh-domain"),
 	})
 	require.NoError(t, err, "DescribeDomainConfig should succeed")
 	require.NotNil(t, cfgOut.DomainConfig.AdvancedSecurityOptions)
@@ -71,22 +71,22 @@ func verifyMegaBatch38OpenSearch(ctx context.Context, t *testing.T) {
 	samlOpts := cfgOut.DomainConfig.AdvancedSecurityOptions.Options.SAMLOptions
 	require.NotNil(t, samlOpts, "SAML options should be set")
 	require.NotNil(t, samlOpts.Idp)
-	assert.Contains(t, aws.ToString(samlOpts.Idp.EntityId), "mega-batch-38-idp")
+	assert.Contains(t, aws.ToString(samlOpts.Idp.EntityId), "opsh-idp")
 
 	pkgsOut, err := client.ListPackagesForDomain(ctx, &opensearchsvc38.ListPackagesForDomainInput{
-		DomainName: aws.String("mb38-domain"),
+		DomainName: aws.String("opsh-domain"),
 	})
 	require.NoError(t, err, "ListPackagesForDomain should succeed")
 	require.NotEmpty(t, pkgsOut.DomainPackageDetailsList)
 
 	vpcEpsOut, err := client.ListVpcEndpointsForDomain(ctx, &opensearchsvc38.ListVpcEndpointsForDomainInput{
-		DomainName: aws.String("mb38-domain"),
+		DomainName: aws.String("opsh-domain"),
 	})
 	require.NoError(t, err, "ListVpcEndpointsForDomain should succeed")
 	require.NotEmpty(t, vpcEpsOut.VpcEndpointSummaryList)
 
 	accessOut, err := client.ListVpcEndpointAccess(ctx, &opensearchsvc38.ListVpcEndpointAccessInput{
-		DomainName: aws.String("mb38-domain"),
+		DomainName: aws.String("opsh-domain"),
 	})
 	require.NoError(t, err, "ListVpcEndpointAccess should succeed")
 	assert.NotEmpty(t, accessOut.AuthorizedPrincipalList, "account should be authorized for VPC endpoint access")
@@ -97,7 +97,7 @@ func verifyMegaBatch38OpenSearch(ctx context.Context, t *testing.T) {
 	var foundOutbound bool
 
 	for _, c := range outConnOut.Connections {
-		if aws.ToString(c.ConnectionAlias) == "mega-batch-38-connection" {
+		if aws.ToString(c.ConnectionAlias) == "opsh-connection" {
 			foundOutbound = true
 		}
 	}
@@ -109,7 +109,7 @@ func verifyMegaBatch38OpenSearch(ctx context.Context, t *testing.T) {
 	assert.NotEmpty(t, inConnOut.Connections, "inbound connection should be listed after accept")
 }
 
-func verifyMegaBatch38Shield(ctx context.Context, t *testing.T) {
+func verifyOpensearchAndShieldShield(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -132,7 +132,7 @@ func verifyMegaBatch38Shield(ctx context.Context, t *testing.T) {
 	)
 	require.NoError(t, err, "DescribeEmergencyContactSettings should succeed")
 	require.NotEmpty(t, contactsOut.EmergencyContactList)
-	assert.Contains(t, aws.ToString(contactsOut.EmergencyContactList[0].EmailAddress), "mega-batch-38-oncall")
+	assert.Contains(t, aws.ToString(contactsOut.EmergencyContactList[0].EmailAddress), "opsh-oncall")
 
 	protsOut, err := client.ListProtections(ctx, &shieldsvc38.ListProtectionsInput{})
 	require.NoError(t, err, "ListProtections should succeed")
@@ -140,13 +140,13 @@ func verifyMegaBatch38Shield(ctx context.Context, t *testing.T) {
 	var protectionID, resourceArn string
 
 	for _, p := range protsOut.Protections {
-		if aws.ToString(p.Name) == "mega-batch-38-protection" {
+		if aws.ToString(p.Name) == "opsh-protection" {
 			protectionID = aws.ToString(p.Id)
 			resourceArn = aws.ToString(p.ResourceArn)
 		}
 	}
 
-	require.NotEmpty(t, protectionID, "mega-batch-38 protection should be listed")
+	require.NotEmpty(t, protectionID, "opsh protection should be listed")
 
 	protOut, err := client.DescribeProtection(ctx, &shieldsvc38.DescribeProtectionInput{
 		ProtectionId: aws.String(protectionID),
@@ -161,7 +161,7 @@ func verifyMegaBatch38Shield(ctx context.Context, t *testing.T) {
 	var foundGroup bool
 
 	for _, g := range groupsOut.ProtectionGroups {
-		if aws.ToString(g.ProtectionGroupId) == "mega-batch-38-protection-group" {
+		if aws.ToString(g.ProtectionGroupId) == "opsh-protection-group" {
 			foundGroup = true
 			assert.Contains(t, g.Members, resourceArn)
 		}
@@ -171,6 +171,6 @@ func verifyMegaBatch38Shield(ctx context.Context, t *testing.T) {
 
 	drtOut, err := client.DescribeDRTAccess(ctx, &shieldsvc38.DescribeDRTAccessInput{})
 	require.NoError(t, err, "DescribeDRTAccess should succeed")
-	assert.Contains(t, aws.ToString(drtOut.RoleArn), "mega-batch-38-drt-role")
-	assert.Contains(t, drtOut.LogBucketList, "mega-batch-38-drt-log-bucket")
+	assert.Contains(t, aws.ToString(drtOut.RoleArn), "opsh-drt-role")
+	assert.Contains(t, drtOut.LogBucketList, "opsh-drt-log-bucket")
 }

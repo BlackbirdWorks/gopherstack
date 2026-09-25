@@ -91,7 +91,7 @@ items_still_open:
   - "2026-09-13 (gopherstack-xhu2t tier-1 sweep): GetClusterCredentials.DbGroups remains unread -- the real field adds the temporary user to existing database groups for the session; this backend has no real database/session/group-membership model to add to (GetClusterCredentials only mints a pseudo-password/Expiration pair), so there is nothing observable a test could assert. DurationSeconds (same op, and GetClusterCredentialsWithIAM's) was genuinely dropped and is now fixed -- see 2026-09-13 Notes section."
   - "2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints (aws-sdk-go-v2/service/redshiftserverless@v1.38.5 types.Workgroup/types.Endpoint) are unmodeled -- they'd need a maintenance-track-upgrade scheduler, a patch-version catalog and real VPC/ENI allocation this backend has nowhere else either (the same judgment call already made for ServerlessEndpointAccess's own VpcEndpoint, see serverless.go). Confirmed absent via structfielddiff; all are optional members, not required-and-zero, so every other Workgroup field name/case was confirmed to match exactly."
   - "2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): ScheduledActionResponse.NextInvocations is unmodeled for serverless scheduled actions -- classic Redshift's own ScheduledAction.NextInvocations IS computed (schedule.go's nextInvocations, parsing cron(...)/at(...) function-call syntax), but Redshift Serverless's Schedule is a different raw-JSON tagged union ({\"cron\":\"...\"} bare string, or {\"at\":<epoch-seconds>}), so that evaluator doesn't apply as-is; a correct implementation needs its own parser, not a one-line reuse. Optional member, not required-and-zero -- every other ScheduledActionResponse field confirmed correct, including the already-fixed slScheduledActionAssociationWire List-item narrowing (NamespaceName/ScheduledActionName only, no other fields)."
-  - "2026-09-19 (terraform mega-batch-18 coverage pass): aws_redshift_data_share_authorization
+  - "2026-09-19 (terraform redshift-resources coverage pass): aws_redshift_data_share_authorization
     and aws_redshift_data_share_consumer_association were left out of terraform coverage --
     real datashares are created by a `CREATE DATASHARE` SQL statement inside the cluster, not
     a wire-reachable RDS/Redshift API this backend's AuthorizeDataShare/AssociateDataShareConsumer
@@ -103,7 +103,7 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 
 ## Notes
 
-### 2026-09-19 (terraform mega-batch-18 coverage pass)
+### 2026-09-19 (terraform redshift-resources coverage pass)
 
 Found via the real hashicorp/aws provider: CreateHsmClientCertificate/CreateHsmConfiguration
 responses omitted the required inner `HsmClientCertificate`/`HsmConfiguration` wrapper element

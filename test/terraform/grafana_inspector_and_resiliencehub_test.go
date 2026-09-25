@@ -17,16 +17,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch6 provisions Managed Grafana, Inspector2, Network
+// TestTerraform_GrafanaInspectorAndResiliencehub provisions Managed Grafana, Inspector2, Network
 // Manager, Resilience Hub, and a CloudFront KeyValueStore via Terraform and
 // verifies each through its own SDK client's Describe/List/Get path.
-func TestTerraform_MegaBatch6(t *testing.T) {
+func TestTerraform_GrafanaInspectorAndResiliencehub(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-6",
+			fixture: "grafana-inspector-and-resiliencehub",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -42,8 +42,8 @@ func TestTerraform_MegaBatch6(t *testing.T) {
 				wsOut, err := grafanaClient.ListWorkspaces(ctx, &grafanasvc.ListWorkspacesInput{})
 				require.NoError(t, err, "ListWorkspaces should succeed")
 				findBy(t, wsOut.Workspaces, func(w grafanatypes.WorkspaceSummary) bool {
-					return aws.ToString(w.Name) == "mega-batch-6-grafana"
-				}, "mega-batch-6-grafana workspace")
+					return aws.ToString(w.Name) == "gair-grafana"
+				}, "gair-grafana workspace")
 
 				inspClient := inspector2svc.NewFromConfig(cfg, func(o *inspector2svc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -61,8 +61,8 @@ func TestTerraform_MegaBatch6(t *testing.T) {
 				nmOut, err := nmClient.DescribeGlobalNetworks(ctx, &networkmanagersvc.DescribeGlobalNetworksInput{})
 				require.NoError(t, err, "DescribeGlobalNetworks should succeed")
 				findBy(t, nmOut.GlobalNetworks, func(n nmtypes.GlobalNetwork) bool {
-					return aws.ToString(n.Description) == "mega-batch-6 global network"
-				}, "mega-batch-6 global network")
+					return aws.ToString(n.Description) == "gair global network"
+				}, "gair global network")
 
 				rhClient := resiliencehubsvc.NewFromConfig(cfg, func(o *resiliencehubsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -70,13 +70,13 @@ func TestTerraform_MegaBatch6(t *testing.T) {
 				rhOut, err := rhClient.ListResiliencyPolicies(ctx, &resiliencehubsvc.ListResiliencyPoliciesInput{})
 				require.NoError(t, err, "ListResiliencyPolicies should succeed")
 				require.NotEmpty(t, rhOut.ResiliencyPolicies, "a resiliency policy should exist after apply")
-				assert.Equal(t, "megabatch6policy", aws.ToString(rhOut.ResiliencyPolicies[0].PolicyName))
+				assert.Equal(t, "gairpolicy", aws.ToString(rhOut.ResiliencyPolicies[0].PolicyName))
 
 				cfClient := cloudfrontsvc2.NewFromConfig(cfg, func(o *cloudfrontsvc2.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				kvsOut, err := cfClient.DescribeKeyValueStore(ctx, &cloudfrontsvc2.DescribeKeyValueStoreInput{
-					Name: aws.String("megabatch6kvs"),
+					Name: aws.String("gairkvs"),
 				})
 				require.NoError(t, err, "cloudfront DescribeKeyValueStore should succeed")
 				require.NotNil(t, kvsOut.KeyValueStore)

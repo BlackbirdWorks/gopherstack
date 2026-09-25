@@ -2,7 +2,7 @@
 service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) now live in services/cloudfrontkeyvaluestore (gopherstack-4ara, 2026-08-13) -- see that service's own PARITY.md
-last_audit_commit: 70d96e12d  # 2026-09-19 mega-batch-14/15 terraform sweep (gopherstack-101r)
+last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep (gopherstack-101r)
 last_audit_date: 2026-09-19  # prior: 2026-09-18  # gopherstack-7185: response shapes of Create/Delete/Modify ops
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation
@@ -248,9 +248,9 @@ leaks: {status: clean, note: "runInvalidationReconciler goroutine has a proper s
 
 ## Notes
 
-### 2026-09-19 mega-batch-14/15 terraform sweep (gopherstack-101r)
+### 2026-09-19 cloudfront-and-route53/15 terraform sweep (gopherstack-101r)
 
-aws_cloudfront_distribution (mega-batch-14.tf) surfaced two CreateDistributionWithTags
+aws_cloudfront_distribution (cloudfront-and-route53.tf) surfaced two CreateDistributionWithTags
 bugs: RawConfig was rebuilt from a shallow struct that dropped Origins/
 DefaultCacheBehavior/etc and emitted the wrong XML root, so DistributionConfig
 always deserialized nil; and OriginGroups was never backfilled, crashing

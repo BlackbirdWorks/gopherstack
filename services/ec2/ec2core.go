@@ -504,7 +504,7 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 		// associated | disassociating | disassociated | failing | failed);
 		// the wrong value hung terraform-provider-aws's wait-for-associated
 		// waiter until timeout since it never saw "associated" (gopherstack
-		// mega-batch-44 investigation).
+		// ec2-networking-essentials investigation).
 		State: stateAssociated,
 	}
 	b.vpcCidrAssociations[vpcID+":"+assoc.AssociationID] = assoc

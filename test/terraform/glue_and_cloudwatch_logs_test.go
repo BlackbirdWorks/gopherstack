@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch20 provisions Glue (classifier, connection, data
+// TestTerraform_GlueAndCloudwatchLogs provisions Glue (classifier, connection, data
 // catalog encryption settings, data quality ruleset, dev endpoint, ML
 // transform, partition + partition index, registry, schema, security
 // configuration, resource policy, trigger, user defined function, workflow,
@@ -22,13 +22,13 @@ import (
 // delivery, destination(+policy), index policy, resource policy, query
 // definition) resources via Terraform and verifies each through its own SDK
 // client's Get/Describe path.
-func TestTerraform_MegaBatch20(t *testing.T) {
+func TestTerraform_GlueAndCloudwatchLogs(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-20",
+			fixture: "glue-and-cloudwatch-logs",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -36,8 +36,8 @@ func TestTerraform_MegaBatch20(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch20Glue(ctx, t)
-				verifyMegaBatch20CloudWatchLogs(ctx, t)
+				verifyGlueAndCloudwatchLogsGlue(ctx, t)
+				verifyGlueAndCloudwatchLogsCloudWatchLogs(ctx, t)
 			},
 		},
 	}
@@ -50,21 +50,21 @@ func TestTerraform_MegaBatch20(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch20Glue(ctx context.Context, t *testing.T) {
+func verifyGlueAndCloudwatchLogsGlue(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createGlueClient(t)
 
 	classifierOut, err := client.GetClassifier(ctx, &gluesvc.GetClassifierInput{
-		Name: aws.String("mega-batch-20-classifier"),
+		Name: aws.String("glcw-classifier"),
 	})
 	require.NoError(t, err, "GetClassifier should succeed")
 	require.NotNil(t, classifierOut.Classifier)
 	require.NotNil(t, classifierOut.Classifier.CsvClassifier)
-	assert.Equal(t, "mega-batch-20-classifier", aws.ToString(classifierOut.Classifier.CsvClassifier.Name))
+	assert.Equal(t, "glcw-classifier", aws.ToString(classifierOut.Classifier.CsvClassifier.Name))
 
 	connOut, err := client.GetConnection(ctx, &gluesvc.GetConnectionInput{
-		Name: aws.String("mega-batch-20-connection"),
+		Name: aws.String("glcw-connection"),
 	})
 	require.NoError(t, err, "GetConnection should succeed")
 	require.NotNil(t, connOut.Connection)
@@ -75,22 +75,22 @@ func verifyMegaBatch20Glue(ctx context.Context, t *testing.T) {
 	require.NotNil(t, encOut.DataCatalogEncryptionSettings)
 
 	dqrOut, err := client.GetDataQualityRuleset(ctx, &gluesvc.GetDataQualityRulesetInput{
-		Name: aws.String("mega-batch-20-dq-ruleset"),
+		Name: aws.String("glcw-dq-ruleset"),
 	})
 	require.NoError(t, err, "GetDataQualityRuleset should succeed")
-	assert.Equal(t, "mega-batch-20-dq-ruleset", aws.ToString(dqrOut.Name))
+	assert.Equal(t, "glcw-dq-ruleset", aws.ToString(dqrOut.Name))
 
 	devOut, err := client.GetDevEndpoint(ctx, &gluesvc.GetDevEndpointInput{
-		EndpointName: aws.String("mega-batch-20-dev-endpoint"),
+		EndpointName: aws.String("glcw-dev-endpoint"),
 	})
 	require.NoError(t, err, "GetDevEndpoint should succeed")
 	require.NotNil(t, devOut.DevEndpoint)
 
 	regOut, err := client.GetRegistry(ctx, &gluesvc.GetRegistryInput{
-		RegistryId: &gluetypes.RegistryId{RegistryName: aws.String("mega-batch-20-registry")},
+		RegistryId: &gluetypes.RegistryId{RegistryName: aws.String("glcw-registry")},
 	})
 	require.NoError(t, err, "GetRegistry should succeed")
-	assert.Equal(t, "mega-batch-20-registry", aws.ToString(regOut.RegistryName))
+	assert.Equal(t, "glcw-registry", aws.ToString(regOut.RegistryName))
 
 	mlOut, err := client.ListMLTransforms(ctx, &gluesvc.ListMLTransformsInput{})
 	require.NoError(t, err, "ListMLTransforms should succeed")
@@ -107,19 +107,19 @@ func verifyMegaBatch20Glue(ctx context.Context, t *testing.T) {
 		TransformId: aws.String(transformID),
 	})
 	require.NoError(t, err, "GetMLTransform should succeed")
-	assert.Equal(t, "mega-batch-20-ml-transform", aws.ToString(getMlOut.Name))
+	assert.Equal(t, "glcw-ml-transform", aws.ToString(getMlOut.Name))
 
 	schemaOut, err := client.GetSchema(ctx, &gluesvc.GetSchemaInput{
 		SchemaId: &gluetypes.SchemaId{
-			SchemaName:   aws.String("mega-batch-20-schema"),
-			RegistryName: aws.String("mega-batch-20-registry"),
+			SchemaName:   aws.String("glcw-schema"),
+			RegistryName: aws.String("glcw-registry"),
 		},
 	})
 	require.NoError(t, err, "GetSchema should succeed")
 	assert.Equal(t, gluetypes.DataFormatAvro, schemaOut.DataFormat)
 
 	secOut, err := client.GetSecurityConfiguration(ctx, &gluesvc.GetSecurityConfigurationInput{
-		Name: aws.String("mega-batch-20-secconfig"),
+		Name: aws.String("glcw-secconfig"),
 	})
 	require.NoError(t, err, "GetSecurityConfiguration should succeed")
 	require.NotNil(t, secOut.SecurityConfiguration)
@@ -129,43 +129,43 @@ func verifyMegaBatch20Glue(ctx context.Context, t *testing.T) {
 	assert.Contains(t, aws.ToString(rpOut.PolicyInJson), "glue:GetTable")
 
 	trigOut, err := client.GetTrigger(ctx, &gluesvc.GetTriggerInput{
-		Name: aws.String("mega-batch-20-trigger"),
+		Name: aws.String("glcw-trigger"),
 	})
 	require.NoError(t, err, "GetTrigger should succeed")
 	require.NotNil(t, trigOut.Trigger)
 
 	udfOut, err := client.GetUserDefinedFunction(ctx, &gluesvc.GetUserDefinedFunctionInput{
-		DatabaseName: aws.String("mega_batch_20_db"),
-		FunctionName: aws.String("mega-batch-20-udf"),
+		DatabaseName: aws.String("glcw_db"),
+		FunctionName: aws.String("glcw-udf"),
 	})
 	require.NoError(t, err, "GetUserDefinedFunction should succeed")
 	require.NotNil(t, udfOut.UserDefinedFunction)
 
 	wfOut, err := client.GetWorkflow(ctx, &gluesvc.GetWorkflowInput{
-		Name: aws.String("mega-batch-20-workflow"),
+		Name: aws.String("glcw-workflow"),
 	})
 	require.NoError(t, err, "GetWorkflow should succeed")
 	require.NotNil(t, wfOut.Workflow)
 
 	partOut, err := client.GetPartition(ctx, &gluesvc.GetPartitionInput{
-		DatabaseName:    aws.String("mega_batch_20_db"),
-		TableName:       aws.String("mega_batch_20_table"),
+		DatabaseName:    aws.String("glcw_db"),
+		TableName:       aws.String("glcw_table"),
 		PartitionValues: []string{"2024"},
 	})
 	require.NoError(t, err, "GetPartition should succeed")
 	require.NotNil(t, partOut.Partition)
 
 	idxOut, err := client.GetPartitionIndexes(ctx, &gluesvc.GetPartitionIndexesInput{
-		DatabaseName: aws.String("mega_batch_20_db"),
-		TableName:    aws.String("mega_batch_20_table"),
+		DatabaseName: aws.String("glcw_db"),
+		TableName:    aws.String("glcw_table"),
 	})
 	require.NoError(t, err, "GetPartitionIndexes should succeed")
 	require.Len(t, idxOut.PartitionIndexDescriptorList, 1)
 
 	optOut, err := client.GetTableOptimizer(ctx, &gluesvc.GetTableOptimizerInput{
 		CatalogId:    aws.String("000000000000"),
-		DatabaseName: aws.String("mega_batch_20_db"),
-		TableName:    aws.String("mega_batch_20_table"),
+		DatabaseName: aws.String("glcw_db"),
+		TableName:    aws.String("glcw_table"),
 		Type:         gluetypes.TableOptimizerTypeCompaction,
 	})
 	require.NoError(t, err, "GetTableOptimizer should succeed")
@@ -173,7 +173,7 @@ func verifyMegaBatch20Glue(ctx context.Context, t *testing.T) {
 	assert.True(t, aws.ToBool(optOut.TableOptimizer.Configuration.Enabled))
 }
 
-func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
+func verifyGlueAndCloudwatchLogsCloudWatchLogs(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createCloudWatchLogsClient(t)
@@ -186,7 +186,7 @@ func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
 	var foundAccountPolicy bool
 
 	for _, p := range apOut.AccountPolicies {
-		if aws.ToString(p.PolicyName) == "mega-batch-20-account-policy" {
+		if aws.ToString(p.PolicyName) == "glcw-account-policy" {
 			foundAccountPolicy = true
 		}
 	}
@@ -199,7 +199,7 @@ func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
 	var detectorArn string
 
 	for _, d := range adOut.AnomalyDetectors {
-		if aws.ToString(d.DetectorName) == "mega-batch-20-detector" {
+		if aws.ToString(d.DetectorName) == "glcw-detector" {
 			detectorArn = aws.ToString(d.AnomalyDetectorArn)
 		}
 	}
@@ -213,25 +213,25 @@ func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
 	assert.Equal(t, int64(7), aws.ToInt64(getDetOut.AnomalyVisibilityTime))
 
 	dppOut, err := client.GetDataProtectionPolicy(ctx, &cwlogssvc.GetDataProtectionPolicyInput{
-		LogGroupIdentifier: aws.String("/mega-batch-20/loggroup"),
+		LogGroupIdentifier: aws.String("/glcw/loggroup"),
 	})
 	require.NoError(t, err, "GetDataProtectionPolicy should succeed")
-	assert.Contains(t, aws.ToString(dppOut.PolicyDocument), "mega-batch-20-dpp")
+	assert.Contains(t, aws.ToString(dppOut.PolicyDocument), "glcw-dpp")
 
 	ddOut, err := client.GetDeliveryDestination(ctx, &cwlogssvc.GetDeliveryDestinationInput{
-		Name: aws.String("mega-batch-20-delivery-destination"),
+		Name: aws.String("glcw-delivery-destination"),
 	})
 	require.NoError(t, err, "GetDeliveryDestination should succeed")
 	require.NotNil(t, ddOut.DeliveryDestination)
 
 	ddpOut, err := client.GetDeliveryDestinationPolicy(ctx, &cwlogssvc.GetDeliveryDestinationPolicyInput{
-		DeliveryDestinationName: aws.String("mega-batch-20-delivery-destination"),
+		DeliveryDestinationName: aws.String("glcw-delivery-destination"),
 	})
 	require.NoError(t, err, "GetDeliveryDestinationPolicy should succeed")
 	require.NotNil(t, ddpOut.Policy)
 
 	dsOut, err := client.GetDeliverySource(ctx, &cwlogssvc.GetDeliverySourceInput{
-		Name: aws.String("mega-batch-20-delivery-source"),
+		Name: aws.String("glcw-delivery-source"),
 	})
 	require.NoError(t, err, "GetDeliverySource should succeed")
 	require.NotNil(t, dsOut.DeliverySource)
@@ -242,7 +242,7 @@ func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
 	var deliveryID string
 
 	for _, d := range descDelOut.Deliveries {
-		if aws.ToString(d.DeliverySourceName) == "mega-batch-20-delivery-source" {
+		if aws.ToString(d.DeliverySourceName) == "glcw-delivery-source" {
 			deliveryID = aws.ToString(d.Id)
 		}
 	}
@@ -256,14 +256,14 @@ func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
 	require.NotNil(t, getDelOut.Delivery)
 
 	destOut, err := client.DescribeDestinations(ctx, &cwlogssvc.DescribeDestinationsInput{
-		DestinationNamePrefix: aws.String("mega-batch-20-destination"),
+		DestinationNamePrefix: aws.String("glcw-destination"),
 	})
 	require.NoError(t, err, "DescribeDestinations should succeed")
 	require.Len(t, destOut.Destinations, 1)
 	assert.NotEmpty(t, aws.ToString(destOut.Destinations[0].AccessPolicy))
 
 	idxPolOut, err := client.DescribeIndexPolicies(ctx, &cwlogssvc.DescribeIndexPoliciesInput{
-		LogGroupIdentifiers: []string{"/mega-batch-20/loggroup"},
+		LogGroupIdentifiers: []string{"/glcw/loggroup"},
 	})
 	require.NoError(t, err, "DescribeIndexPolicies should succeed")
 	require.Len(t, idxPolOut.IndexPolicies, 1)
@@ -274,7 +274,7 @@ func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
 	var foundResourcePolicy bool
 
 	for _, p := range resPolOut.ResourcePolicies {
-		if aws.ToString(p.PolicyName) == "mega-batch-20-resource-policy" {
+		if aws.ToString(p.PolicyName) == "glcw-resource-policy" {
 			foundResourcePolicy = true
 		}
 	}
@@ -282,7 +282,7 @@ func verifyMegaBatch20CloudWatchLogs(ctx context.Context, t *testing.T) {
 	assert.True(t, foundResourcePolicy, "resource policy should be listed")
 
 	qdOut, err := client.DescribeQueryDefinitions(ctx, &cwlogssvc.DescribeQueryDefinitionsInput{
-		QueryDefinitionNamePrefix: aws.String("mega-batch-20-query-definition"),
+		QueryDefinitionNamePrefix: aws.String("glcw-query-definition"),
 	})
 	require.NoError(t, err, "DescribeQueryDefinitions should succeed")
 	require.Len(t, qdOut.QueryDefinitions, 1)

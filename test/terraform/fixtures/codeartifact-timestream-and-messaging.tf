@@ -4,8 +4,8 @@
 # Functions activity, CodeDeploy deployment config, and Timestream tables.
 ##############################################################################
 
-resource "aws_batch_scheduling_policy" "mb51" {
-  name = "mega-batch-51-sched-policy"
+resource "aws_batch_scheduling_policy" "ctmm" {
+  name = "ctmm-sched-policy"
 
   fair_share_policy {
     compute_reservation = 1
@@ -18,8 +18,8 @@ resource "aws_batch_scheduling_policy" "mb51" {
   }
 }
 
-resource "aws_dax_parameter_group" "mb51" {
-  name = "mega-batch-51-dax-pg"
+resource "aws_dax_parameter_group" "ctmm" {
+  name = "ctmm-dax-pg"
 
   # Both of DAX's two tunable parameters always carry a value (default or
   # user-set) and both come back from DescribeParameters regardless -- so
@@ -35,20 +35,20 @@ resource "aws_dax_parameter_group" "mb51" {
   }
 }
 
-resource "aws_iam_security_token_service_preferences" "mb51" {
+resource "aws_iam_security_token_service_preferences" "ctmm" {
   global_endpoint_token_version = "v2Token"
 }
 
-resource "aws_scheduler_schedule_group" "mb51" {
-  name = "mega-batch-51-sched-group"
+resource "aws_scheduler_schedule_group" "ctmm" {
+  name = "ctmm-sched-group"
 }
 
-resource "aws_sfn_activity" "mb51" {
-  name = "mega-batch-51-activity"
+resource "aws_sfn_activity" "ctmm" {
+  name = "ctmm-activity"
 }
 
-resource "aws_codedeploy_deployment_config" "mb51" {
-  deployment_config_name = "mega-batch-51-deploy-config"
+resource "aws_codedeploy_deployment_config" "ctmm" {
+  deployment_config_name = "ctmm-deploy-config"
 
   minimum_healthy_hosts {
     type  = "HOST_COUNT"
@@ -56,8 +56,8 @@ resource "aws_codedeploy_deployment_config" "mb51" {
   }
 }
 
-resource "aws_mq_configuration" "mb51" {
-  name           = "mega-batch-51-mq-config"
+resource "aws_mq_configuration" "ctmm" {
+  name           = "ctmm-mq-config"
   engine_type    = "ACTIVEMQ"
   engine_version = "5.17.6"
   data           = <<DATA
@@ -67,56 +67,56 @@ resource "aws_mq_configuration" "mb51" {
 DATA
 }
 
-resource "aws_timestreamwrite_database" "mb51" {
-  database_name = "mega-batch-51-timestream-db"
+resource "aws_timestreamwrite_database" "ctmm" {
+  database_name = "ctmm-timestream-db"
 }
 
-resource "aws_timestreamwrite_table" "mb51" {
-  database_name = aws_timestreamwrite_database.mb51.database_name
-  table_name    = "mega-batch-51-timestream-table"
+resource "aws_timestreamwrite_table" "ctmm" {
+  database_name = aws_timestreamwrite_database.ctmm.database_name
+  table_name    = "ctmm-timestream-table"
 }
 
 ##############################################################################
 # DAX subnet group (needs its own VPC/subnets).
 ##############################################################################
 
-resource "aws_vpc" "mb51" {
+resource "aws_vpc" "ctmm" {
   cidr_block = "10.210.0.0/16"
 }
 
-resource "aws_subnet" "mb51_a" {
-  vpc_id            = aws_vpc.mb51.id
+resource "aws_subnet" "ctmm_a" {
+  vpc_id            = aws_vpc.ctmm.id
   cidr_block        = "10.210.1.0/24"
   availability_zone = "us-east-1a"
 }
 
-resource "aws_subnet" "mb51_b" {
-  vpc_id            = aws_vpc.mb51.id
+resource "aws_subnet" "ctmm_b" {
+  vpc_id            = aws_vpc.ctmm.id
   cidr_block        = "10.210.2.0/24"
   availability_zone = "us-east-1b"
 }
 
-resource "aws_dax_subnet_group" "mb51" {
-  name       = "mega-batch-51-dax-sg"
-  subnet_ids = [aws_subnet.mb51_a.id, aws_subnet.mb51_b.id]
+resource "aws_dax_subnet_group" "ctmm" {
+  name       = "ctmm-dax-sg"
+  subnet_ids = [aws_subnet.ctmm_a.id, aws_subnet.ctmm_b.id]
 }
 
 ##############################################################################
 # MemoryDB parameter group + user.
 ##############################################################################
 
-resource "aws_memorydb_parameter_group" "mb51" {
-  name   = "mega-batch-51-memorydb-pg"
+resource "aws_memorydb_parameter_group" "ctmm" {
+  name   = "ctmm-memorydb-pg"
   family = "memorydb_redis7"
 }
 
-resource "aws_memorydb_user" "mb51" {
-  user_name     = "mega-batch-51-memorydb-user"
+resource "aws_memorydb_user" "ctmm" {
+  user_name     = "ctmm-memorydb-user"
   access_string = "on ~* &* +@all"
 
   authentication_mode {
     type      = "password"
-    passwords = ["MegaBatch51Password1234567890"]
+    passwords = ["CodeartifactTimestreamAndMessagingPassword1234567890"]
   }
 }
 
@@ -124,12 +124,12 @@ resource "aws_memorydb_user" "mb51" {
 # Secrets Manager secret + resource policy.
 ##############################################################################
 
-resource "aws_secretsmanager_secret" "mb51" {
-  name = "mega-batch-51-secret"
+resource "aws_secretsmanager_secret" "ctmm" {
+  name = "ctmm-secret"
 }
 
-resource "aws_secretsmanager_secret_policy" "mb51" {
-  secret_arn = aws_secretsmanager_secret.mb51.arn
+resource "aws_secretsmanager_secret_policy" "ctmm" {
+  secret_arn = aws_secretsmanager_secret.ctmm.arn
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -145,44 +145,44 @@ resource "aws_secretsmanager_secret_policy" "mb51" {
 # SQS queue + policy; SNS topic + policy; ResourceGroups group + membership.
 ##############################################################################
 
-resource "aws_sqs_queue" "mb51" {
-  name = "mega-batch-51-queue"
+resource "aws_sqs_queue" "ctmm" {
+  name = "ctmm-queue"
 }
 
-resource "aws_sqs_queue_policy" "mb51" {
-  queue_url = aws_sqs_queue.mb51.id
+resource "aws_sqs_queue_policy" "ctmm" {
+  queue_url = aws_sqs_queue.ctmm.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "mb51"
+      Sid       = "ctmm"
       Effect    = "Allow"
       Principal = "*"
       Action    = "sqs:SendMessage"
-      Resource  = aws_sqs_queue.mb51.arn
+      Resource  = aws_sqs_queue.ctmm.arn
     }]
   })
 }
 
-resource "aws_sns_topic" "mb51" {
-  name = "mega-batch-51-topic"
+resource "aws_sns_topic" "ctmm" {
+  name = "ctmm-topic"
 }
 
-resource "aws_sns_topic_policy" "mb51" {
-  arn = aws_sns_topic.mb51.arn
+resource "aws_sns_topic_policy" "ctmm" {
+  arn = aws_sns_topic.ctmm.arn
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "mb51"
+      Sid       = "ctmm"
       Effect    = "Allow"
       Principal = "*"
       Action    = "SNS:Publish"
-      Resource  = aws_sns_topic.mb51.arn
+      Resource  = aws_sns_topic.ctmm.arn
     }]
   })
 }
 
-resource "aws_resourcegroups_group" "mb51" {
-  name = "mega-batch-51-rg"
+resource "aws_resourcegroups_group" "ctmm" {
+  name = "ctmm-rg"
 
   # A statically-membered group (Configuration, not ResourceQuery): membership
   # for a TAG_FILTERS/CLOUDFORMATION_STACK query group is computed dynamically
@@ -192,47 +192,47 @@ resource "aws_resourcegroups_group" "mb51" {
   }
 }
 
-resource "aws_resourcegroups_resource" "mb51" {
-  group_arn    = aws_resourcegroups_group.mb51.arn
-  resource_arn = aws_sqs_queue.mb51.arn
+resource "aws_resourcegroups_resource" "ctmm" {
+  group_arn    = aws_resourcegroups_group.ctmm.arn
+  resource_arn = aws_sqs_queue.ctmm.arn
 }
 
 ##############################################################################
 # CodeArtifact domain + repository permissions policies.
 ##############################################################################
 
-resource "aws_codeartifact_domain" "mb51" {
-  domain = "mega-batch-51-domain"
+resource "aws_codeartifact_domain" "ctmm" {
+  domain = "ctmm-domain"
 }
 
-resource "aws_codeartifact_domain_permissions_policy" "mb51" {
-  domain = aws_codeartifact_domain.mb51.domain
+resource "aws_codeartifact_domain_permissions_policy" "ctmm" {
+  domain = aws_codeartifact_domain.ctmm.domain
   policy_document = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
       Principal = "*"
       Action    = "codeartifact:CreateRepository"
-      Resource  = aws_codeartifact_domain.mb51.arn
+      Resource  = aws_codeartifact_domain.ctmm.arn
     }]
   })
 }
 
-resource "aws_codeartifact_repository" "mb51" {
-  repository = "mega-batch-51-repo"
-  domain     = aws_codeartifact_domain.mb51.domain
+resource "aws_codeartifact_repository" "ctmm" {
+  repository = "ctmm-repo"
+  domain     = aws_codeartifact_domain.ctmm.domain
 }
 
-resource "aws_codeartifact_repository_permissions_policy" "mb51" {
-  domain     = aws_codeartifact_domain.mb51.domain
-  repository = aws_codeartifact_repository.mb51.repository
+resource "aws_codeartifact_repository_permissions_policy" "ctmm" {
+  domain     = aws_codeartifact_domain.ctmm.domain
+  repository = aws_codeartifact_repository.ctmm.repository
   policy_document = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
       Principal = "*"
       Action    = "codeartifact:ReadFromRepository"
-      Resource  = aws_codeartifact_repository.mb51.arn
+      Resource  = aws_codeartifact_repository.ctmm.arn
     }]
   })
 }
@@ -241,12 +241,12 @@ resource "aws_codeartifact_repository_permissions_policy" "mb51" {
 # CloudTrail Lake event data store.
 ##############################################################################
 
-resource "aws_cloudtrail_event_data_store" "mb51" {
-  name                           = "mega-batch-51-eds"
+resource "aws_cloudtrail_event_data_store" "ctmm" {
+  name                           = "ctmm-eds"
   termination_protection_enabled = false
 
   advanced_event_selector {
-    name = "mb51-management-events"
+    name = "ctmm-management-events"
 
     field_selector {
       field  = "eventCategory"

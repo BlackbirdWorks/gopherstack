@@ -3,21 +3,21 @@
 # permissions, opt in, and apply a data cells filter to a Glue table.
 ##############################################################################
 
-resource "aws_s3_bucket" "mb39_lf" {
-  bucket        = "mega-batch-39-lf-bucket"
+resource "aws_s3_bucket" "lana_lf" {
+  bucket        = "lana-lf-bucket"
   force_destroy = true
 }
 
-resource "aws_glue_catalog_database" "mb39" {
-  name = "mega_batch_39_db"
+resource "aws_glue_catalog_database" "lana" {
+  name = "lana_db"
 }
 
-resource "aws_glue_catalog_table" "mb39" {
-  name          = "mega_batch_39_table"
-  database_name = aws_glue_catalog_database.mb39.name
+resource "aws_glue_catalog_table" "lana" {
+  name          = "lana_table"
+  database_name = aws_glue_catalog_database.lana.name
 
   storage_descriptor {
-    location = "s3://${aws_s3_bucket.mb39_lf.bucket}/data/"
+    location = "s3://${aws_s3_bucket.lana_lf.bucket}/data/"
 
     columns {
       name = "id"
@@ -26,8 +26,8 @@ resource "aws_glue_catalog_table" "mb39" {
   }
 }
 
-resource "aws_iam_role" "mb39_lf" {
-  name = "mega-batch-39-lf-role"
+resource "aws_iam_role" "lana_lf" {
+  name = "lana-lf-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -38,53 +38,53 @@ resource "aws_iam_role" "mb39_lf" {
   })
 }
 
-resource "aws_lakeformation_resource" "mb39" {
-  arn = aws_s3_bucket.mb39_lf.arn
+resource "aws_lakeformation_resource" "lana" {
+  arn = aws_s3_bucket.lana_lf.arn
 }
 
-resource "aws_lakeformation_lf_tag" "mb39" {
-  key    = "mega-batch-39-tag"
+resource "aws_lakeformation_lf_tag" "lana" {
+  key    = "lana-tag"
   values = ["blue", "green"]
 }
 
-resource "aws_lakeformation_resource_lf_tags" "mb39" {
+resource "aws_lakeformation_resource_lf_tags" "lana" {
   database {
-    name = aws_glue_catalog_database.mb39.name
+    name = aws_glue_catalog_database.lana.name
   }
 
   lf_tag {
-    key   = aws_lakeformation_lf_tag.mb39.key
+    key   = aws_lakeformation_lf_tag.lana.key
     value = "blue"
   }
 }
 
-resource "aws_lakeformation_permissions" "mb39" {
-  principal   = aws_iam_role.mb39_lf.arn
+resource "aws_lakeformation_permissions" "lana" {
+  principal   = aws_iam_role.lana_lf.arn
   permissions = ["DATA_LOCATION_ACCESS"]
 
   data_location {
-    arn = aws_lakeformation_resource.mb39.arn
+    arn = aws_lakeformation_resource.lana.arn
   }
 }
 
-resource "aws_lakeformation_opt_in" "mb39" {
+resource "aws_lakeformation_opt_in" "lana" {
   principal {
-    data_lake_principal_identifier = aws_iam_role.mb39_lf.arn
+    data_lake_principal_identifier = aws_iam_role.lana_lf.arn
   }
 
   resource_data {
     database {
-      name = aws_glue_catalog_database.mb39.name
+      name = aws_glue_catalog_database.lana.name
     }
   }
 }
 
-resource "aws_lakeformation_data_cells_filter" "mb39" {
+resource "aws_lakeformation_data_cells_filter" "lana" {
   table_data {
-    database_name    = aws_glue_catalog_database.mb39.name
-    name             = "mega-batch-39-filter"
+    database_name    = aws_glue_catalog_database.lana.name
+    name             = "lana-filter"
     table_catalog_id = "000000000000"
-    table_name       = aws_glue_catalog_table.mb39.name
+    table_name       = aws_glue_catalog_table.lana.name
 
     column_names = ["id"]
 
@@ -100,13 +100,13 @@ resource "aws_lakeformation_data_cells_filter" "mb39" {
 # a custom type.
 ##############################################################################
 
-resource "aws_appsync_graphql_api" "mb39_source" {
-  name                 = "mega-batch-39-source-api"
-  authentication_type  = "API_KEY"
+resource "aws_appsync_graphql_api" "lana_source" {
+  name                = "lana-source-api"
+  authentication_type = "API_KEY"
 }
 
-resource "aws_iam_role" "mb39_appsync_merge" {
-  name = "mega-batch-39-appsync-merge-role"
+resource "aws_iam_role" "lana_appsync_merge" {
+  name = "lana-appsync-merge-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -117,28 +117,28 @@ resource "aws_iam_role" "mb39_appsync_merge" {
   })
 }
 
-resource "aws_appsync_graphql_api" "mb39_merged" {
-  name                           = "mega-batch-39-merged-api"
-  authentication_type            = "API_KEY"
-  api_type                       = "MERGED"
-  merged_api_execution_role_arn  = aws_iam_role.mb39_appsync_merge.arn
+resource "aws_appsync_graphql_api" "lana_merged" {
+  name                          = "lana-merged-api"
+  authentication_type           = "API_KEY"
+  api_type                      = "MERGED"
+  merged_api_execution_role_arn = aws_iam_role.lana_appsync_merge.arn
 }
 
-resource "aws_appsync_source_api_association" "mb39" {
-  description   = "mega-batch-39 source association"
-  merged_api_id = aws_appsync_graphql_api.mb39_merged.id
-  source_api_id = aws_appsync_graphql_api.mb39_source.id
+resource "aws_appsync_source_api_association" "lana" {
+  description   = "lana source association"
+  merged_api_id = aws_appsync_graphql_api.lana_merged.id
+  source_api_id = aws_appsync_graphql_api.lana_source.id
 }
 
-resource "aws_appsync_api_cache" "mb39" {
-  api_id               = aws_appsync_graphql_api.mb39_source.id
+resource "aws_appsync_api_cache" "lana" {
+  api_id               = aws_appsync_graphql_api.lana_source.id
   api_caching_behavior = "FULL_REQUEST_CACHING"
   type                 = "SMALL"
   ttl                  = 900
 }
 
-resource "aws_acm_certificate" "mb39" {
-  domain_name       = "mega-batch-39.example.test"
+resource "aws_acm_certificate" "lana" {
+  domain_name       = "lana.example.test"
   validation_method = "DNS"
 
   lifecycle {
@@ -146,37 +146,37 @@ resource "aws_acm_certificate" "mb39" {
   }
 }
 
-resource "aws_appsync_domain_name" "mb39" {
-  domain_name     = "mega-batch-39.example.test"
-  certificate_arn = aws_acm_certificate.mb39.arn
+resource "aws_appsync_domain_name" "lana" {
+  domain_name     = "lana.example.test"
+  certificate_arn = aws_acm_certificate.lana.arn
 }
 
-resource "aws_appsync_domain_name_api_association" "mb39" {
-  api_id      = aws_appsync_graphql_api.mb39_source.id
-  domain_name = aws_appsync_domain_name.mb39.domain_name
+resource "aws_appsync_domain_name_api_association" "lana" {
+  api_id      = aws_appsync_graphql_api.lana_source.id
+  domain_name = aws_appsync_domain_name.lana.domain_name
 }
 
-resource "aws_appsync_datasource" "mb39" {
-  api_id = aws_appsync_graphql_api.mb39_source.id
-  name   = "mega_batch_39_ds"
+resource "aws_appsync_datasource" "lana" {
+  api_id = aws_appsync_graphql_api.lana_source.id
+  name   = "lana_ds"
   type   = "NONE"
 }
 
-resource "aws_appsync_function" "mb39" {
-  api_id      = aws_appsync_graphql_api.mb39_source.id
-  data_source = aws_appsync_datasource.mb39.name
-  name        = "mega_batch_39_function"
+resource "aws_appsync_function" "lana" {
+  api_id      = aws_appsync_graphql_api.lana_source.id
+  data_source = aws_appsync_datasource.lana.name
+  name        = "lana_function"
 
   request_mapping_template  = "{}"
   response_mapping_template = "$util.toJson($ctx.result)"
 }
 
-resource "aws_appsync_type" "mb39" {
-  api_id = aws_appsync_graphql_api.mb39_source.id
+resource "aws_appsync_type" "lana" {
+  api_id = aws_appsync_graphql_api.lana_source.id
   format = "SDL"
 
   definition = <<EOF
-type MegaBatch39Widget {
+type LakeformationAppsyncNeptuneAndAthenaWidget {
   id: ID!
 }
 EOF
@@ -188,15 +188,15 @@ EOF
 # and a standalone global cluster.
 ##############################################################################
 
-resource "aws_neptune_subnet_group" "mb39" {
-  name       = "mega-batch-39-neptune-sg"
-  subnet_ids = ["subnet-mb39a", "subnet-mb39b"]
+resource "aws_neptune_subnet_group" "lana" {
+  name       = "lana-neptune-sg"
+  subnet_ids = ["subnet-lanaa", "subnet-lanab"]
 }
 
-resource "aws_neptune_cluster_parameter_group" "mb39" {
-  name        = "mega-batch-39-neptune-cpg"
+resource "aws_neptune_cluster_parameter_group" "lana" {
+  name        = "lana-neptune-cpg"
   family      = "neptune1"
-  description = "mega-batch-39 cluster parameter group"
+  description = "lana cluster parameter group"
 
   parameter {
     name  = "neptune_enable_audit_log"
@@ -204,8 +204,8 @@ resource "aws_neptune_cluster_parameter_group" "mb39" {
   }
 }
 
-resource "aws_neptune_parameter_group" "mb39" {
-  name   = "mega-batch-39-neptune-pg"
+resource "aws_neptune_parameter_group" "lana" {
+  name   = "lana-neptune-pg"
   family = "neptune1"
 
   parameter {
@@ -214,41 +214,41 @@ resource "aws_neptune_parameter_group" "mb39" {
   }
 }
 
-resource "aws_neptune_cluster" "mb39" {
-  cluster_identifier                  = "mega-batch-39-neptune-cluster"
+resource "aws_neptune_cluster" "lana" {
+  cluster_identifier                   = "lana-neptune-cluster"
   engine                               = "neptune"
   skip_final_snapshot                  = true
-  neptune_subnet_group_name            = aws_neptune_subnet_group.mb39.name
-  neptune_cluster_parameter_group_name = aws_neptune_cluster_parameter_group.mb39.name
+  neptune_subnet_group_name            = aws_neptune_subnet_group.lana.name
+  neptune_cluster_parameter_group_name = aws_neptune_cluster_parameter_group.lana.name
   apply_immediately                    = true
 }
 
-resource "aws_neptune_cluster_endpoint" "mb39" {
-  cluster_identifier          = aws_neptune_cluster.mb39.cluster_identifier
-  cluster_endpoint_identifier = "mega-batch-39-endpoint"
+resource "aws_neptune_cluster_endpoint" "lana" {
+  cluster_identifier          = aws_neptune_cluster.lana.cluster_identifier
+  cluster_endpoint_identifier = "lana-endpoint"
   endpoint_type               = "READER"
 }
 
-resource "aws_neptune_cluster_snapshot" "mb39" {
-  db_cluster_identifier          = aws_neptune_cluster.mb39.id
-  db_cluster_snapshot_identifier = "mega-batch-39-snapshot"
+resource "aws_neptune_cluster_snapshot" "lana" {
+  db_cluster_identifier          = aws_neptune_cluster.lana.id
+  db_cluster_snapshot_identifier = "lana-snapshot"
 }
 
-resource "aws_sns_topic" "mb39_neptune" {
-  name = "mega-batch-39-neptune-events"
+resource "aws_sns_topic" "lana_neptune" {
+  name = "lana-neptune-events"
 }
 
-resource "aws_neptune_event_subscription" "mb39" {
-  name          = "mega-batch-39-neptune-sub"
-  sns_topic_arn = aws_sns_topic.mb39_neptune.arn
+resource "aws_neptune_event_subscription" "lana" {
+  name          = "lana-neptune-sub"
+  sns_topic_arn = aws_sns_topic.lana_neptune.arn
   source_type   = "db-cluster"
-  source_ids    = [aws_neptune_cluster.mb39.id]
+  source_ids    = [aws_neptune_cluster.lana.id]
 
   event_categories = ["maintenance", "failure"]
 }
 
-resource "aws_neptune_global_cluster" "mb39" {
-  global_cluster_identifier = "mega-batch-39-global"
+resource "aws_neptune_global_cluster" "lana" {
+  global_cluster_identifier = "lana-global"
   engine                    = "neptune"
 }
 
@@ -257,14 +257,14 @@ resource "aws_neptune_global_cluster" "mb39" {
 # database, a named query, and a prepared statement on a workgroup.
 ##############################################################################
 
-resource "aws_athena_capacity_reservation" "mb39" {
-  name        = "mega-batch-39-reservation"
+resource "aws_athena_capacity_reservation" "lana" {
+  name        = "lana-reservation"
   target_dpus = 24
 }
 
-resource "aws_athena_data_catalog" "mb39" {
-  name        = "mega-batch-39-catalog"
-  description = "mega-batch-39 Glue data catalog"
+resource "aws_athena_data_catalog" "lana" {
+  name        = "lana-catalog"
+  description = "lana Glue data catalog"
   type        = "GLUE"
 
   parameters = {
@@ -272,37 +272,37 @@ resource "aws_athena_data_catalog" "mb39" {
   }
 }
 
-resource "aws_s3_bucket" "mb39_athena" {
-  bucket        = "mega-batch-39-athena-bucket"
+resource "aws_s3_bucket" "lana_athena" {
+  bucket        = "lana-athena-bucket"
   force_destroy = true
 }
 
-resource "aws_athena_workgroup" "mb39" {
-  name = "mega-batch-39-workgroup"
+resource "aws_athena_workgroup" "lana" {
+  name = "lana-workgroup"
 
   configuration {
     result_configuration {
-      output_location = "s3://${aws_s3_bucket.mb39_athena.bucket}/results/"
+      output_location = "s3://${aws_s3_bucket.lana_athena.bucket}/results/"
     }
   }
 }
 
-resource "aws_athena_database" "mb39" {
-  name   = "mega_batch_39_athena_db"
-  bucket = aws_s3_bucket.mb39_athena.id
+resource "aws_athena_database" "lana" {
+  name   = "lana_athena_db"
+  bucket = aws_s3_bucket.lana_athena.id
 }
 
-resource "aws_athena_named_query" "mb39" {
-  name      = "mega-batch-39-named-query"
-  workgroup = aws_athena_workgroup.mb39.id
-  database  = aws_athena_database.mb39.name
-  query     = "SELECT * FROM ${aws_athena_database.mb39.name} limit 10;"
+resource "aws_athena_named_query" "lana" {
+  name      = "lana-named-query"
+  workgroup = aws_athena_workgroup.lana.id
+  database  = aws_athena_database.lana.name
+  query     = "SELECT * FROM ${aws_athena_database.lana.name} limit 10;"
 }
 
-resource "aws_athena_prepared_statement" "mb39" {
-  name            = "mega_batch_39_prepared"
-  workgroup       = aws_athena_workgroup.mb39.name
-  query_statement = "SELECT * FROM ${aws_athena_database.mb39.name} WHERE x = ?"
+resource "aws_athena_prepared_statement" "lana" {
+  name            = "lana_prepared"
+  workgroup       = aws_athena_workgroup.lana.name
+  query_statement = "SELECT * FROM ${aws_athena_database.lana.name} WHERE x = ?"
 }
 
 ##############################################################################
@@ -310,64 +310,64 @@ resource "aws_athena_prepared_statement" "mb39" {
 # forwarder, a CloudWatch log subscription, and RADIUS MFA settings.
 ##############################################################################
 
-resource "aws_vpc" "mb39" {
+resource "aws_vpc" "lana" {
   cidr_block = "{{.VPCCidr}}"
 
   tags = {
-    Name = "mega-batch-39-vpc"
+    Name = "lana-vpc"
   }
 }
 
-resource "aws_subnet" "mb39_a" {
-  vpc_id            = aws_vpc.mb39.id
+resource "aws_subnet" "lana_a" {
+  vpc_id            = aws_vpc.lana.id
   cidr_block        = "{{.SubnetCidrA}}"
   availability_zone = "us-east-1a"
 }
 
-resource "aws_subnet" "mb39_b" {
-  vpc_id            = aws_vpc.mb39.id
+resource "aws_subnet" "lana_b" {
+  vpc_id            = aws_vpc.lana.id
   cidr_block        = "{{.SubnetCidrB}}"
   availability_zone = "us-east-1b"
 }
 
-resource "aws_directory_service_directory" "mb39" {
-  name     = "mega-batch-39.test"
-  password = "MegaBatch39Passw0rd!"
+resource "aws_directory_service_directory" "lana" {
+  name     = "lana.test"
+  password = "LakeformationAppsyncNeptuneAndAthenaPassw0rd!"
   type     = "SimpleAD"
   size     = "Small"
 
   vpc_settings {
-    vpc_id     = aws_vpc.mb39.id
-    subnet_ids = [aws_subnet.mb39_a.id, aws_subnet.mb39_b.id]
+    vpc_id     = aws_vpc.lana.id
+    subnet_ids = [aws_subnet.lana_a.id, aws_subnet.lana_b.id]
   }
 }
 
-resource "aws_directory_service_conditional_forwarder" "mb39" {
-  directory_id        = aws_directory_service_directory.mb39.id
-  remote_domain_name  = "mega-batch-39-remote.test"
-  dns_ips             = ["10.0.0.10", "10.0.0.11"]
+resource "aws_directory_service_conditional_forwarder" "lana" {
+  directory_id       = aws_directory_service_directory.lana.id
+  remote_domain_name = "lana-remote.test"
+  dns_ips            = ["10.0.0.10", "10.0.0.11"]
 }
 
-resource "aws_cloudwatch_log_group" "mb39" {
-  name              = "/aws/directoryservice/mega-batch-39"
+resource "aws_cloudwatch_log_group" "lana" {
+  name              = "/aws/directoryservice/lana"
   retention_in_days = 14
 }
 
-resource "aws_directory_service_log_subscription" "mb39" {
-  directory_id   = aws_directory_service_directory.mb39.id
-  log_group_name = aws_cloudwatch_log_group.mb39.name
+resource "aws_directory_service_log_subscription" "lana" {
+  directory_id   = aws_directory_service_directory.lana.id
+  log_group_name = aws_cloudwatch_log_group.lana.name
 }
 
-resource "aws_directory_service_radius_settings" "mb39" {
-  directory_id = aws_directory_service_directory.mb39.id
+resource "aws_directory_service_radius_settings" "lana" {
+  directory_id = aws_directory_service_directory.lana.id
 
   authentication_protocol = "PAP"
-  display_label           = "mega-batch-39-radius"
-  radius_port              = 1812
-  radius_retries           = 4
-  radius_servers           = ["10.0.0.20"]
-  radius_timeout           = 1
-  shared_secret            = "mega-batch-39-secret"
+  display_label           = "lana-radius"
+  radius_port             = 1812
+  radius_retries          = 4
+  radius_servers          = ["10.0.0.20"]
+  radius_timeout          = 1
+  shared_secret           = "lana-secret"
 }
 
 ##############################################################################
@@ -377,21 +377,21 @@ resource "aws_directory_service_radius_settings" "mb39" {
 # attempt each).
 ##############################################################################
 
-resource "aws_directory_service_directory" "mb39_msad" {
-  name     = "mega-batch-39-msad.test"
-  password = "MegaBatch39MsadPassw0rd!"
+resource "aws_directory_service_directory" "lana_msad" {
+  name     = "lana-msad.test"
+  password = "LakeformationAppsyncNeptuneAndAthenaMsadPassw0rd!"
   edition  = "Enterprise"
   type     = "MicrosoftAD"
 
   vpc_settings {
-    vpc_id     = aws_vpc.mb39.id
-    subnet_ids = [aws_subnet.mb39_a.id, aws_subnet.mb39_b.id]
+    vpc_id     = aws_vpc.lana.id
+    subnet_ids = [aws_subnet.lana_a.id, aws_subnet.lana_b.id]
   }
 }
 
-resource "aws_directory_service_shared_directory" "mb39" {
-  directory_id = aws_directory_service_directory.mb39_msad.id
-  notes        = "mega-batch-39 shared directory"
+resource "aws_directory_service_shared_directory" "lana" {
+  directory_id = aws_directory_service_directory.lana_msad.id
+  notes        = "lana shared directory"
 
   target {
     id = "999999999999"

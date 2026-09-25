@@ -73,10 +73,10 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
 
 ## Notes
 
-### 2026-09-20: mega-batch-29 Terraform coverage -- 3 real Server bugs found
+### 2026-09-20: transferfamily-and-msk Terraform coverage -- 3 real Server bugs found
 
 Wiring `aws_transfer_server`/`_user`/`_access` for real Terraform-fixture
-coverage (mega-batch-29), all found via actual `tofu apply`/`destroy` +
+coverage (transferfamily-and-msk), all found via actual `tofu apply`/`destroy` +
 TF_LOG=trace, none of which unit tests alone had caught:
 
 1. CreateServer hung the apply: the provider calls only CreateServer then

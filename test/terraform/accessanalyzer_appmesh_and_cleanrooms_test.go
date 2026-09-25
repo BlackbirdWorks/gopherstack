@@ -19,16 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch5 provisions AccessAnalyzer, App Mesh, Clean Rooms,
+// TestTerraform_AccessanalyzerAppmeshAndCleanrooms provisions AccessAnalyzer, App Mesh, Clean Rooms,
 // DAX, Direct Connect, and DLM resources via Terraform and verifies each
 // through its own SDK client's Describe/List/Get path.
-func TestTerraform_MegaBatch5(t *testing.T) {
+func TestTerraform_AccessanalyzerAppmeshAndCleanrooms(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-5",
+			fixture: "accessanalyzer-appmesh-and-cleanrooms",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -42,19 +42,19 @@ func TestTerraform_MegaBatch5(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				aaOut, err := aaClient.GetAnalyzer(ctx, &accessanalyzersvc.GetAnalyzerInput{
-					AnalyzerName: aws.String("mega-batch-5-analyzer"),
+					AnalyzerName: aws.String("aacr-analyzer"),
 				})
 				require.NoError(t, err, "GetAnalyzer should succeed")
-				assert.Equal(t, "mega-batch-5-analyzer", aws.ToString(aaOut.Analyzer.Name))
+				assert.Equal(t, "aacr-analyzer", aws.ToString(aaOut.Analyzer.Name))
 
 				meshClient := appmeshsvc.NewFromConfig(cfg, func(o *appmeshsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				meshOut, err := meshClient.DescribeMesh(ctx, &appmeshsvc.DescribeMeshInput{
-					MeshName: aws.String("mega-batch-5-mesh"),
+					MeshName: aws.String("aacr-mesh"),
 				})
 				require.NoError(t, err, "DescribeMesh should succeed")
-				assert.Equal(t, "mega-batch-5-mesh", aws.ToString(meshOut.Mesh.MeshName))
+				assert.Equal(t, "aacr-mesh", aws.ToString(meshOut.Mesh.MeshName))
 
 				crClient := cleanroomssvc.NewFromConfig(cfg, func(o *cleanroomssvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -62,18 +62,18 @@ func TestTerraform_MegaBatch5(t *testing.T) {
 				crOut, err := crClient.ListCollaborations(ctx, &cleanroomssvc.ListCollaborationsInput{})
 				require.NoError(t, err, "ListCollaborations should succeed")
 				findBy(t, crOut.CollaborationList, func(c cleanroomstypes.CollaborationSummary) bool {
-					return aws.ToString(c.Name) == "mega-batch-5-collab"
-				}, "mega-batch-5-collab collaboration")
+					return aws.ToString(c.Name) == "aacr-collab"
+				}, "aacr-collab collaboration")
 
 				daxClient := daxsvc.NewFromConfig(cfg, func(o *daxsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				daxOut, err := daxClient.DescribeClusters(ctx, &daxsvc.DescribeClustersInput{
-					ClusterNames: []string{"mega-batch-5-dax"},
+					ClusterNames: []string{"aacr-dax"},
 				})
 				require.NoError(t, err, "DescribeClusters should succeed")
 				require.Len(t, daxOut.Clusters, 1)
-				assert.Equal(t, "mega-batch-5-dax", aws.ToString(daxOut.Clusters[0].ClusterName))
+				assert.Equal(t, "aacr-dax", aws.ToString(daxOut.Clusters[0].ClusterName))
 
 				dxClient := directconnectsvc.NewFromConfig(cfg, func(o *directconnectsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -81,8 +81,8 @@ func TestTerraform_MegaBatch5(t *testing.T) {
 				dxOut, err := dxClient.DescribeConnections(ctx, &directconnectsvc.DescribeConnectionsInput{})
 				require.NoError(t, err, "DescribeConnections should succeed")
 				require.True(t, slices.ContainsFunc(dxOut.Connections, func(c dxtypes.Connection) bool {
-					return aws.ToString(c.ConnectionName) == "mega-batch-5-dx"
-				}), "the mega-batch-5-dx connection should exist after apply")
+					return aws.ToString(c.ConnectionName) == "aacr-dx"
+				}), "the aacr-dx connection should exist after apply")
 
 				dlmClient := dlmsvc.NewFromConfig(cfg, func(o *dlmsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -90,8 +90,8 @@ func TestTerraform_MegaBatch5(t *testing.T) {
 				dlmOut, err := dlmClient.GetLifecyclePolicies(ctx, &dlmsvc.GetLifecyclePoliciesInput{})
 				require.NoError(t, err, "GetLifecyclePolicies should succeed")
 				findBy(t, dlmOut.Policies, func(p dlmtypes.LifecyclePolicySummary) bool {
-					return aws.ToString(p.Description) == "mega-batch-5 DLM lifecycle policy"
-				}, "mega-batch-5 DLM lifecycle policy")
+					return aws.ToString(p.Description) == "aacr DLM lifecycle policy"
+				}, "aacr DLM lifecycle policy")
 			},
 		},
 	}

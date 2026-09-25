@@ -156,7 +156,7 @@ passed `cwMaxMetricDataPoints`; now slides the window in place once pinned
 at the cap. `BenchmarkPutMetricData_AtCap`: 147557ns/487535B/68allocs ->
 16776ns/13608B/65allocs (3-run medians); golden test pins eviction order.
 
-### 2026-09-20 mega-batch-35 terraform sweep
+### 2026-09-20 autoscaling-dynamodb-kms-and-cloudwatch terraform sweep
 
 Metric stream `State` was wire-serialized uppercase ("RUNNING"/"STOPPED");
 real AWS's GetMetricStream/ListMetricStreams State is lowercase

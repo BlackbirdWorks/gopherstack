@@ -12,19 +12,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch11 provisions a broad set of previously-uncovered
+// TestTerraform_Ec2ComputeAndStorage provisions a broad set of previously-uncovered
 // EC2 compute/storage resources (key pair, placement group, launch template,
 // AMI family, EBS snapshot/encryption family, capacity reservation, a spot
 // instance request, an EC2 fleet, dedicated host, managed prefix list, flow
 // log, and single-VPC networking singletons) via Terraform and verifies each
 // through the EC2 SDK.
-func TestTerraform_MegaBatch11(t *testing.T) {
+func TestTerraform_Ec2ComputeAndStorage(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-11",
+			fixture: "ec2-compute-and-storage",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -34,14 +34,14 @@ func TestTerraform_MegaBatch11(t *testing.T) {
 				t.Helper()
 				client := createEC2Client(t)
 
-				vpcID := verifyMegaBatch11Networking(ctx, t, client, vars["VPCCidr"].(string))
-				instanceID := verifyMegaBatch11Compute(ctx, t, client)
-				verifyMegaBatch11Storage(ctx, t, client, instanceID)
-				verifyMegaBatch11AccountSettings(ctx, t, client)
-				verifyMegaBatch11InstanceState(ctx, t, client, instanceID)
-				verifyMegaBatch11PrefixListAndTag(ctx, t, client, vpcID)
-				verifyMegaBatch11FlowLogAndENI(ctx, t, client, vpcID)
-				verifyMegaBatch11SpotAndFleet(ctx, t, client)
+				vpcID := verifyEc2ComputeAndStorageNetworking(ctx, t, client, vars["VPCCidr"].(string))
+				instanceID := verifyEc2ComputeAndStorageCompute(ctx, t, client)
+				verifyEc2ComputeAndStorageStorage(ctx, t, client, instanceID)
+				verifyEc2ComputeAndStorageAccountSettings(ctx, t, client)
+				verifyEc2ComputeAndStorageInstanceState(ctx, t, client, instanceID)
+				verifyEc2ComputeAndStoragePrefixListAndTag(ctx, t, client, vpcID)
+				verifyEc2ComputeAndStorageFlowLogAndENI(ctx, t, client, vpcID)
+				verifyEc2ComputeAndStorageSpotAndFleet(ctx, t, client)
 			},
 		},
 	}
@@ -54,10 +54,15 @@ func TestTerraform_MegaBatch11(t *testing.T) {
 	}
 }
 
-// verifyMegaBatch11Networking checks the internet gateway attachment,
+// verifyEc2ComputeAndStorageNetworking checks the internet gateway attachment,
 // egress-only internet gateway, main route table association, and network
 // ACL association, returning the fixture's VPC ID for later use.
-func verifyMegaBatch11Networking(ctx context.Context, t *testing.T, client *ec2svc.Client, vpcCidr string) string {
+func verifyEc2ComputeAndStorageNetworking(
+	ctx context.Context,
+	t *testing.T,
+	client *ec2svc.Client,
+	vpcCidr string,
+) string {
 	t.Helper()
 
 	vpcsOut, err := client.DescribeVpcs(ctx, &ec2svc.DescribeVpcsInput{
@@ -133,20 +138,20 @@ func verifyMegaBatch11Networking(ctx context.Context, t *testing.T, client *ec2s
 	return vpcID
 }
 
-// verifyMegaBatch11Compute checks the key pair, placement group, dedicated
+// verifyEc2ComputeAndStorageCompute checks the key pair, placement group, dedicated
 // host, capacity reservation, launch template, and instance, returning the
 // created instance's ID for later use.
-func verifyMegaBatch11Compute(ctx context.Context, t *testing.T, client *ec2svc.Client) string {
+func verifyEc2ComputeAndStorageCompute(ctx context.Context, t *testing.T, client *ec2svc.Client) string {
 	t.Helper()
 
 	kpOut, err := client.DescribeKeyPairs(ctx, &ec2svc.DescribeKeyPairsInput{
-		KeyNames: []string{"mega-batch-11-key"},
+		KeyNames: []string{"ecsu-key"},
 	})
 	require.NoError(t, err, "DescribeKeyPairs should succeed")
 	require.Len(t, kpOut.KeyPairs, 1)
 
 	pgOut, err := client.DescribePlacementGroups(ctx, &ec2svc.DescribePlacementGroupsInput{
-		GroupNames: []string{"mega-batch-11-pg"},
+		GroupNames: []string{"ecsu-pg"},
 	})
 	require.NoError(t, err, "DescribePlacementGroups should succeed")
 	require.Len(t, pgOut.PlacementGroups, 1)
@@ -180,14 +185,14 @@ func verifyMegaBatch11Compute(ctx context.Context, t *testing.T, client *ec2svc.
 	assert.True(t, foundReservation, "capacity reservation should be listed")
 
 	ltOut, err := client.DescribeLaunchTemplates(ctx, &ec2svc.DescribeLaunchTemplatesInput{
-		LaunchTemplateNames: []string{"mega-batch-11-lt"},
+		LaunchTemplateNames: []string{"ecsu-lt"},
 	})
 	require.NoError(t, err, "DescribeLaunchTemplates should succeed")
 	require.Len(t, ltOut.LaunchTemplates, 1)
 
 	instOut, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-11-instance"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecsu-instance"}},
 		},
 	})
 	require.NoError(t, err, "DescribeInstances should succeed")
@@ -197,9 +202,14 @@ func verifyMegaBatch11Compute(ctx context.Context, t *testing.T, client *ec2svc.
 	return aws.ToString(instOut.Reservations[0].Instances[0].InstanceId)
 }
 
-// verifyMegaBatch11Storage checks the volume attachment, snapshot, snapshot
+// verifyEc2ComputeAndStorageStorage checks the volume attachment, snapshot, snapshot
 // create-volume permission, AMI, AMI copy, and AMI launch permission.
-func verifyMegaBatch11Storage(ctx context.Context, t *testing.T, client *ec2svc.Client, instanceID string) {
+func verifyEc2ComputeAndStorageStorage(
+	ctx context.Context,
+	t *testing.T,
+	client *ec2svc.Client,
+	instanceID string,
+) {
 	t.Helper()
 
 	volsOut, err := client.DescribeVolumes(ctx, &ec2svc.DescribeVolumesInput{
@@ -227,7 +237,7 @@ func verifyMegaBatch11Storage(ctx context.Context, t *testing.T, client *ec2svc.
 	// Snapshots[0] flakes on backend map iteration order.
 	snapsOut, err := client.DescribeSnapshots(ctx, &ec2svc.DescribeSnapshotsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-11-snapshot"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecsu-snapshot"}},
 		},
 	})
 	require.NoError(t, err, "DescribeSnapshots should succeed")
@@ -252,7 +262,7 @@ func verifyMegaBatch11Storage(ctx context.Context, t *testing.T, client *ec2svc.
 
 	imgsOut, err := client.DescribeImages(ctx, &ec2svc.DescribeImagesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("name"), Values: []string{"mega-batch-11-ami"}},
+			{Name: aws.String("name"), Values: []string{"ecsu-ami"}},
 		},
 	})
 	require.NoError(t, err, "DescribeImages should succeed")
@@ -277,7 +287,7 @@ func verifyMegaBatch11Storage(ctx context.Context, t *testing.T, client *ec2svc.
 
 	copyOut, err := client.DescribeImages(ctx, &ec2svc.DescribeImagesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("name"), Values: []string{"mega-batch-11-ami-copy"}},
+			{Name: aws.String("name"), Values: []string{"ecsu-ami-copy"}},
 		},
 	})
 	require.NoError(t, err, "DescribeImages for the AMI copy should succeed")
@@ -285,16 +295,16 @@ func verifyMegaBatch11Storage(ctx context.Context, t *testing.T, client *ec2svc.
 
 	snapCopyOut, err := client.DescribeSnapshots(ctx, &ec2svc.DescribeSnapshotsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-11-snapshot-copy"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecsu-snapshot-copy"}},
 		},
 	})
 	require.NoError(t, err, "DescribeSnapshots for the snapshot copy should succeed")
 	require.Len(t, snapCopyOut.Snapshots, 1)
 }
 
-// verifyMegaBatch11AccountSettings checks the account-wide EBS/AMI/serial
+// verifyEc2ComputeAndStorageAccountSettings checks the account-wide EBS/AMI/serial
 // console settings singletons.
-func verifyMegaBatch11AccountSettings(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2ComputeAndStorageAccountSettings(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	kmsKeyOut, err := client.GetEbsDefaultKmsKeyId(ctx, &ec2svc.GetEbsDefaultKmsKeyIdInput{})
@@ -332,9 +342,14 @@ func verifyMegaBatch11AccountSettings(ctx context.Context, t *testing.T, client 
 	assert.True(t, foundOptedIn, "availability zone group should be opted in")
 }
 
-// verifyMegaBatch11InstanceState waits for aws_ec2_instance_state to have
+// verifyEc2ComputeAndStorageInstanceState waits for aws_ec2_instance_state to have
 // stopped the given instance.
-func verifyMegaBatch11InstanceState(ctx context.Context, t *testing.T, client *ec2svc.Client, instanceID string) {
+func verifyEc2ComputeAndStorageInstanceState(
+	ctx context.Context,
+	t *testing.T,
+	client *ec2svc.Client,
+	instanceID string,
+) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
@@ -349,14 +364,19 @@ func verifyMegaBatch11InstanceState(ctx context.Context, t *testing.T, client *e
 	}, 10*time.Second, 100*time.Millisecond, "aws_ec2_instance_state should stop the instance")
 }
 
-// verifyMegaBatch11PrefixListAndTag checks the managed prefix list, its
+// verifyEc2ComputeAndStoragePrefixListAndTag checks the managed prefix list, its
 // entry, and the standalone aws_ec2_tag on the VPC.
-func verifyMegaBatch11PrefixListAndTag(ctx context.Context, t *testing.T, client *ec2svc.Client, vpcID string) {
+func verifyEc2ComputeAndStoragePrefixListAndTag(
+	ctx context.Context,
+	t *testing.T,
+	client *ec2svc.Client,
+	vpcID string,
+) {
 	t.Helper()
 
 	plOut, err := client.DescribeManagedPrefixLists(ctx, &ec2svc.DescribeManagedPrefixListsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("prefix-list-name"), Values: []string{"mega-batch-11-pl"}},
+			{Name: aws.String("prefix-list-name"), Values: []string{"ecsu-pl"}},
 		},
 	})
 	require.NoError(t, err, "DescribeManagedPrefixLists should succeed")
@@ -381,7 +401,7 @@ func verifyMegaBatch11PrefixListAndTag(ctx context.Context, t *testing.T, client
 	tagsOut, err := client.DescribeTags(ctx, &ec2svc.DescribeTagsInput{
 		Filters: []ec2types.Filter{
 			{Name: aws.String("resource-id"), Values: []string{vpcID}},
-			{Name: aws.String("key"), Values: []string{"mega-batch-11-tag"}},
+			{Name: aws.String("key"), Values: []string{"ecsu-tag"}},
 		},
 	})
 	require.NoError(t, err, "DescribeTags should succeed")
@@ -389,9 +409,14 @@ func verifyMegaBatch11PrefixListAndTag(ctx context.Context, t *testing.T, client
 	assert.Equal(t, "true", aws.ToString(tagsOut.Tags[0].Value))
 }
 
-// verifyMegaBatch11FlowLogAndENI checks the VPC flow log and the network
+// verifyEc2ComputeAndStorageFlowLogAndENI checks the VPC flow log and the network
 // interface's instance attachment and security-group attachment.
-func verifyMegaBatch11FlowLogAndENI(ctx context.Context, t *testing.T, client *ec2svc.Client, vpcID string) {
+func verifyEc2ComputeAndStorageFlowLogAndENI(
+	ctx context.Context,
+	t *testing.T,
+	client *ec2svc.Client,
+	vpcID string,
+) {
 	t.Helper()
 
 	flOut, err := client.DescribeFlowLogs(ctx, &ec2svc.DescribeFlowLogsInput{
@@ -405,7 +430,7 @@ func verifyMegaBatch11FlowLogAndENI(ctx context.Context, t *testing.T, client *e
 
 	eniOut, err := client.DescribeNetworkInterfaces(ctx, &ec2svc.DescribeNetworkInterfacesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-11-eni"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecsu-eni"}},
 		},
 	})
 	require.NoError(t, err, "DescribeNetworkInterfaces should succeed")
@@ -417,7 +442,7 @@ func verifyMegaBatch11FlowLogAndENI(ctx context.Context, t *testing.T, client *e
 	var foundSGAttachment bool
 
 	for _, g := range eni.Groups {
-		if aws.ToString(g.GroupName) == "mega-batch-11-sg" {
+		if aws.ToString(g.GroupName) == "ecsu-sg" {
 			foundSGAttachment = true
 		}
 	}
@@ -425,15 +450,15 @@ func verifyMegaBatch11FlowLogAndENI(ctx context.Context, t *testing.T, client *e
 	assert.True(t, foundSGAttachment, "aws_network_interface_sg_attachment should attach the security group")
 }
 
-// verifyMegaBatch11SpotAndFleet checks the spot instance request and EC2
+// verifyEc2ComputeAndStorageSpotAndFleet checks the spot instance request and EC2
 // fleet. aws_spot_fleet_request is deliberately not covered here -- see
 // PARITY.md's items_still_open entry for why.
-func verifyMegaBatch11SpotAndFleet(ctx context.Context, t *testing.T, client *ec2svc.Client) {
+func verifyEc2ComputeAndStorageSpotAndFleet(ctx context.Context, t *testing.T, client *ec2svc.Client) {
 	t.Helper()
 
 	spotOut, err := client.DescribeSpotInstanceRequests(ctx, &ec2svc.DescribeSpotInstanceRequestsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"mega-batch-11-spot"}},
+			{Name: aws.String("tag:Name"), Values: []string{"ecsu-spot"}},
 		},
 	})
 	require.NoError(t, err, "DescribeSpotInstanceRequests should succeed")

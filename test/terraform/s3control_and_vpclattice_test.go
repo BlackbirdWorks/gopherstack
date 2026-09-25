@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch21 provisions S3 Control (access grants instance +
+// TestTerraform_S3controlAndVpclattice provisions S3 Control (access grants instance +
 // resource policy + location + grant, access point policy, multi-region
 // access point + policy, object Lambda access point + policy, storage lens
 // configuration) and VPC Lattice (service, target group + attachment,
@@ -20,17 +20,17 @@ import (
 // service network VPC/service associations, resource gateway, resource
 // configuration + service network resource association) resources via
 // Terraform and verifies each through its own SDK client's Get/Describe path.
-func TestTerraform_MegaBatch21(t *testing.T) {
+func TestTerraform_S3controlAndVpclattice(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-21",
+			fixture: "s3control-and-vpclattice",
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 
-				functionZip := filepath.Join(dir, "mega-batch-21-ol-function.zip")
+				functionZip := filepath.Join(dir, "s3vl-ol-function.zip")
 				writeZipFixture(t, functionZip, "index.py",
 					"def handler(event, context):\n    return {'statusCode': 200}\n")
 
@@ -40,8 +40,8 @@ func TestTerraform_MegaBatch21(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch21S3Control(ctx, t)
-				verifyMegaBatch21VPCLattice(ctx, t)
+				verifyS3controlAndVpclatticeS3Control(ctx, t)
+				verifyS3controlAndVpclatticeVPCLattice(ctx, t)
 			},
 		},
 	}
@@ -54,7 +54,7 @@ func TestTerraform_MegaBatch21(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
+func verifyS3controlAndVpclatticeS3Control(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createS3ControlClient(t)
@@ -103,7 +103,7 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 	listGrantsOut, err := client.ListAccessGrants(ctx, &s3controlsvc.ListAccessGrantsInput{
 		AccountId: aws.String(acctID),
 		GranteeIdentifier: aws.String(
-			"arn:aws:iam::000000000000:role/mega-batch-21-access-grants-role",
+			"arn:aws:iam::000000000000:role/s3vl-access-grants-role",
 		),
 	})
 	require.NoError(t, err, "ListAccessGrants should succeed")
@@ -120,7 +120,7 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 
 	apPolOut, err := client.GetAccessPointPolicy(ctx, &s3controlsvc.GetAccessPointPolicyInput{
 		AccountId: aws.String(acctID),
-		Name:      aws.String("mega-batch-21-ap"),
+		Name:      aws.String("s3vl-ap"),
 	})
 	require.NoError(t, err, "GetAccessPointPolicy should succeed")
 	assert.Contains(t, aws.ToString(apPolOut.Policy), "GetObjectTagging")
@@ -129,7 +129,7 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 		ctx,
 		&s3controlsvc.GetMultiRegionAccessPointInput{
 			AccountId: aws.String(acctID),
-			Name:      aws.String("mega-batch-21-mrap"),
+			Name:      aws.String("s3vl-mrap"),
 		},
 	)
 	require.NoError(t, err, "GetMultiRegionAccessPoint should succeed")
@@ -139,7 +139,7 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 		ctx,
 		&s3controlsvc.GetMultiRegionAccessPointPolicyInput{
 			AccountId: aws.String(acctID),
-			Name:      aws.String("mega-batch-21-mrap"),
+			Name:      aws.String("s3vl-mrap"),
 		},
 	)
 	require.NoError(t, err, "GetMultiRegionAccessPointPolicy should succeed")
@@ -149,17 +149,17 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 		ctx,
 		&s3controlsvc.GetAccessPointForObjectLambdaInput{
 			AccountId: aws.String(acctID),
-			Name:      aws.String("mega-batch-21-ol"),
+			Name:      aws.String("s3vl-ol"),
 		},
 	)
 	require.NoError(t, err, "GetAccessPointForObjectLambda should succeed")
-	assert.Equal(t, "mega-batch-21-ol", aws.ToString(olOut.Name))
+	assert.Equal(t, "s3vl-ol", aws.ToString(olOut.Name))
 
 	olPolOut, err := client.GetAccessPointPolicyForObjectLambda(
 		ctx,
 		&s3controlsvc.GetAccessPointPolicyForObjectLambdaInput{
 			AccountId: aws.String(acctID),
-			Name:      aws.String("mega-batch-21-ol"),
+			Name:      aws.String("s3vl-ol"),
 		},
 	)
 	require.NoError(t, err, "GetAccessPointPolicyForObjectLambda should succeed")
@@ -169,7 +169,7 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 		ctx,
 		&s3controlsvc.GetStorageLensConfigurationInput{
 			AccountId: aws.String(acctID),
-			ConfigId:  aws.String("mega-batch-21-lens"),
+			ConfigId:  aws.String("s3vl-lens"),
 		},
 	)
 	require.NoError(t, err, "GetStorageLensConfiguration should succeed")
@@ -177,7 +177,7 @@ func verifyMegaBatch21S3Control(ctx context.Context, t *testing.T) {
 	assert.True(t, lensOut.StorageLensConfiguration.IsEnabled)
 }
 
-func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
+func verifyS3controlAndVpclatticeVPCLattice(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createVPCLatticeClient(t)
@@ -188,7 +188,7 @@ func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
 	var serviceID string
 
 	for _, s := range svcListOut.Items {
-		if aws.ToString(s.Name) == "mega-batch-21-service" {
+		if aws.ToString(s.Name) == "s3vl-service" {
 			serviceID = aws.ToString(s.Id)
 		}
 	}
@@ -207,7 +207,7 @@ func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
 	var targetGroupID string
 
 	for _, tg := range tgListOut.Items {
-		if aws.ToString(tg.Name) == "mega-batch-21-target-group" {
+		if aws.ToString(tg.Name) == "s3vl-target-group" {
 			targetGroupID = aws.ToString(tg.Id)
 		}
 	}
@@ -251,7 +251,7 @@ func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
 	var ruleID string
 
 	for _, r := range rulesOut.Items {
-		if aws.ToString(r.Name) == "mega-batch-21-listener-rule" {
+		if aws.ToString(r.Name) == "s3vl-listener-rule" {
 			ruleID = aws.ToString(r.Id)
 		}
 	}
@@ -278,7 +278,7 @@ func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
 	var serviceNetworkID string
 
 	for _, sn := range snListOut.Items {
-		if aws.ToString(sn.Name) == "mega-batch-21-service-network" {
+		if aws.ToString(sn.Name) == "s3vl-service-network" {
 			serviceNetworkID = aws.ToString(sn.Id)
 		}
 	}
@@ -316,7 +316,7 @@ func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
 		},
 	)
 	require.NoError(t, err, "GetAccessLogSubscription should succeed")
-	assert.Contains(t, aws.ToString(alsOut.DestinationArn), "mega-batch-21-access-logs")
+	assert.Contains(t, aws.ToString(alsOut.DestinationArn), "s3vl-access-logs")
 
 	vpcAssocOut, err := client.ListServiceNetworkVpcAssociations(
 		ctx,
@@ -360,7 +360,7 @@ func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
 	var resourceGatewayID string
 
 	for _, rg := range rgListOut.Items {
-		if aws.ToString(rg.Name) == "mega-batch-21-resource-gateway" {
+		if aws.ToString(rg.Name) == "s3vl-resource-gateway" {
 			resourceGatewayID = aws.ToString(rg.Id)
 		}
 	}
@@ -382,7 +382,7 @@ func verifyMegaBatch21VPCLattice(ctx context.Context, t *testing.T) {
 	var resourceConfigID string
 
 	for _, rc := range rcListOut.Items {
-		if aws.ToString(rc.Name) == "mega-batch-21-resource-configuration" {
+		if aws.ToString(rc.Name) == "s3vl-resource-configuration" {
 			resourceConfigID = aws.ToString(rc.Id)
 		}
 	}

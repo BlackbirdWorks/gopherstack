@@ -2,7 +2,7 @@ resource "aws_vpc" "example" {
   cidr_block = "{{.VPCCidr}}"
 
   tags = {
-    Name = "mega-batch-11-vpc"
+    Name = "ecsu-vpc"
   }
 }
 
@@ -12,12 +12,12 @@ resource "aws_subnet" "example" {
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-11-subnet"
+    Name = "ecsu-subnet"
   }
 }
 
 resource "aws_security_group" "example" {
-  name   = "mega-batch-11-sg"
+  name   = "ecsu-sg"
   vpc_id = aws_vpc.example.id
 }
 
@@ -51,12 +51,12 @@ resource "aws_network_acl_association" "example" {
 }
 
 resource "aws_key_pair" "example" {
-  key_name   = "mega-batch-11-key"
-  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGwlIL9dCLoRUOVXkdaTB405ELPRUZ2q0T5vY/Sgo5+PsjhVXcSGGdVpvwsdt76PdaQIB0h4iX6yFyF+xIFEbWAYUeMEQxPz1sZK6iX1LSMR29Dt7SP5kA9wcbb8VbHVfR mega-batch-11"
+  key_name   = "ecsu-key"
+  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGwlIL9dCLoRUOVXkdaTB405ELPRUZ2q0T5vY/Sgo5+PsjhVXcSGGdVpvwsdt76PdaQIB0h4iX6yFyF+xIFEbWAYUeMEQxPz1sZK6iX1LSMR29Dt7SP5kA9wcbb8VbHVfR ecsu"
 }
 
 resource "aws_placement_group" "example" {
-  name     = "mega-batch-11-pg"
+  name     = "ecsu-pg"
   strategy = "cluster"
 }
 
@@ -73,7 +73,7 @@ resource "aws_ec2_capacity_reservation" "example" {
 }
 
 resource "aws_launch_template" "example" {
-  name          = "mega-batch-11-lt"
+  name          = "ecsu-lt"
   image_id      = "ami-12345678"
   instance_type = "t2.micro"
   key_name      = aws_key_pair.example.key_name
@@ -85,7 +85,7 @@ resource "aws_instance" "example" {
   subnet_id     = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-11-instance"
+    Name = "ecsu-instance"
   }
 }
 
@@ -94,7 +94,7 @@ resource "aws_ebs_volume" "example" {
   size              = 8
 
   tags = {
-    Name = "mega-batch-11-volume"
+    Name = "ecsu-volume"
   }
 }
 
@@ -108,7 +108,7 @@ resource "aws_ebs_snapshot" "example" {
   volume_id = aws_ebs_volume.example.id
 
   tags = {
-    Name = "mega-batch-11-snapshot"
+    Name = "ecsu-snapshot"
   }
 }
 
@@ -122,12 +122,12 @@ resource "aws_ebs_snapshot_copy" "example" {
   source_region      = "us-east-1"
 
   tags = {
-    Name = "mega-batch-11-snapshot-copy"
+    Name = "ecsu-snapshot-copy"
   }
 }
 
 resource "aws_ami" "example" {
-  name                = "mega-batch-11-ami"
+  name                = "ecsu-ami"
   virtualization_type = "hvm"
   root_device_name    = "/dev/xvda"
 
@@ -138,7 +138,7 @@ resource "aws_ami" "example" {
 }
 
 resource "aws_ami_copy" "example" {
-  name              = "mega-batch-11-ami-copy"
+  name              = "ecsu-ami-copy"
   source_ami_id     = aws_ami.example.id
   source_ami_region = "us-east-1"
 }
@@ -149,7 +149,7 @@ resource "aws_ami_launch_permission" "example" {
 }
 
 resource "aws_kms_key" "example" {
-  description = "mega-batch-11 EBS default key"
+  description = "ecsu EBS default key"
 }
 
 resource "aws_ebs_default_kms_key" "example" {
@@ -179,7 +179,7 @@ resource "aws_ec2_instance_state" "example" {
 }
 
 resource "aws_ec2_managed_prefix_list" "example" {
-  name           = "mega-batch-11-pl"
+  name           = "ecsu-pl"
   address_family = "IPv4"
   max_entries    = 5
 }
@@ -187,31 +187,31 @@ resource "aws_ec2_managed_prefix_list" "example" {
 resource "aws_ec2_managed_prefix_list_entry" "example" {
   prefix_list_id = aws_ec2_managed_prefix_list.example.id
   cidr           = "10.99.0.0/24"
-  description    = "mega-batch-11 entry"
+  description    = "ecsu entry"
 }
 
 resource "aws_ec2_tag" "example" {
   resource_id = aws_vpc.example.id
-  key         = "mega-batch-11-tag"
+  key         = "ecsu-tag"
   value       = "true"
 }
 
 resource "aws_cloudwatch_log_group" "example" {
-  name = "/mega-batch-11/flow-logs"
+  name = "/ecsu/flow-logs"
 }
 
 resource "aws_flow_log" "example" {
   vpc_id          = aws_vpc.example.id
   traffic_type    = "ALL"
   log_destination = aws_cloudwatch_log_group.example.arn
-  iam_role_arn    = "arn:aws:iam::000000000000:role/mega-batch-11-flowlog-role"
+  iam_role_arn    = "arn:aws:iam::000000000000:role/ecsu-flowlog-role"
 }
 
 resource "aws_network_interface" "example" {
   subnet_id = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-11-eni"
+    Name = "ecsu-eni"
   }
 }
 
@@ -221,7 +221,7 @@ resource "aws_instance" "attach_target" {
   subnet_id     = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-11-instance-attach-target"
+    Name = "ecsu-instance-attach-target"
   }
 }
 
@@ -242,7 +242,7 @@ resource "aws_spot_instance_request" "example" {
   subnet_id     = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-11-spot"
+    Name = "ecsu-spot"
   }
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch48 provisions an OpsWorks stack with every "canned"
+// TestTerraform_OrganizationsAndAppstream provisions an OpsWorks stack with every "canned"
 // layer type (ECS cluster, Ganglia, HAProxy, Java App, Memcached, MySQL,
 // Node.js App, PHP App, Rails App, Static Web), an instance, and an RDS DB
 // instance registration; an AppStream directory config, fleet(+stack
@@ -20,13 +20,13 @@ import (
 // Organizations account, delegated administrator, policy(+attachment), and
 // resource-based delegation policy, via Terraform, verifying each through
 // its own SDK client.
-func TestTerraform_MegaBatch48(t *testing.T) {
+func TestTerraform_OrganizationsAndAppstream(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-48",
+			fixture: "organizations-and-appstream",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -34,9 +34,9 @@ func TestTerraform_MegaBatch48(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch48OpsWorks(ctx, t)
-				verifyMegaBatch48Appstream(ctx, t)
-				verifyMegaBatch48Organizations(ctx, t)
+				verifyOrganizationsAndAppstreamOpsWorks(ctx, t)
+				verifyOrganizationsAndAppstreamAppstream(ctx, t)
+				verifyOrganizationsAndAppstreamOrganizations(ctx, t)
 			},
 		},
 	}
@@ -50,7 +50,7 @@ func TestTerraform_MegaBatch48(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch48OpsWorks(ctx context.Context, t *testing.T) {
+func verifyOrganizationsAndAppstreamOpsWorks(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -64,12 +64,12 @@ func verifyMegaBatch48OpsWorks(ctx context.Context, t *testing.T) {
 	var stackID string
 
 	for _, s := range stacksOut.Stacks {
-		if aws.ToString(s.Name) == "mega-batch-48-stack" {
+		if aws.ToString(s.Name) == "orap-stack" {
 			stackID = aws.ToString(s.StackId)
 		}
 	}
 
-	require.NotEmpty(t, stackID, "mega-batch-48 opsworks stack should be listed")
+	require.NotEmpty(t, stackID, "orap opsworks stack should be listed")
 
 	layersOut, err := client.DescribeLayers(ctx, &opsworkssvc48.DescribeLayersInput{StackId: aws.String(stackID)})
 	require.NoError(t, err, "DescribeLayers should succeed")
@@ -92,7 +92,7 @@ func verifyMegaBatch48OpsWorks(ctx context.Context, t *testing.T) {
 		if l.Type == "ecs-cluster" {
 			assert.Equal(
 				t,
-				"arn:aws:ecs:us-east-1:000000000000:cluster/mega-batch-48-cluster",
+				"arn:aws:ecs:us-east-1:000000000000:cluster/orap-cluster",
 				l.Attributes["EcsClusterArn"],
 				"ecs cluster layer should echo its EcsClusterArn attribute",
 			)
@@ -117,10 +117,10 @@ func verifyMegaBatch48OpsWorks(ctx context.Context, t *testing.T) {
 	)
 	require.NoError(t, err, "DescribeRdsDbInstances should succeed")
 	require.Len(t, rdsOut.RdsDbInstances, 1)
-	assert.Equal(t, "mb48admin", aws.ToString(rdsOut.RdsDbInstances[0].DbUser))
+	assert.Equal(t, "orapadmin", aws.ToString(rdsOut.RdsDbInstances[0].DbUser))
 }
 
-func verifyMegaBatch48Appstream(ctx context.Context, t *testing.T) {
+func verifyOrganizationsAndAppstreamAppstream(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -129,26 +129,26 @@ func verifyMegaBatch48Appstream(ctx context.Context, t *testing.T) {
 	})
 
 	dcOut, err := client.DescribeDirectoryConfigs(ctx, &appstreamsvc48.DescribeDirectoryConfigsInput{
-		DirectoryNames: []string{"mega-batch-48.example.test"},
+		DirectoryNames: []string{"orap.example.test"},
 	})
 	require.NoError(t, err, "DescribeDirectoryConfigs should succeed")
 	require.Len(t, dcOut.DirectoryConfigs, 1)
 
 	fleetsOut, err := client.DescribeFleets(ctx, &appstreamsvc48.DescribeFleetsInput{
-		Names: []string{"mega-batch-48-fleet"},
+		Names: []string{"orap-fleet"},
 	})
 	require.NoError(t, err, "DescribeFleets should succeed")
 	require.Len(t, fleetsOut.Fleets, 1)
 	assert.Equal(t, "stream.standard.medium", aws.ToString(fleetsOut.Fleets[0].InstanceType))
 
 	assocOut, err := client.ListAssociatedStacks(ctx, &appstreamsvc48.ListAssociatedStacksInput{
-		FleetName: aws.String("mega-batch-48-fleet"),
+		FleetName: aws.String("orap-fleet"),
 	})
 	require.NoError(t, err, "ListAssociatedStacks should succeed")
-	assert.Contains(t, assocOut.Names, "mega-batch-48-stack")
+	assert.Contains(t, assocOut.Names, "orap-stack")
 
 	ibOut, err := client.DescribeImageBuilders(ctx, &appstreamsvc48.DescribeImageBuildersInput{
-		Names: []string{"mega-batch-48-image-builder"},
+		Names: []string{"orap-image-builder"},
 	})
 	require.NoError(t, err, "DescribeImageBuilders should succeed")
 	require.Len(t, ibOut.ImageBuilders, 1)
@@ -162,23 +162,23 @@ func verifyMegaBatch48Appstream(ctx context.Context, t *testing.T) {
 	var foundUser bool
 
 	for _, u := range usersOut.Users {
-		if aws.ToString(u.UserName) == "mega-batch-48-user@example.test" {
+		if aws.ToString(u.UserName) == "orap-user@example.test" {
 			foundUser = true
 		}
 	}
 
-	assert.True(t, foundUser, "mega-batch-48 appstream user should be listed")
+	assert.True(t, foundUser, "orap appstream user should be listed")
 
 	usaOut, err := client.DescribeUserStackAssociations(ctx, &appstreamsvc48.DescribeUserStackAssociationsInput{
-		StackName:          aws.String("mega-batch-48-stack"),
-		UserName:           aws.String("mega-batch-48-user@example.test"),
+		StackName:          aws.String("orap-stack"),
+		UserName:           aws.String("orap-user@example.test"),
 		AuthenticationType: "USERPOOL",
 	})
 	require.NoError(t, err, "DescribeUserStackAssociations should succeed")
 	require.Len(t, usaOut.UserStackAssociations, 1)
 }
 
-func verifyMegaBatch48Organizations(ctx context.Context, t *testing.T) {
+func verifyOrganizationsAndAppstreamOrganizations(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -192,12 +192,12 @@ func verifyMegaBatch48Organizations(ctx context.Context, t *testing.T) {
 	var accountID string
 
 	for _, a := range acctsOut.Accounts {
-		if aws.ToString(a.Name) == "mega-batch-48-account" {
+		if aws.ToString(a.Name) == "orap-account" {
 			accountID = aws.ToString(a.Id)
 		}
 	}
 
-	require.NotEmpty(t, accountID, "mega-batch-48 organizations account should be listed")
+	require.NotEmpty(t, accountID, "orap organizations account should be listed")
 
 	delAdminsOut, err := client.ListDelegatedAdministrators(
 		ctx,
@@ -213,7 +213,7 @@ func verifyMegaBatch48Organizations(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundDelegatedAdmin, "mega-batch-48 account should be a delegated administrator")
+	assert.True(t, foundDelegatedAdmin, "orap account should be a delegated administrator")
 
 	policiesOut, err := client.ListPolicies(ctx, &organizationssvc48.ListPoliciesInput{
 		Filter: "SERVICE_CONTROL_POLICY",
@@ -223,12 +223,12 @@ func verifyMegaBatch48Organizations(ctx context.Context, t *testing.T) {
 	var policyID string
 
 	for _, p := range policiesOut.Policies {
-		if aws.ToString(p.Name) == "mega-batch-48-policy" {
+		if aws.ToString(p.Name) == "orap-policy" {
 			policyID = aws.ToString(p.Id)
 		}
 	}
 
-	require.NotEmpty(t, policyID, "mega-batch-48 policy should be listed")
+	require.NotEmpty(t, policyID, "orap policy should be listed")
 
 	targetsOut, err := client.ListTargetsForPolicy(
 		ctx,
@@ -244,9 +244,9 @@ func verifyMegaBatch48Organizations(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundAttachment, "mega-batch-48 policy should be attached to the account")
+	assert.True(t, foundAttachment, "orap policy should be attached to the account")
 
 	rpOut, err := client.DescribeResourcePolicy(ctx, &organizationssvc48.DescribeResourcePolicyInput{})
 	require.NoError(t, err, "DescribeResourcePolicy should succeed")
-	assert.Contains(t, aws.ToString(rpOut.ResourcePolicy.Content), "MegaBatch48ResourcePolicy")
+	assert.Contains(t, aws.ToString(rpOut.ResourcePolicy.Content), "OrganizationsAndAppstreamResourcePolicy")
 }

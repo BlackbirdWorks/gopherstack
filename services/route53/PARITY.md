@@ -1,7 +1,7 @@
 ---
 service: route53
 sdk_module: aws-sdk-go-v2/service/route53@v1.65.6
-last_audit_commit: 70d96e12d  # 2026-09-19 mega-batch-14/15 terraform sweep
+last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep
 last_audit_date: 2026-09-19
 overall: A          # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):
                     # all 108 required members across 58 ops re-verified by direct code
@@ -102,7 +102,7 @@ families:
   errCodeLookup: {status: ok, note: "every route53 sentinel error's wire code + HTTP status cross-checked this pass against aws-sdk-go-v2/service/route53@v1.62.3 types/errors.go and the botocore api-2.json httpStatusCode field — see fixes in ops table above"}
 gaps: []  # both tracked gaps (gopherstack-8l0.5, gopherstack-8l0.3) closed this pass, see ops table
 items_still_open:
-  - "DeactivateKeySigningKey/DeleteKeySigningKey (handler_key_signing_keys.go) still fabricate never-registered ChangeInfo IDs (\"/change/deactivate-ksk-...\", \"/change/delete-ksk-...\"), same bug class as EnableHostedZoneDNSSEC before this pass's fix -- a real client's GetChange wait on either would 404. Not hit by any current fixture (mega-batch-14 only exercises Create, which reuses the zone's own registered change ID). CreateKeySigningKey/ActivateKeySigningKey and AssociateVPCWithHostedZone/DisassociateVPCFromHostedZone/DeleteHostedZone all reuse \"/change/C\"+zoneID, which coincidentally resolves (same ID the zone's own creation registered) rather than registering a distinct change per real AWS semantics -- functionally passes GetChange today but is not a fresh change record (gopherstack-101r)."
+  - "DeactivateKeySigningKey/DeleteKeySigningKey (handler_key_signing_keys.go) still fabricate never-registered ChangeInfo IDs (\"/change/deactivate-ksk-...\", \"/change/delete-ksk-...\"), same bug class as EnableHostedZoneDNSSEC before this pass's fix -- a real client's GetChange wait on either would 404. Not hit by any current fixture (cloudfront-and-route53 only exercises Create, which reuses the zone's own registered change ID). CreateKeySigningKey/ActivateKeySigningKey and AssociateVPCWithHostedZone/DisassociateVPCFromHostedZone/DeleteHostedZone all reuse \"/change/C\"+zoneID, which coincidentally resolves (same ID the zone's own creation registered) rather than registering a distinct change per real AWS semantics -- functionally passes GetChange today but is not a fresh change record (gopherstack-101r)."
 deferred:
   - selectWeighted/selectLatency/selectGeo/selectFailover/multiValueAnswer were re-checked against AWS's *public* routing-policy documentation this pass (see routing_policies family note) and found correct, but not re-derived against AWS's non-public source — Route 53's exact selection algorithm (esp. latency-routing tie-breaks and geoproximity's precise bias geometry) is not fully published, so "matches documented behavior" is the strongest verification achievable without live-AWS access
   - "2026-08-29 list-filter-params pass: pagination is hardcoded/never-truncating on 6 list ops — ListReusableDelegationSets (Marker/MaxItems never read, backend takes none), ListGeoLocations (Start*Code + MaxItems never read; static 15-row table so low real-world impact), ListCidrCollections/ListCidrBlocks/ListCidrLocations (MaxResults/NextToken never read, always IsTruncated=false), and the ListTrafficPolic{y,yInstance}* family — ListTrafficPolicies, ListTrafficPolicyVersions, ListTrafficPolicyInstances(ByHostedZone|ByPolicy) — which all hardcode MaxItems:\"100\" in the response and never truncate or apply their Marker params. Recorded as deferred rather than fixed, matching the cloudfront pass's precedent: real filter/parameter bugs (ListHostedZones) took priority over a page-size sweep across 6 ops, which is a larger piece of work than this pass. ListVPCAssociationAuthorizations similarly ignores MaxResults/NextToken but VPC-per-zone authorization counts are AWS-limited to a handful, so impact is low. **ALL SIX FIXED 2026-08-30 (gopherstack-kwzs), plus ListVPCAssociationAuthorizations** — see each op's own row above for its real marker field name(s) and test. ListGeoLocations (still not its own ops: row; it's a static compile-time table, not backend-owned data) now does threshold search on the exact (ContinentCode, CountryCode, SubdivisionCode) triple to resume — equality matching is safe here specifically because the table is immutable at runtime, unlike the equality-with-zero-default bug class this campaign otherwise warns about; see seekGeoLocationStart's doc comment (handler_record_sets.go) and TestListGeoLocations_Pagination. Two of the six (ListTrafficPolicyInstancesByHostedZone, ListTrafficPolicyInstancesByPolicy) turned out to have a second, more severe, independent bug on top of the filed pagination gap: each read its primary FILTER parameter (not the marker) from the wrong query key entirely, so a real client's filter was always silently ignored and the op always returned nothing — see each row's own note for the exact wrong-vs-real key."
@@ -112,9 +112,9 @@ leaks: {status: clean, note: "no goroutines, tickers, or background timers anywh
 
 ## Notes
 
-### 2026-09-19 mega-batch-14/15 terraform sweep (gopherstack-101r)
+### 2026-09-19 cloudfront-and-route53/15 terraform sweep (gopherstack-101r)
 
-Four real bugs surfaced by test/terraform/fixtures/mega-batch-14.tf:
+Four real bugs surfaced by test/terraform/fixtures/cloudfront-and-route53.tf:
 CreateHostedZone now infers PrivateZone from a request VPC element
 (aws_route53_zone); ListHostedZonesByVPC's HostedZoneId is no longer wrongly
 "/hostedzone/"-prefixed (aws_route53_zone_association); Enable/DisableHostedZoneDNSSEC

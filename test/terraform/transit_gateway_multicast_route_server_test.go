@@ -32,7 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch53 provisions 31 previously-uncovered class-A
+// TestTerraform_TransitGatewayMulticastAndRouteServer provisions 31 previously-uncovered class-A
 // terraform resource types (EC2 spot datafeed subscription, network
 // interface permission, EBS fast snapshot restore, EBS snapshot import, AMI
 // from instance, the VPC Route Server family, Transit Gateway VPC attachment
@@ -45,31 +45,31 @@ import (
 // template, RDS cluster snapshot copy, and EKS identity provider
 // config/pod identity association) via Terraform, verifying each through
 // its own SDK client.
-func TestTerraform_MegaBatch53(t *testing.T) {
+func TestTerraform_TransitGatewayMulticastAndRouteServer(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-53",
+			fixture: "ec2-transit-gateway-multicast-route-server",
 			setup:   setupEndpoint,
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch53EC2Misc(ctx, t)
-				verifyMegaBatch53RouteServer(ctx, t)
-				verifyMegaBatch53TransitGateway(ctx, t)
-				verifyMegaBatch53Batch(ctx, t)
-				verifyMegaBatch53CodeDeploy(ctx, t)
-				verifyMegaBatch53Hosts(ctx, t)
-				verifyMegaBatch53ServiceDiscovery(ctx, t)
-				verifyMegaBatch53SFN(ctx, t)
-				verifyMegaBatch53Transcribe(ctx, t)
-				verifyMegaBatch53Workspaces(ctx, t)
-				verifyMegaBatch53NetworkManager(ctx, t)
-				verifyMegaBatch53NetworkMonitor(ctx, t)
-				verifyMegaBatch53ElasticBeanstalk(ctx, t)
-				verifyMegaBatch53RDS(ctx, t)
-				verifyMegaBatch53EKS(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerEC2Misc(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerRouteServer(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerTransitGateway(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerBatch(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerCodeDeploy(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerHosts(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerServiceDiscovery(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerSFN(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerTranscribe(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerWorkspaces(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerNetworkManager(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerNetworkMonitor(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerElasticBeanstalk(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerRDS(ctx, t)
+				verifyTransitGatewayMulticastAndRouteServerEKS(ctx, t)
 			},
 		},
 	}
@@ -82,7 +82,7 @@ func TestTerraform_MegaBatch53(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch53EC2Misc(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerEC2Misc(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := ec2svc53.NewFromConfig(megaConfig(t), func(o *ec2svc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -91,7 +91,7 @@ func verifyMegaBatch53EC2Misc(ctx context.Context, t *testing.T) {
 	subOut, err := client.DescribeSpotDatafeedSubscription(ctx, &ec2svc53.DescribeSpotDatafeedSubscriptionInput{})
 	require.NoError(t, err, "DescribeSpotDatafeedSubscription should succeed")
 	require.NotNil(t, subOut.SpotDatafeedSubscription)
-	assert.Equal(t, "mega-batch-53-datafeed", aws.ToString(subOut.SpotDatafeedSubscription.Bucket))
+	assert.Equal(t, "tgms-datafeed", aws.ToString(subOut.SpotDatafeedSubscription.Bucket))
 
 	permOut, err := client.DescribeNetworkInterfacePermissions(
 		ctx,
@@ -104,7 +104,7 @@ func verifyMegaBatch53EC2Misc(ctx context.Context, t *testing.T) {
 	}, "an INSTANCE-ATTACH network interface permission for account 000000000000")
 
 	amiOut, err := client.DescribeImages(ctx, &ec2svc53.DescribeImagesInput{
-		Filters: []ec2types53.Filter{{Name: aws.String("name"), Values: []string{"mega-batch-53-ami"}}},
+		Filters: []ec2types53.Filter{{Name: aws.String("name"), Values: []string{"tgms-ami"}}},
 	})
 	require.NoError(t, err, "DescribeImages should succeed")
 	require.Len(t, amiOut.Images, 1)
@@ -119,14 +119,14 @@ func verifyMegaBatch53EC2Misc(ctx context.Context, t *testing.T) {
 	importOut, err := client.DescribeImportSnapshotTasks(ctx, &ec2svc53.DescribeImportSnapshotTasksInput{})
 	require.NoError(t, err, "DescribeImportSnapshotTasks should succeed")
 	task := findBy(t, importOut.ImportSnapshotTasks, func(task ec2types53.ImportSnapshotTask) bool {
-		return aws.ToString(task.Description) == "mega-batch-53 imported snapshot"
-	}, "the mega-batch-53 import snapshot task")
+		return aws.ToString(task.Description) == "tgms imported snapshot"
+	}, "the tgms import snapshot task")
 	require.NotNil(t, task.SnapshotTaskDetail)
 	assert.NotEmpty(t, aws.ToString(task.SnapshotTaskDetail.SnapshotId), "import must produce a backing snapshot")
 	assert.Equal(t, "completed", aws.ToString(task.SnapshotTaskDetail.Status))
 }
 
-func verifyMegaBatch53RouteServer(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerRouteServer(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := ec2svc53.NewFromConfig(megaConfig(t), func(o *ec2svc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -142,7 +142,7 @@ func verifyMegaBatch53RouteServer(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "DescribeRouteServerEndpoints should succeed")
 	findBy(t, epOut.RouteServerEndpoints, func(e ec2types53.RouteServerEndpoint) bool {
 		return aws.ToString(e.RouteServerId) == aws.ToString(rs.RouteServerId)
-	}, "a route server endpoint on the mega-batch-53 route server")
+	}, "a route server endpoint on the tgms route server")
 
 	peerOut, err := client.DescribeRouteServerPeers(ctx, &ec2svc53.DescribeRouteServerPeersInput{})
 	require.NoError(t, err, "DescribeRouteServerPeers should succeed")
@@ -151,7 +151,7 @@ func verifyMegaBatch53RouteServer(ctx context.Context, t *testing.T) {
 	}, "route server peer 10.213.1.100")
 }
 
-func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerTransitGateway(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := ec2svc53.NewFromConfig(megaConfig(t), func(o *ec2svc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -160,8 +160,8 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 	tgwOut, err := client.DescribeTransitGateways(ctx, &ec2svc53.DescribeTransitGatewaysInput{})
 	require.NoError(t, err, "DescribeTransitGateways should succeed")
 	tgw := findBy(t, tgwOut.TransitGateways, func(g ec2types53.TransitGateway) bool {
-		return aws.ToString(g.Description) == "mega-batch-53-tgw"
-	}, "the mega-batch-53 transit gateway")
+		return aws.ToString(g.Description) == "tgms-tgw"
+	}, "the tgms transit gateway")
 	tgwID := aws.ToString(tgw.TransitGatewayId)
 
 	attOut, err := client.DescribeTransitGatewayVpcAttachments(
@@ -172,7 +172,7 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 	att := findBy(t, attOut.TransitGatewayVpcAttachments, func(a ec2types53.TransitGatewayVpcAttachment) bool {
 		return aws.ToString(a.TransitGatewayId) == tgwID &&
 			a.State == ec2types53.TransitGatewayAttachmentStateAvailable
-	}, "the available mega-batch-53 TGW VPC attachment")
+	}, "the available tgms TGW VPC attachment")
 	attachmentID := aws.ToString(att.TransitGatewayAttachmentId)
 
 	domOut, err := client.DescribeTransitGatewayMulticastDomains(
@@ -184,7 +184,7 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "DescribeTransitGatewayMulticastDomains should succeed")
 	dom := findBy(t, domOut.TransitGatewayMulticastDomains, func(d ec2types53.TransitGatewayMulticastDomain) bool {
 		return aws.ToString(d.TransitGatewayId) == tgwID
-	}, "the mega-batch-53 multicast domain")
+	}, "the tgms multicast domain")
 	domainID := aws.ToString(dom.TransitGatewayMulticastDomainId)
 
 	mcastAssocOut, err := client.GetTransitGatewayMulticastDomainAssociations(
@@ -199,7 +199,7 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 		func(a ec2types53.TransitGatewayMulticastDomainAssociation) bool {
 			return aws.ToString(a.TransitGatewayAttachmentId) == attachmentID
 		},
-		"a multicast domain association for the mega-batch-53 TGW attachment",
+		"a multicast domain association for the tgms TGW attachment",
 	)
 
 	groupsOut, err := client.SearchTransitGatewayMulticastGroups(
@@ -220,7 +220,7 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "DescribeTransitGatewayPolicyTables should succeed")
 	polTable := findBy(t, polOut.TransitGatewayPolicyTables, func(p ec2types53.TransitGatewayPolicyTable) bool {
 		return aws.ToString(p.TransitGatewayId) == tgwID
-	}, "a policy table on the mega-batch-53 transit gateway")
+	}, "a policy table on the tgms transit gateway")
 
 	polAssocOut, err := client.GetTransitGatewayPolicyTableAssociations(
 		ctx, &ec2svc53.GetTransitGatewayPolicyTableAssociationsInput{
@@ -230,13 +230,13 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "GetTransitGatewayPolicyTableAssociations should succeed")
 	findBy(t, polAssocOut.Associations, func(a ec2types53.TransitGatewayPolicyTableAssociation) bool {
 		return aws.ToString(a.TransitGatewayAttachmentId) == attachmentID
-	}, "a policy table association for the mega-batch-53 TGW attachment")
+	}, "a policy table association for the tgms TGW attachment")
 
 	rtOut, err := client.DescribeTransitGatewayRouteTables(ctx, &ec2svc53.DescribeTransitGatewayRouteTablesInput{})
 	require.NoError(t, err, "DescribeTransitGatewayRouteTables should succeed")
 	rt := findBy(t, rtOut.TransitGatewayRouteTables, func(r ec2types53.TransitGatewayRouteTable) bool {
 		return aws.ToString(r.TransitGatewayId) == tgwID
-	}, "a route table on the mega-batch-53 transit gateway")
+	}, "a route table on the tgms transit gateway")
 
 	refOut, err := client.GetTransitGatewayPrefixListReferences(
 		ctx,
@@ -248,40 +248,40 @@ func verifyMegaBatch53TransitGateway(ctx context.Context, t *testing.T) {
 	findBy(t, refOut.TransitGatewayPrefixListReferences, func(r ec2types53.TransitGatewayPrefixListReference) bool {
 		return r.TransitGatewayAttachment != nil &&
 			aws.ToString(r.TransitGatewayAttachment.TransitGatewayAttachmentId) == attachmentID
-	}, "a prefix list reference for the mega-batch-53 TGW attachment")
+	}, "a prefix list reference for the tgms TGW attachment")
 }
 
-func verifyMegaBatch53Batch(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerBatch(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := batchsvc53.NewFromConfig(megaConfig(t), func(o *batchsvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.DescribeJobDefinitions(ctx, &batchsvc53.DescribeJobDefinitionsInput{
-		JobDefinitionName: aws.String("mega-batch-53-job-def"),
+		JobDefinitionName: aws.String("tgms-job-def"),
 	})
 	require.NoError(t, err, "DescribeJobDefinitions should succeed")
 	require.NotEmpty(t, out.JobDefinitions)
 	assert.Equal(t, "container", aws.ToString(out.JobDefinitions[0].Type))
 }
 
-func verifyMegaBatch53CodeDeploy(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerCodeDeploy(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := codedeploysvc53.NewFromConfig(megaConfig(t), func(o *codedeploysvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.GetDeploymentGroup(ctx, &codedeploysvc53.GetDeploymentGroupInput{
-		ApplicationName:     aws.String("mega-batch-53-app"),
-		DeploymentGroupName: aws.String("mega-batch-53-dg"),
+		ApplicationName:     aws.String("tgms-app"),
+		DeploymentGroupName: aws.String("tgms-dg"),
 	})
 	require.NoError(t, err, "GetDeploymentGroup should succeed")
 	require.NotNil(t, out.DeploymentGroupInfo)
 	require.Len(t, out.DeploymentGroupInfo.Ec2TagFilters, 1)
-	assert.Equal(t, "mega-batch-53-instance", aws.ToString(out.DeploymentGroupInfo.Ec2TagFilters[0].Value))
+	assert.Equal(t, "tgms-instance", aws.ToString(out.DeploymentGroupInfo.Ec2TagFilters[0].Value))
 }
 
-func verifyMegaBatch53Hosts(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerHosts(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	ccClient := codeconnectionssvc53.NewFromConfig(megaConfig(t), func(o *codeconnectionssvc53.Options) {
@@ -290,8 +290,8 @@ func verifyMegaBatch53Hosts(ctx context.Context, t *testing.T) {
 	ccOut, err := ccClient.ListHosts(ctx, &codeconnectionssvc53.ListHostsInput{})
 	require.NoError(t, err, "codeconnections ListHosts should succeed")
 	findBy(t, ccOut.Hosts, func(h codeconnectionstypes53.Host) bool {
-		return aws.ToString(h.Name) == "mega-batch-53-cc-host"
-	}, "codeconnections host mega-batch-53-cc-host")
+		return aws.ToString(h.Name) == "tgms-cc-host"
+	}, "codeconnections host tgms-cc-host")
 
 	cscClient := codestarconnectionssvc53.NewFromConfig(megaConfig(t), func(o *codestarconnectionssvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -299,11 +299,11 @@ func verifyMegaBatch53Hosts(ctx context.Context, t *testing.T) {
 	cscOut, err := cscClient.ListHosts(ctx, &codestarconnectionssvc53.ListHostsInput{})
 	require.NoError(t, err, "codestarconnections ListHosts should succeed")
 	findBy(t, cscOut.Hosts, func(h codestarconnectionstypes53.Host) bool {
-		return aws.ToString(h.Name) == "mega-batch-53-csc-host"
-	}, "codestarconnections host mega-batch-53-csc-host")
+		return aws.ToString(h.Name) == "tgms-csc-host"
+	}, "codestarconnections host tgms-csc-host")
 }
 
-func verifyMegaBatch53ServiceDiscovery(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerServiceDiscovery(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := servicediscoverysvc53.NewFromConfig(megaConfig(t), func(o *servicediscoverysvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -312,50 +312,50 @@ func verifyMegaBatch53ServiceDiscovery(ctx context.Context, t *testing.T) {
 	svcOut, err := client.ListServices(ctx, &servicediscoverysvc53.ListServicesInput{})
 	require.NoError(t, err, "ListServices should succeed")
 	svc := findBy(t, svcOut.Services, func(s servicediscoverytypes53.ServiceSummary) bool {
-		return aws.ToString(s.Name) == "mega-batch-53-svc"
-	}, "service mega-batch-53-svc")
+		return aws.ToString(s.Name) == "tgms-svc"
+	}, "service tgms-svc")
 
 	instOut, err := client.GetInstance(ctx, &servicediscoverysvc53.GetInstanceInput{
 		ServiceId:  svc.Id,
-		InstanceId: aws.String("mega-batch-53-svc-instance"),
+		InstanceId: aws.String("tgms-svc-instance"),
 	})
 	require.NoError(t, err, "GetInstance should succeed")
 	require.NotNil(t, instOut.Instance)
 	assert.Equal(t, "10.213.9.9", instOut.Instance.Attributes["AWS_INSTANCE_IPV4"])
 }
 
-func verifyMegaBatch53SFN(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerSFN(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := sfnsvc53.NewFromConfig(megaConfig(t), func(o *sfnsvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
-	smArn := "arn:aws:states:us-east-1:000000000000:stateMachine:mega-batch-53-sm"
+	smArn := "arn:aws:states:us-east-1:000000000000:stateMachine:tgms-sm"
 
 	out, err := client.ListStateMachineAliases(ctx, &sfnsvc53.ListStateMachineAliasesInput{
 		StateMachineArn: aws.String(smArn),
 	})
 	require.NoError(t, err, "ListStateMachineAliases should succeed")
 	findBy(t, out.StateMachineAliases, func(a sfntypes53.StateMachineAliasListItem) bool {
-		return strings.HasSuffix(aws.ToString(a.StateMachineAliasArn), ":mega-batch-53-alias")
-	}, "state machine alias mega-batch-53-alias")
+		return strings.HasSuffix(aws.ToString(a.StateMachineAliasArn), ":tgms-alias")
+	}, "state machine alias tgms-alias")
 }
 
-func verifyMegaBatch53Transcribe(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerTranscribe(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := transcribesvc53.NewFromConfig(megaConfig(t), func(o *transcribesvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.DescribeLanguageModel(ctx, &transcribesvc53.DescribeLanguageModelInput{
-		ModelName: aws.String("mega-batch-53-lm"),
+		ModelName: aws.String("tgms-lm"),
 	})
 	require.NoError(t, err, "DescribeLanguageModel should succeed")
 	require.NotNil(t, out.LanguageModel)
 	assert.Equal(t, "en-US", string(out.LanguageModel.LanguageCode))
 }
 
-func verifyMegaBatch53Workspaces(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerWorkspaces(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := workspacessvc53.NewFromConfig(megaConfig(t), func(o *workspacessvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -364,11 +364,11 @@ func verifyMegaBatch53Workspaces(ctx context.Context, t *testing.T) {
 	out, err := client.DescribeConnectionAliases(ctx, &workspacessvc53.DescribeConnectionAliasesInput{})
 	require.NoError(t, err, "DescribeConnectionAliases should succeed")
 	findBy(t, out.ConnectionAliases, func(a workspacestypes53.ConnectionAlias) bool {
-		return aws.ToString(a.ConnectionString) == "mega-batch-53.workspaces.example.com"
-	}, "connection alias mega-batch-53.workspaces.example.com")
+		return aws.ToString(a.ConnectionString) == "tgms.workspaces.example.com"
+	}, "connection alias tgms.workspaces.example.com")
 }
 
-func verifyMegaBatch53NetworkManager(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerNetworkManager(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := networkmanagersvc53.NewFromConfig(megaConfig(t), func(o *networkmanagersvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -377,8 +377,8 @@ func verifyMegaBatch53NetworkManager(ctx context.Context, t *testing.T) {
 	gnOut, err := client.DescribeGlobalNetworks(ctx, &networkmanagersvc53.DescribeGlobalNetworksInput{})
 	require.NoError(t, err, "DescribeGlobalNetworks should succeed")
 	gn := findBy(t, gnOut.GlobalNetworks, func(n networkmanagertypes53.GlobalNetwork) bool {
-		return aws.ToString(n.Description) == "mega-batch-53-global-network"
-	}, "global network mega-batch-53-global-network")
+		return aws.ToString(n.Description) == "tgms-global-network"
+	}, "global network tgms-global-network")
 
 	connOut, err := client.GetConnections(ctx, &networkmanagersvc53.GetConnectionsInput{
 		GlobalNetworkId: gn.GlobalNetworkId,
@@ -387,20 +387,20 @@ func verifyMegaBatch53NetworkManager(ctx context.Context, t *testing.T) {
 	require.Len(t, connOut.Connections, 1)
 }
 
-func verifyMegaBatch53NetworkMonitor(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerNetworkMonitor(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := networkmonitorsvc53.NewFromConfig(megaConfig(t), func(o *networkmonitorsvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	monOut, err := client.GetMonitor(ctx, &networkmonitorsvc53.GetMonitorInput{
-		MonitorName: aws.String("mega-batch-53-monitor"),
+		MonitorName: aws.String("tgms-monitor"),
 	})
 	require.NoError(t, err, "GetMonitor should succeed")
 	require.Len(t, monOut.Probes, 1)
 
 	probeOut, err := client.GetProbe(ctx, &networkmonitorsvc53.GetProbeInput{
-		MonitorName: aws.String("mega-batch-53-monitor"),
+		MonitorName: aws.String("tgms-monitor"),
 		ProbeId:     monOut.Probes[0].ProbeId,
 	})
 	require.NoError(t, err, "GetProbe should succeed")
@@ -408,23 +408,23 @@ func verifyMegaBatch53NetworkMonitor(ctx context.Context, t *testing.T) {
 	assert.EqualValues(t, 443, aws.ToInt32(probeOut.DestinationPort))
 }
 
-func verifyMegaBatch53ElasticBeanstalk(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerElasticBeanstalk(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := elasticbeanstalksvc53.NewFromConfig(megaConfig(t), func(o *elasticbeanstalksvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	versOut, err := client.DescribeApplicationVersions(ctx, &elasticbeanstalksvc53.DescribeApplicationVersionsInput{
-		ApplicationName: aws.String("mega-batch-53-eb-app"),
+		ApplicationName: aws.String("tgms-eb-app"),
 	})
 	require.NoError(t, err, "DescribeApplicationVersions should succeed")
 	require.Len(t, versOut.ApplicationVersions, 1)
 	require.NotNil(t, versOut.ApplicationVersions[0].SourceBundle)
-	assert.Equal(t, "mega-batch-53-datafeed", aws.ToString(versOut.ApplicationVersions[0].SourceBundle.S3Bucket))
+	assert.Equal(t, "tgms-datafeed", aws.ToString(versOut.ApplicationVersions[0].SourceBundle.S3Bucket))
 
 	cfgOut, err := client.DescribeConfigurationSettings(ctx, &elasticbeanstalksvc53.DescribeConfigurationSettingsInput{
-		ApplicationName: aws.String("mega-batch-53-eb-app"),
-		TemplateName:    aws.String("mega-batch-53-eb-template"),
+		ApplicationName: aws.String("tgms-eb-app"),
+		TemplateName:    aws.String("tgms-eb-template"),
 	})
 	require.NoError(t, err, "DescribeConfigurationSettings should succeed")
 	require.Len(t, cfgOut.ConfigurationSettings, 1)
@@ -434,43 +434,43 @@ func verifyMegaBatch53ElasticBeanstalk(ctx context.Context, t *testing.T) {
 	)
 }
 
-func verifyMegaBatch53RDS(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerRDS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := rdssvc53.NewFromConfig(megaConfig(t), func(o *rdssvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.DescribeDBClusterSnapshots(ctx, &rdssvc53.DescribeDBClusterSnapshotsInput{
-		DBClusterSnapshotIdentifier: aws.String("mega-batch-53-rds-snap-copy"),
+		DBClusterSnapshotIdentifier: aws.String("tgms-rds-snap-copy"),
 	})
 	require.NoError(t, err, "DescribeDBClusterSnapshots should succeed")
 	require.Len(t, out.DBClusterSnapshots, 1)
-	assert.Contains(t, aws.ToString(out.DBClusterSnapshots[0].SourceDBClusterSnapshotArn), "mega-batch-53-rds-snap")
+	assert.Contains(t, aws.ToString(out.DBClusterSnapshots[0].SourceDBClusterSnapshotArn), "tgms-rds-snap")
 }
 
-func verifyMegaBatch53EKS(ctx context.Context, t *testing.T) {
+func verifyTransitGatewayMulticastAndRouteServerEKS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := eksvc53.NewFromConfig(megaConfig(t), func(o *eksvc53.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	idpOut, err := client.DescribeIdentityProviderConfig(ctx, &eksvc53.DescribeIdentityProviderConfigInput{
-		ClusterName: aws.String("mega-batch-53-eks"),
+		ClusterName: aws.String("tgms-eks"),
 		IdentityProviderConfig: &ekstypes53.IdentityProviderConfig{
-			Name: aws.String("mega-batch-53-idp"),
+			Name: aws.String("tgms-idp"),
 			Type: aws.String("oidc"),
 		},
 	})
 	require.NoError(t, err, "DescribeIdentityProviderConfig should succeed")
 	require.NotNil(t, idpOut.IdentityProviderConfig)
 	require.NotNil(t, idpOut.IdentityProviderConfig.Oidc)
-	assert.Equal(t, "mega-batch-53-client", aws.ToString(idpOut.IdentityProviderConfig.Oidc.ClientId))
+	assert.Equal(t, "tgms-client", aws.ToString(idpOut.IdentityProviderConfig.Oidc.ClientId))
 
 	assocOut, err := client.ListPodIdentityAssociations(ctx, &eksvc53.ListPodIdentityAssociationsInput{
-		ClusterName: aws.String("mega-batch-53-eks"),
+		ClusterName: aws.String("tgms-eks"),
 	})
 	require.NoError(t, err, "ListPodIdentityAssociations should succeed")
 	findBy(t, assocOut.Associations, func(a ekstypes53.PodIdentityAssociationSummary) bool {
-		return aws.ToString(a.ServiceAccount) == "mega-batch-53-sa"
-	}, "pod identity association for service account mega-batch-53-sa")
+		return aws.ToString(a.ServiceAccount) == "tgms-sa"
+	}, "pod identity association for service account tgms-sa")
 }

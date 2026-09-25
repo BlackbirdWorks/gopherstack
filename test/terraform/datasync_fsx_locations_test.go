@@ -14,34 +14,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch55 provisions FSx Lustre/OpenZFS/ONTAP/Windows file
+// TestTerraform_DatasyncFsxLocations provisions FSx Lustre/OpenZFS/ONTAP/Windows file
 // systems and their DataSync FSx locations via Terraform, verifying each
 // through the FSx and DataSync SDK Describe/List paths.
 //
 // aws_ec2_transit_gateway_connect_peer and
 // aws_networkmanager_transit_gateway_connect_peer_association were dropped
-// from this batch: the pinned hashicorp/aws v5.100.0 provider's create
-// waiter for the connect peer never converges, even though
-// DescribeTransitGatewayConnectPeers returns the peer with State=available
-// on every poll. Confirmed via TF_LOG=debug against a bare local server: the
-// provider repeats identical successful describes (single item, correct
-// TransitGatewayAttachmentId, State "available") for 21 retries before
-// failing with "couldn't find resource". The wire shape matches the pinned
-// aws-sdk-go-v2 ec2 deserializer exactly (transitGatewayConnectPeerSet/item
-// wrapper, state/transitGatewayAttachmentId/transitGatewayConnectPeerId
-// element names), so this is not a wire-shape mismatch fixable by
-// inspection; see gopherstack-zfrof, left open.
-func TestTerraform_MegaBatch55(t *testing.T) {
+// from this fixture: the create waiter never converged because our wire
+// response never populated ConnectPeerConfiguration.BgpConfigurations,
+// which the provider's own findTransitGatewayConnectPeer treats as
+// not-found (gopherstack-zfrof). Fixed in b63f7384c; see
+// ec2-transit-gateway-connect.tf for the now-covered resource pair.
+func TestTerraform_DatasyncFsxLocations(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-55",
+			fixture: "datasync-fsx-locations",
 			setup:   setupEndpoint,
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch55(ctx, t)
+				verifyDatasyncFsxLocations(ctx, t)
 			},
 		},
 	}
@@ -64,7 +58,7 @@ func fsxTagName55(tags []fsxtypes55.Tag) string {
 	return ""
 }
 
-func verifyMegaBatch55(ctx context.Context, t *testing.T) {
+func verifyDatasyncFsxLocations(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	fsxClient := createClientWithEndpoint(t, fsxsvc55.NewFromConfig, endpoint)
@@ -73,17 +67,17 @@ func verifyMegaBatch55(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "DescribeFileSystems should succeed")
 
 	lustreFS := findBy(t, fsOut.FileSystems, func(fs fsxtypes55.FileSystem) bool {
-		return fsxTagName55(fs.Tags) == "mega-batch-55-lustre"
-	}, "FSx Lustre file system mega-batch-55-lustre")
+		return fsxTagName55(fs.Tags) == "dsfx-lustre"
+	}, "FSx Lustre file system dsfx-lustre")
 	openzfsFS := findBy(t, fsOut.FileSystems, func(fs fsxtypes55.FileSystem) bool {
-		return fsxTagName55(fs.Tags) == "mega-batch-55-openzfs"
-	}, "FSx OpenZFS file system mega-batch-55-openzfs")
+		return fsxTagName55(fs.Tags) == "dsfx-openzfs"
+	}, "FSx OpenZFS file system dsfx-openzfs")
 	ontapFS := findBy(t, fsOut.FileSystems, func(fs fsxtypes55.FileSystem) bool {
-		return fsxTagName55(fs.Tags) == "mega-batch-55-ontap"
-	}, "FSx ONTAP file system mega-batch-55-ontap")
+		return fsxTagName55(fs.Tags) == "dsfx-ontap"
+	}, "FSx ONTAP file system dsfx-ontap")
 	windowsFS := findBy(t, fsOut.FileSystems, func(fs fsxtypes55.FileSystem) bool {
-		return fsxTagName55(fs.Tags) == "mega-batch-55-windows"
-	}, "FSx Windows file system mega-batch-55-windows")
+		return fsxTagName55(fs.Tags) == "dsfx-windows"
+	}, "FSx Windows file system dsfx-windows")
 
 	assert.Equal(t, fsxtypes55.FileSystemTypeLustre, lustreFS.FileSystemType)
 	assert.Equal(t, fsxtypes55.FileSystemTypeOpenzfs, openzfsFS.FileSystemType)
@@ -94,8 +88,8 @@ func verifyMegaBatch55(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "DescribeStorageVirtualMachines should succeed")
 
 	svm := findBy(t, svmOut.StorageVirtualMachines, func(s fsxtypes55.StorageVirtualMachine) bool {
-		return aws.ToString(s.Name) == "mb55svm"
-	}, "storage virtual machine mb55svm")
+		return aws.ToString(s.Name) == "dsfxsvm"
+	}, "storage virtual machine dsfxsvm")
 	assert.Equal(t, aws.ToString(ontapFS.FileSystemId), aws.ToString(svm.FileSystemId))
 
 	dsClient := createClientWithEndpoint(t, datasyncsvc55.NewFromConfig, endpoint)
@@ -120,7 +114,7 @@ func verifyMegaBatch55(ctx context.Context, t *testing.T) {
 		LocationArn: lustreLoc.LocationArn,
 	})
 	require.NoError(t, err, "DescribeLocationFsxLustre should succeed")
-	assert.True(t, strings.HasSuffix(aws.ToString(lustreDesc.LocationUri), "/mb55"),
+	assert.True(t, strings.HasSuffix(aws.ToString(lustreDesc.LocationUri), "/dsfx"),
 		"lustre location should keep the configured subdirectory")
 
 	openzfsDesc, err := dsClient.DescribeLocationFsxOpenZfs(ctx, &datasyncsvc55.DescribeLocationFsxOpenZfsInput{

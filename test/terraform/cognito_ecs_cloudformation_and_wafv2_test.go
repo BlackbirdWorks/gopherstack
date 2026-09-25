@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch37 provisions Cognito identity provider/resource
+// TestTerraform_CognitoEcsCloudformationAndWafv2 provisions Cognito identity provider/resource
 // server/user pool domain/UI customization/risk configuration, ECS account
 // setting default/capacity provider/cluster association/tag/task set,
 // CloudFormation self-managed StackSet with a stack-set instance, a bulk
@@ -24,13 +24,13 @@ import (
 // report group/resource policy/source credential/webhook, and WAFv2 IP set/
 // regex pattern set/rule group/API key/web ACL association/logging
 // configuration via Terraform, verifying each through its own SDK client.
-func TestTerraform_MegaBatch37(t *testing.T) {
+func TestTerraform_CognitoEcsCloudformationAndWafv2(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-37",
+			fixture: "cognito-ecs-cloudformation-and-wafv2",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -38,11 +38,11 @@ func TestTerraform_MegaBatch37(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch37Cognito(ctx, t)
-				verifyMegaBatch37ECS(ctx, t)
-				verifyMegaBatch37CloudFormation(ctx, t)
-				verifyMegaBatch37CodeBuild(ctx, t)
-				verifyMegaBatch37WAFv2(ctx, t)
+				verifyCognitoEcsCloudformationAndWafv2Cognito(ctx, t)
+				verifyCognitoEcsCloudformationAndWafv2ECS(ctx, t)
+				verifyCognitoEcsCloudformationAndWafv2CloudFormation(ctx, t)
+				verifyCognitoEcsCloudformationAndWafv2CodeBuild(ctx, t)
+				verifyCognitoEcsCloudformationAndWafv2WAFv2(ctx, t)
 			},
 		},
 	}
@@ -55,7 +55,7 @@ func TestTerraform_MegaBatch37(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch37Cognito(ctx context.Context, t *testing.T) {
+func verifyCognitoEcsCloudformationAndWafv2Cognito(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -69,29 +69,29 @@ func verifyMegaBatch37Cognito(ctx context.Context, t *testing.T) {
 	var poolID string
 
 	for _, p := range poolsOut.UserPools {
-		if aws.ToString(p.Name) == "mega-batch-37-pool" {
+		if aws.ToString(p.Name) == "cecw-pool" {
 			poolID = aws.ToString(p.Id)
 		}
 	}
 
-	require.NotEmpty(t, poolID, "mega-batch-37 user pool should be listed")
+	require.NotEmpty(t, poolID, "cecw user pool should be listed")
 
 	idpOut, err := client.ListIdentityProviders(ctx, &cidpsvc37.ListIdentityProvidersInput{
 		UserPoolId: aws.String(poolID),
 	})
 	require.NoError(t, err, "ListIdentityProviders should succeed")
 	require.NotEmpty(t, idpOut.Providers)
-	assert.Equal(t, "MegaBatch37Google", aws.ToString(idpOut.Providers[0].ProviderName))
+	assert.Equal(t, "CognitoEcsCloudformationAndWafv2Google", aws.ToString(idpOut.Providers[0].ProviderName))
 
 	rsOut, err := client.DescribeResourceServer(ctx, &cidpsvc37.DescribeResourceServerInput{
 		UserPoolId: aws.String(poolID),
-		Identifier: aws.String("mega-batch-37-api"),
+		Identifier: aws.String("cecw-api"),
 	})
 	require.NoError(t, err, "DescribeResourceServer should succeed")
 	require.Len(t, rsOut.ResourceServer.Scopes, 2)
 
 	domainOut, err := client.DescribeUserPoolDomain(ctx, &cidpsvc37.DescribeUserPoolDomainInput{
-		Domain: aws.String("mega-batch-37-domain"),
+		Domain: aws.String("cecw-domain"),
 	})
 	require.NoError(t, err, "DescribeUserPoolDomain should succeed")
 	require.NotNil(t, domainOut.DomainDescription)
@@ -111,7 +111,7 @@ func verifyMegaBatch37Cognito(ctx context.Context, t *testing.T) {
 	require.NotNil(t, riskOut.RiskConfiguration.CompromisedCredentialsRiskConfiguration)
 }
 
-func verifyMegaBatch37ECS(ctx context.Context, t *testing.T) {
+func verifyCognitoEcsCloudformationAndWafv2ECS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -128,18 +128,18 @@ func verifyMegaBatch37ECS(ctx context.Context, t *testing.T) {
 	assert.Equal(t, "enabled", aws.ToString(settingsOut.Settings[0].Value))
 
 	cpOut, err := client.DescribeCapacityProviders(ctx, &ecssvc37.DescribeCapacityProvidersInput{
-		CapacityProviders: []string{"mega-batch-37-cp"},
+		CapacityProviders: []string{"cecw-cp"},
 	})
 	require.NoError(t, err, "DescribeCapacityProviders should succeed")
 	require.NotEmpty(t, cpOut.CapacityProviders)
 	require.NotNil(t, cpOut.CapacityProviders[0].AutoScalingGroupProvider)
 
 	clustersOut, err := client.DescribeClusters(ctx, &ecssvc37.DescribeClustersInput{
-		Clusters: []string{"mega-batch-37-cluster"},
+		Clusters: []string{"cecw-cluster"},
 	})
 	require.NoError(t, err, "DescribeClusters should succeed")
 	require.Len(t, clustersOut.Clusters, 1)
-	assert.Contains(t, clustersOut.Clusters[0].CapacityProviders, "mega-batch-37-cp")
+	assert.Contains(t, clustersOut.Clusters[0].CapacityProviders, "cecw-cp")
 
 	clusterArn := aws.ToString(clustersOut.Clusters[0].ClusterArn)
 
@@ -151,7 +151,7 @@ func verifyMegaBatch37ECS(ctx context.Context, t *testing.T) {
 	var foundTag bool
 
 	for _, tag := range tagsOut.Tags {
-		if aws.ToString(tag.Key) == "mega-batch-37-key" && aws.ToString(tag.Value) == "mega-batch-37-value" {
+		if aws.ToString(tag.Key) == "cecw-key" && aws.ToString(tag.Value) == "cecw-value" {
 			foundTag = true
 		}
 	}
@@ -160,7 +160,7 @@ func verifyMegaBatch37ECS(ctx context.Context, t *testing.T) {
 
 	servicesOut, err := client.DescribeServices(ctx, &ecssvc37.DescribeServicesInput{
 		Cluster:  aws.String(clusterArn),
-		Services: []string{"mega-batch-37-service"},
+		Services: []string{"cecw-service"},
 	})
 	require.NoError(t, err, "DescribeServices should succeed")
 	require.Len(t, servicesOut.Services, 1)
@@ -173,7 +173,7 @@ func verifyMegaBatch37ECS(ctx context.Context, t *testing.T) {
 	require.NotEmpty(t, taskSetsOut.TaskSets)
 }
 
-func verifyMegaBatch37CloudFormation(ctx context.Context, t *testing.T) {
+func verifyCognitoEcsCloudformationAndWafv2CloudFormation(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -182,13 +182,13 @@ func verifyMegaBatch37CloudFormation(ctx context.Context, t *testing.T) {
 	})
 
 	ssOut, err := client.DescribeStackSet(ctx, &cfnsvc37.DescribeStackSetInput{
-		StackSetName: aws.String("mega-batch-37-stackset"),
+		StackSetName: aws.String("cecw-stackset"),
 	})
 	require.NoError(t, err, "DescribeStackSet should succeed")
 	require.NotNil(t, ssOut.StackSet)
 
 	instOut, err := client.DescribeStackInstance(ctx, &cfnsvc37.DescribeStackInstanceInput{
-		StackSetName:         aws.String("mega-batch-37-stackset"),
+		StackSetName:         aws.String("cecw-stackset"),
 		StackInstanceAccount: aws.String("000000000000"),
 		StackInstanceRegion:  aws.String("us-east-1"),
 	})
@@ -196,7 +196,7 @@ func verifyMegaBatch37CloudFormation(ctx context.Context, t *testing.T) {
 	require.NotNil(t, instOut.StackInstance)
 
 	listOut, err := client.ListStackInstances(ctx, &cfnsvc37.ListStackInstancesInput{
-		StackSetName: aws.String("mega-batch-37-stackset-bulk"),
+		StackSetName: aws.String("cecw-stackset-bulk"),
 	})
 	require.NoError(t, err, "ListStackInstances should succeed")
 
@@ -212,13 +212,13 @@ func verifyMegaBatch37CloudFormation(ctx context.Context, t *testing.T) {
 
 	typeOut, err := client.DescribeType(ctx, &cfnsvc37.DescribeTypeInput{
 		Type:     cfntypes37.RegistryTypeResource,
-		TypeName: aws.String("MegaBatch37::Example::Resource"),
+		TypeName: aws.String("CognitoEcsCloudformationAndWafv2::Example::Resource"),
 	})
 	require.NoError(t, err, "DescribeType should succeed")
-	assert.Equal(t, "MegaBatch37::Example::Resource", aws.ToString(typeOut.TypeName))
+	assert.Equal(t, "CognitoEcsCloudformationAndWafv2::Example::Resource", aws.ToString(typeOut.TypeName))
 }
 
-func verifyMegaBatch37CodeBuild(ctx context.Context, t *testing.T) {
+func verifyCognitoEcsCloudformationAndWafv2CodeBuild(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -227,7 +227,7 @@ func verifyMegaBatch37CodeBuild(ctx context.Context, t *testing.T) {
 	})
 
 	fleetsOut, err := client.BatchGetFleets(ctx, &cbsvc37.BatchGetFleetsInput{
-		Names: []string{"mega-batch-37-fleet"},
+		Names: []string{"cecw-fleet"},
 	})
 	require.NoError(t, err, "BatchGetFleets should succeed")
 	require.Len(t, fleetsOut.Fleets, 1)
@@ -235,7 +235,7 @@ func verifyMegaBatch37CodeBuild(ctx context.Context, t *testing.T) {
 
 	rgOut, err := client.BatchGetReportGroups(ctx, &cbsvc37.BatchGetReportGroupsInput{
 		ReportGroupArns: []string{
-			"arn:aws:codebuild:us-east-1:000000000000:report-group/mega-batch-37-report-group",
+			"arn:aws:codebuild:us-east-1:000000000000:report-group/cecw-report-group",
 		},
 	})
 	require.NoError(t, err, "BatchGetReportGroups should succeed")
@@ -247,7 +247,7 @@ func verifyMegaBatch37CodeBuild(ctx context.Context, t *testing.T) {
 		ResourceArn: aws.String(reportGroupArn),
 	})
 	require.NoError(t, err, "GetResourcePolicy should succeed")
-	assert.Contains(t, aws.ToString(policyOut.Policy), "mega-batch-37-policy")
+	assert.Contains(t, aws.ToString(policyOut.Policy), "cecw-policy")
 
 	credsOut, err := client.ListSourceCredentials(ctx, &cbsvc37.ListSourceCredentialsInput{})
 	require.NoError(t, err, "ListSourceCredentials should succeed")
@@ -263,14 +263,14 @@ func verifyMegaBatch37CodeBuild(ctx context.Context, t *testing.T) {
 	assert.True(t, foundCred, "GitHub PAT source credential should be listed")
 
 	projOut, err := client.BatchGetProjects(ctx, &cbsvc37.BatchGetProjectsInput{
-		Names: []string{"mega-batch-37-project"},
+		Names: []string{"cecw-project"},
 	})
 	require.NoError(t, err, "BatchGetProjects should succeed")
 	require.Len(t, projOut.Projects, 1)
 	require.NotNil(t, projOut.Projects[0].Webhook, "project should have a webhook attached")
 }
 
-func verifyMegaBatch37WAFv2(ctx context.Context, t *testing.T) {
+func verifyCognitoEcsCloudformationAndWafv2WAFv2(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -281,10 +281,10 @@ func verifyMegaBatch37WAFv2(ctx context.Context, t *testing.T) {
 	ipSetsOut, err := client.ListIPSets(ctx, &waf2svc37.ListIPSetsInput{Scope: waf2types37.ScopeRegional})
 	require.NoError(t, err, "ListIPSets should succeed")
 
-	ipSetID := findWAFv2SummaryID(t, ipSetsOut.IPSets, "mega-batch-37-ip-set")
+	ipSetID := findWAFv2SummaryID(t, ipSetsOut.IPSets, "cecw-ip-set")
 
 	getIPSet, err := client.GetIPSet(ctx, &waf2svc37.GetIPSetInput{
-		Name:  aws.String("mega-batch-37-ip-set"),
+		Name:  aws.String("cecw-ip-set"),
 		Scope: waf2types37.ScopeRegional,
 		Id:    aws.String(ipSetID),
 	})
@@ -296,24 +296,24 @@ func verifyMegaBatch37WAFv2(ctx context.Context, t *testing.T) {
 	})
 	require.NoError(t, err, "ListRegexPatternSets should succeed")
 
-	regexID := findWAFv2SummaryID(t, regexOut.RegexPatternSets, "mega-batch-37-regex-pattern-set")
+	regexID := findWAFv2SummaryID(t, regexOut.RegexPatternSets, "cecw-regex-pattern-set")
 
 	getRegex, err := client.GetRegexPatternSet(ctx, &waf2svc37.GetRegexPatternSetInput{
-		Name:  aws.String("mega-batch-37-regex-pattern-set"),
+		Name:  aws.String("cecw-regex-pattern-set"),
 		Scope: waf2types37.ScopeRegional,
 		Id:    aws.String(regexID),
 	})
 	require.NoError(t, err, "GetRegexPatternSet should succeed")
 	require.Len(t, getRegex.RegexPatternSet.RegularExpressionList, 1)
-	assert.Equal(t, "mega-batch-37-.*", aws.ToString(getRegex.RegexPatternSet.RegularExpressionList[0].RegexString))
+	assert.Equal(t, "cecw-.*", aws.ToString(getRegex.RegexPatternSet.RegularExpressionList[0].RegexString))
 
 	rgOut, err := client.ListRuleGroups(ctx, &waf2svc37.ListRuleGroupsInput{Scope: waf2types37.ScopeRegional})
 	require.NoError(t, err, "ListRuleGroups should succeed")
 
-	ruleGroupID := findWAFv2SummaryID(t, rgOut.RuleGroups, "mega-batch-37-rule-group")
+	ruleGroupID := findWAFv2SummaryID(t, rgOut.RuleGroups, "cecw-rule-group")
 
 	getRG, err := client.GetRuleGroup(ctx, &waf2svc37.GetRuleGroupInput{
-		Name:  aws.String("mega-batch-37-rule-group"),
+		Name:  aws.String("cecw-rule-group"),
 		Scope: waf2types37.ScopeRegional,
 		Id:    aws.String(ruleGroupID),
 	})
@@ -327,10 +327,10 @@ func verifyMegaBatch37WAFv2(ctx context.Context, t *testing.T) {
 	waclOut, err := client.ListWebACLs(ctx, &waf2svc37.ListWebACLsInput{Scope: waf2types37.ScopeRegional})
 	require.NoError(t, err, "ListWebACLs should succeed")
 
-	waclID := findWAFv2SummaryID(t, waclOut.WebACLs, "mega-batch-37-web-acl")
+	waclID := findWAFv2SummaryID(t, waclOut.WebACLs, "cecw-web-acl")
 
 	getWACL, err := client.GetWebACL(ctx, &waf2svc37.GetWebACLInput{
-		Name:  aws.String("mega-batch-37-web-acl"),
+		Name:  aws.String("cecw-web-acl"),
 		Scope: waf2types37.ScopeRegional,
 		Id:    aws.String(waclID),
 	})
@@ -348,7 +348,7 @@ func verifyMegaBatch37WAFv2(ctx context.Context, t *testing.T) {
 	})
 	require.NoError(t, err, "GetLoggingConfiguration should succeed")
 	require.NotEmpty(t, loggingOut.LoggingConfiguration.LogDestinationConfigs)
-	assert.Contains(t, loggingOut.LoggingConfiguration.LogDestinationConfigs[0], "aws-waf-logs-mega-batch-37")
+	assert.Contains(t, loggingOut.LoggingConfiguration.LogDestinationConfigs[0], "aws-waf-logs-cecw")
 }
 
 // wafv2Summary is the shape shared by IPSetSummary/RegexPatternSetSummary/

@@ -1,20 +1,20 @@
 # --- Shared networking ---
 
-resource "aws_vpc" "mb32" {
+resource "aws_vpc" "fsxf" {
   cidr_block = "10.192.0.0/16"
 
   tags = {
-    Name = "mega-batch-32-vpc"
+    Name = "fsxf-vpc"
   }
 }
 
-resource "aws_subnet" "mb32" {
-  vpc_id            = aws_vpc.mb32.id
+resource "aws_subnet" "fsxf" {
+  vpc_id            = aws_vpc.fsxf.id
   cidr_block        = "10.192.1.0/24"
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-32-subnet"
+    Name = "fsxf-subnet"
   }
 }
 
@@ -31,9 +31,9 @@ resource "aws_subnet" "mb32" {
 
 # --- OpenZFS (file system, volume, snapshot, backup) ---
 
-resource "aws_fsx_openzfs_file_system" "mb32" {
+resource "aws_fsx_openzfs_file_system" "fsxf" {
   storage_capacity    = 64
-  subnet_ids          = [aws_subnet.mb32.id]
+  subnet_ids          = [aws_subnet.fsxf.id]
   deployment_type     = "SINGLE_AZ_1"
   throughput_capacity = 64
 
@@ -42,26 +42,26 @@ resource "aws_fsx_openzfs_file_system" "mb32" {
   }
 }
 
-resource "aws_fsx_openzfs_volume" "mb32" {
-  name             = "mega-batch-32-oz-vol"
-  parent_volume_id = aws_fsx_openzfs_file_system.mb32.root_volume_id
+resource "aws_fsx_openzfs_volume" "fsxf" {
+  name             = "fsxf-oz-vol"
+  parent_volume_id = aws_fsx_openzfs_file_system.fsxf.root_volume_id
 
   timeouts {
     delete = "5s"
   }
 }
 
-resource "aws_fsx_openzfs_snapshot" "mb32" {
-  name      = "mega-batch-32-oz-snap"
-  volume_id = aws_fsx_openzfs_file_system.mb32.root_volume_id
+resource "aws_fsx_openzfs_snapshot" "fsxf" {
+  name      = "fsxf-oz-snap"
+  volume_id = aws_fsx_openzfs_file_system.fsxf.root_volume_id
 
   timeouts {
     delete = "5s"
   }
 }
 
-resource "aws_fsx_backup" "mb32" {
-  file_system_id = aws_fsx_openzfs_file_system.mb32.id
+resource "aws_fsx_backup" "fsxf" {
+  file_system_id = aws_fsx_openzfs_file_system.fsxf.id
 
   timeouts {
     delete = "5s"
@@ -70,10 +70,10 @@ resource "aws_fsx_backup" "mb32" {
 
 # --- ONTAP (file system, storage virtual machine, volume) ---
 
-resource "aws_fsx_ontap_file_system" "mb32" {
+resource "aws_fsx_ontap_file_system" "fsxf" {
   storage_capacity    = 1024
-  subnet_ids          = [aws_subnet.mb32.id]
-  preferred_subnet_id = aws_subnet.mb32.id
+  subnet_ids          = [aws_subnet.fsxf.id]
+  preferred_subnet_id = aws_subnet.fsxf.id
   deployment_type     = "SINGLE_AZ_1"
   throughput_capacity = 128
 
@@ -82,21 +82,21 @@ resource "aws_fsx_ontap_file_system" "mb32" {
   }
 }
 
-resource "aws_fsx_ontap_storage_virtual_machine" "mb32" {
-  file_system_id = aws_fsx_ontap_file_system.mb32.id
-  name           = "mb32svm"
+resource "aws_fsx_ontap_storage_virtual_machine" "fsxf" {
+  file_system_id = aws_fsx_ontap_file_system.fsxf.id
+  name           = "fsxfsvm"
 
   timeouts {
     delete = "5s"
   }
 }
 
-resource "aws_fsx_ontap_volume" "mb32" {
-  name                       = "mb32vol"
-  junction_path              = "/mb32vol"
+resource "aws_fsx_ontap_volume" "fsxf" {
+  name                       = "fsxfvol"
+  junction_path              = "/fsxfvol"
   size_in_megabytes          = 1024
   storage_efficiency_enabled = true
-  storage_virtual_machine_id = aws_fsx_ontap_storage_virtual_machine.mb32.id
+  storage_virtual_machine_id = aws_fsx_ontap_storage_virtual_machine.fsxf.id
 
   timeouts {
     delete = "5s"
@@ -105,15 +105,15 @@ resource "aws_fsx_ontap_volume" "mb32" {
 
 # --- Windows ---
 
-resource "aws_fsx_windows_file_system" "mb32" {
-  subnet_ids          = [aws_subnet.mb32.id]
+resource "aws_fsx_windows_file_system" "fsxf" {
+  subnet_ids          = [aws_subnet.fsxf.id]
   throughput_capacity = 32
   storage_capacity    = 32
 
   self_managed_active_directory {
     dns_ips     = ["10.192.0.10", "10.192.0.11"]
-    domain_name = "mega-batch-32.example.test"
-    password    = "MegaBatch32Password!"
+    domain_name = "fsxf.example.test"
+    password    = "FsxFileSystemsPassword!"
     username    = "Admin"
   }
 
@@ -124,14 +124,14 @@ resource "aws_fsx_windows_file_system" "mb32" {
 
 # --- Lustre (prereq for data repository association + file cache) ---
 
-resource "aws_s3_bucket" "mb32_dra" {
-  bucket        = "mega-batch-32-dra-bucket"
+resource "aws_s3_bucket" "fsxf_dra" {
+  bucket        = "fsxf-dra-bucket"
   force_destroy = true
 }
 
-resource "aws_fsx_lustre_file_system" "mb32" {
+resource "aws_fsx_lustre_file_system" "fsxf" {
   storage_capacity            = 1200
-  subnet_ids                  = [aws_subnet.mb32.id]
+  subnet_ids                  = [aws_subnet.fsxf.id]
   deployment_type             = "PERSISTENT_2"
   per_unit_storage_throughput = 125
 
@@ -140,10 +140,10 @@ resource "aws_fsx_lustre_file_system" "mb32" {
   }
 }
 
-resource "aws_fsx_data_repository_association" "mb32" {
-  file_system_id       = aws_fsx_lustre_file_system.mb32.id
-  data_repository_path = "s3://${aws_s3_bucket.mb32_dra.bucket}"
-  file_system_path     = "/mb32"
+resource "aws_fsx_data_repository_association" "fsxf" {
+  file_system_id       = aws_fsx_lustre_file_system.fsxf.id
+  data_repository_path = "s3://${aws_s3_bucket.fsxf_dra.bucket}"
+  file_system_path     = "/fsxf"
 
   s3 {
     auto_export_policy {
@@ -160,11 +160,11 @@ resource "aws_fsx_data_repository_association" "mb32" {
   }
 }
 
-resource "aws_fsx_file_cache" "mb32" {
+resource "aws_fsx_file_cache" "fsxf" {
   file_cache_type         = "LUSTRE"
   file_cache_type_version = "2.12"
   storage_capacity        = 1200
-  subnet_ids              = [aws_subnet.mb32.id]
+  subnet_ids              = [aws_subnet.fsxf.id]
 
   lustre_configuration {
     deployment_type             = "CACHE_1"

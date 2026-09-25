@@ -1,7 +1,7 @@
 # --- IAM / KMS / S3 / SNS / Secrets ------------------------------------------
 
 resource "aws_iam_role" "rds" {
-  name = "mega-batch-16-rds-role-{{.Suffix}}"
+  name = "rdsu-rds-role-{{.Suffix}}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -13,19 +13,19 @@ resource "aws_iam_role" "rds" {
 }
 
 resource "aws_kms_key" "this" {
-  description = "mega-batch-16 kms key"
+  description = "rdsu kms key"
 }
 
 resource "aws_s3_bucket" "export" {
-  bucket = "mega-batch-16-export-bucket-{{.Suffix}}"
+  bucket = "rdsu-export-bucket-{{.Suffix}}"
 }
 
 resource "aws_sns_topic" "events" {
-  name = "mega-batch-16-events-{{.Suffix}}"
+  name = "rdsu-events-{{.Suffix}}"
 }
 
 resource "aws_secretsmanager_secret" "proxy" {
-  name = "mega-batch-16-proxy-secret-{{.Suffix}}"
+  name = "rdsu-proxy-secret-{{.Suffix}}"
 }
 
 resource "aws_secretsmanager_secret_version" "proxy" {
@@ -40,12 +40,12 @@ resource "aws_secretsmanager_secret_version" "proxy" {
 # and provisioning a real VPC here only adds a slow, unrelated EC2 lifecycle.
 
 resource "aws_db_subnet_group" "this" {
-  name       = "mega-batch-16-subnet-group-{{.Suffix}}"
+  name       = "rdsu-subnet-group-{{.Suffix}}"
   subnet_ids = ["subnet-00000000", "subnet-11111111"]
 }
 
 resource "aws_db_parameter_group" "mysql" {
-  name   = "mega-batch-16-mysql-params-{{.Suffix}}"
+  name   = "rdsu-mysql-params-{{.Suffix}}"
   family = "mysql8.0"
 
   parameter {
@@ -55,7 +55,7 @@ resource "aws_db_parameter_group" "mysql" {
 }
 
 resource "aws_db_option_group" "mysql" {
-  name                 = "mega-batch-16-mysql-options-{{.Suffix}}"
+  name                 = "rdsu-mysql-options-{{.Suffix}}"
   engine_name          = "mysql"
   major_engine_version = "8.0"
 }
@@ -63,53 +63,53 @@ resource "aws_db_option_group" "mysql" {
 # --- DB instances --------------------------------------------------------------
 
 resource "aws_db_instance" "mysql" {
-  identifier            = "mega-batch-16-mysql-{{.Suffix}}"
-  engine                = "mysql"
-  engine_version        = "8.0"
-  instance_class        = "db.t3.micro"
-  username              = "admin"
-  password              = "password123"
-  allocated_storage     = 20
-  db_subnet_group_name  = aws_db_subnet_group.this.name
-  parameter_group_name  = aws_db_parameter_group.mysql.name
-  option_group_name     = aws_db_option_group.mysql.name
-  skip_final_snapshot   = true
+  identifier           = "rdsu-mysql-{{.Suffix}}"
+  engine               = "mysql"
+  engine_version       = "8.0"
+  instance_class       = "db.t3.micro"
+  username             = "admin"
+  password             = "password123"
+  allocated_storage    = 20
+  db_subnet_group_name = aws_db_subnet_group.this.name
+  parameter_group_name = aws_db_parameter_group.mysql.name
+  option_group_name    = aws_db_option_group.mysql.name
+  skip_final_snapshot  = true
 }
 
 resource "aws_db_instance" "pg" {
-  identifier            = "mega-batch-16-pg-{{.Suffix}}"
-  engine                = "postgres"
-  instance_class        = "db.t3.micro"
-  username              = "admin"
-  password              = "password123"
-  db_name               = "testdb"
-  allocated_storage     = 20
-  db_subnet_group_name  = aws_db_subnet_group.this.name
-  skip_final_snapshot   = true
+  identifier           = "rdsu-pg-{{.Suffix}}"
+  engine               = "postgres"
+  instance_class       = "db.t3.micro"
+  username             = "admin"
+  password             = "password123"
+  db_name              = "testdb"
+  allocated_storage    = 20
+  db_subnet_group_name = aws_db_subnet_group.this.name
+  skip_final_snapshot  = true
 }
 
 # --- Snapshots -------------------------------------------------------------------
 
 resource "aws_db_snapshot" "mysql" {
   db_instance_identifier = aws_db_instance.mysql.identifier
-  db_snapshot_identifier = "mega-batch-16-mysql-snap-{{.Suffix}}"
+  db_snapshot_identifier = "rdsu-mysql-snap-{{.Suffix}}"
 }
 
 resource "aws_db_snapshot_copy" "mysql" {
   source_db_snapshot_identifier = aws_db_snapshot.mysql.db_snapshot_identifier
-  target_db_snapshot_identifier = "mega-batch-16-mysql-snap-copy-{{.Suffix}}"
+  target_db_snapshot_identifier = "rdsu-mysql-snap-copy-{{.Suffix}}"
 }
 
 # --- Role association / event subscription / instance state / certificate ------
 
 resource "aws_db_instance_role_association" "pg" {
   db_instance_identifier = aws_db_instance.pg.identifier
-  feature_name            = "s3Import"
-  role_arn                = aws_iam_role.rds.arn
+  feature_name           = "s3Import"
+  role_arn               = aws_iam_role.rds.arn
 }
 
 resource "aws_db_event_subscription" "this" {
-  name        = "mega-batch-16-events-sub-{{.Suffix}}"
+  name        = "rdsu-events-sub-{{.Suffix}}"
   sns_topic   = aws_sns_topic.events.arn
   source_type = "db-instance"
   source_ids  = [aws_db_instance.mysql.identifier]
@@ -127,11 +127,11 @@ resource "aws_rds_certificate" "this" {
 # --- DB proxy family -------------------------------------------------------------
 
 resource "aws_db_proxy" "this" {
-  name                    = "mega-batch-16-proxy-{{.Suffix}}"
-  engine_family           = "POSTGRESQL"
-  role_arn                = aws_iam_role.rds.arn
-  vpc_subnet_ids          = ["subnet-00000000", "subnet-11111111"]
-  vpc_security_group_ids  = ["sg-00000000"]
+  name                   = "rdsu-proxy-{{.Suffix}}"
+  engine_family          = "POSTGRESQL"
+  role_arn               = aws_iam_role.rds.arn
+  vpc_subnet_ids         = ["subnet-00000000", "subnet-11111111"]
+  vpc_security_group_ids = ["sg-00000000"]
 
   auth {
     auth_scheme = "SECRETS"
@@ -146,7 +146,7 @@ resource "aws_db_proxy_default_target_group" "this" {
 
 resource "aws_db_proxy_endpoint" "this" {
   db_proxy_name          = aws_db_proxy.this.name
-  db_proxy_endpoint_name = "mega-batch-16-proxy-endpoint-{{.Suffix}}"
+  db_proxy_endpoint_name = "rdsu-proxy-endpoint-{{.Suffix}}"
   vpc_subnet_ids         = ["subnet-00000000", "subnet-11111111"]
 }
 
@@ -159,24 +159,24 @@ resource "aws_db_proxy_target" "this" {
 # --- Aurora cluster family -------------------------------------------------
 
 resource "aws_rds_cluster" "aurora" {
-  cluster_identifier         = "mega-batch-16-aurora-{{.Suffix}}"
-  engine                     = "aurora-postgresql"
-  master_username            = "admin"
-  master_password            = "password123"
-  db_subnet_group_name       = aws_db_subnet_group.this.name
-  cluster_scalability_type   = "limitless"
-  skip_final_snapshot        = true
+  cluster_identifier       = "rdsu-aurora-{{.Suffix}}"
+  engine                   = "aurora-postgresql"
+  master_username          = "admin"
+  master_password          = "password123"
+  db_subnet_group_name     = aws_db_subnet_group.this.name
+  cluster_scalability_type = "limitless"
+  skip_final_snapshot      = true
 }
 
 resource "aws_rds_cluster_instance" "aurora" {
-  identifier         = "mega-batch-16-aurora-inst-{{.Suffix}}"
+  identifier         = "rdsu-aurora-inst-{{.Suffix}}"
   cluster_identifier = aws_rds_cluster.aurora.id
   engine             = aws_rds_cluster.aurora.engine
   instance_class     = "db.t3.medium"
 }
 
 resource "aws_rds_cluster_parameter_group" "aurora" {
-  name   = "mega-batch-16-aurora-cpg-{{.Suffix}}"
+  name   = "rdsu-aurora-cpg-{{.Suffix}}"
   family = "aurora-postgresql16"
 
   parameter {
@@ -187,7 +187,7 @@ resource "aws_rds_cluster_parameter_group" "aurora" {
 
 resource "aws_rds_cluster_endpoint" "aurora" {
   cluster_identifier          = aws_rds_cluster.aurora.id
-  cluster_endpoint_identifier = "mega-batch-16-aurora-reader-{{.Suffix}}"
+  cluster_endpoint_identifier = "rdsu-aurora-reader-{{.Suffix}}"
   custom_endpoint_type        = "READER"
 
   depends_on = [aws_rds_cluster_instance.aurora]
@@ -195,30 +195,30 @@ resource "aws_rds_cluster_endpoint" "aurora" {
 
 resource "aws_rds_cluster_role_association" "aurora" {
   db_cluster_identifier = aws_rds_cluster.aurora.id
-  feature_name           = "s3Import"
-  role_arn                = aws_iam_role.rds.arn
+  feature_name          = "s3Import"
+  role_arn              = aws_iam_role.rds.arn
 }
 
 resource "aws_db_cluster_snapshot" "aurora" {
   db_cluster_identifier          = aws_rds_cluster.aurora.id
-  db_cluster_snapshot_identifier = "mega-batch-16-aurora-snap-{{.Suffix}}"
+  db_cluster_snapshot_identifier = "rdsu-aurora-snap-{{.Suffix}}"
 }
 
 # --- Global cluster / export task / activity stream / backups replication --
 
 resource "aws_rds_global_cluster" "this" {
-  global_cluster_identifier = "mega-batch-16-global-{{.Suffix}}"
-  engine                     = "aurora-postgresql"
-  database_name              = "testdb"
-  storage_encrypted          = true
+  global_cluster_identifier = "rdsu-global-{{.Suffix}}"
+  engine                    = "aurora-postgresql"
+  database_name             = "testdb"
+  storage_encrypted         = true
 }
 
 resource "aws_rds_export_task" "this" {
-  export_task_identifier = "mega-batch-16-export-{{.Suffix}}"
-  source_arn              = aws_db_cluster_snapshot.aurora.db_cluster_snapshot_arn
-  s3_bucket_name          = aws_s3_bucket.export.bucket
-  iam_role_arn            = aws_iam_role.rds.arn
-  kms_key_id              = aws_kms_key.this.arn
+  export_task_identifier = "rdsu-export-{{.Suffix}}"
+  source_arn             = aws_db_cluster_snapshot.aurora.db_cluster_snapshot_arn
+  s3_bucket_name         = aws_s3_bucket.export.bucket
+  iam_role_arn           = aws_iam_role.rds.arn
+  kms_key_id             = aws_kms_key.this.arn
 }
 
 resource "aws_rds_cluster_activity_stream" "aurora" {
@@ -231,14 +231,14 @@ resource "aws_rds_cluster_activity_stream" "aurora" {
 
 resource "aws_db_instance_automated_backups_replication" "mysql" {
   source_db_instance_arn = aws_db_instance.mysql.arn
-  kms_key_id              = aws_kms_key.this.arn
+  kms_key_id             = aws_kms_key.this.arn
 }
 
 resource "aws_rds_shard_group" "this" {
-  db_shard_group_identifier = "mega-batch-16-shard-group-{{.Suffix}}"
-  db_cluster_identifier      = aws_rds_cluster.aurora.id
-  max_acu                    = 128
-  min_acu                    = 2
+  db_shard_group_identifier = "rdsu-shard-group-{{.Suffix}}"
+  db_cluster_identifier     = aws_rds_cluster.aurora.id
+  max_acu                   = 128
+  min_acu                   = 2
 
   depends_on = [aws_rds_cluster_instance.aurora]
 }
@@ -246,7 +246,7 @@ resource "aws_rds_shard_group" "this" {
 # --- Zero-ETL integration (Aurora -> Redshift) ------------------------------
 
 resource "aws_redshift_cluster" "target" {
-  cluster_identifier  = "mega-batch-16-redshift-target-{{.Suffix}}"
+  cluster_identifier  = "rdsu-redshift-target-{{.Suffix}}"
   database_name       = "targetdb"
   master_username     = "admin"
   master_password     = "Test1234!"
@@ -256,7 +256,7 @@ resource "aws_redshift_cluster" "target" {
 }
 
 resource "aws_rds_integration" "this" {
-  integration_name = "mega-batch-16-integration-{{.Suffix}}"
+  integration_name = "rdsu-integration-{{.Suffix}}"
   source_arn       = aws_rds_cluster.aurora.arn
   target_arn       = aws_redshift_cluster.target.arn
 

@@ -103,7 +103,7 @@ DescribeKey/Encrypt/Decrypt/GenerateDataKey*/GetKeyPolicy now lazily provision
 `alias/aws/<service>` (KeyManager=AWS) on first reference; ScheduleKeyDeletion/
 DisableKey/PutKeyPolicy/UpdateAlias/DeleteAlias reject KeyManager=AWS keys.
 
-### 2026-09-20 mega-batch-35 terraform sweep
+### 2026-09-20 autoscaling-dynamodb-kms-and-cloudwatch terraform sweep
 
 CreateCustomKeyStore didn't store/echo CloudHsmClusterId/TrustAnchorCertificate,
 so Terraform saw them null on refresh and force-replaced the resource on the
@@ -112,13 +112,13 @@ origin replicas; real AWS requires separately importing material into each
 region, so the replica must start in PendingImport instead (breaks
 aws_kms_replica_external_key's own post-replicate import step otherwise).
 
-### 2026-09-19 mega-batch-14/15 terraform sweep (gopherstack-101r)
+### 2026-09-19 cloudfront-and-route53/15 terraform sweep (gopherstack-101r)
 
 CreateKey now honours the deprecated CustomerMasterKeySpec wire field
 (terraform's customer_master_key_spec); GetKeyRotationStatus no longer
 errors for asymmetric/HMAC/imported-material keys, matching real AWS.
 Both surfaced via `aws_kms_key` (ECC_NIST_P256, Route53 DNSSEC signing)
-in test/terraform/fixtures/mega-batch-14.tf.
+in test/terraform/fixtures/cloudfront-and-route53.tf.
 
 ### 2026-09-19 over-wide-response sweep
 

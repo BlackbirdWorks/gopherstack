@@ -175,7 +175,7 @@ field is additive only, no version bump (pkgs/persistence golden updated).
 Tests: `handshake_expiry_test.go` (synctest, evicted-after-retention +
 kept-within-retention).
 
-### 2026-09-24 (mega-batch-48): resource-policy tagging + resource-existence gap
+### 2026-09-24 (organizations-and-appstream): resource-policy tagging + resource-existence gap
 
 FIXED: `resourceExistsLocked` didn't recognize the resource policy ID, so
 `TagResource`/`ListTagsForResource` on a `p-rp-*` ARN 400'd with

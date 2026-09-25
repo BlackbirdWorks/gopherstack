@@ -134,7 +134,7 @@ func TestRealClient_DescribeClientVpnRoutesFilters(t *testing.T) {
 }
 
 // TestRealClient_ClientVpnRoute_TargetSubnetFilter covers the regression
-// fixed by gopherstack MegaBatch45: CreateClientVpnRoute previously dropped
+// fixed by gopherstack Ec2IpamAndTransitgatewayAdvanced: CreateClientVpnRoute previously dropped
 // TargetVpcSubnetId, so a route could never be found by destination-cidr
 // plus target-subnet filters together.
 func TestRealClient_ClientVpnRoute_TargetSubnetFilter(t *testing.T) {

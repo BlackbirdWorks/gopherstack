@@ -16,17 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch9 provisions Account, Direct Connect gateway/LAG,
+// TestTerraform_AccountDirectconnectOpsworksAndGrafana provisions Account, Direct Connect gateway/LAG,
 // OpsWorks stack/layer/app/user-profile/permission, and Grafana workspace
 // API key/role association resources via Terraform and verifies each
 // through its own SDK client's Describe/List/Get path.
-func TestTerraform_MegaBatch9(t *testing.T) {
+func TestTerraform_AccountDirectconnectOpsworksAndGrafana(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-9",
+			fixture: "account-directconnect-opsworks-and-grafana",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -42,7 +42,7 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				contactOut, err := acctClient.GetContactInformation(ctx, &accountsvc.GetContactInformationInput{})
 				require.NoError(t, err, "GetContactInformation should succeed")
 				require.NotNil(t, contactOut.ContactInformation)
-				assert.Equal(t, "Mega Batch Nine", aws.ToString(contactOut.ContactInformation.FullName))
+				assert.Equal(t, "Adog", aws.ToString(contactOut.ContactInformation.FullName))
 
 				regionOut, err := acctClient.GetRegionOptStatus(ctx, &accountsvc.GetRegionOptStatusInput{
 					RegionName: aws.String("af-south-1"),
@@ -63,7 +63,7 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				var dxGatewayID string
 
 				for _, gw := range gwOut.DirectConnectGateways {
-					if aws.ToString(gw.DirectConnectGatewayName) == "mega-batch-9-dxgw" {
+					if aws.ToString(gw.DirectConnectGatewayName) == "adog-dxgw" {
 						dxGatewayID = aws.ToString(gw.DirectConnectGatewayId)
 					}
 				}
@@ -90,14 +90,14 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				var foundLag bool
 
 				for _, lag := range lagsOut.Lags {
-					if aws.ToString(lag.LagName) == "mega-batch-9-lag" {
+					if aws.ToString(lag.LagName) == "adog-lag" {
 						foundLag = true
 
 						assert.Equal(t, "1Gbps", aws.ToString(lag.ConnectionsBandwidth))
 					}
 				}
 
-				assert.True(t, foundLag, "lag mega-batch-9-lag should be listed")
+				assert.True(t, foundLag, "lag adog-lag should be listed")
 
 				opsClient := opsworkssvc.NewFromConfig(cfg, func(o *opsworkssvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -109,7 +109,7 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				var stackID string
 
 				for _, s := range stacksOut.Stacks {
-					if aws.ToString(s.Name) == "mega-batch-9-stack" {
+					if aws.ToString(s.Name) == "adog-stack" {
 						stackID = aws.ToString(s.StackId)
 					}
 				}
@@ -122,8 +122,8 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				)
 				require.NoError(t, err, "DescribeLayers should succeed")
 				require.Len(t, layersOut.Layers, 1)
-				assert.Equal(t, "mega-batch-9-layer", aws.ToString(layersOut.Layers[0].Name))
-				assert.Equal(t, "mb9layer", aws.ToString(layersOut.Layers[0].Shortname))
+				assert.Equal(t, "adog-layer", aws.ToString(layersOut.Layers[0].Name))
+				assert.Equal(t, "adoglayer", aws.ToString(layersOut.Layers[0].Shortname))
 
 				appsOut, err := opsClient.DescribeApps(
 					ctx,
@@ -131,16 +131,16 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				)
 				require.NoError(t, err, "DescribeApps should succeed")
 				require.Len(t, appsOut.Apps, 1)
-				assert.Equal(t, "mega-batch-9-app", aws.ToString(appsOut.Apps[0].Name))
+				assert.Equal(t, "adog-app", aws.ToString(appsOut.Apps[0].Name))
 
-				const userArn = "arn:aws:iam::000000000000:user/mega-batch-9-user"
+				const userArn = "arn:aws:iam::000000000000:user/adog-user"
 
 				profilesOut, err := opsClient.DescribeUserProfiles(ctx, &opsworkssvc.DescribeUserProfilesInput{
 					IamUserArns: []string{userArn},
 				})
 				require.NoError(t, err, "DescribeUserProfiles should succeed")
 				require.Len(t, profilesOut.UserProfiles, 1)
-				assert.Equal(t, "mega-batch-9-user", aws.ToString(profilesOut.UserProfiles[0].SshUsername))
+				assert.Equal(t, "adog-user", aws.ToString(profilesOut.UserProfiles[0].SshUsername))
 
 				permsOut, err := opsClient.DescribePermissions(
 					ctx,
@@ -170,7 +170,7 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				var workspaceID string
 
 				for _, w := range workspacesOut.Workspaces {
-					if aws.ToString(w.Name) == "mega-batch-9-grafana" {
+					if aws.ToString(w.Name) == "adog-grafana" {
 						workspaceID = aws.ToString(w.Id)
 					}
 				}
@@ -199,7 +199,7 @@ func TestTerraform_MegaBatch9(t *testing.T) {
 				var userID string
 
 				for _, u := range usersOut.Users {
-					if aws.ToString(u.UserName) == "mega-batch-9-user" {
+					if aws.ToString(u.UserName) == "adog-user" {
 						userID = aws.ToString(u.UserId)
 					}
 				}

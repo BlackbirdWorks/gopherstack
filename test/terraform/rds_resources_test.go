@@ -15,7 +15,7 @@ import (
 
 // megaRDSRedshiftProviderBlock returns an OpenTofu provider block covering the
 // RDS and Redshift endpoints plus the cross-service dependencies (IAM, KMS,
-// S3, SNS, Secrets Manager) mega-batch-16 (RDS) and mega-batch-18 (Redshift)
+// S3, SNS, Secrets Manager) rds-resources (RDS) and redshift-resources (Redshift)
 // need for parameter groups, proxies, export tasks, and zero-ETL
 // integrations. Shared by both files since they're in the same package.
 func megaRDSRedshiftProviderBlock(addr string) string {
@@ -52,18 +52,18 @@ provider "aws" {
 `, addr)
 }
 
-// TestTerraform_MegaBatch16 provisions RDS resources without prior terraform
+// TestTerraform_RdsResources provisions RDS resources without prior terraform
 // coverage: DB subnet group, parameter group, option group, snapshot and
 // snapshot copy, instance role association, event subscription, instance
 // state, certificate override, and the DB proxy family (proxy, default
 // target group, endpoint, target).
-func TestTerraform_MegaBatch16(t *testing.T) {
+func TestTerraform_RdsResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-16",
+			fixture:    "rds-resources",
 			providerFn: megaRDSRedshiftProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -75,9 +75,9 @@ func TestTerraform_MegaBatch16(t *testing.T) {
 
 				suffix := vars["Suffix"].(string)
 				client := createRDSClient(t)
-				verifyMegaBatch16Instances(ctx, t, client, suffix)
-				verifyMegaBatch16Proxy(ctx, t, client, suffix)
-				verifyMegaBatch16Cluster(ctx, t, client, suffix)
+				verifyRdsResourcesInstances(ctx, t, client, suffix)
+				verifyRdsResourcesProxy(ctx, t, client, suffix)
+				verifyRdsResourcesCluster(ctx, t, client, suffix)
 			},
 		},
 	}
@@ -90,30 +90,30 @@ func TestTerraform_MegaBatch16(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch16Instances(ctx context.Context, t *testing.T, client *rdssvc.Client, suffix string) {
+func verifyRdsResourcesInstances(ctx context.Context, t *testing.T, client *rdssvc.Client, suffix string) {
 	t.Helper()
 
 	snapOut, err := client.DescribeDBSnapshots(ctx, &rdssvc.DescribeDBSnapshotsInput{
-		DBSnapshotIdentifier: aws.String("mega-batch-16-mysql-snap-" + suffix),
+		DBSnapshotIdentifier: aws.String("rdsu-mysql-snap-" + suffix),
 	})
 	require.NoError(t, err, "DescribeDBSnapshots should succeed")
 	require.Len(t, snapOut.DBSnapshots, 1)
 
 	copyOut, err := client.DescribeDBSnapshots(ctx, &rdssvc.DescribeDBSnapshotsInput{
-		DBSnapshotIdentifier: aws.String("mega-batch-16-mysql-snap-copy-" + suffix),
+		DBSnapshotIdentifier: aws.String("rdsu-mysql-snap-copy-" + suffix),
 	})
 	require.NoError(t, err, "DescribeDBSnapshots(copy) should succeed")
 	require.Len(t, copyOut.DBSnapshots, 1)
 
 	subOut, err := client.DescribeEventSubscriptions(ctx, &rdssvc.DescribeEventSubscriptionsInput{
-		SubscriptionName: aws.String("mega-batch-16-events-sub-" + suffix),
+		SubscriptionName: aws.String("rdsu-events-sub-" + suffix),
 	})
 	require.NoError(t, err, "DescribeEventSubscriptions should succeed")
 	require.Len(t, subOut.EventSubscriptionsList, 1)
 	assert.Equal(t, "db-instance", aws.ToString(subOut.EventSubscriptionsList[0].SourceType))
 
 	pgOut, err := client.DescribeDBInstances(ctx, &rdssvc.DescribeDBInstancesInput{
-		DBInstanceIdentifier: aws.String("mega-batch-16-pg-" + suffix),
+		DBInstanceIdentifier: aws.String("rdsu-pg-" + suffix),
 	})
 	require.NoError(t, err, "DescribeDBInstances(pg) should succeed")
 	require.Len(t, pgOut.DBInstances, 1)
@@ -129,10 +129,10 @@ func verifyMegaBatch16Instances(ctx context.Context, t *testing.T, client *rdssv
 		"rds_ca_rsa2048_g1 should be the customer override after aws_rds_certificate applies")
 }
 
-func verifyMegaBatch16Cluster(ctx context.Context, t *testing.T, client *rdssvc.Client, suffix string) {
+func verifyRdsResourcesCluster(ctx context.Context, t *testing.T, client *rdssvc.Client, suffix string) {
 	t.Helper()
 
-	clusterID := "mega-batch-16-aurora-" + suffix
+	clusterID := "rdsu-aurora-" + suffix
 
 	clOut, err := client.DescribeDBClusters(ctx, &rdssvc.DescribeDBClustersInput{
 		DBClusterIdentifier: aws.String(clusterID),
@@ -149,48 +149,48 @@ func verifyMegaBatch16Cluster(ctx context.Context, t *testing.T, client *rdssvc.
 	require.Len(t, epOut.DBClusterEndpoints, 1)
 
 	snapOut, err := client.DescribeDBClusterSnapshots(ctx, &rdssvc.DescribeDBClusterSnapshotsInput{
-		DBClusterSnapshotIdentifier: aws.String("mega-batch-16-aurora-snap-" + suffix),
+		DBClusterSnapshotIdentifier: aws.String("rdsu-aurora-snap-" + suffix),
 	})
 	require.NoError(t, err, "DescribeDBClusterSnapshots should succeed")
 	require.Len(t, snapOut.DBClusterSnapshots, 1)
 
 	globalOut, err := client.DescribeGlobalClusters(ctx, &rdssvc.DescribeGlobalClustersInput{
-		GlobalClusterIdentifier: aws.String("mega-batch-16-global-" + suffix),
+		GlobalClusterIdentifier: aws.String("rdsu-global-" + suffix),
 	})
 	require.NoError(t, err, "DescribeGlobalClusters should succeed")
 	require.Len(t, globalOut.GlobalClusters, 1)
 
 	exportOut, err := client.DescribeExportTasks(ctx, &rdssvc.DescribeExportTasksInput{
-		ExportTaskIdentifier: aws.String("mega-batch-16-export-" + suffix),
+		ExportTaskIdentifier: aws.String("rdsu-export-" + suffix),
 	})
 	require.NoError(t, err, "DescribeExportTasks should succeed")
 	require.Len(t, exportOut.ExportTasks, 1)
 
 	backupsOut, err := client.DescribeDBInstanceAutomatedBackups(
 		ctx, &rdssvc.DescribeDBInstanceAutomatedBackupsInput{
-			DBInstanceIdentifier: aws.String("mega-batch-16-mysql-" + suffix),
+			DBInstanceIdentifier: aws.String("rdsu-mysql-" + suffix),
 		},
 	)
 	require.NoError(t, err, "DescribeDBInstanceAutomatedBackups should succeed")
 	require.NotEmpty(t, backupsOut.DBInstanceAutomatedBackups)
 
 	shardOut, err := client.DescribeDBShardGroups(ctx, &rdssvc.DescribeDBShardGroupsInput{
-		DBShardGroupIdentifier: aws.String("mega-batch-16-shard-group-" + suffix),
+		DBShardGroupIdentifier: aws.String("rdsu-shard-group-" + suffix),
 	})
 	require.NoError(t, err, "DescribeDBShardGroups should succeed")
 	require.Len(t, shardOut.DBShardGroups, 1)
 
 	integOut, err := client.DescribeIntegrations(ctx, &rdssvc.DescribeIntegrationsInput{
-		IntegrationIdentifier: aws.String("mega-batch-16-integration-" + suffix),
+		IntegrationIdentifier: aws.String("rdsu-integration-" + suffix),
 	})
 	require.NoError(t, err, "DescribeIntegrations should succeed")
 	require.Len(t, integOut.Integrations, 1)
 }
 
-func verifyMegaBatch16Proxy(ctx context.Context, t *testing.T, client *rdssvc.Client, suffix string) {
+func verifyRdsResourcesProxy(ctx context.Context, t *testing.T, client *rdssvc.Client, suffix string) {
 	t.Helper()
 
-	proxyName := "mega-batch-16-proxy-" + suffix
+	proxyName := "rdsu-proxy-" + suffix
 
 	proxyOut, err := client.DescribeDBProxies(ctx, &rdssvc.DescribeDBProxiesInput{
 		DBProxyName: aws.String(proxyName),

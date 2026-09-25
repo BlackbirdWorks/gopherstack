@@ -748,7 +748,7 @@ items_still_open:
     against what this backend's struct actually stores, add an applyXxxFilters/xxxMatchesFilter
     pair to handler_filters.go for only the filters with real backing data, and wire it into the
     handler after any existing requireAllIDsPresent check."
-  - "DescribeVpnConnections transit-gateway-id filter (2026-09-24, MegaBatch45 CI-regression
+  - "DescribeVpnConnections transit-gateway-id filter (2026-09-24, Ec2IpamAndTransitgatewayAdvanced CI-regression
     fix + filter-population audit): removed. VpnConnection.TransitGatewayID is a real,
     modeled field (ModifyVpnConnection clears it when moving a connection onto a
     VpnGatewayId), but CreateVpnConnection only ever accepts CustomerGatewayId +
@@ -756,19 +756,19 @@ items_still_open:
     populated on create and the filter could never match a live connection. Same audit
     fixed the sibling bug this filter's presence masked: CreateClientVpnRoute never read
     TargetVpcSubnetId either, so DescribeClientVpnRoutes' target-subnet filter (added by
-    commit 9f1633435) never matched -- that one broke terraform/TestTerraform_MegaBatch45
+    commit 9f1633435) never matched -- that one broke terraform/TestTerraform_Ec2IpamAndTransitgatewayAdvanced
     (aws_ec2_client_vpn_route's create waiter polls DescribeClientVpnRoutes by
     destination-cidr + target-subnet) and is now fixed: TargetVpcSubnetId is read in
     handleCreateClientVpnRoute/handleDeleteClientVpnRoute and stored on
     ClientVpnRoute.TargetSubnet. The rest of the same three commits'
     (15bb3bca9/9f1633435/e69438d14) new filter cases were re-audited field-by-field against
     their Create paths and all populate correctly; this was the only false claim found."
-  - "aws_network_interface_permission (2026-09-24, mega-batch-44): CreateNetworkInterfacePermission
+  - "aws_network_interface_permission (2026-09-24, ec2-networking-essentials): CreateNetworkInterfacePermission
     correctly returns the real AWS wire value PermissionState.State='granted' (lowercase, matching
     ec2@v1.329.0 types.NetworkInterfacePermissionStateCode), but terraform-provider-aws's own create
     waiter for this resource polls for the literal uppercase string 'GRANTED' and errors 'unexpected
     state granted, wanted target GRANTED' — a provider-side bug (verified via TF_LOG=trace against a
-    live apply), not a gopherstack wire-shape gap. Dropped from mega-batch-44's fixture rather than
+    live apply), not a gopherstack wire-shape gap. Dropped from ec2-networking-essentials's fixture rather than
     emulate the wrong-case value, which would break real-AWS parity to appease a buggy client."
   - "Application Status Checks (2026-08-05, gopherstack-8pce follow-up): HealthCheckPaths (cross-AZ/Local-Zone
     health-check source/destination ENI paths) is not modeled at all — CreateApplicationStatusCheck silently
@@ -913,7 +913,7 @@ items_still_open:
     DescribeInstances never renders a blockDeviceMapping set at all; a real fix needs a new
     per-instance block-device-mapping model threaded through RunInstances/DescribeInstances/
     ModifyInstanceAttribute together, out of scope for a single-field fix."
-  - "aws_spot_fleet_request via classic launch_specification (mega-batch-11, 2026-09-19): does
+  - "aws_spot_fleet_request via classic launch_specification (ec2-compute-and-storage, 2026-09-19): does
     not apply through terraform-provider-aws 5.100.0. Root-caused and fixed two real, verified
     bugs in this pass: (1) RequestSpotInstances never reported SpotInstanceStatus.Code on the
     wire (spotInstanceRequestItem had no <status> block at all), so the provider's fulfillment
@@ -941,9 +941,9 @@ items_still_open:
     hash function reading a map key its own flatten step conditionally skips, not a
     still-missing gopherstack wire field -- but that could not be fully confirmed without the
     provider's source, which is not vendored here. aws_spot_fleet_request was dropped from
-    mega-batch-11.tf/mega_batch11_test.go rather than merged failing; aws_spot_instance_request
+    ec2-compute-and-storage.tf/ec2_compute_and_storage_uncovered_test.go rather than merged failing; aws_spot_instance_request
     and aws_ec2_fleet (both fixed/confirmed working end-to-end via the same test) were kept."
-  - "mega-batch-11/12 residual drift (2026-09-19), confirmed real via TF_LOG=trace against the
+  - "ec2-compute-and-storage/12 residual drift (2026-09-19), confirmed real via TF_LOG=trace against the
     live wire response, not just plan output: (1) aws_vpn_connection's tunnel1/2_ike_versions
     flip to null on every re-plan even though DescribeVpnConnections' raw XML correctly and
     consistently includes ikeVersionSet=[ikev1,ikev2] on both the CreateVpnConnection response
@@ -956,7 +956,7 @@ items_still_open:
     the AWS CLI against the same running container), so this is the provider never asking us
     to store the tag, not a backend bug. (3) aws_ec2_fleet's launched instance is not cleaned
     up on 'terraform destroy' unless the resource sets terminate_instances = true (the
-    mega-batch-11.tf fixture does not); with the default false, the instance and its ENI
+    ec2-compute-and-storage.tf fixture does not); with the default false, the instance and its ENI
     outlive 'DeleteFleets' by design (matching real AWS), which then blocks
     'aws_subnet'/DependencyViolation at the end of the same destroy -- setting
     terminate_instances = true was tried and instead exposed a separate multi-minute-plus
@@ -967,7 +967,7 @@ items_still_open:
     gap for an unconfirmed one. (4) aws_vpc_peering_connection_accepter plans to clear its
     tags whenever aws_vpc_peering_connection (the same underlying resource) sets tags and the
     accepter resource does not -- a known real-world terraform-provider-aws quirk for this
-    resource pair (both sides tag the same physical connection); mega-batch-12.tf now avoids
+    resource pair (both sides tag the same physical connection); ec2-default-resources-and-transitgateway.tf now avoids
     it by leaving tags off the requester side entirely. (5) aws_spot_instance_request's
     source_dest_check always shows false->true drift: DescribeInstances never renders a
     top-level sourceDestCheck field at all (a pre-existing, structural gap -- fixing it risks
@@ -1008,7 +1008,7 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 
 ### 2026-09-24: tombstone maps now expire (unbounded-growth fix)
 
-The six delete-waiter tombstone maps added by the mega-batch-11/12 and
+The six delete-waiter tombstone maps added by the ec2-compute-and-storage/12 and
 gopherstack-54bv0 passes below never removed an entry, so a long-running
 emulator whose terraform suites create/delete thousands of TGW route
 tables/VPC attachments/peering attachments, NAT gateways, Fleets, and VPN
@@ -1020,7 +1020,7 @@ Janitor.sweepExpiredTombstones (wired into SweepOnce, no new goroutine) and
 each Delete* op's own prune call physically evict expired entries. See
 TestTombstones_ExpireAfterRetentionWindow, TestJanitor_SweepExpiredTombstones.
 
-### 2026-09-24: mega-batch-44/45 terraform coverage — 51 resources
+### 2026-09-24: ec2-networking-essentials/45 terraform coverage — 51 resources
 
 Fixed real gaps via terraform apply/destroy: wrong/missing wire states and
 enums (VPC CIDR assoc, instance-connect-endpoint, TGW connect/peering),
@@ -1034,7 +1034,7 @@ AllocateAddress dropping tags. See items_still_open for 2 provider-side bugs.
 DeleteVpnConnection now keeps a tombstone (same pattern as TGW route
 tables/fleets) so a by-ID DescribeVpnConnections still sees "deleted" state.
 
-### 2026-09-19 mega-batch-11/12 terraform coverage: default-VPC route table/DHCP options, spot status, AMI root device, TGW/fleet delete tombstones
+### 2026-09-19 ec2-compute-and-storage/12 terraform coverage: default-VPC route table/DHCP options, spot status, AMI root device, TGW/fleet delete tombstones
 
 Fixed real gaps found via terraform apply/destroy: seeded default VPC had no main route
 table or real default DHCP options record; RequestSpotInstances never echoed fulfillment
@@ -6375,7 +6375,7 @@ reasoning per gopherstack-anjf, 6 genuinely new). Gates all clean; 0
 
 Added `leak_main_test.go` (goleak TestMain). No leak found under `-race`.
 
-## 2026-09-19: MegaBatch11 fixture fixes -- fleet terminate-instances state machine, snapshot permission test flake
+## 2026-09-19: Ec2ComputeAndStorage fixture fixes -- fleet terminate-instances state machine, snapshot permission test flake
 
 `DeleteFleets(TerminateInstances=true)` skipped ENI/volume release, leaving fleet-instance
 ENIs stuck so `DeleteSubnet` looped on `DependencyViolation`; now shares `terminateInstanceLocked`
@@ -6394,10 +6394,10 @@ reset (or never-set) allocation must be ABSENT from that response, not present
 with an empty status. DescribeAddressesAttribute now excludes any allocation
 without a current non-empty domain name (elastic_ips.go), and
 ResetAddressAttribute deletes its attribute row instead of leaving a
-domain-less one. Verified via TestTerraform_MegaBatch44 destroy (TF_LOG=trace):
+domain-less one. Verified via TestTerraform_Ec2NetworkingEssentials destroy (TF_LOG=trace):
 clean, no more logged error.
 
-## 2026-09-24: mega-batch-53 fixture fixes -- NetworkInterfacePermission state casing, ImportSnapshot backing record, TGW prefix list reference attachment ID
+## 2026-09-24: ec2-transit-gateway-multicast-route-server fixture fixes -- NetworkInterfacePermission state casing, ImportSnapshot backing record, TGW prefix list reference attachment ID
 
 `CreateNetworkInterfacePermission`'s `State` was written lowercase ("granted"),
 matching the Go SDK's `NetworkInterfacePermissionStateCode` constant name but
@@ -6423,7 +6423,7 @@ includes when a reference targets an attachment, which is exactly what
 `aws_ec2_transit_gateway_prefix_list_reference`'s Read/Terraform diff checks.
 Now the handler reads and stores it like Modify does.
 
-## mega-batch-54 terraform coverage (2026-09-24)
+## appmesh-shield-and-workspaces terraform coverage (2026-09-24)
 
 Three real bugs found while wiring up terraform fixtures for previously-uncovered
 resource types, all confirmed via `TF_LOG=debug` against a real
@@ -6444,7 +6444,7 @@ terraform-provider-aws 5.100.0 client:
   released -- it lingers in the subnet and blocks `DeleteSubnet`'s dependency
   check indefinitely. Fixed and covered by
   `TestCancelSpotFleetRequests_WithTerminate_ReleasesNetworkInterfaces`, but
-  `aws_spot_fleet_request` was still dropped from the mega-batch-54 fixture:
+  `aws_spot_fleet_request` was still dropped from the appmesh-shield-and-workspaces fixture:
   even with the ENI leak fixed, terraform's own delete waiter ("waiting for
   EC2 Spot Fleet Request ... active instance count to reach 0") never
   converged within several minutes in local testing -- likely the async

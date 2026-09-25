@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch10 provisions IAM identity/credential resources
+// TestTerraform_IamAndS3Subresources provisions IAM identity/credential resources
 // (group, group membership/policy/attachment, user policy/attachment,
 // access key, login profile, SSH key, service-specific credential, virtual
 // MFA device, account alias/password policy, OIDC/SAML providers,
@@ -21,13 +21,13 @@ import (
 // ACL, analytics, CORS, intelligent-tiering, inventory, lifecycle, metrics,
 // object, request payment) via Terraform and verifies each through its own
 // SDK client's Get/List path.
-func TestTerraform_MegaBatch10(t *testing.T) {
+func TestTerraform_IamAndS3Subresources(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-10",
+			fixture: "iam-and-s3-subresources",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -42,22 +42,22 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				})
 
 				profOut, err := iamClient.GetInstanceProfile(ctx, &iamsvc.GetInstanceProfileInput{
-					InstanceProfileName: aws.String("mega-batch-10-instance-profile"),
+					InstanceProfileName: aws.String("iams3-instance-profile"),
 				})
 				require.NoError(t, err, "GetInstanceProfile should succeed")
 				require.Len(t, profOut.InstanceProfile.Roles, 1)
-				assert.Equal(t, "mega-batch-10-role", aws.ToString(profOut.InstanceProfile.Roles[0].RoleName))
+				assert.Equal(t, "iams3-role", aws.ToString(profOut.InstanceProfile.Roles[0].RoleName))
 
 				groupOut, err := iamClient.GetGroup(ctx, &iamsvc.GetGroupInput{
-					GroupName: aws.String("mega-batch-10-group"),
+					GroupName: aws.String("iams3-group"),
 				})
 				require.NoError(t, err, "GetGroup should succeed")
 				require.Len(t, groupOut.Users, 1, "group membership should list the user")
-				assert.Equal(t, "mega-batch-10-user", aws.ToString(groupOut.Users[0].UserName))
+				assert.Equal(t, "iams3-user", aws.ToString(groupOut.Users[0].UserName))
 
 				groupPolicyOut, err := iamClient.GetGroupPolicy(ctx, &iamsvc.GetGroupPolicyInput{
-					GroupName:  aws.String("mega-batch-10-group"),
-					PolicyName: aws.String("mega-batch-10-group-policy"),
+					GroupName:  aws.String("iams3-group"),
+					PolicyName: aws.String("iams3-group-policy"),
 				})
 				require.NoError(t, err, "GetGroupPolicy should succeed")
 				assert.NotEmpty(t, aws.ToString(groupPolicyOut.PolicyDocument))
@@ -65,20 +65,20 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				attachedGroupPoliciesOut, err := iamClient.ListAttachedGroupPolicies(
 					ctx,
 					&iamsvc.ListAttachedGroupPoliciesInput{
-						GroupName: aws.String("mega-batch-10-group"),
+						GroupName: aws.String("iams3-group"),
 					},
 				)
 				require.NoError(t, err, "ListAttachedGroupPolicies should succeed")
 				require.Len(t, attachedGroupPoliciesOut.AttachedPolicies, 1)
 				assert.Equal(
 					t,
-					"mega-batch-10-policy",
+					"iams3-policy",
 					aws.ToString(attachedGroupPoliciesOut.AttachedPolicies[0].PolicyName),
 				)
 
 				userPolicyOut, err := iamClient.GetUserPolicy(ctx, &iamsvc.GetUserPolicyInput{
-					UserName:   aws.String("mega-batch-10-user"),
-					PolicyName: aws.String("mega-batch-10-user-policy"),
+					UserName:   aws.String("iams3-user"),
+					PolicyName: aws.String("iams3-user-policy"),
 				})
 				require.NoError(t, err, "GetUserPolicy should succeed")
 				assert.NotEmpty(t, aws.ToString(userPolicyOut.PolicyDocument))
@@ -86,30 +86,30 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				attachedUserPoliciesOut, err := iamClient.ListAttachedUserPolicies(
 					ctx,
 					&iamsvc.ListAttachedUserPoliciesInput{
-						UserName: aws.String("mega-batch-10-user"),
+						UserName: aws.String("iams3-user"),
 					},
 				)
 				require.NoError(t, err, "ListAttachedUserPolicies should succeed")
 				require.Len(t, attachedUserPoliciesOut.AttachedPolicies, 1)
 				assert.Equal(
 					t,
-					"mega-batch-10-policy",
+					"iams3-policy",
 					aws.ToString(attachedUserPoliciesOut.AttachedPolicies[0].PolicyName),
 				)
 
 				accessKeysOut, err := iamClient.ListAccessKeys(ctx, &iamsvc.ListAccessKeysInput{
-					UserName: aws.String("mega-batch-10-user"),
+					UserName: aws.String("iams3-user"),
 				})
 				require.NoError(t, err, "ListAccessKeys should succeed")
 				require.Len(t, accessKeysOut.AccessKeyMetadata, 1)
 
 				_, err = iamClient.GetLoginProfile(ctx, &iamsvc.GetLoginProfileInput{
-					UserName: aws.String("mega-batch-10-user"),
+					UserName: aws.String("iams3-user"),
 				})
 				require.NoError(t, err, "GetLoginProfile should succeed")
 
 				sshKeysOut, err := iamClient.ListSSHPublicKeys(ctx, &iamsvc.ListSSHPublicKeysInput{
-					UserName: aws.String("mega-batch-10-user"),
+					UserName: aws.String("iams3-user"),
 				})
 				require.NoError(t, err, "ListSSHPublicKeys should succeed")
 				require.Len(t, sshKeysOut.SSHPublicKeys, 1)
@@ -117,7 +117,7 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				credsOut, err := iamClient.ListServiceSpecificCredentials(
 					ctx,
 					&iamsvc.ListServiceSpecificCredentialsInput{
-						UserName:    aws.String("mega-batch-10-user"),
+						UserName:    aws.String("iams3-user"),
 						ServiceName: aws.String("cassandra.amazonaws.com"),
 					},
 				)
@@ -131,16 +131,16 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 
 				for _, d := range mfaOut.VirtualMFADevices {
 					if aws.ToString(d.SerialNumber) != "" &&
-						strings.HasSuffix(aws.ToString(d.SerialNumber), "mega-batch-10-mfa") {
+						strings.HasSuffix(aws.ToString(d.SerialNumber), "iams3-mfa") {
 						foundMFA = true
 					}
 				}
 
-				assert.True(t, foundMFA, "virtual MFA device mega-batch-10-mfa should be listed")
+				assert.True(t, foundMFA, "virtual MFA device iams3-mfa should be listed")
 
 				aliasOut, err := iamClient.ListAccountAliases(ctx, &iamsvc.ListAccountAliasesInput{})
 				require.NoError(t, err, "ListAccountAliases should succeed")
-				require.Contains(t, aliasOut.AccountAliases, "mega-batch-10-alias")
+				require.Contains(t, aliasOut.AccountAliases, "iams3-alias")
 
 				passPolicyOut, err := iamClient.GetAccountPasswordPolicy(ctx, &iamsvc.GetAccountPasswordPolicyInput{})
 				require.NoError(t, err, "GetAccountPasswordPolicy should succeed")
@@ -154,7 +154,7 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 
 				for _, p := range oidcOut.OpenIDConnectProviderList {
 					arnStr := aws.ToString(p.Arn)
-					if strings.HasSuffix(arnStr, "mega-batch-10.oidc.example.com") {
+					if strings.HasSuffix(arnStr, "iams3.oidc.example.com") {
 						oidcARN = arnStr
 					}
 				}
@@ -167,12 +167,12 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				var foundSAML bool
 
 				for _, p := range samlOut.SAMLProviderList {
-					if strings.HasSuffix(aws.ToString(p.Arn), "saml-provider/mega-batch-10-saml") {
+					if strings.HasSuffix(aws.ToString(p.Arn), "saml-provider/iams3-saml") {
 						foundSAML = true
 					}
 				}
 
-				assert.True(t, foundSAML, "SAML provider mega-batch-10-saml should be listed")
+				assert.True(t, foundSAML, "SAML provider iams3-saml should be listed")
 
 				roleOut, err := iamClient.GetRole(ctx, &iamsvc.GetRoleInput{
 					RoleName: aws.String("AWSServiceRoleForElasticbeanstalk"),
@@ -185,7 +185,7 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 
-				const bucket = "mega-batch-10-bucket"
+				const bucket = "iams3-bucket"
 
 				accelOut, err := s3Client.GetBucketAccelerateConfiguration(
 					ctx,
@@ -203,7 +203,7 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 					ctx,
 					&s3svc.GetBucketAnalyticsConfigurationInput{
 						Bucket: aws.String(bucket),
-						Id:     aws.String("mega-batch-10-analytics"),
+						Id:     aws.String("iams3-analytics"),
 					},
 				)
 				require.NoError(t, err, "GetBucketAnalyticsConfiguration should succeed")
@@ -218,7 +218,7 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 					ctx,
 					&s3svc.GetBucketIntelligentTieringConfigurationInput{
 						Bucket: aws.String(bucket),
-						Id:     aws.String("mega-batch-10-tiering"),
+						Id:     aws.String("iams3-tiering"),
 					},
 				)
 				require.NoError(t, err, "GetBucketIntelligentTieringConfiguration should succeed")
@@ -228,7 +228,7 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 					ctx,
 					&s3svc.GetBucketInventoryConfigurationInput{
 						Bucket: aws.String(bucket),
-						Id:     aws.String("mega-batch-10-inventory"),
+						Id:     aws.String("iams3-inventory"),
 					},
 				)
 				require.NoError(t, err, "GetBucketInventoryConfiguration should succeed")
@@ -246,20 +246,20 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 
 				metricOut, err := s3Client.GetBucketMetricsConfiguration(ctx, &s3svc.GetBucketMetricsConfigurationInput{
 					Bucket: aws.String(bucket),
-					Id:     aws.String("mega-batch-10-metric"),
+					Id:     aws.String("iams3-metric"),
 				})
 				require.NoError(t, err, "GetBucketMetricsConfiguration should succeed")
 				require.NotNil(t, metricOut.MetricsConfiguration)
 
 				objOut, err := s3Client.GetObject(ctx, &s3svc.GetObjectInput{
 					Bucket: aws.String(bucket),
-					Key:    aws.String("mega-batch-10.txt"),
+					Key:    aws.String("iams3.txt"),
 				})
 				require.NoError(t, err, "GetObject should succeed")
 
 				body, err := io.ReadAll(objOut.Body)
 				require.NoError(t, err)
-				assert.Equal(t, "mega batch ten", string(body))
+				assert.Equal(t, "iams3", string(body))
 
 				payOut, err := s3Client.GetBucketRequestPayment(ctx, &s3svc.GetBucketRequestPaymentInput{
 					Bucket: aws.String(bucket),

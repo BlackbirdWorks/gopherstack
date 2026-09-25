@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: grafana
 sdk_module: aws-sdk-go-v2/service/grafana@v1.38.4
-last_audit_commit: 5c20d9fd7   # 2026-09-24 mega-batch-49 pass; prior: 44bff591b
+last_audit_commit: 5c20d9fd7   # 2026-09-24 elasticsearch-grafana-and-ram pass; prior: 44bff591b
 last_audit_date: 2026-09-24  # prior: 2026-09-19
 # Grade A: this pass added the integration suite that is the only accepted parity proof
 # (.claude/memories/parity-principles.md rule 3 -- test/integration/grafana_test.go, driving
@@ -407,7 +407,7 @@ ListWorkspaceServiceAccounts/ListWorkspaces) already emit exactly their real
 Summary/Entry shape, verified via cmd/structfielddiff against
 grafana@v1.38.4. No leaks, no gaps, no code change.
 
-## 2026-09-24 (mega-batch-49): SAML config AssertionAttributes/RoleValues always present
+## 2026-09-24 (elasticsearch-grafana-and-ram): SAML config AssertionAttributes/RoleValues always present
 
 FIXED: `toSamlConfigWire` omitted `assertionAttributes`/`roleValues` entirely
 when unset; terraform-provider-aws's `resourceWorkspaceSAMLConfigurationRead`

@@ -206,10 +206,10 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 ## Notes
 
-### 2026-09-20: mega-batch-28 Terraform coverage -- 2 real bugs found
+### 2026-09-20: pinpoint-and-route53resolver Terraform coverage -- 2 real bugs found
 
 Wiring `aws_route53_resolver_rule`/`_dnssec_config` for real Terraform-fixture
-coverage (mega-batch-28), both found via actual `tofu apply` + TF_LOG=trace,
+coverage (pinpoint-and-route53resolver), both found via actual `tofu apply` + TF_LOG=trace,
 neither caught by existing unit tests:
 
 1. CreateResolverRule wrongly required Name (not a real SDK/provider

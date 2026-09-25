@@ -118,7 +118,7 @@ reaudit_2026-07-23: >
 
 ## Notes
 
-### 2026-09-24 terraform-coverage sweep (mega-batch-51)
+### 2026-09-24 terraform-coverage sweep (codeartifact-timestream-and-messaging)
 
 DescribeEndpoints' Address was hardcoded "localhost"; fixed to echo the request Host --
 endpoint discovery is unconditionally required per-op, not skipped for a custom BaseEndpoint.

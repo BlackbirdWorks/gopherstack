@@ -123,8 +123,8 @@ invented_ops_removed:
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 items_still_open:
-  - "aws_iam_security_token_service_preferences (2026-09-24, mega-batch-50 terraform
-    sweep): dropped from test/terraform/fixtures/mega-batch-50.tf after a real
+  - "aws_iam_security_token_service_preferences (2026-09-24, iam-detective-and-s3-replication terraform
+    sweep): dropped from test/terraform/fixtures/iam-detective-and-s3-replication.tf after a real
     attempt. terraform-provider-aws v5.100.0 fails apply with 'Provider produced
     inconsistent result after apply ... root object was present, but now absent',
     the identical symptom already recorded for aws_ecr_registry_scanning_configuration
@@ -157,12 +157,12 @@ items_still_open:
 ---
 
 ## Notes
-- 2026-09-19 (terraform mega-batch-10): added real-provider fixture coverage
+- 2026-09-19 (terraform iam-and-s3-subresources): added real-provider fixture coverage
   for group/group-membership/group-policy(-attachment), user-policy(-attachment),
   access-key, login-profile, SSH key, service-specific credential, virtual MFA
   device, account alias/password-policy, OIDC/SAML providers, and
   service-linked role — all applied/read/destroyed cleanly with zero emulator
-  changes needed (test/terraform/fixtures/mega-batch-10.tf).
+  changes needed (test/terraform/fixtures/iam-and-s3-subresources.tf).
 - 2026-09-19 (required-output-members census, gopherstack-r80d): checked all
   49 ops the census flags with >=1 SDK-required output member (63 fields
   total) against handler success paths, wire-layer only (no check loosened).

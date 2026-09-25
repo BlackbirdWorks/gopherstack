@@ -16,7 +16,7 @@ sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.4   # gopherstack-u8my: was re
 # byte-identical; only client middleware plumbing differs. No wire-shape claim in this file rested
 # on the wrong pin. Originally resolved via `go get .../lightsail@latest` in a throwaway scratch
 # module, and the version sdk_completeness_test.go's real *lightsailsdk.Client{} type-checks against.
-last_audit_commit: c02948310   # 2026-09-20 mega-batch-30 terraform coverage pass, see dated Notes
+last_audit_commit: c02948310   # 2026-09-20 ssoadmin-config-and-lightsail terraform coverage pass, see dated Notes
 # entry at the bottom of this file. Prior value da97fccdb was the gopherstack-21my per-item field
 # sweep (2026-09-18). Prior-prior value c397a0243 was the commit that actually implemented all 161
 # ops, registered the handler, and wired cli.go. A follow-up pass on top of that HEAD (same day)
@@ -1576,7 +1576,7 @@ surface); `Certificate`'s `DomainValidationRecords`/`RenewalSummary`/
 modeled, consistent with this service's already-disclosed
 non-fabrication stance on telemetry-shaped gaps).
 
-## 2026-09-20 (mega-batch-30 terraform coverage)
+## 2026-09-20 (ssoadmin-config-and-lightsail terraform coverage)
 
 Fixed two real bugs found via the terraform-aws provider: CreateDistribution's
 response omitted the created Distribution (real output always carries it; the

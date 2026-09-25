@@ -35,18 +35,18 @@ func twoVPCCIDRVars(t *testing.T) map[string]any {
 	}
 }
 
-// TestTerraform_MegaBatch12 provisions default-resource adoption (default VPC,
+// TestTerraform_Ec2DefaultResourcesAndTransitgateway provisions default-resource adoption (default VPC,
 // subnet, route table, network ACL, security group, DHCP options), VPC
 // peering (connection/accepter/options), customer/VPN gateway family, a
 // carrier gateway, and a transit gateway with a VPC attachment and route
 // table family, then verifies each through the EC2 SDK.
-func TestTerraform_MegaBatch12(t *testing.T) {
+func TestTerraform_Ec2DefaultResourcesAndTransitgateway(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-12",
+			fixture: "ec2-default-resources-and-transitgateway",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -85,7 +85,7 @@ func TestTerraform_MegaBatch12(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeTags should succeed")
 				require.Len(t, tagsOut.Tags, 1)
-				assert.Equal(t, "mega-batch-12-default-rt", aws.ToString(tagsOut.Tags[0].Value))
+				assert.Equal(t, "edtg-default-rt", aws.ToString(tagsOut.Tags[0].Value))
 
 				naclOut, err := client.DescribeNetworkAcls(ctx, &ec2svc.DescribeNetworkAclsInput{
 					Filters: []ec2types.Filter{
@@ -128,7 +128,7 @@ func TestTerraform_MegaBatch12(t *testing.T) {
 
 				peeringOut, err := client.DescribeVpcPeeringConnections(ctx, &ec2svc.DescribeVpcPeeringConnectionsInput{
 					Filters: []ec2types.Filter{
-						{Name: aws.String("tag:Name"), Values: []string{"mega-batch-12-peering"}},
+						{Name: aws.String("tag:Name"), Values: []string{"edtg-peering"}},
 					},
 				})
 				require.NoError(t, err, "DescribeVpcPeeringConnections should succeed")
@@ -143,7 +143,7 @@ func TestTerraform_MegaBatch12(t *testing.T) {
 
 				cgwOut, err := client.DescribeCarrierGateways(ctx, &ec2svc.DescribeCarrierGatewaysInput{
 					Filters: []ec2types.Filter{
-						{Name: aws.String("tag:Name"), Values: []string{"mega-batch-12-carrier-gw"}},
+						{Name: aws.String("tag:Name"), Values: []string{"edtg-carrier-gw"}},
 					},
 				})
 				require.NoError(t, err, "DescribeCarrierGateways should succeed")
@@ -151,7 +151,7 @@ func TestTerraform_MegaBatch12(t *testing.T) {
 
 				cgwsOut, err := client.DescribeCustomerGateways(ctx, &ec2svc.DescribeCustomerGatewaysInput{
 					Filters: []ec2types.Filter{
-						{Name: aws.String("tag:Name"), Values: []string{"mega-batch-12-cgw"}},
+						{Name: aws.String("tag:Name"), Values: []string{"edtg-cgw"}},
 					},
 				})
 				require.NoError(t, err, "DescribeCustomerGateways should succeed")
@@ -160,7 +160,7 @@ func TestTerraform_MegaBatch12(t *testing.T) {
 
 				vgwOut, err := client.DescribeVpnGateways(ctx, &ec2svc.DescribeVpnGatewaysInput{
 					Filters: []ec2types.Filter{
-						{Name: aws.String("tag:Name"), Values: []string{"mega-batch-12-vgw"}},
+						{Name: aws.String("tag:Name"), Values: []string{"edtg-vgw"}},
 					},
 				})
 				require.NoError(t, err, "DescribeVpnGateways should succeed")
@@ -171,7 +171,7 @@ func TestTerraform_MegaBatch12(t *testing.T) {
 
 				vpnOut, err := client.DescribeVpnConnections(ctx, &ec2svc.DescribeVpnConnectionsInput{
 					Filters: []ec2types.Filter{
-						{Name: aws.String("tag:Name"), Values: []string{"mega-batch-12-vpn"}},
+						{Name: aws.String("tag:Name"), Values: []string{"edtg-vpn"}},
 					},
 				})
 				require.NoError(t, err, "DescribeVpnConnections should succeed")
@@ -191,7 +191,7 @@ func TestTerraform_MegaBatch12(t *testing.T) {
 
 				tgwOut, err := client.DescribeTransitGateways(ctx, &ec2svc.DescribeTransitGatewaysInput{
 					Filters: []ec2types.Filter{
-						{Name: aws.String("tag:Name"), Values: []string{"mega-batch-12-tgw"}},
+						{Name: aws.String("tag:Name"), Values: []string{"edtg-tgw"}},
 					},
 				})
 				require.NoError(t, err, "DescribeTransitGateways should succeed")

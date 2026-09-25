@@ -20,7 +20,7 @@ import (
 )
 
 // mega46ProviderBlock extends the shared providerBlock with the docdb and
-// xray endpoints, which mega-batch-46 needs but providerBlock doesn't list.
+// xray endpoints, which dbae needs but providerBlock doesn't list.
 func mega46ProviderBlock(addr string) string {
 	base := providerBlock(addr)
 
@@ -36,7 +36,7 @@ func mega46Quote(s string) string {
 	return `"` + s + `"`
 }
 
-// TestTerraform_MegaBatch46 provisions an EFS access point/backup policy/
+// TestTerraform_DocdbAmplifyAndEventbridge provisions an EFS access point/backup policy/
 // file system policy, X-Ray encryption config/group/resource policy/sampling
 // rule, EventBridge bus policy/permission/target, ElastiCache user group
 // association/serverless cache, DocumentDB cluster parameter group/snapshot/
@@ -44,13 +44,13 @@ func mega46Quote(s string) string {
 // subscription/cost allocation tag, CodeCommit approval rule template(+
 // association)/trigger, and Amplify backend environment/domain association/
 // webhook via Terraform, verifying each through its own SDK client.
-func TestTerraform_MegaBatch46(t *testing.T) {
+func TestTerraform_DocdbAmplifyAndEventbridge(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-46",
+			fixture:    "docdb-amplify-and-eventbridge",
 			providerFn: mega46ProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -59,14 +59,14 @@ func TestTerraform_MegaBatch46(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch46EFS(ctx, t)
-				verifyMegaBatch46XRay(ctx, t)
-				verifyMegaBatch46EventBridge(ctx, t)
-				verifyMegaBatch46ElastiCache(ctx, t)
-				verifyMegaBatch46DocDB(ctx, t)
-				verifyMegaBatch46CE(ctx, t)
-				verifyMegaBatch46CodeCommit(ctx, t)
-				verifyMegaBatch46Amplify(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeEFS(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeXRay(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeEventBridge(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeElastiCache(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeDocDB(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeCE(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeCodeCommit(ctx, t)
+				verifyDocdbAmplifyAndEventbridgeAmplify(ctx, t)
 			},
 		},
 	}
@@ -79,7 +79,7 @@ func TestTerraform_MegaBatch46(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch46EFS(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeEFS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -94,13 +94,13 @@ func verifyMegaBatch46EFS(ctx context.Context, t *testing.T) {
 
 	for _, fs := range fsOut.FileSystems {
 		for _, tag := range fs.Tags {
-			if aws.ToString(tag.Key) == "Name" && aws.ToString(tag.Value) == "mega-batch-46-efs" {
+			if aws.ToString(tag.Key) == "Name" && aws.ToString(tag.Value) == "dbae-efs" {
 				fsID = aws.ToString(fs.FileSystemId)
 			}
 		}
 	}
 
-	require.NotEmpty(t, fsID, "mega-batch-46 file system should be listed")
+	require.NotEmpty(t, fsID, "dbae file system should be listed")
 
 	apOut, err := client.DescribeAccessPoints(ctx, &efssvc46.DescribeAccessPointsInput{
 		FileSystemId: aws.String(fsID),
@@ -119,10 +119,10 @@ func verifyMegaBatch46EFS(ctx context.Context, t *testing.T) {
 		FileSystemId: aws.String(fsID),
 	})
 	require.NoError(t, err, "DescribeFileSystemPolicy should succeed")
-	assert.Contains(t, aws.ToString(polOut.Policy), "MegaBatch46")
+	assert.Contains(t, aws.ToString(polOut.Policy), "DocdbAmplifyAndEventbridge")
 }
 
-func verifyMegaBatch46XRay(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeXRay(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -135,7 +135,7 @@ func verifyMegaBatch46XRay(ctx context.Context, t *testing.T) {
 	require.NotNil(t, encOut.EncryptionConfig)
 
 	groupOut, err := client.GetGroup(ctx, &xraysvc46.GetGroupInput{
-		GroupName: aws.String("mega-batch-46-group"),
+		GroupName: aws.String("dbae-group"),
 	})
 	require.NoError(t, err, "GetGroup should succeed")
 	assert.Equal(t, "responsetime > 5", aws.ToString(groupOut.Group.FilterExpression))
@@ -146,12 +146,12 @@ func verifyMegaBatch46XRay(ctx context.Context, t *testing.T) {
 	var foundPolicy bool
 
 	for _, p := range polOut.ResourcePolicies {
-		if aws.ToString(p.PolicyName) == "mega-batch-46-policy" {
+		if aws.ToString(p.PolicyName) == "dbae-policy" {
 			foundPolicy = true
 		}
 	}
 
-	assert.True(t, foundPolicy, "mega-batch-46 resource policy should be listed")
+	assert.True(t, foundPolicy, "dbae resource policy should be listed")
 
 	rulesOut, err := client.GetSamplingRules(ctx, &xraysvc46.GetSamplingRulesInput{})
 	require.NoError(t, err, "GetSamplingRules should succeed")
@@ -159,15 +159,15 @@ func verifyMegaBatch46XRay(ctx context.Context, t *testing.T) {
 	var foundRule bool
 
 	for _, r := range rulesOut.SamplingRuleRecords {
-		if aws.ToString(r.SamplingRule.RuleName) == "mega-batch-46-sampling" {
+		if aws.ToString(r.SamplingRule.RuleName) == "dbae-sampling" {
 			foundRule = true
 		}
 	}
 
-	assert.True(t, foundRule, "mega-batch-46 sampling rule should be listed")
+	assert.True(t, foundRule, "dbae sampling rule should be listed")
 }
 
-func verifyMegaBatch46EventBridge(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeEventBridge(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -176,27 +176,27 @@ func verifyMegaBatch46EventBridge(ctx context.Context, t *testing.T) {
 	})
 
 	busOut, err := client.DescribeEventBus(ctx, &eventbridgesvc46.DescribeEventBusInput{
-		Name: aws.String("mega-batch-46-bus"),
+		Name: aws.String("dbae-bus"),
 	})
 	require.NoError(t, err, "DescribeEventBus should succeed")
-	assert.Contains(t, aws.ToString(busOut.Policy), "MegaBatch46Bus")
+	assert.Contains(t, aws.ToString(busOut.Policy), "DocdbAmplifyAndEventbridgeBus")
 
 	permBusOut, err := client.DescribeEventBus(ctx, &eventbridgesvc46.DescribeEventBusInput{
-		Name: aws.String("mega-batch-46-perm-bus"),
+		Name: aws.String("dbae-perm-bus"),
 	})
 	require.NoError(t, err, "DescribeEventBus for perm bus should succeed")
-	assert.Contains(t, aws.ToString(permBusOut.Policy), "MegaBatch46Permission")
+	assert.Contains(t, aws.ToString(permBusOut.Policy), "DocdbAmplifyAndEventbridgePermission")
 
 	targetsOut, err := client.ListTargetsByRule(ctx, &eventbridgesvc46.ListTargetsByRuleInput{
-		Rule:         aws.String("mega-batch-46-rule"),
-		EventBusName: aws.String("mega-batch-46-bus"),
+		Rule:         aws.String("dbae-rule"),
+		EventBusName: aws.String("dbae-bus"),
 	})
 	require.NoError(t, err, "ListTargetsByRule should succeed")
 	require.Len(t, targetsOut.Targets, 1)
-	assert.Equal(t, "mega-batch-46-target", aws.ToString(targetsOut.Targets[0].Id))
+	assert.Equal(t, "dbae-target", aws.ToString(targetsOut.Targets[0].Id))
 }
 
-func verifyMegaBatch46ElastiCache(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeElastiCache(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -205,21 +205,21 @@ func verifyMegaBatch46ElastiCache(ctx context.Context, t *testing.T) {
 	})
 
 	ugOut, err := client.DescribeUserGroups(ctx, &elasticachesvc46.DescribeUserGroupsInput{
-		UserGroupId: aws.String("mega-batch-46-ug"),
+		UserGroupId: aws.String("dbae-ug"),
 	})
 	require.NoError(t, err, "DescribeUserGroups should succeed")
 	require.Len(t, ugOut.UserGroups, 1)
-	assert.Contains(t, ugOut.UserGroups[0].UserIds, "mega-batch-46-user-extra")
+	assert.Contains(t, ugOut.UserGroups[0].UserIds, "dbae-user-extra")
 
 	scOut, err := client.DescribeServerlessCaches(ctx, &elasticachesvc46.DescribeServerlessCachesInput{
-		ServerlessCacheName: aws.String("mega-batch-46-serverless"),
+		ServerlessCacheName: aws.String("dbae-serverless"),
 	})
 	require.NoError(t, err, "DescribeServerlessCaches should succeed")
 	require.Len(t, scOut.ServerlessCaches, 1)
 	assert.Equal(t, "valkey", aws.ToString(scOut.ServerlessCaches[0].Engine))
 }
 
-func verifyMegaBatch46DocDB(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeDocDB(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -228,32 +228,32 @@ func verifyMegaBatch46DocDB(ctx context.Context, t *testing.T) {
 	})
 
 	cpgOut, err := client.DescribeDBClusterParameterGroups(ctx, &docdbsvc46.DescribeDBClusterParameterGroupsInput{
-		DBClusterParameterGroupName: aws.String("mega-batch-46-docdb-cpg"),
+		DBClusterParameterGroupName: aws.String("dbae-docdb-cpg"),
 	})
 	require.NoError(t, err, "DescribeDBClusterParameterGroups should succeed")
 	require.Len(t, cpgOut.DBClusterParameterGroups, 1)
 
 	snapOut, err := client.DescribeDBClusterSnapshots(ctx, &docdbsvc46.DescribeDBClusterSnapshotsInput{
-		DBClusterSnapshotIdentifier: aws.String("mega-batch-46-docdb-snapshot"),
+		DBClusterSnapshotIdentifier: aws.String("dbae-docdb-snapshot"),
 	})
 	require.NoError(t, err, "DescribeDBClusterSnapshots should succeed")
 	require.Len(t, snapOut.DBClusterSnapshots, 1)
-	assert.Equal(t, "mega-batch-46-docdb", aws.ToString(snapOut.DBClusterSnapshots[0].DBClusterIdentifier))
+	assert.Equal(t, "dbae-docdb", aws.ToString(snapOut.DBClusterSnapshots[0].DBClusterIdentifier))
 
 	subOut, err := client.DescribeEventSubscriptions(ctx, &docdbsvc46.DescribeEventSubscriptionsInput{
-		SubscriptionName: aws.String("mega-batch-46-docdb-sub"),
+		SubscriptionName: aws.String("dbae-docdb-sub"),
 	})
 	require.NoError(t, err, "DescribeEventSubscriptions should succeed")
 	require.Len(t, subOut.EventSubscriptionsList, 1)
 
 	globalOut, err := client.DescribeGlobalClusters(ctx, &docdbsvc46.DescribeGlobalClustersInput{
-		GlobalClusterIdentifier: aws.String("mega-batch-46-docdb-global"),
+		GlobalClusterIdentifier: aws.String("dbae-docdb-global"),
 	})
 	require.NoError(t, err, "DescribeGlobalClusters should succeed")
 	require.Len(t, globalOut.GlobalClusters, 1)
 }
 
-func verifyMegaBatch46CE(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeCE(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -267,12 +267,12 @@ func verifyMegaBatch46CE(ctx context.Context, t *testing.T) {
 	var monitorARN string
 
 	for _, m := range monOut.AnomalyMonitors {
-		if aws.ToString(m.MonitorName) == "mega-batch-46-monitor" {
+		if aws.ToString(m.MonitorName) == "dbae-monitor" {
 			monitorARN = aws.ToString(m.MonitorArn)
 		}
 	}
 
-	require.NotEmpty(t, monitorARN, "mega-batch-46 anomaly monitor should be listed")
+	require.NotEmpty(t, monitorARN, "dbae anomaly monitor should be listed")
 
 	subOut, err := client.GetAnomalySubscriptions(ctx, &cesvc46.GetAnomalySubscriptionsInput{
 		MonitorArn: aws.String(monitorARN),
@@ -282,14 +282,14 @@ func verifyMegaBatch46CE(ctx context.Context, t *testing.T) {
 	assert.Equal(t, cetypes46.AnomalySubscriptionFrequencyDaily, subOut.AnomalySubscriptions[0].Frequency)
 
 	tagsOut, err := client.ListCostAllocationTags(ctx, &cesvc46.ListCostAllocationTagsInput{
-		TagKeys: []string{"mega-batch-46-tag"},
+		TagKeys: []string{"dbae-tag"},
 	})
 	require.NoError(t, err, "ListCostAllocationTags should succeed")
 	require.Len(t, tagsOut.CostAllocationTags, 1)
 	assert.Equal(t, cetypes46.CostAllocationTagStatusActive, tagsOut.CostAllocationTags[0].Status)
 }
 
-func verifyMegaBatch46CodeCommit(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeCodeCommit(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -298,7 +298,7 @@ func verifyMegaBatch46CodeCommit(ctx context.Context, t *testing.T) {
 	})
 
 	tmplOut, err := client.GetApprovalRuleTemplate(ctx, &codecommitsvc46.GetApprovalRuleTemplateInput{
-		ApprovalRuleTemplateName: aws.String("mega-batch-46-approval-template"),
+		ApprovalRuleTemplateName: aws.String("dbae-approval-template"),
 	})
 	require.NoError(t, err, "GetApprovalRuleTemplate should succeed")
 	require.NotNil(t, tmplOut.ApprovalRuleTemplate)
@@ -306,21 +306,21 @@ func verifyMegaBatch46CodeCommit(ctx context.Context, t *testing.T) {
 	assocOut, err := client.ListAssociatedApprovalRuleTemplatesForRepository(
 		ctx,
 		&codecommitsvc46.ListAssociatedApprovalRuleTemplatesForRepositoryInput{
-			RepositoryName: aws.String("mega-batch-46-repo"),
+			RepositoryName: aws.String("dbae-repo"),
 		},
 	)
 	require.NoError(t, err, "ListAssociatedApprovalRuleTemplatesForRepository should succeed")
-	assert.Contains(t, assocOut.ApprovalRuleTemplateNames, "mega-batch-46-approval-template")
+	assert.Contains(t, assocOut.ApprovalRuleTemplateNames, "dbae-approval-template")
 
 	trigOut, err := client.GetRepositoryTriggers(ctx, &codecommitsvc46.GetRepositoryTriggersInput{
-		RepositoryName: aws.String("mega-batch-46-repo"),
+		RepositoryName: aws.String("dbae-repo"),
 	})
 	require.NoError(t, err, "GetRepositoryTriggers should succeed")
 	require.Len(t, trigOut.Triggers, 1)
-	assert.Equal(t, "mega-batch-46-trigger", aws.ToString(trigOut.Triggers[0].Name))
+	assert.Equal(t, "dbae-trigger", aws.ToString(trigOut.Triggers[0].Name))
 }
 
-func verifyMegaBatch46Amplify(ctx context.Context, t *testing.T) {
+func verifyDocdbAmplifyAndEventbridgeAmplify(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -334,12 +334,12 @@ func verifyMegaBatch46Amplify(ctx context.Context, t *testing.T) {
 	var appID string
 
 	for _, a := range appsOut.Apps {
-		if aws.ToString(a.Name) == "mega-batch-46-app" {
+		if aws.ToString(a.Name) == "dbae-app" {
 			appID = aws.ToString(a.AppId)
 		}
 	}
 
-	require.NotEmpty(t, appID, "mega-batch-46 app should be listed")
+	require.NotEmpty(t, appID, "dbae app should be listed")
 
 	envOut, err := client.GetBackendEnvironment(ctx, &amplifysvc46.GetBackendEnvironmentInput{
 		AppId:           aws.String(appID),
@@ -350,7 +350,7 @@ func verifyMegaBatch46Amplify(ctx context.Context, t *testing.T) {
 
 	domOut, err := client.GetDomainAssociation(ctx, &amplifysvc46.GetDomainAssociationInput{
 		AppId:      aws.String(appID),
-		DomainName: aws.String("mega-batch-46.example.test"),
+		DomainName: aws.String("dbae.example.test"),
 	})
 	require.NoError(t, err, "GetDomainAssociation should succeed")
 	require.NotNil(t, domOut.DomainAssociation)
@@ -363,10 +363,10 @@ func verifyMegaBatch46Amplify(ctx context.Context, t *testing.T) {
 	var foundWebhook bool
 
 	for _, w := range webhooksOut.Webhooks {
-		if aws.ToString(w.Description) == "mega-batch-46 webhook" {
+		if aws.ToString(w.Description) == "dbae webhook" {
 			foundWebhook = true
 		}
 	}
 
-	assert.True(t, foundWebhook, "mega-batch-46 webhook should be listed")
+	assert.True(t, foundWebhook, "dbae webhook should be listed")
 }

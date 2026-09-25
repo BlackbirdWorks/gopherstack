@@ -121,7 +121,7 @@ items_still_open:
     _custom_plugin/_worker_configuration) is not implemented at all -- it is a
     structurally distinct AWS service/endpoint (kafkaconnect, not kafka) with no
     services/kafkaconnect directory in this repo and no route registered for any
-    of its ops. 2026-09-20 (mega-batch-29 Terraform coverage pass): confirmed via
+    of its ops. 2026-09-20 (transferfamily-and-msk Terraform coverage pass): confirmed via
     grep that no such service exists before attempting any fixture; left out of
     that pass's fixture rather than fabricating a stub. Implementing it is a new
     service, not a fix to this one."

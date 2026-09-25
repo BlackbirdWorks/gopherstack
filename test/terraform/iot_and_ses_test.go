@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch22 provisions IoT (thing/thing type/thing group +
+// TestTerraform_IotAndSes provisions IoT (thing/thing type/thing group +
 // membership, certificate + principal attachment, CA certificate, policy +
 // attachment, role alias, logging options, billing group, indexing
 // configuration, event configurations, authorizer, provisioning template,
@@ -23,17 +23,17 @@ import (
 // identity notification topic, identity policy, receipt rule set + active
 // rule set + rule, receipt filter, template) resources via Terraform and
 // verifies each through its own SDK client's Get/Describe path.
-func TestTerraform_MegaBatch22(t *testing.T) {
+func TestTerraform_IotAndSes(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-22",
+			fixture: "iot-and-ses",
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 
-				functionZip := filepath.Join(dir, "mega-batch-22-authorizer.zip")
+				functionZip := filepath.Join(dir, "iose-authorizer.zip")
 				writeZipFixture(t, functionZip, "index.py",
 					"def handler(event, context):\n    return {'isAuthenticated': True}\n")
 
@@ -43,8 +43,8 @@ func TestTerraform_MegaBatch22(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch22IoT(ctx, t)
-				verifyMegaBatch22SES(ctx, t)
+				verifyIotAndSesIoT(ctx, t)
+				verifyIotAndSesSES(ctx, t)
 			},
 		},
 	}
@@ -57,7 +57,7 @@ func TestTerraform_MegaBatch22(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch22IoT(ctx context.Context, t *testing.T) {
+func verifyIotAndSesIoT(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -66,31 +66,31 @@ func verifyMegaBatch22IoT(ctx context.Context, t *testing.T) {
 	})
 
 	thingOut, err := client.DescribeThing(ctx, &iotsvc.DescribeThingInput{
-		ThingName: aws.String("mega-batch-22-thing"),
+		ThingName: aws.String("iose-thing"),
 	})
 	require.NoError(t, err, "DescribeThing should succeed")
-	assert.Equal(t, "mega-batch-22-thing-type", aws.ToString(thingOut.ThingTypeName))
+	assert.Equal(t, "iose-thing-type", aws.ToString(thingOut.ThingTypeName))
 
 	typeOut, err := client.DescribeThingType(ctx, &iotsvc.DescribeThingTypeInput{
-		ThingTypeName: aws.String("mega-batch-22-thing-type"),
+		ThingTypeName: aws.String("iose-thing-type"),
 	})
 	require.NoError(t, err, "DescribeThingType should succeed")
-	assert.Equal(t, "mega-batch-22-thing-type", aws.ToString(typeOut.ThingTypeName))
+	assert.Equal(t, "iose-thing-type", aws.ToString(typeOut.ThingTypeName))
 
 	groupOut, err := client.DescribeThingGroup(ctx, &iotsvc.DescribeThingGroupInput{
-		ThingGroupName: aws.String("mega-batch-22-thing-group"),
+		ThingGroupName: aws.String("iose-thing-group"),
 	})
 	require.NoError(t, err, "DescribeThingGroup should succeed")
-	assert.Equal(t, "mega-batch-22-thing-group", aws.ToString(groupOut.ThingGroupName))
+	assert.Equal(t, "iose-thing-group", aws.ToString(groupOut.ThingGroupName))
 
 	groupsForThing, err := client.ListThingGroupsForThing(ctx, &iotsvc.ListThingGroupsForThingInput{
-		ThingName: aws.String("mega-batch-22-thing"),
+		ThingName: aws.String("iose-thing"),
 	})
 	require.NoError(t, err, "ListThingGroupsForThing should succeed")
 	require.Len(t, groupsForThing.ThingGroups, 1, "thing group membership should be recorded")
 
 	principals, err := client.ListThingPrincipals(ctx, &iotsvc.ListThingPrincipalsInput{
-		ThingName: aws.String("mega-batch-22-thing"),
+		ThingName: aws.String("iose-thing"),
 	})
 	require.NoError(t, err, "ListThingPrincipals should succeed")
 	require.Len(t, principals.Principals, 1, "certificate should be attached to the thing")
@@ -116,32 +116,32 @@ func verifyMegaBatch22IoT(ctx context.Context, t *testing.T) {
 	assert.Equal(t, "ACTIVE", string(describeCAOut.CertificateDescription.Status))
 
 	policyOut, err := client.GetPolicy(ctx, &iotsvc.GetPolicyInput{
-		PolicyName: aws.String("mega-batch-22-policy"),
+		PolicyName: aws.String("iose-policy"),
 	})
 	require.NoError(t, err, "GetPolicy should succeed")
-	assert.Equal(t, "mega-batch-22-policy", aws.ToString(policyOut.PolicyName))
+	assert.Equal(t, "iose-policy", aws.ToString(policyOut.PolicyName))
 
 	targetsOut, err := client.ListTargetsForPolicy(ctx, &iotsvc.ListTargetsForPolicyInput{
-		PolicyName: aws.String("mega-batch-22-policy"),
+		PolicyName: aws.String("iose-policy"),
 	})
 	require.NoError(t, err, "ListTargetsForPolicy should succeed")
 	assert.Contains(t, targetsOut.Targets, certARN)
 
 	aliasOut, err := client.DescribeRoleAlias(ctx, &iotsvc.DescribeRoleAliasInput{
-		RoleAlias: aws.String("mega-batch-22-role-alias"),
+		RoleAlias: aws.String("iose-role-alias"),
 	})
 	require.NoError(t, err, "DescribeRoleAlias should succeed")
-	assert.Equal(t, "mega-batch-22-role-alias", aws.ToString(aliasOut.RoleAliasDescription.RoleAlias))
+	assert.Equal(t, "iose-role-alias", aws.ToString(aliasOut.RoleAliasDescription.RoleAlias))
 
 	loggingOut, err := client.GetV2LoggingOptions(ctx, &iotsvc.GetV2LoggingOptionsInput{})
 	require.NoError(t, err, "GetV2LoggingOptions should succeed")
 	assert.Equal(t, "WARN", string(loggingOut.DefaultLogLevel))
 
 	billingOut, err := client.DescribeBillingGroup(ctx, &iotsvc.DescribeBillingGroupInput{
-		BillingGroupName: aws.String("mega-batch-22-billing-group"),
+		BillingGroupName: aws.String("iose-billing-group"),
 	})
 	require.NoError(t, err, "DescribeBillingGroup should succeed")
-	assert.Equal(t, "mega-batch-22-billing-group", aws.ToString(billingOut.BillingGroupName))
+	assert.Equal(t, "iose-billing-group", aws.ToString(billingOut.BillingGroupName))
 
 	indexOut, err := client.GetIndexingConfiguration(ctx, &iotsvc.GetIndexingConfigurationInput{})
 	require.NoError(t, err, "GetIndexingConfiguration should succeed")
@@ -154,19 +154,19 @@ func verifyMegaBatch22IoT(ctx context.Context, t *testing.T) {
 	assert.True(t, eventsOut.EventConfigurations["CERTIFICATE"].Enabled)
 
 	authOut, err := client.DescribeAuthorizer(ctx, &iotsvc.DescribeAuthorizerInput{
-		AuthorizerName: aws.String("mega-batch-22-authorizer"),
+		AuthorizerName: aws.String("iose-authorizer"),
 	})
 	require.NoError(t, err, "DescribeAuthorizer should succeed")
 	assert.Equal(t, "ACTIVE", string(authOut.AuthorizerDescription.Status))
 
 	templateOut, err := client.DescribeProvisioningTemplate(ctx, &iotsvc.DescribeProvisioningTemplateInput{
-		TemplateName: aws.String("mega-batch-22-provisioning-template"),
+		TemplateName: aws.String("iose-provisioning-template"),
 	})
 	require.NoError(t, err, "DescribeProvisioningTemplate should succeed")
 	assert.True(t, aws.ToBool(templateOut.Enabled))
 
 	ruleOut, err := client.GetTopicRule(ctx, &iotsvc.GetTopicRuleInput{
-		RuleName: aws.String("mega_batch_22_rule"),
+		RuleName: aws.String("iose_rule"),
 	})
 	require.NoError(t, err, "GetTopicRule should succeed")
 	require.NotNil(t, ruleOut.Rule)
@@ -179,13 +179,13 @@ func verifyMegaBatch22IoT(ctx context.Context, t *testing.T) {
 	require.NotNil(t, destOut.DestinationSummaries[0].VpcDestinationSummary)
 
 	domainOut, err := client.DescribeDomainConfiguration(ctx, &iotsvc.DescribeDomainConfigurationInput{
-		DomainConfigurationName: aws.String("mega-batch-22-domain-config"),
+		DomainConfigurationName: aws.String("iose-domain-config"),
 	})
 	require.NoError(t, err, "DescribeDomainConfiguration should succeed")
 	assert.Equal(t, "DATA", string(domainOut.ServiceType))
 }
 
-func verifyMegaBatch22SES(ctx context.Context, t *testing.T) {
+func verifyIotAndSesSES(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -193,7 +193,7 @@ func verifyMegaBatch22SES(ctx context.Context, t *testing.T) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
-	domain := "mega-batch-22.example.com"
+	domain := "iose.example.com"
 
 	verifyOut, err := client.GetIdentityVerificationAttributes(ctx, &sessvc.GetIdentityVerificationAttributesInput{
 		Identities: []string{domain},
@@ -219,19 +219,19 @@ func verifyMegaBatch22SES(ctx context.Context, t *testing.T) {
 	require.Contains(t, mailFromOut.MailFromDomainAttributes, domain)
 	assert.Equal(
 		t,
-		"bounce.mega-batch-22.example.com",
+		"bounce.iose.example.com",
 		aws.ToString(mailFromOut.MailFromDomainAttributes[domain].MailFromDomain),
 	)
 
 	configOut, err := client.DescribeConfigurationSet(ctx, &sessvc.DescribeConfigurationSetInput{
-		ConfigurationSetName: aws.String("mega-batch-22-config-set"),
+		ConfigurationSetName: aws.String("iose-config-set"),
 		ConfigurationSetAttributeNames: []sestypes.ConfigurationSetAttribute{
 			sestypes.ConfigurationSetAttributeEventDestinations,
 		},
 	})
 	require.NoError(t, err, "DescribeConfigurationSet should succeed")
 	require.Len(t, configOut.EventDestinations, 1)
-	assert.Equal(t, "mega-batch-22-event-dest", aws.ToString(configOut.EventDestinations[0].Name))
+	assert.Equal(t, "iose-event-dest", aws.ToString(configOut.EventDestinations[0].Name))
 
 	notifOut, err := client.GetIdentityNotificationAttributes(ctx, &sessvc.GetIdentityNotificationAttributesInput{
 		Identities: []string{domain},
@@ -242,19 +242,19 @@ func verifyMegaBatch22SES(ctx context.Context, t *testing.T) {
 
 	policiesOut, err := client.GetIdentityPolicies(ctx, &sessvc.GetIdentityPoliciesInput{
 		Identity:    aws.String(domain),
-		PolicyNames: []string{"mega-batch-22-identity-policy"},
+		PolicyNames: []string{"iose-identity-policy"},
 	})
 	require.NoError(t, err, "GetIdentityPolicies should succeed")
-	assert.Contains(t, policiesOut.Policies, "mega-batch-22-identity-policy")
+	assert.Contains(t, policiesOut.Policies, "iose-identity-policy")
 
 	activeOut, err := client.DescribeActiveReceiptRuleSet(ctx, &sessvc.DescribeActiveReceiptRuleSetInput{})
 	require.NoError(t, err, "DescribeActiveReceiptRuleSet should succeed")
 	require.NotNil(t, activeOut.Metadata)
-	assert.Equal(t, "mega-batch-22-rule-set", aws.ToString(activeOut.Metadata.Name))
+	assert.Equal(t, "iose-rule-set", aws.ToString(activeOut.Metadata.Name))
 
 	ruleOut, err := client.DescribeReceiptRule(ctx, &sessvc.DescribeReceiptRuleInput{
-		RuleSetName: aws.String("mega-batch-22-rule-set"),
-		RuleName:    aws.String("mega-batch-22-receipt-rule"),
+		RuleSetName: aws.String("iose-rule-set"),
+		RuleName:    aws.String("iose-receipt-rule"),
 	})
 	require.NoError(t, err, "DescribeReceiptRule should succeed")
 	require.NotNil(t, ruleOut.Rule)
@@ -266,7 +266,7 @@ func verifyMegaBatch22SES(ctx context.Context, t *testing.T) {
 	var foundFilter bool
 
 	for _, f := range filtersOut.Filters {
-		if aws.ToString(f.Name) == "mega-batch-22-receipt-filter" {
+		if aws.ToString(f.Name) == "iose-receipt-filter" {
 			foundFilter = true
 		}
 	}
@@ -274,8 +274,8 @@ func verifyMegaBatch22SES(ctx context.Context, t *testing.T) {
 	assert.True(t, foundFilter, "receipt filter should be listed")
 
 	templateOut, err := client.GetTemplate(ctx, &sessvc.GetTemplateInput{
-		TemplateName: aws.String("mega-batch-22-template"),
+		TemplateName: aws.String("iose-template"),
 	})
 	require.NoError(t, err, "GetTemplate should succeed")
-	assert.Equal(t, "Mega Batch 22", aws.ToString(templateOut.Template.SubjectPart))
+	assert.Equal(t, "Iose", aws.ToString(templateOut.Template.SubjectPart))
 }

@@ -377,7 +377,7 @@ items_still_open:
     Inventing specific version strings would fabricate data with nothing in this SDK
     module to verify them against. See the ops: entry for full reasoning; re-review if a
     future SDK/API model version publishes an authoritative version list.
-  - "2026-09-19 (terraform mega-batch-16 coverage pass): aws_rds_custom_db_engine_version
+  - "2026-09-19 (terraform rds-resources coverage pass): aws_rds_custom_db_engine_version
     and aws_rds_reserved_instance were left out of terraform coverage without attempting
     them -- the first needs real S3-hosted engine installation media, the second is a
     reserved-capacity purchase, both explicitly out of scope for this pass rather than
@@ -387,7 +387,7 @@ leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (Delete
 
 ## Notes
 
-- **2026-09-19 (terraform mega-batch-16 coverage pass)**: fixed 6 real bugs found via
+- **2026-09-19 (terraform rds-resources coverage pass)**: fixed 6 real bugs found via
   the real hashicorp/aws provider: AssociatedRoles never serialized on DBInstance;
   DescribeDBClusters/DescribeDBInstances rejected ARN-form identifiers; DBProxy(Endpoint)
   not-found errors surfaced as 500 instead of the declared fault code; ExportTask.Status
@@ -1800,7 +1800,7 @@ joins the reconciler goroutine via a WaitGroup. `~100 test call sites still
 construct backends without calling Close`, so a package-wide goleak
 TestMain is not yet safe to add — queued.
 
-## 2026-09-24: mega-batch-53 fixture fixes -- CopyDBClusterSnapshot ARN source + missing SourceDBClusterSnapshotArn crashed terraform-provider-aws (gopherstack-mb53)
+## 2026-09-24: ec2-transit-gateway-multicast-route-server fixture fixes -- CopyDBClusterSnapshot ARN source + missing SourceDBClusterSnapshotArn crashed terraform-provider-aws (gopherstack-mb53)
 
 Two compounding gaps in `aws_rds_cluster_snapshot_copy`, found via a real
 provider crash (SIGSEGV, nil pointer dereference in
@@ -1826,11 +1826,11 @@ made every `tofu plan`/`apply`/`destroy` on the resource fail with
    panicked on the empty list. Automated snapshots (which can't be shared)
    still get no entry.
 
-Verified via `TestTerraform_MegaBatch53` (test/terraform/mega_batch53_test.go,
+Verified via `TestTerraform_TransitGatewayMulticastAndRouteServer` (test/terraform/ec2_transit_gateway_multicast_route_server_test.go,
 run manually against a local server with `TF_LOG=TRACE`): the panic
 disappeared, apply/destroy round-trips cleanly.
 
-## mega-batch-54 terraform coverage (2026-09-24)
+## appmesh-shield-and-workspaces terraform coverage (2026-09-24)
 
 Two real bugs found wiring up `aws_rds_custom_db_engine_version`:
 

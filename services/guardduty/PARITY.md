@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
-last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: b7c35baea (mega-batch-19)
+last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: b7c35baea (guardduty-and-securityhub)
 last_audit_date: 2026-09-20
 overall: A            # 2026-09-08 (gopherstack-uu0n): DeleteMembers/DisassociateMembers/
                        # StopMonitoringMembers's autoEnableOrganizationMembers=ALL guard
@@ -275,7 +275,7 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors intr
 
 ## Notes
 
-### 2026-09-19 (terraform-coverage sweep, mega-batch-19)
+### 2026-09-19 (terraform-coverage sweep, guardduty-and-securityhub)
 
 RouteMatcher's blanket `/organization` prefix swallowed SecurityHub's `/organization/admin/enable`
 and `/organization/configuration`; narrowed to the real `/organization/statistics` path only.
@@ -941,7 +941,7 @@ uses (GuardDuty's admin routes are GET `/admin`, POST `/admin/enable`, POST
 `/admin/disable`). GET `/admin` (ListOrganizationAdminAccounts) is the same
 shape in both services, so that one case is now also scoped by the SigV4
 signing service (see isGuardDutyAdminPath). Found via a real `tofu apply`
-of a combined macie2+guardduty-adjacent fixture (mega-batch-31), not a
+of a combined macie2+guardduty-adjacent fixture (apigatewayv2-apprunner-and-macie), not a
 GuardDuty-specific test. See
 .claude/memories/route-matcher-prefix-collision.md.
 

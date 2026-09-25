@@ -11,19 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch18 provisions Redshift resources without prior
+// TestTerraform_RedshiftResources provisions Redshift resources without prior
 // terraform coverage: authentication profile, cluster IAM roles, cluster
 // snapshot, HSM client certificate and configuration, event subscription,
 // logging, scheduled action, snapshot copy (+ grant), snapshot schedule
 // (+ association), usage limit, resource policy, partner, endpoint access
 // and authorization, and a zero-ETL integration from an Aurora cluster.
-func TestTerraform_MegaBatch18(t *testing.T) {
+func TestTerraform_RedshiftResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-18",
+			fixture:    "redshift-resources",
 			providerFn: megaRDSRedshiftProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -35,8 +35,8 @@ func TestTerraform_MegaBatch18(t *testing.T) {
 
 				suffix := vars["Suffix"].(string)
 				client := createRedshiftClient(t)
-				verifyMegaBatch18Cluster(ctx, t, client, suffix)
-				verifyMegaBatch18Standalone(ctx, t, client, suffix)
+				verifyRedshiftResourcesCluster(ctx, t, client, suffix)
+				verifyRedshiftResourcesStandalone(ctx, t, client, suffix)
 			},
 		},
 	}
@@ -49,10 +49,15 @@ func TestTerraform_MegaBatch18(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch18Cluster(ctx context.Context, t *testing.T, client *redshiftsvc.Client, suffix string) {
+func verifyRedshiftResourcesCluster(
+	ctx context.Context,
+	t *testing.T,
+	client *redshiftsvc.Client,
+	suffix string,
+) {
 	t.Helper()
 
-	clusterID := "mega-batch-18-cluster-" + suffix
+	clusterID := "rdsh-cluster-" + suffix
 
 	clOut, err := client.DescribeClusters(ctx, &redshiftsvc.DescribeClustersInput{
 		ClusterIdentifier: aws.String(clusterID),
@@ -62,13 +67,13 @@ func verifyMegaBatch18Cluster(ctx context.Context, t *testing.T, client *redshif
 	require.Len(t, clOut.Clusters[0].IamRoles, 1, "aws_redshift_cluster_iam_roles should attach one role")
 
 	snapOut, err := client.DescribeClusterSnapshots(ctx, &redshiftsvc.DescribeClusterSnapshotsInput{
-		SnapshotIdentifier: aws.String("mega-batch-18-snapshot-" + suffix),
+		SnapshotIdentifier: aws.String("rdsh-snapshot-" + suffix),
 	})
 	require.NoError(t, err, "DescribeClusterSnapshots should succeed")
 	require.Len(t, snapOut.Snapshots, 1)
 
 	subOut, err := client.DescribeEventSubscriptions(ctx, &redshiftsvc.DescribeEventSubscriptionsInput{
-		SubscriptionName: aws.String("mega-batch-18-events-sub-" + suffix),
+		SubscriptionName: aws.String("rdsh-events-sub-" + suffix),
 	})
 	require.NoError(t, err, "DescribeEventSubscriptions should succeed")
 	require.Len(t, subOut.EventSubscriptionsList, 1)
@@ -93,35 +98,40 @@ func verifyMegaBatch18Cluster(ctx context.Context, t *testing.T, client *redshif
 	assert.Equal(t, "111111111111", aws.ToString(authOut.EndpointAuthorizationList[0].Grantee))
 }
 
-func verifyMegaBatch18Standalone(ctx context.Context, t *testing.T, client *redshiftsvc.Client, suffix string) {
+func verifyRedshiftResourcesStandalone(
+	ctx context.Context,
+	t *testing.T,
+	client *redshiftsvc.Client,
+	suffix string,
+) {
 	t.Helper()
 
 	profOut, err := client.DescribeAuthenticationProfiles(ctx, &redshiftsvc.DescribeAuthenticationProfilesInput{
-		AuthenticationProfileName: aws.String("mega-batch-18-auth-profile-" + suffix),
+		AuthenticationProfileName: aws.String("rdsh-auth-profile-" + suffix),
 	})
 	require.NoError(t, err, "DescribeAuthenticationProfiles should succeed")
 	require.Len(t, profOut.AuthenticationProfiles, 1)
 
 	hsmCertOut, err := client.DescribeHsmClientCertificates(ctx, &redshiftsvc.DescribeHsmClientCertificatesInput{
-		HsmClientCertificateIdentifier: aws.String("mega-batch-18-hsm-cert-" + suffix),
+		HsmClientCertificateIdentifier: aws.String("rdsh-hsm-cert-" + suffix),
 	})
 	require.NoError(t, err, "DescribeHsmClientCertificates should succeed")
 	require.Len(t, hsmCertOut.HsmClientCertificates, 1)
 
 	hsmCfgOut, err := client.DescribeHsmConfigurations(ctx, &redshiftsvc.DescribeHsmConfigurationsInput{
-		HsmConfigurationIdentifier: aws.String("mega-batch-18-hsm-config-" + suffix),
+		HsmConfigurationIdentifier: aws.String("rdsh-hsm-config-" + suffix),
 	})
 	require.NoError(t, err, "DescribeHsmConfigurations should succeed")
 	require.Len(t, hsmCfgOut.HsmConfigurations, 1)
 
 	grantOut, err := client.DescribeSnapshotCopyGrants(ctx, &redshiftsvc.DescribeSnapshotCopyGrantsInput{
-		SnapshotCopyGrantName: aws.String("mega-batch-18-copy-grant-" + suffix),
+		SnapshotCopyGrantName: aws.String("rdsh-copy-grant-" + suffix),
 	})
 	require.NoError(t, err, "DescribeSnapshotCopyGrants should succeed")
 	require.Len(t, grantOut.SnapshotCopyGrants, 1)
 
 	schedOut, err := client.DescribeSnapshotSchedules(ctx, &redshiftsvc.DescribeSnapshotSchedulesInput{
-		ScheduleIdentifier: aws.String("mega-batch-18-schedule-" + suffix),
+		ScheduleIdentifier: aws.String("rdsh-schedule-" + suffix),
 	})
 	require.NoError(t, err, "DescribeSnapshotSchedules should succeed")
 	require.Len(t, schedOut.SnapshotSchedules, 1)
@@ -129,14 +139,14 @@ func verifyMegaBatch18Standalone(ctx context.Context, t *testing.T, client *reds
 		"aws_redshift_snapshot_schedule_association should associate the cluster")
 
 	actionOut, err := client.DescribeScheduledActions(ctx, &redshiftsvc.DescribeScheduledActionsInput{
-		ScheduledActionName: aws.String("mega-batch-18-scheduled-action-" + suffix),
+		ScheduledActionName: aws.String("rdsh-scheduled-action-" + suffix),
 	})
 	require.NoError(t, err, "DescribeScheduledActions should succeed")
 	require.Len(t, actionOut.ScheduledActions, 1)
 
 	partnerOut, err := client.DescribePartners(ctx, &redshiftsvc.DescribePartnersInput{
 		AccountId:         aws.String("000000000000"),
-		ClusterIdentifier: aws.String("mega-batch-18-cluster-" + suffix),
+		ClusterIdentifier: aws.String("rdsh-cluster-" + suffix),
 		DatabaseName:      aws.String("testdb"),
 	})
 	require.NoError(t, err, "DescribePartners should succeed")
@@ -153,23 +163,23 @@ func verifyMegaBatch18Standalone(ctx context.Context, t *testing.T, client *reds
 
 	found := false
 	for _, ig := range integOut.Integrations {
-		if aws.ToString(ig.IntegrationName) == "mega-batch-18-integration-"+suffix {
+		if aws.ToString(ig.IntegrationName) == "rdsh-integration-"+suffix {
 			found = true
 
 			break
 		}
 	}
-	assert.True(t, found, "mega-batch-18-integration should be listed by DescribeIntegrations")
+	assert.True(t, found, "rdsh-integration should be listed by DescribeIntegrations")
 }
 
-// resourcePolicyArn fetches the mega-batch-18 cluster snapshot's ARN so
-// verifyMegaBatch18Standalone can look up the resource policy attached to it
+// resourcePolicyArn fetches the rdsh cluster snapshot's ARN so
+// verifyRedshiftResourcesStandalone can look up the resource policy attached to it
 // by aws_redshift_resource_policy.
 func resourcePolicyArn(ctx context.Context, t *testing.T, client *redshiftsvc.Client, suffix string) string {
 	t.Helper()
 
 	out, err := client.DescribeClusterSnapshots(ctx, &redshiftsvc.DescribeClusterSnapshotsInput{
-		SnapshotIdentifier: aws.String("mega-batch-18-snapshot-" + suffix),
+		SnapshotIdentifier: aws.String("rdsh-snapshot-" + suffix),
 	})
 	require.NoError(t, err, "DescribeClusterSnapshots should succeed")
 	require.Len(t, out.Snapshots, 1)

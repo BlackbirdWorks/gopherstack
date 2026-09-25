@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
 sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
-last_audit_commit: 22b4f068c                    # HEAD after the 2026-09-20 mega-batch-31 terraform coverage
+last_audit_commit: 22b4f068c                    # HEAD after the 2026-09-20 apigatewayv2-apprunner-and-macie terraform coverage
 last_audit_date: 2026-09-20
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
                           # CORRECTED 2026-08-30 (gopherstack-3qg6): SearchResources' own row was `wire:
@@ -687,10 +687,10 @@ changed. Gates: `go build ./...`, `go vet ./services/macie2/`, `go test
 -race -count=1 ./services/macie2/` (all pass), `golangci-lint run
 --new-from-rev=HEAD ./services/macie2/` (0 issues).
 
-## 2026-09-20 (mega-batch-31 terraform coverage)
+## 2026-09-20 (apigatewayv2-apprunner-and-macie terraform coverage)
 
-New Terraform coverage (test/terraform/fixtures/mega-batch-31.tf,
-mega_batch31_test.go, `macie2ProviderBlock`) for classification_export_configuration,
+New Terraform coverage (test/terraform/fixtures/apigatewayv2-apprunner-and-macie.tf,
+apigatewayv2_apprunner_and_macie_test.go, `macie2ProviderBlock`) for classification_export_configuration,
 classification_job, custom_data_identifier, findings_filter, member,
 organization_admin_account, organization_configuration -- 7 of the 8
 census-flagged resources; `invitation_accepter` left out (genuinely

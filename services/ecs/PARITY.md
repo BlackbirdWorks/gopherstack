@@ -21,7 +21,7 @@ ops:
   CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now records a real ServiceDeployment for the initial PRIMARY deployment (was a disguised stub, see gaps/fixes); capacityProviderStrategy validated (see PutClusterCapacityProviders note). FIXED gopherstack-rnka: tags supplied at creation now mirrored into the resourceTags side map (was two never-synced copies -- see TagResource note and Notes)."}
   DescribeServices: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED gopherstack-rnka: added include=[TAGS] gating (previously tags were always returned unconditionally, unlike DescribeClusters/DescribeCapacityProviders/DescribeContainerInstances/DescribeTaskSets/DescribeExpressGatewayService, which already gated correctly); tags now sourced from the resourceTags side map via ListTagsForResource, not the stale Service.Tags snapshot."}
   UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now syncs ServiceDeployment records when rotating the PRIMARY deployment; capacityProviderStrategy validated (see PutClusterCapacityProviders note). FIXED gopherstack-rnka: response tags now read from the resourceTags side map (authoritative) instead of the stale creation-time snapshot."}
-  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cleans up its ServiceDeployment records (was leaking one entry per deleted service); also cleans its resourceTags side-map entry (previously a ghost row, see Notes). FIXED gopherstack-rnka: response echoes the final resourceTags-authoritative tag set, captured before the side-map entry is cleared. FIXED 2026-09-24 (mega-batch-37 terraform destroy-waiter gap): no longer hard-deletes the service record; moves it to DRAINING then INACTIVE (sweepServiceTransitionsLocked, dax's lazy-deadline pattern, no goroutine) per api_op_DeleteService.go, so DescribeServices keeps reporting it. Same-named CreateService is now refused while DRAINING/ACTIVE and allowed once INACTIVE."}
+  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cleans up its ServiceDeployment records (was leaking one entry per deleted service); also cleans its resourceTags side-map entry (previously a ghost row, see Notes). FIXED gopherstack-rnka: response echoes the final resourceTags-authoritative tag set, captured before the side-map entry is cleared. FIXED 2026-09-24 (cognito-ecs-cloudformation-and-wafv2 terraform destroy-waiter gap): no longer hard-deletes the service record; moves it to DRAINING then INACTIVE (sweepServiceTransitionsLocked, dax's lazy-deadline pattern, no goroutine) per api_op_DeleteService.go, so DescribeServices keeps reporting it. Same-named CreateService is now refused while DRAINING/ACTIVE and allowed once INACTIVE."}
   ListServices: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-24: now excludes DRAINING/INACTIVE services (see DeleteService note) -- api_op_DeleteService.go documents a drained service as 'no longer visible in ... ListServices'."}
   ListServicesByNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTaskSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added capacityProviderStrategy (was entirely absent from both CreateTaskSetInput and the TaskSet wire shape -- a real SDK field, now validated + stored + echoed) and tags (stored via the resourceTags side map, echoed unconditionally on Create like CreateCluster)"}
@@ -105,7 +105,7 @@ TestDeleteService_InactiveServiceKeptWithinTTL.
 
 ### 2026-09-24 (parity-sweep) DeleteService DRAINING/INACTIVE lifecycle
 
-Fixed the mega-batch-37 items_still_open entry: DeleteService now sweeps
+Fixed the cognito-ecs-cloudformation-and-wafv2 items_still_open entry: DeleteService now sweeps
 through DRAINING->INACTIVE (serviceDrainDelay, sweepServiceTransitionsLocked)
 instead of hard-deleting; ListServices/CreateService/DeleteCluster updated to
 match. See TestDeleteService_DrainsToInactive.
@@ -1141,7 +1141,7 @@ not touched), `go vet`, `go test -race -count=1`, `golangci-lint run
 sibling-agent edit, confirmed unrelated). No persisted struct fields
 changed in `services/ecs`; no version bump.
 
-## 2026-09-20: mega-batch-37 coverage (account_setting_default, capacity_provider, cluster_capacity_providers, tag, task_set)
+## 2026-09-20: cognito-ecs-cloudformation-and-wafv2 coverage (account_setting_default, capacity_provider, cluster_capacity_providers, tag, task_set)
 
 Driving these five resources through real Terraform surfaced four genuine
 bugs, all caught by the real `hashicorp/aws` provider crashing or 404ing
@@ -1184,7 +1184,7 @@ where a hand-written unit test never would:
    `EXTERNAL` services (task sets own their task placement, not the
    reconciler).
 
-Proven end-to-end by `TestTerraform_MegaBatch37` (real
+Proven end-to-end by `TestTerraform_CognitoEcsCloudformationAndWafv2` (real
 `aws_ecs_account_setting_default`/`capacity_provider`/
 `cluster_capacity_providers`/`tag`/`task_set`/`service` apply) plus new
 unit test `TestTaskSet_DescribeUpdateDeleteByShortID`. One known gap

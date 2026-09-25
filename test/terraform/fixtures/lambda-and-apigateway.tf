@@ -1,7 +1,7 @@
 # --- Lambda -------------------------------------------------------------
 
 resource "aws_iam_role" "lambda" {
-  name = "mega-batch-13-lambda-role"
+  name = "lagw-lambda-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -14,7 +14,7 @@ resource "aws_iam_role" "lambda" {
 
 resource "aws_lambda_function" "this" {
   filename         = "{{.FunctionZip}}"
-  function_name    = "mega-batch-13-function"
+  function_name    = "lagw-function"
   role             = aws_iam_role.lambda.arn
   handler          = "index.handler"
   runtime          = "python3.12"
@@ -24,7 +24,7 @@ resource "aws_lambda_function" "this" {
 
 resource "aws_lambda_alias" "this" {
   name             = "live"
-  description      = "mega-batch-13 alias"
+  description      = "lagw alias"
   function_name    = aws_lambda_function.this.function_name
   function_version = aws_lambda_function.this.version
 }
@@ -32,7 +32,7 @@ resource "aws_lambda_alias" "this" {
 resource "aws_lambda_code_signing_config" "this" {
   allowed_publishers {
     signing_profile_version_arns = [
-      "arn:aws:signer:us-east-1:000000000000:/signing-profiles/mega_batch_13/AbCdEfGhIj",
+      "arn:aws:signer:us-east-1:000000000000:/signing-profiles/lagw/AbCdEfGhIj",
     ]
   }
 
@@ -40,7 +40,7 @@ resource "aws_lambda_code_signing_config" "this" {
     untrusted_artifact_on_deployment = "Warn"
   }
 
-  description = "mega-batch-13 code signing config"
+  description = "lagw code signing config"
 }
 
 resource "aws_lambda_function_event_invoke_config" "this" {
@@ -70,7 +70,7 @@ resource "aws_lambda_runtime_management_config" "this" {
 }
 
 resource "aws_lambda_layer_version" "this" {
-  layer_name          = "mega-batch-13-layer"
+  layer_name          = "lagw-layer"
   filename            = "{{.LayerZip}}"
   source_code_hash    = filebase64sha256("{{.LayerZip}}")
   compatible_runtimes = ["python3.12"]
@@ -79,7 +79,7 @@ resource "aws_lambda_layer_version" "this" {
 resource "aws_lambda_layer_version_permission" "this" {
   layer_name     = aws_lambda_layer_version.this.layer_name
   version_number = aws_lambda_layer_version.this.version
-  statement_id   = "mega-batch-13-layer-perm"
+  statement_id   = "lagw-layer-perm"
   action         = "lambda:GetLayerVersion"
   principal      = "*"
 }
@@ -87,7 +87,7 @@ resource "aws_lambda_layer_version_permission" "this" {
 # --- API Gateway ----------------------------------------------------------
 
 resource "aws_iam_role" "apigw_cloudwatch" {
-  name = "mega-batch-13-apigw-cw-role"
+  name = "lagw-apigw-cw-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -103,7 +103,7 @@ resource "aws_api_gateway_account" "this" {
 }
 
 resource "aws_api_gateway_rest_api" "this" {
-  name = "mega-batch-13-api"
+  name = "lagw-api"
 }
 
 resource "aws_api_gateway_resource" "items" {
@@ -187,7 +187,7 @@ resource "aws_api_gateway_documentation_part" "this" {
     type = "API"
   }
 
-  properties = jsonencode({ description = "mega-batch-13 API docs" })
+  properties = jsonencode({ description = "lagw API docs" })
 }
 
 resource "aws_api_gateway_documentation_version" "this" {
@@ -200,7 +200,7 @@ resource "aws_api_gateway_documentation_version" "this" {
 resource "aws_api_gateway_model" "this" {
   rest_api_id  = aws_api_gateway_rest_api.this.id
   name         = "ItemModel"
-  description  = "mega-batch-13 item model"
+  description  = "lagw item model"
   content_type = "application/json"
 
   schema = jsonencode({
@@ -228,12 +228,12 @@ resource "aws_api_gateway_rest_api_policy" "this" {
 }
 
 resource "aws_api_gateway_api_key" "this" {
-  name    = "mega-batch-13-key"
+  name    = "lagw-key"
   enabled = true
 }
 
 resource "aws_api_gateway_usage_plan" "this" {
-  name = "mega-batch-13-usage-plan"
+  name = "lagw-usage-plan"
 
   api_stages {
     api_id = aws_api_gateway_rest_api.this.id
@@ -249,18 +249,18 @@ resource "aws_api_gateway_usage_plan_key" "this" {
 
 resource "aws_api_gateway_authorizer" "this" {
   rest_api_id     = aws_api_gateway_rest_api.this.id
-  name            = "mega-batch-13-authorizer"
+  name            = "lagw-authorizer"
   type            = "TOKEN"
   authorizer_uri  = aws_lambda_function.this.invoke_arn
   identity_source = "method.request.header.Authorization"
 }
 
 resource "aws_api_gateway_client_certificate" "this" {
-  description = "mega-batch-13 client certificate"
+  description = "lagw client certificate"
 }
 
 resource "aws_acm_certificate" "domain" {
-  domain_name       = "mega-batch-13.example.test"
+  domain_name       = "lagw.example.test"
   validation_method = "DNS"
 
   lifecycle {
@@ -269,7 +269,7 @@ resource "aws_acm_certificate" "domain" {
 }
 
 resource "aws_api_gateway_domain_name" "this" {
-  domain_name              = "mega-batch-13.example.test"
+  domain_name              = "lagw.example.test"
   regional_certificate_arn = aws_acm_certificate.domain.arn
 
   endpoint_configuration {
@@ -288,7 +288,7 @@ resource "aws_vpc" "vpclink" {
   cidr_block = "10.78.0.0/16"
 
   tags = {
-    Name = "mega-batch-13-vpc"
+    Name = "lagw-vpc"
   }
 }
 
@@ -297,19 +297,19 @@ resource "aws_subnet" "vpclink" {
   cidr_block = "10.78.1.0/24"
 
   tags = {
-    Name = "mega-batch-13-subnet"
+    Name = "lagw-subnet"
   }
 }
 
 resource "aws_lb" "nlb" {
-  name               = "mega-batch-13-nlb"
+  name               = "lagw-nlb"
   internal           = true
   load_balancer_type = "network"
   subnets            = [aws_subnet.vpclink.id]
 }
 
 resource "aws_api_gateway_vpc_link" "this" {
-  name        = "mega-batch-13-vpc-link"
-  description = "mega-batch-13 VPC link"
+  name        = "lagw-vpc-link"
+  description = "lagw VPC link"
   target_arns = [aws_lb.nlb.arn]
 }

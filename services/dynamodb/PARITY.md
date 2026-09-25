@@ -1,7 +1,7 @@
 ---
 service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
-last_audit_commit: cd027034c  # 2026-09-20 mega-batch-35 terraform sweep: DisableKinesisStreamingDestination DISABLED-not-removed fix; prior: 176ddc764
+last_audit_commit: cd027034c  # 2026-09-20 autoscaling-dynamodb-kms-and-cloudwatch terraform sweep: DisableKinesisStreamingDestination DISABLED-not-removed fix; prior: 176ddc764
 last_audit_date: 2026-09-20  # prior: 2026-09-19 -- manifest-harvest pass: fixed UpdateGlobalTableSettings autoscaling
   # accept-and-drop gap and DisableKinesisStreamingDestination's never-echoed
   # EnableKinesisStreamingConfiguration -- see global_table_settings_autoscaling/
@@ -264,7 +264,7 @@ Differential test: `transact_write_differential_test.go`, 200 seeds x 40
 transactions, exported API only, reference-model-checked table/GSI/LSI state
 and CancellationReasons after every transaction.
 
-### 2026-09-20 mega-batch-35 terraform sweep
+### 2026-09-20 autoscaling-dynamodb-kms-and-cloudwatch terraform sweep
 
 DisableKinesisStreamingDestination removed the destination entirely instead
 of marking it DISABLED. Real AWS keeps a disabled destination visible, and

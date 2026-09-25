@@ -2,7 +2,7 @@ service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
 last_audit_commit: 4ad783e5c  # HEAD when this manifest was written
 last_audit_date: 2026-09-20
-                       # 2026-09-20 (mega-batch-26 terraform coverage): CreateProject never
+                       # 2026-09-20 (sagemaker-resources terraform coverage): CreateProject never
                        # populated ServiceCatalogProvisionedProductDetails -- real AWS always
                        # provisions a product on project creation, and the terraform-provider-aws
                        # sagemaker waiter (wait.go waitProjectCreated/waitProjectDeleted/

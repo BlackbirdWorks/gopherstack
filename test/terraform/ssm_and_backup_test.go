@@ -28,7 +28,7 @@ func mega17ProviderBlock(addr string) string {
 	)
 }
 
-// TestTerraform_MegaBatch17 provisions the 11 SSM resource types (activation,
+// TestTerraform_SsmAndBackup provisions the 11 SSM resource types (activation,
 // association, default patch baseline, document, maintenance window plus
 // target/task, patch baseline plus patch group, resource data sync, service
 // setting) and the 12 Backup resource types (framework, global settings,
@@ -36,13 +36,13 @@ func mega17ProviderBlock(addr string) string {
 // testing plan plus selection, selection, vault lock configuration, vault
 // notifications, vault policy) that had no Terraform fixture coverage, and
 // verifies each via its own SDK client's Get/List path.
-func TestTerraform_MegaBatch17(t *testing.T) {
+func TestTerraform_SsmAndBackup(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-17",
+			fixture:    "ssm-and-backup",
 			providerFn: mega17ProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -60,8 +60,8 @@ func TestTerraform_MegaBatch17(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 
-				verifyMegaBatch17SSM(ctx, t, ssmc)
-				verifyMegaBatch17Backup(ctx, t, bk)
+				verifySsmAndBackupSSM(ctx, t, ssmc)
+				verifySsmAndBackupBackup(ctx, t, bk)
 			},
 		},
 	}
@@ -74,7 +74,7 @@ func TestTerraform_MegaBatch17(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
+func verifySsmAndBackupSSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	t.Helper()
 
 	actOut, err := c.DescribeActivations(ctx, &ssmsvc.DescribeActivationsInput{})
@@ -91,18 +91,18 @@ func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	assert.True(t, foundActivation, "ssm activation should be listed")
 
 	docOut, err := c.GetDocument(ctx, &ssmsvc.GetDocumentInput{
-		Name: aws.String("mega-batch-17-document"),
+		Name: aws.String("ssbk-document"),
 	})
 	require.NoError(t, err, "GetDocument should succeed")
 	assert.Contains(t, aws.ToString(docOut.Content), "runShellScript")
 
 	assocOut, err := c.DescribeAssociation(ctx, &ssmsvc.DescribeAssociationInput{
 		AssociationId: nil,
-		Name:          aws.String("mega-batch-17-document"),
+		Name:          aws.String("ssbk-document"),
 	})
 	require.NoError(t, err, "DescribeAssociation should succeed")
 	require.NotNil(t, assocOut.AssociationDescription)
-	assert.Equal(t, "mega-batch-17-document", aws.ToString(assocOut.AssociationDescription.Name))
+	assert.Equal(t, "ssbk-document", aws.ToString(assocOut.AssociationDescription.Name))
 
 	winOut, err := c.DescribeMaintenanceWindows(ctx, &ssmsvc.DescribeMaintenanceWindowsInput{})
 	require.NoError(t, err, "DescribeMaintenanceWindows should succeed")
@@ -110,7 +110,7 @@ func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	var windowID string
 
 	for _, w := range winOut.WindowIdentities {
-		if aws.ToString(w.Name) == "mega-batch-17-window" {
+		if aws.ToString(w.Name) == "ssbk-window" {
 			windowID = aws.ToString(w.WindowId)
 		}
 	}
@@ -125,7 +125,7 @@ func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	var foundTarget bool
 
 	for _, tg := range targetOut.Targets {
-		if aws.ToString(tg.Name) == "mega-batch-17-window-target" {
+		if aws.ToString(tg.Name) == "ssbk-window-target" {
 			foundTarget = true
 		}
 	}
@@ -145,7 +145,7 @@ func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	var baselineID string
 
 	for _, b := range pbOut.BaselineIdentities {
-		if aws.ToString(b.BaselineName) == "mega-batch-17-patch-baseline" {
+		if aws.ToString(b.BaselineName) == "ssbk-patch-baseline" {
 			baselineID = aws.ToString(b.BaselineId)
 		}
 	}
@@ -164,7 +164,7 @@ func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	var foundPatchGroup bool
 
 	for _, m := range pgOut.Mappings {
-		if aws.ToString(m.PatchGroup) == "mega-batch-17-patch-group" {
+		if aws.ToString(m.PatchGroup) == "ssbk-patch-group" {
 			foundPatchGroup = true
 		}
 	}
@@ -177,7 +177,7 @@ func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	var foundSync bool
 
 	for _, s := range syncOut.ResourceDataSyncItems {
-		if aws.ToString(s.SyncName) == "mega-batch-17-sync" {
+		if aws.ToString(s.SyncName) == "ssbk-sync" {
 			foundSync = true
 		}
 	}
@@ -192,11 +192,11 @@ func verifyMegaBatch17SSM(ctx context.Context, t *testing.T, c *ssmsvc.Client) {
 	assert.Equal(t, "true", aws.ToString(settingOut.ServiceSetting.SettingValue))
 }
 
-func verifyMegaBatch17Backup(ctx context.Context, t *testing.T, c *backupsvc.Client) {
+func verifySsmAndBackupBackup(ctx context.Context, t *testing.T, c *backupsvc.Client) {
 	t.Helper()
 
 	frameworkOut, err := c.DescribeFramework(ctx, &backupsvc.DescribeFrameworkInput{
-		FrameworkName: aws.String("mega_batch_17_framework"),
+		FrameworkName: aws.String("ssbk_framework"),
 	})
 	require.NoError(t, err, "DescribeFramework should succeed")
 	require.NotEmpty(t, frameworkOut.FrameworkControls)
@@ -221,9 +221,9 @@ func verifyMegaBatch17Backup(ctx context.Context, t *testing.T, c *backupsvc.Cli
 
 	for _, v := range vaultsOut.BackupVaultList {
 		switch aws.ToString(v.BackupVaultName) {
-		case "mega-batch-17-vault":
+		case "ssbk-vault":
 			foundVault = true
-		case "mega-batch-17-lag-vault":
+		case "ssbk-lag-vault":
 			foundLagVault = true
 		}
 	}
@@ -237,7 +237,7 @@ func verifyMegaBatch17Backup(ctx context.Context, t *testing.T, c *backupsvc.Cli
 	var planID string
 
 	for _, p := range planOut.BackupPlansList {
-		if aws.ToString(p.BackupPlanName) == "mega-batch-17-plan" {
+		if aws.ToString(p.BackupPlanName) == "ssbk-plan" {
 			planID = aws.ToString(p.BackupPlanId)
 		}
 	}
@@ -252,7 +252,7 @@ func verifyMegaBatch17Backup(ctx context.Context, t *testing.T, c *backupsvc.Cli
 	var foundSelection bool
 
 	for _, s := range selOut.BackupSelectionsList {
-		if aws.ToString(s.SelectionName) == "mega-batch-17-selection" {
+		if aws.ToString(s.SelectionName) == "ssbk-selection" {
 			foundSelection = true
 		}
 	}
@@ -260,45 +260,45 @@ func verifyMegaBatch17Backup(ctx context.Context, t *testing.T, c *backupsvc.Cli
 	assert.True(t, foundSelection, "backup selection should be listed")
 
 	reportOut, err := c.DescribeReportPlan(ctx, &backupsvc.DescribeReportPlanInput{
-		ReportPlanName: aws.String("mega_batch_17_report_plan"),
+		ReportPlanName: aws.String("ssbk_report_plan"),
 	})
 	require.NoError(t, err, "DescribeReportPlan should succeed")
 	require.NotNil(t, reportOut.ReportPlan.ReportDeliveryChannel)
 	assert.Equal(
 		t,
-		"mega-batch-17-backup-reports",
+		"ssbk-backup-reports",
 		aws.ToString(reportOut.ReportPlan.ReportDeliveryChannel.S3BucketName),
 	)
 
 	rtPlanOut, err := c.GetRestoreTestingPlan(ctx, &backupsvc.GetRestoreTestingPlanInput{
-		RestoreTestingPlanName: aws.String("mega_batch_17_restore_testing_plan"),
+		RestoreTestingPlanName: aws.String("ssbk_restore_testing_plan"),
 	})
 	require.NoError(t, err, "GetRestoreTestingPlan should succeed")
 	require.NotNil(t, rtPlanOut.RestoreTestingPlan.RecoveryPointSelection)
 	assert.Equal(t, "LATEST_WITHIN_WINDOW", string(rtPlanOut.RestoreTestingPlan.RecoveryPointSelection.Algorithm))
 
 	rtSelOut, err := c.GetRestoreTestingSelection(ctx, &backupsvc.GetRestoreTestingSelectionInput{
-		RestoreTestingPlanName:      aws.String("mega_batch_17_restore_testing_plan"),
-		RestoreTestingSelectionName: aws.String("mega_batch_17_restore_testing_selection"),
+		RestoreTestingPlanName:      aws.String("ssbk_restore_testing_plan"),
+		RestoreTestingSelectionName: aws.String("ssbk_restore_testing_selection"),
 	})
 	require.NoError(t, err, "GetRestoreTestingSelection should succeed")
 	assert.Equal(t, "EC2", aws.ToString(rtSelOut.RestoreTestingSelection.ProtectedResourceType))
 
 	lockOut, err := c.DescribeBackupVault(ctx, &backupsvc.DescribeBackupVaultInput{
-		BackupVaultName: aws.String("mega-batch-17-vault"),
+		BackupVaultName: aws.String("ssbk-vault"),
 	})
 	require.NoError(t, err, "DescribeBackupVault should succeed")
 	assert.EqualValues(t, 365, aws.ToInt64(lockOut.MaxRetentionDays))
 	assert.EqualValues(t, 7, aws.ToInt64(lockOut.MinRetentionDays))
 
 	notifOut, err := c.GetBackupVaultNotifications(ctx, &backupsvc.GetBackupVaultNotificationsInput{
-		BackupVaultName: aws.String("mega-batch-17-vault"),
+		BackupVaultName: aws.String("ssbk-vault"),
 	})
 	require.NoError(t, err, "GetBackupVaultNotifications should succeed")
 	assert.Contains(t, notifOut.BackupVaultEvents, backuptypes.BackupVaultEvent("BACKUP_JOB_STARTED"))
 
 	policyOut, err := c.GetBackupVaultAccessPolicy(ctx, &backupsvc.GetBackupVaultAccessPolicyInput{
-		BackupVaultName: aws.String("mega-batch-17-vault"),
+		BackupVaultName: aws.String("ssbk-vault"),
 	})
 	require.NoError(t, err, "GetBackupVaultAccessPolicy should succeed")
 	assert.Contains(t, aws.ToString(policyOut.Policy), "backup:DescribeBackupVault")

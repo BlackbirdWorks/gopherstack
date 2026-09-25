@@ -31,31 +31,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch54 provisions previously-uncovered terraform resource types end-to-end.
+// TestTerraform_AppmeshShieldAndWorkspaces provisions previously-uncovered terraform resource types end-to-end.
 // aws_spot_fleet_request was dropped: its delete waiter never converges within a CI shard's time budget.
-func TestTerraform_MegaBatch54(t *testing.T) {
+func TestTerraform_AppmeshShieldAndWorkspaces(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-54",
+			fixture: "appmesh-shield-and-workspaces",
 			setup:   setupEndpoint,
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch54ACM(ctx, t)
-				verifyMegaBatch54APIGateway(ctx, t)
-				verifyMegaBatch54AppMesh(ctx, t)
-				verifyMegaBatch54CloudFrontKVS(ctx, t)
-				verifyMegaBatch54CodePipeline(ctx, t)
-				verifyMegaBatch54CognitoIdentity(ctx, t)
-				verifyMegaBatch54EC2Misc(ctx, t)
-				verifyMegaBatch54Shield(ctx, t)
-				verifyMegaBatch54TimestreamQuery(ctx, t)
-				verifyMegaBatch54Workspaces(ctx, t)
-				verifyMegaBatch54RDS(ctx, t)
-				verifyMegaBatch54KinesisAnalyticsV2(ctx, t)
-				verifyMegaBatch54DirectoryService(ctx, t)
+				verifyAppmeshShieldAndWorkspacesACM(ctx, t)
+				verifyAppmeshShieldAndWorkspacesAPIGateway(ctx, t)
+				verifyAppmeshShieldAndWorkspacesAppMesh(ctx, t)
+				verifyAppmeshShieldAndWorkspacesCloudFrontKVS(ctx, t)
+				verifyAppmeshShieldAndWorkspacesCodePipeline(ctx, t)
+				verifyAppmeshShieldAndWorkspacesCognitoIdentity(ctx, t)
+				verifyAppmeshShieldAndWorkspacesEC2Misc(ctx, t)
+				verifyAppmeshShieldAndWorkspacesShield(ctx, t)
+				verifyAppmeshShieldAndWorkspacesTimestreamQuery(ctx, t)
+				verifyAppmeshShieldAndWorkspacesWorkspaces(ctx, t)
+				verifyAppmeshShieldAndWorkspacesRDS(ctx, t)
+				verifyAppmeshShieldAndWorkspacesKinesisAnalyticsV2(ctx, t)
+				verifyAppmeshShieldAndWorkspacesDirectoryService(ctx, t)
 			},
 		},
 	}
@@ -68,7 +68,7 @@ func TestTerraform_MegaBatch54(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch54ACM(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesACM(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := acmsvc54.NewFromConfig(megaConfig(t), func(o *acmsvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -77,8 +77,8 @@ func verifyMegaBatch54ACM(ctx context.Context, t *testing.T) {
 	out, err := client.ListCertificates(ctx, &acmsvc54.ListCertificatesInput{})
 	require.NoError(t, err, "ListCertificates should succeed")
 	cert := findBy(t, out.CertificateSummaryList, func(c acmtypes54.CertificateSummary) bool {
-		return aws.ToString(c.DomainName) == "mega-batch-54.example.com"
-	}, "certificate for mega-batch-54.example.com")
+		return aws.ToString(c.DomainName) == "aswm.example.com"
+	}, "certificate for aswm.example.com")
 
 	descOut, err := client.DescribeCertificate(ctx, &acmsvc54.DescribeCertificateInput{
 		CertificateArn: cert.CertificateArn,
@@ -89,14 +89,14 @@ func verifyMegaBatch54ACM(ctx context.Context, t *testing.T) {
 		"aws_acm_certificate_validation should observe the certificate become ISSUED")
 }
 
-func verifyMegaBatch54APIGateway(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesAPIGateway(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := apigwsvc54.NewFromConfig(megaConfig(t), func(o *apigwsvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	domOut, err := client.GetDomainName(ctx, &apigwsvc54.GetDomainNameInput{
-		DomainName: aws.String("mb54-api.example.com"),
+		DomainName: aws.String("aswm-api.example.com"),
 	})
 	require.NoError(t, err, "GetDomainName should succeed")
 	require.NotNil(t, domOut.DomainNameArn)
@@ -105,39 +105,39 @@ func verifyMegaBatch54APIGateway(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "GetDomainNameAccessAssociations should succeed")
 	findBy(t, assocOut.Items, func(a apigwtypes54.DomainNameAccessAssociation) bool {
 		return aws.ToString(a.DomainNameArn) == aws.ToString(domOut.DomainNameArn)
-	}, "an access association for mb54-api.example.com's domain name")
+	}, "an access association for aswm-api.example.com's domain name")
 }
 
-func verifyMegaBatch54AppMesh(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesAppMesh(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := appmeshsvc54.NewFromConfig(megaConfig(t), func(o *appmeshsvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	vgOut, err := client.DescribeVirtualGateway(ctx, &appmeshsvc54.DescribeVirtualGatewayInput{
-		MeshName:           aws.String("mega-batch-54-mesh"),
-		VirtualGatewayName: aws.String("mega-batch-54-vgw"),
+		MeshName:           aws.String("aswm-mesh"),
+		VirtualGatewayName: aws.String("aswm-vgw"),
 	})
 	require.NoError(t, err, "DescribeVirtualGateway should succeed")
 	require.NotNil(t, vgOut.VirtualGateway)
 
 	grOut, err := client.DescribeGatewayRoute(ctx, &appmeshsvc54.DescribeGatewayRouteInput{
-		MeshName:           aws.String("mega-batch-54-mesh"),
-		VirtualGatewayName: aws.String("mega-batch-54-vgw"),
-		GatewayRouteName:   aws.String("mega-batch-54-gw-route"),
+		MeshName:           aws.String("aswm-mesh"),
+		VirtualGatewayName: aws.String("aswm-vgw"),
+		GatewayRouteName:   aws.String("aswm-gw-route"),
 	})
 	require.NoError(t, err, "DescribeGatewayRoute should succeed")
 	require.NotNil(t, grOut.GatewayRoute)
 }
 
-func verifyMegaBatch54CloudFrontKVS(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesCloudFrontKVS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfClient := cloudfrontsvc54.NewFromConfig(megaConfig(t), func(o *cloudfrontsvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	kvsOut, err := cfClient.DescribeKeyValueStore(ctx, &cloudfrontsvc54.DescribeKeyValueStoreInput{
-		Name: aws.String("mega-batch-54-kvs"),
+		Name: aws.String("aswm-kvs"),
 	})
 	require.NoError(t, err, "DescribeKeyValueStore should succeed")
 	require.NotNil(t, kvsOut.KeyValueStore)
@@ -151,7 +151,7 @@ func verifyMegaBatch54CloudFrontKVS(ctx context.Context, t *testing.T) {
 	require.Len(t, keysOut.Items, 2, "keys_exclusive must make the store match exactly the configured pairs")
 }
 
-func verifyMegaBatch54CodePipeline(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesCodePipeline(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := codepipelinesvc54.NewFromConfig(megaConfig(t), func(o *codepipelinesvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -160,12 +160,12 @@ func verifyMegaBatch54CodePipeline(ctx context.Context, t *testing.T) {
 	out, err := client.ListWebhooks(ctx, &codepipelinesvc54.ListWebhooksInput{})
 	require.NoError(t, err, "ListWebhooks should succeed")
 	findBy(t, out.Webhooks, func(w codepipelinetypes54.ListWebhookItem) bool {
-		return w.Definition != nil && aws.ToString(w.Definition.Name) == "mega-batch-54-webhook" &&
+		return w.Definition != nil && aws.ToString(w.Definition.Name) == "aswm-webhook" &&
 			w.Definition.AuthenticationConfiguration != nil
-	}, "webhook mega-batch-54-webhook with a non-nil AuthenticationConfiguration")
+	}, "webhook aswm-webhook with a non-nil AuthenticationConfiguration")
 }
 
-func verifyMegaBatch54CognitoIdentity(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesCognitoIdentity(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := cognitoidentitysvc54.NewFromConfig(megaConfig(t), func(o *cognitoidentitysvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -176,8 +176,8 @@ func verifyMegaBatch54CognitoIdentity(ctx context.Context, t *testing.T) {
 	)
 	require.NoError(t, err, "ListIdentityPools should succeed")
 	pool := findBy(t, poolsOut.IdentityPools, func(p cognitoidentitytypes54.IdentityPoolShortDescription) bool {
-		return aws.ToString(p.IdentityPoolName) == "mega_batch_54_pool"
-	}, "identity pool mega_batch_54_pool")
+		return aws.ToString(p.IdentityPoolName) == "aswm_pool"
+	}, "identity pool aswm_pool")
 
 	tagOut, err := client.GetPrincipalTagAttributeMap(ctx, &cognitoidentitysvc54.GetPrincipalTagAttributeMapInput{
 		IdentityPoolId:       pool.IdentityPoolId,
@@ -187,7 +187,7 @@ func verifyMegaBatch54CognitoIdentity(ctx context.Context, t *testing.T) {
 	assert.True(t, aws.ToBool(tagOut.UseDefaults), "use_defaults = true should round-trip")
 }
 
-func verifyMegaBatch54EC2Misc(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesEC2Misc(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := ec2svc54.NewFromConfig(megaConfig(t), func(o *ec2svc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -199,7 +199,7 @@ func verifyMegaBatch54EC2Misc(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "DescribeIpamPools should succeed")
 	pool := findBy(t, poolsOut.IpamPools, func(p ec2types54.IpamPool) bool {
 		return aws.ToString(p.Locale) == "us-east-1"
-	}, "the mega-batch-54 IPAM pool")
+	}, "the aswm IPAM pool")
 
 	allocOut, err := client.GetIpamPoolAllocations(ctx, &ec2svc54.GetIpamPoolAllocationsInput{
 		IpamPoolId: pool.IpamPoolId,
@@ -225,7 +225,7 @@ func verifyMegaBatch54EC2Misc(ctx context.Context, t *testing.T) {
 	}, "an associated security group VPC association")
 }
 
-func verifyMegaBatch54Shield(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesShield(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := shieldsvc54.NewFromConfig(megaConfig(t), func(o *shieldsvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -234,8 +234,8 @@ func verifyMegaBatch54Shield(ctx context.Context, t *testing.T) {
 	listOut, err := client.ListProtections(ctx, &shieldsvc54.ListProtectionsInput{})
 	require.NoError(t, err, "ListProtections should succeed")
 	prot := findBy(t, listOut.Protections, func(p shieldtypes54.Protection) bool {
-		return aws.ToString(p.Name) == "mega-batch-54-shield-protection"
-	}, "shield protection mega-batch-54-shield-protection")
+		return aws.ToString(p.Name) == "aswm-shield-protection"
+	}, "shield protection aswm-shield-protection")
 
 	descOut, err := client.DescribeProtection(ctx, &shieldsvc54.DescribeProtectionInput{ProtectionId: prot.Id})
 	require.NoError(t, err, "DescribeProtection should succeed")
@@ -245,7 +245,7 @@ func verifyMegaBatch54Shield(ctx context.Context, t *testing.T) {
 	assert.Len(t, descOut.Protection.HealthCheckIds, 1)
 }
 
-func verifyMegaBatch54TimestreamQuery(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesTimestreamQuery(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := timestreamquerysvc54.NewFromConfig(megaConfig(t), func(o *timestreamquerysvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -255,14 +255,14 @@ func verifyMegaBatch54TimestreamQuery(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "ListScheduledQueries should succeed")
 	found := false
 	for _, q := range out.ScheduledQueries {
-		if aws.ToString(q.Name) == "mega-batch-54-scheduled-query" {
+		if aws.ToString(q.Name) == "aswm-scheduled-query" {
 			found = true
 		}
 	}
-	assert.True(t, found, "scheduled query mega-batch-54-scheduled-query should be listed")
+	assert.True(t, found, "scheduled query aswm-scheduled-query should be listed")
 }
 
-func verifyMegaBatch54Workspaces(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesWorkspaces(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := workspacessvc54.NewFromConfig(megaConfig(t), func(o *workspacessvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -284,7 +284,7 @@ func verifyMegaBatch54Workspaces(ctx context.Context, t *testing.T) {
 	}, "a workspace for user Administrator")
 }
 
-func verifyMegaBatch54RDS(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesRDS(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := rdssvc54.NewFromConfig(megaConfig(t), func(o *rdssvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -292,7 +292,7 @@ func verifyMegaBatch54RDS(ctx context.Context, t *testing.T) {
 
 	out, err := client.DescribeDBEngineVersions(ctx, &rdssvc54.DescribeDBEngineVersionsInput{
 		Engine:        aws.String("custom-oracle-ee"),
-		EngineVersion: aws.String("19.mb54.1"),
+		EngineVersion: aws.String("19.aswm.1"),
 	})
 	require.NoError(t, err, "DescribeDBEngineVersions should succeed")
 	require.Len(t, out.DBEngineVersions, 1)
@@ -303,26 +303,26 @@ func verifyMegaBatch54RDS(ctx context.Context, t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(v.Image.ImageId))
 }
 
-func verifyMegaBatch54KinesisAnalyticsV2(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesKinesisAnalyticsV2(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := kinesisanalyticsv2svc54.NewFromConfig(megaConfig(t), func(o *kinesisanalyticsv2svc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	out, err := client.ListApplicationSnapshots(ctx, &kinesisanalyticsv2svc54.ListApplicationSnapshotsInput{
-		ApplicationName: aws.String("mega-batch-54-kda-app"),
+		ApplicationName: aws.String("aswm-kda-app"),
 	})
 	require.NoError(t, err, "ListApplicationSnapshots should succeed")
 	found := false
 	for _, s := range out.SnapshotSummaries {
-		if aws.ToString(s.SnapshotName) == "mega-batch-54-snapshot" {
+		if aws.ToString(s.SnapshotName) == "aswm-snapshot" {
 			found = true
 		}
 	}
-	assert.True(t, found, "snapshot mega-batch-54-snapshot should be listed")
+	assert.True(t, found, "snapshot aswm-snapshot should be listed")
 }
 
-func verifyMegaBatch54DirectoryService(ctx context.Context, t *testing.T) {
+func verifyAppmeshShieldAndWorkspacesDirectoryService(ctx context.Context, t *testing.T) {
 	t.Helper()
 	client := directoryservicesvc54.NewFromConfig(megaConfig(t), func(o *directoryservicesvc54.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -331,8 +331,8 @@ func verifyMegaBatch54DirectoryService(ctx context.Context, t *testing.T) {
 	out, err := client.DescribeTrusts(ctx, &directoryservicesvc54.DescribeTrustsInput{})
 	require.NoError(t, err, "DescribeTrusts should succeed")
 	trust := findBy(t, out.Trusts, func(tr directoryservicetypes54.Trust) bool {
-		return aws.ToString(tr.RemoteDomainName) == "remote-mb54.example.com"
-	}, "trust for remote-mb54.example.com")
+		return aws.ToString(tr.RemoteDomainName) == "remote-aswm.example.com"
+	}, "trust for remote-aswm.example.com")
 	assert.Equal(t, directoryservicetypes54.TrustStateVerified, trust.TrustState,
 		"a One-Way: Outgoing trust must be auto-verified (there's nothing to verify for One-Way: Incoming only)")
 }

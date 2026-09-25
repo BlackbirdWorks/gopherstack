@@ -21,7 +21,7 @@ func TestCreateProject_StatusIsCreatedImmediately(t *testing.T) {
 		name    string
 		project string
 	}{
-		{name: "custom labels project", project: "mega-batch-52-project"},
+		{name: "custom labels project", project: "s3tables-messaging-and-streaming-project"},
 	}
 
 	for _, tc := range tests {

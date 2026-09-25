@@ -1,5 +1,5 @@
 resource "aws_waf_byte_match_set" "example" {
-  name = "mega-batch-33-byte-match-set"
+  name = "wfdc-byte-match-set"
 
   byte_match_tuples {
     text_transformation   = "NONE"
@@ -14,7 +14,7 @@ resource "aws_waf_byte_match_set" "example" {
 }
 
 resource "aws_waf_geo_match_set" "example" {
-  name = "mega-batch-33-geo-match-set"
+  name = "wfdc-geo-match-set"
 
   geo_match_constraint {
     type  = "Country"
@@ -23,12 +23,12 @@ resource "aws_waf_geo_match_set" "example" {
 }
 
 resource "aws_waf_regex_pattern_set" "example" {
-  name                  = "mega-batch-33-regex-pattern-set"
+  name                  = "wfdc-regex-pattern-set"
   regex_pattern_strings = ["waf-regex-pattern"]
 }
 
 resource "aws_waf_regex_match_set" "example" {
-  name = "mega-batch-33-regex-match-set"
+  name = "wfdc-regex-match-set"
 
   regex_match_tuple {
     field_to_match {
@@ -41,7 +41,7 @@ resource "aws_waf_regex_match_set" "example" {
 }
 
 resource "aws_waf_size_constraint_set" "example" {
-  name = "mega-batch-33-size-constraint-set"
+  name = "wfdc-size-constraint-set"
 
   size_constraints {
     text_transformation = "NONE"
@@ -55,7 +55,7 @@ resource "aws_waf_size_constraint_set" "example" {
 }
 
 resource "aws_waf_sql_injection_match_set" "example" {
-  name = "mega-batch-33-sqli-match-set"
+  name = "wfdc-sqli-match-set"
 
   sql_injection_match_tuples {
     text_transformation = "URL_DECODE"
@@ -67,7 +67,7 @@ resource "aws_waf_sql_injection_match_set" "example" {
 }
 
 resource "aws_waf_xss_match_set" "example" {
-  name = "mega-batch-33-xss-match-set"
+  name = "wfdc-xss-match-set"
 
   xss_match_tuples {
     text_transformation = "NONE"
@@ -79,15 +79,15 @@ resource "aws_waf_xss_match_set" "example" {
 }
 
 resource "aws_waf_rate_based_rule" "example" {
-  name        = "mega-batch-33-rate-rule"
-  metric_name = "megabatch33RateRule"
+  name        = "wfdc-rate-rule"
+  metric_name = "wfdcRateRule"
   rate_key    = "IP"
   rate_limit  = 2000
 }
 
 resource "aws_waf_rule" "example" {
-  name        = "mega-batch-33-rule"
-  metric_name = "megabatch33Rule"
+  name        = "wfdc-rule"
+  metric_name = "wfdcRule"
 
   predicates {
     data_id = aws_waf_byte_match_set.example.id
@@ -97,8 +97,8 @@ resource "aws_waf_rule" "example" {
 }
 
 resource "aws_waf_rule_group" "example" {
-  name        = "mega-batch-33-rule-group"
-  metric_name = "megabatch33RuleGroup"
+  name        = "wfdc-rule-group"
+  metric_name = "wfdcRuleGroup"
 
   activated_rule {
     action {
@@ -111,8 +111,8 @@ resource "aws_waf_rule_group" "example" {
 }
 
 resource "aws_waf_web_acl" "example" {
-  name        = "mega-batch-33-web-acl"
-  metric_name = "megabatch33WebAcl"
+  name        = "wfdc-web-acl"
+  metric_name = "wfdcWebAcl"
 
   default_action {
     type = "ALLOW"
@@ -129,19 +129,19 @@ resource "aws_waf_web_acl" "example" {
 }
 
 resource "aws_dx_connection" "example" {
-  name      = "mega-batch-33-dx-conn"
+  name      = "wfdc-dx-conn"
   bandwidth = "1Gbps"
   location  = "EqDC2"
 }
 
 resource "aws_dx_connection" "assoc" {
-  name      = "mega-batch-33-dx-conn-assoc"
+  name      = "wfdc-dx-conn-assoc"
   bandwidth = "1Gbps"
   location  = "EqDC2"
 }
 
 resource "aws_dx_lag" "example" {
-  name                  = "mega-batch-33-lag"
+  name                  = "wfdc-lag"
   connections_bandwidth = "1Gbps"
   location              = "EqDC2"
 }
@@ -153,7 +153,7 @@ resource "aws_dx_connection_association" "example" {
 
 resource "aws_dx_hosted_connection" "example" {
   connection_id    = aws_dx_lag.example.id
-  name             = "mega-batch-33-hosted-conn"
+  name             = "wfdc-hosted-conn"
   bandwidth        = "500Mbps"
   vlan             = 100
   owner_account_id = "000000000000"
@@ -170,14 +170,14 @@ resource "aws_dx_macsec_key_association" "example" {
 }
 
 resource "aws_dx_gateway" "example" {
-  name            = "mega-batch-33-dxgw"
+  name            = "wfdc-dxgw"
   amazon_side_asn = 64513
 }
 
 resource "aws_dx_private_virtual_interface" "example" {
   connection_id  = aws_dx_connection.example.id
   dx_gateway_id  = aws_dx_gateway.example.id
-  name           = "mega-batch-33-private-vif"
+  name           = "wfdc-private-vif"
   vlan           = 101
   address_family = "ipv4"
   bgp_asn        = 65000
@@ -185,7 +185,7 @@ resource "aws_dx_private_virtual_interface" "example" {
 
 resource "aws_dx_public_virtual_interface" "example" {
   connection_id         = aws_dx_connection.example.id
-  name                  = "mega-batch-33-public-vif"
+  name                  = "wfdc-public-vif"
   vlan                  = 102
   address_family        = "ipv4"
   bgp_asn               = 65001
@@ -197,7 +197,7 @@ resource "aws_dx_public_virtual_interface" "example" {
 resource "aws_dx_transit_virtual_interface" "example" {
   connection_id  = aws_dx_connection.example.id
   dx_gateway_id  = aws_dx_gateway.example.id
-  name           = "mega-batch-33-transit-vif"
+  name           = "wfdc-transit-vif"
   vlan           = 103
   address_family = "ipv4"
   bgp_asn        = 65002
@@ -211,7 +211,7 @@ resource "aws_dx_bgp_peer" "example" {
 
 resource "aws_dx_hosted_private_virtual_interface" "example" {
   connection_id    = aws_dx_connection.example.id
-  name             = "mega-batch-33-hosted-private-vif"
+  name             = "wfdc-hosted-private-vif"
   vlan             = 104
   address_family   = "ipv4"
   bgp_asn          = 65004
@@ -225,7 +225,7 @@ resource "aws_dx_hosted_private_virtual_interface_accepter" "example" {
 
 resource "aws_dx_hosted_public_virtual_interface" "example" {
   connection_id         = aws_dx_connection.example.id
-  name                  = "mega-batch-33-hosted-public-vif"
+  name                  = "wfdc-hosted-public-vif"
   vlan                  = 105
   address_family        = "ipv4"
   bgp_asn               = 65005
@@ -241,7 +241,7 @@ resource "aws_dx_hosted_public_virtual_interface_accepter" "example" {
 
 resource "aws_dx_hosted_transit_virtual_interface" "example" {
   connection_id    = aws_dx_connection.example.id
-  name             = "mega-batch-33-hosted-transit-vif"
+  name             = "wfdc-hosted-transit-vif"
   vlan             = 106
   address_family   = "ipv4"
   bgp_asn          = 65006
@@ -254,11 +254,11 @@ resource "aws_dx_hosted_transit_virtual_interface_accepter" "example" {
 }
 
 resource "aws_ec2_transit_gateway" "proposal" {
-  description = "mega-batch-33 dx proposal tgw"
+  description = "wfdc dx proposal tgw"
 }
 
 resource "aws_dx_gateway" "proposal" {
-  name            = "mega-batch-33-dxgw-proposal"
+  name            = "wfdc-dxgw-proposal"
   amazon_side_asn = 64514
 }
 

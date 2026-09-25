@@ -1,22 +1,22 @@
 # --- IoT -----------------------------------------------------------------
 
 resource "aws_iot_thing_type" "example" {
-  name = "mega-batch-22-thing-type"
+  name = "iose-thing-type"
 }
 
 resource "aws_iot_thing" "example" {
-  name           = "mega-batch-22-thing"
+  name            = "iose-thing"
   thing_type_name = aws_iot_thing_type.example.name
 }
 
 resource "aws_iot_thing_group" "example" {
-  name = "mega-batch-22-thing-group"
+  name = "iose-thing-group"
 }
 
 resource "aws_iot_thing_group_membership" "example" {
-  thing_name              = aws_iot_thing.example.name
-  thing_group_name        = aws_iot_thing_group.example.name
-  override_dynamic_group  = true
+  thing_name             = aws_iot_thing.example.name
+  thing_group_name       = aws_iot_thing_group.example.name
+  override_dynamic_group = true
 }
 
 resource "aws_iot_certificate" "example" {
@@ -36,7 +36,7 @@ resource "aws_iot_ca_certificate" "example" {
 }
 
 resource "aws_iot_policy" "example" {
-  name = "mega-batch-22-policy"
+  name = "iose-policy"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -53,7 +53,7 @@ resource "aws_iot_policy_attachment" "example" {
 }
 
 resource "aws_iam_role" "iot" {
-  name = "mega-batch-22-iot-role"
+  name = "iose-iot-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -66,7 +66,7 @@ resource "aws_iam_role" "iot" {
 }
 
 resource "aws_iot_role_alias" "example" {
-  alias    = "mega-batch-22-role-alias"
+  alias    = "iose-role-alias"
   role_arn = aws_iam_role.iot.arn
 }
 
@@ -76,7 +76,7 @@ resource "aws_iot_logging_options" "example" {
 }
 
 resource "aws_iot_billing_group" "example" {
-  name = "mega-batch-22-billing-group"
+  name = "iose-billing-group"
 }
 
 resource "aws_iot_indexing_configuration" "example" {
@@ -106,7 +106,7 @@ resource "aws_iot_event_configurations" "example" {
 }
 
 resource "aws_iam_role" "iot_lambda" {
-  name = "mega-batch-22-iot-lambda-role"
+  name = "iose-iot-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -120,7 +120,7 @@ resource "aws_iam_role" "iot_lambda" {
 
 resource "aws_lambda_function" "iot_authorizer" {
   filename         = "{{.FunctionZip}}"
-  function_name    = "mega-batch-22-iot-authorizer"
+  function_name    = "iose-iot-authorizer"
   role             = aws_iam_role.iot_lambda.arn
   handler          = "index.handler"
   runtime          = "python3.12"
@@ -128,17 +128,17 @@ resource "aws_lambda_function" "iot_authorizer" {
 }
 
 resource "aws_iot_authorizer" "example" {
-  name                     = "mega-batch-22-authorizer"
-  authorizer_function_arn  = aws_lambda_function.iot_authorizer.arn
-  signing_disabled         = true
-  status                   = "ACTIVE"
+  name                    = "iose-authorizer"
+  authorizer_function_arn = aws_lambda_function.iot_authorizer.arn
+  signing_disabled        = true
+  status                  = "ACTIVE"
 }
 
 resource "aws_iot_provisioning_template" "example" {
-  name                   = "mega-batch-22-provisioning-template"
-  description            = "mega batch 22 provisioning template"
-  provisioning_role_arn  = aws_iam_role.iot.arn
-  enabled                = true
+  name                  = "iose-provisioning-template"
+  description           = "iose provisioning template"
+  provisioning_role_arn = aws_iam_role.iot.arn
+  enabled               = true
 
   template_body = jsonencode({
     Parameters = {
@@ -163,14 +163,14 @@ resource "aws_iot_provisioning_template" "example" {
 }
 
 resource "aws_sns_topic" "iot" {
-  name = "mega-batch-22-iot-topic"
+  name = "iose-iot-topic"
 }
 
 resource "aws_iot_topic_rule" "example" {
-  name        = "mega_batch_22_rule"
-  description = "mega batch 22 topic rule"
+  name        = "iose_rule"
+  description = "iose topic rule"
   enabled     = true
-  sql         = "SELECT * FROM 'mega-batch-22/topic'"
+  sql         = "SELECT * FROM 'iose/topic'"
   sql_version = "2016-03-23"
 
   sns {
@@ -184,7 +184,7 @@ resource "aws_vpc" "iot" {
   cidr_block = "10.150.0.0/16"
 
   tags = {
-    Name = "mega-batch-22-vpc"
+    Name = "iose-vpc"
   }
 }
 
@@ -193,12 +193,12 @@ resource "aws_subnet" "iot" {
   cidr_block = "10.150.1.0/24"
 
   tags = {
-    Name = "mega-batch-22-subnet"
+    Name = "iose-subnet"
   }
 }
 
 resource "aws_security_group" "iot" {
-  name   = "mega-batch-22-sg"
+  name   = "iose-sg"
   vpc_id = aws_vpc.iot.id
 }
 
@@ -212,14 +212,14 @@ resource "aws_iot_topic_rule_destination" "example" {
 }
 
 resource "aws_iot_domain_configuration" "example" {
-  name         = "mega-batch-22-domain-config"
+  name         = "iose-domain-config"
   service_type = "DATA"
 }
 
 # --- SES -------------------------------------------------------------------
 
 resource "aws_ses_domain_identity" "example" {
-  domain = "mega-batch-22.example.com"
+  domain = "iose.example.com"
 }
 
 resource "aws_ses_domain_identity_verification" "example" {
@@ -232,19 +232,19 @@ resource "aws_ses_domain_dkim" "example" {
 
 resource "aws_ses_domain_mail_from" "example" {
   domain           = aws_ses_domain_identity.example.domain
-  mail_from_domain = "bounce.mega-batch-22.example.com"
+  mail_from_domain = "bounce.iose.example.com"
 }
 
 resource "aws_ses_configuration_set" "example" {
-  name = "mega-batch-22-config-set"
+  name = "iose-config-set"
 }
 
 resource "aws_sns_topic" "ses" {
-  name = "mega-batch-22-ses-topic"
+  name = "iose-ses-topic"
 }
 
 resource "aws_ses_event_destination" "example" {
-  name                   = "mega-batch-22-event-dest"
+  name                   = "iose-event-dest"
   configuration_set_name = aws_ses_configuration_set.example.name
   enabled                = true
   matching_types         = ["send", "bounce"]
@@ -262,15 +262,15 @@ resource "aws_ses_identity_notification_topic" "example" {
 
 resource "aws_ses_identity_policy" "example" {
   identity = aws_ses_domain_identity.example.domain
-  name     = "mega-batch-22-identity-policy"
+  name     = "iose-identity-policy"
 
   policy = jsonencode({
-    Id      = "mega-batch-22-policy"
+    Id      = "iose-policy"
     Version = "2012-10-17"
     Statement = [{
       Sid       = "AuthorizeSend"
       Effect    = "Allow"
-      Resource  = "arn:aws:ses:us-east-1:000000000000:identity/mega-batch-22.example.com"
+      Resource  = "arn:aws:ses:us-east-1:000000000000:identity/iose.example.com"
       Principal = { AWS = "arn:aws:iam::000000000000:root" }
       Action    = ["ses:SendEmail"]
     }]
@@ -278,7 +278,7 @@ resource "aws_ses_identity_policy" "example" {
 }
 
 resource "aws_ses_receipt_rule_set" "example" {
-  rule_set_name = "mega-batch-22-rule-set"
+  rule_set_name = "iose-rule-set"
 }
 
 resource "aws_ses_active_receipt_rule_set" "example" {
@@ -286,20 +286,20 @@ resource "aws_ses_active_receipt_rule_set" "example" {
 }
 
 resource "aws_ses_receipt_filter" "example" {
-  name   = "mega-batch-22-receipt-filter"
+  name   = "iose-receipt-filter"
   cidr   = "10.10.10.0/24"
   policy = "Block"
 }
 
 resource "aws_ses_receipt_rule" "example" {
-  name          = "mega-batch-22-receipt-rule"
+  name          = "iose-receipt-rule"
   rule_set_name = aws_ses_receipt_rule_set.example.rule_set_name
-  recipients    = ["test@mega-batch-22.example.com"]
+  recipients    = ["test@iose.example.com"]
   enabled       = true
   scan_enabled  = true
 
   add_header_action {
-    header_name  = "X-Mega-Batch"
+    header_name  = "X-Iose"
     header_value = "22"
     position     = 1
   }
@@ -311,8 +311,8 @@ resource "aws_ses_receipt_rule" "example" {
 }
 
 resource "aws_ses_template" "example" {
-  name    = "mega-batch-22-template"
-  subject = "Mega Batch 22"
-  html    = "<h1>Mega Batch 22</h1>"
-  text    = "Mega Batch 22"
+  name    = "iose-template"
+  subject = "Iose"
+  html    = "<h1>Iose</h1>"
+  text    = "Iose"
 }

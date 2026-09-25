@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch15 provisions the 13 ELBv2/classic-ELB resource
+// TestTerraform_ElbAlbAndEcr provisions the 13 ELBv2/classic-ELB resource
 // types (ALB and its listener/listener-certificate/listener-rule/target-
 // group/target-group-attachment "alb"/"lb" aliases, trust store and trust
 // store revocation, and the two classic-ELB "lb"-named policies: cookie
@@ -22,13 +22,13 @@ import (
 // repository policy; registry scanning configuration and replication
 // configuration are dropped -- see services/ecr/PARITY.md, gopherstack-101r),
 // and verifies each via its own SDK client's Describe/Get path.
-func TestTerraform_MegaBatch15(t *testing.T) {
+func TestTerraform_ElbAlbAndEcr(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-15",
+			fixture: "elb-alb-and-ecr",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -48,9 +48,9 @@ func TestTerraform_MegaBatch15(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 
-				verifyMegaBatch15ELBv2(ctx, t, elbv2Client)
-				verifyMegaBatch15ELBClassic(ctx, t, elbClient)
-				verifyMegaBatch15ECR(ctx, t, ecrClient)
+				verifyElbAlbAndEcrELBv2(ctx, t, elbv2Client)
+				verifyElbAlbAndEcrELBClassic(ctx, t, elbClient)
+				verifyElbAlbAndEcrECR(ctx, t, ecrClient)
 			},
 		},
 	}
@@ -63,18 +63,18 @@ func TestTerraform_MegaBatch15(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch15ELBv2(ctx context.Context, t *testing.T, client *elbv2svc.Client) {
+func verifyElbAlbAndEcrELBv2(ctx context.Context, t *testing.T, client *elbv2svc.Client) {
 	t.Helper()
 
 	lbOut, err := client.DescribeLoadBalancers(ctx, &elbv2svc.DescribeLoadBalancersInput{
-		Names: []string{"mega-batch-15-alb"},
+		Names: []string{"elae-alb"},
 	})
 	require.NoError(t, err, "DescribeLoadBalancers should succeed")
 	require.Len(t, lbOut.LoadBalancers, 1)
 	lbArn := aws.ToString(lbOut.LoadBalancers[0].LoadBalancerArn)
 
 	tgOut, err := client.DescribeTargetGroups(ctx, &elbv2svc.DescribeTargetGroupsInput{
-		Names: []string{"mega-batch-15-tg"},
+		Names: []string{"elae-tg"},
 	})
 	require.NoError(t, err, "DescribeTargetGroups should succeed")
 	require.Len(t, tgOut.TargetGroups, 1)
@@ -147,7 +147,7 @@ func verifyMegaBatch15ELBv2(ctx context.Context, t *testing.T, client *elbv2svc.
 	assert.True(t, foundLBAttachment, "aws_lb_target_group_attachment target should be registered")
 
 	tsOut, err := client.DescribeTrustStores(ctx, &elbv2svc.DescribeTrustStoresInput{
-		Names: []string{"mega-batch-15-ts"},
+		Names: []string{"elae-ts"},
 	})
 	require.NoError(t, err, "DescribeTrustStores should succeed")
 	require.Len(t, tsOut.TrustStores, 1)
@@ -160,11 +160,11 @@ func verifyMegaBatch15ELBv2(ctx context.Context, t *testing.T, client *elbv2svc.
 	assert.NotEmpty(t, revOut.TrustStoreRevocations, "trust store revocation should be listed")
 }
 
-func verifyMegaBatch15ELBClassic(ctx context.Context, t *testing.T, client *elbsvc.Client) {
+func verifyElbAlbAndEcrELBClassic(ctx context.Context, t *testing.T, client *elbsvc.Client) {
 	t.Helper()
 
 	policiesOut, err := client.DescribeLoadBalancerPolicies(ctx, &elbsvc.DescribeLoadBalancerPoliciesInput{
-		LoadBalancerName: aws.String("mega-batch-15-elb"),
+		LoadBalancerName: aws.String("elae-elb"),
 	})
 	require.NoError(t, err, "DescribeLoadBalancerPolicies should succeed")
 
@@ -172,9 +172,9 @@ func verifyMegaBatch15ELBClassic(ctx context.Context, t *testing.T, client *elbs
 
 	for _, p := range policiesOut.PolicyDescriptions {
 		switch aws.ToString(p.PolicyName) {
-		case "mega-batch-15-cookie-policy":
+		case "elae-cookie-policy":
 			foundCookiePolicy = true
-		case "mega-batch-15-ssl-policy":
+		case "elae-ssl-policy":
 			foundSSLPolicy = true
 		}
 	}
@@ -183,17 +183,17 @@ func verifyMegaBatch15ELBClassic(ctx context.Context, t *testing.T, client *elbs
 	assert.True(t, foundSSLPolicy, "aws_lb_ssl_negotiation_policy should be listed")
 }
 
-func verifyMegaBatch15ECR(ctx context.Context, t *testing.T, client *ecrsvc.Client) {
+func verifyElbAlbAndEcrECR(ctx context.Context, t *testing.T, client *ecrsvc.Client) {
 	t.Helper()
 
 	policyOut, err := client.GetRepositoryPolicy(ctx, &ecrsvc.GetRepositoryPolicyInput{
-		RepositoryName: aws.String("mega-batch-15-repo"),
+		RepositoryName: aws.String("elae-repo"),
 	})
 	require.NoError(t, err, "GetRepositoryPolicy should succeed")
 	assert.Contains(t, aws.ToString(policyOut.PolicyText), "AllowPull")
 
 	lifecycleOut, err := client.GetLifecyclePolicy(ctx, &ecrsvc.GetLifecyclePolicyInput{
-		RepositoryName: aws.String("mega-batch-15-repo"),
+		RepositoryName: aws.String("elae-repo"),
 	})
 	require.NoError(t, err, "GetLifecyclePolicy should succeed")
 	assert.Contains(t, aws.ToString(lifecycleOut.LifecyclePolicyText), "sinceImagePushed")
@@ -214,14 +214,14 @@ func verifyMegaBatch15ECR(ctx context.Context, t *testing.T, client *ecrsvc.Clie
 	// state-consistency check, not in this emulator.
 
 	ptcOut, err := client.DescribePullThroughCacheRules(ctx, &ecrsvc.DescribePullThroughCacheRulesInput{
-		EcrRepositoryPrefixes: []string{"mega-batch-15-ptc"},
+		EcrRepositoryPrefixes: []string{"elae-ptc"},
 	})
 	require.NoError(t, err, "DescribePullThroughCacheRules should succeed")
 	require.Len(t, ptcOut.PullThroughCacheRules, 1)
 	assert.Equal(t, "public.ecr.aws", aws.ToString(ptcOut.PullThroughCacheRules[0].UpstreamRegistryUrl))
 
 	tmplOut, err := client.DescribeRepositoryCreationTemplates(ctx, &ecrsvc.DescribeRepositoryCreationTemplatesInput{
-		Prefixes: []string{"mega-batch-15-tmpl"},
+		Prefixes: []string{"elae-tmpl"},
 	})
 	require.NoError(t, err, "DescribeRepositoryCreationTemplates should succeed")
 	require.Len(t, tmplOut.RepositoryCreationTemplates, 1)

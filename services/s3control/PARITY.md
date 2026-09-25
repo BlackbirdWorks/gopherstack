@@ -252,7 +252,7 @@ leaks: {status: fixed, note: "LEAK FOUND AND FIXED THIS PASS. DeleteMultiRegionA
 
 ## Notes
 
-### 2026-09-19: terraform mega-batch-21 coverage (10 previously-uncovered resources)
+### 2026-09-19: terraform s3control-and-vpclattice coverage (10 previously-uncovered resources)
 
 Real terraform apply of access_grant(+_instance/_instance_resource_policy/
 _location), access_point_policy, multi_region_access_point(+_policy),

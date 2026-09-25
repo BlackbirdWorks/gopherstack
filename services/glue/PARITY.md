@@ -205,7 +205,7 @@ pruneOldJobRunsLocked (jobs.go) and pruneOldCrawlHistoryLocked (crawlers.go),
 both run lazily on the next StartJobRun/StartCrawler call for the affected
 job/crawler. See janitor_run_history_test.go.
 
-### 2026-09-19: terraform mega-batch-20 coverage (registry/schema ARN identity + tags)
+### 2026-09-19: terraform glue-and-cloudwatch-logs coverage (registry/schema ARN identity + tags)
 
 Real terraform apply of registry, schema, ml_transform, table_optimizer,
 partition(+index), connection, dev_endpoint, and 8 more previously-uncovered

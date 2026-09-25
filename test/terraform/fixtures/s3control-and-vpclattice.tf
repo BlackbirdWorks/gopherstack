@@ -3,7 +3,7 @@ resource "aws_s3control_access_grants_instance" "example" {
 }
 
 resource "aws_iam_role" "access_grants" {
-  name = "mega-batch-21-access-grants-role"
+  name = "s3vl-access-grants-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -22,7 +22,7 @@ resource "aws_s3control_access_grants_instance_resource_policy" "example" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Id      = "mega-batch-21-agi-policy"
+    Id      = "s3vl-agi-policy"
     Statement = [{
       Sid       = "AllowAccessToS3AccessGrants"
       Effect    = "Allow"
@@ -34,15 +34,15 @@ resource "aws_s3control_access_grants_instance_resource_policy" "example" {
 }
 
 resource "aws_s3_bucket" "grants" {
-  bucket = "mega-batch-21-grants-bucket"
+  bucket = "s3vl-grants-bucket"
 }
 
 resource "aws_s3control_access_grants_location" "example" {
   depends_on = [aws_s3control_access_grants_instance.example]
 
-  account_id      = "000000000000"
-  iam_role_arn    = aws_iam_role.access_grants.arn
-  location_scope  = "s3://${aws_s3_bucket.grants.bucket}/prefixA*"
+  account_id     = "000000000000"
+  iam_role_arn   = aws_iam_role.access_grants.arn
+  location_scope = "s3://${aws_s3_bucket.grants.bucket}/prefixA*"
 }
 
 resource "aws_s3control_access_grant" "example" {
@@ -61,12 +61,12 @@ resource "aws_s3control_access_grant" "example" {
 }
 
 resource "aws_s3_bucket" "ap" {
-  bucket = "mega-batch-21-ap-bucket"
+  bucket = "s3vl-ap-bucket"
 }
 
 resource "aws_s3_access_point" "example" {
   bucket     = aws_s3_bucket.ap.id
-  name       = "mega-batch-21-ap"
+  name       = "s3vl-ap"
   account_id = "000000000000"
 
   lifecycle {
@@ -89,18 +89,18 @@ resource "aws_s3control_access_point_policy" "example" {
 }
 
 resource "aws_s3_bucket" "mrap_a" {
-  bucket = "mega-batch-21-mrap-a"
+  bucket = "s3vl-mrap-a"
 }
 
 resource "aws_s3_bucket" "mrap_b" {
-  bucket = "mega-batch-21-mrap-b"
+  bucket = "s3vl-mrap-b"
 }
 
 resource "aws_s3control_multi_region_access_point" "example" {
   account_id = "000000000000"
 
   details {
-    name = "mega-batch-21-mrap"
+    name = "s3vl-mrap"
 
     region {
       bucket = aws_s3_bucket.mrap_a.id
@@ -121,7 +121,7 @@ resource "aws_s3control_multi_region_access_point_policy" "example" {
     policy = jsonencode({
       Version = "2012-10-17"
       Statement = [{
-        Sid       = "MegaBatch21MRAPPolicy"
+        Sid       = "S3controlAndVpclatticeMRAPPolicy"
         Effect    = "Allow"
         Principal = { AWS = "000000000000" }
         Action    = ["s3:GetObject", "s3:PutObject"]
@@ -132,12 +132,12 @@ resource "aws_s3control_multi_region_access_point_policy" "example" {
 }
 
 resource "aws_s3_bucket" "ol" {
-  bucket = "mega-batch-21-ol-bucket"
+  bucket = "s3vl-ol-bucket"
 }
 
 resource "aws_s3_access_point" "ol" {
   bucket     = aws_s3_bucket.ol.id
-  name       = "mega-batch-21-ol-ap"
+  name       = "s3vl-ol-ap"
   account_id = "000000000000"
 
   lifecycle {
@@ -146,7 +146,7 @@ resource "aws_s3_access_point" "ol" {
 }
 
 resource "aws_iam_role" "lambda" {
-  name = "mega-batch-21-lambda-role"
+  name = "s3vl-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -160,7 +160,7 @@ resource "aws_iam_role" "lambda" {
 
 resource "aws_lambda_function" "ol" {
   filename         = "{{.FunctionZip}}"
-  function_name    = "mega-batch-21-ol-function"
+  function_name    = "s3vl-ol-function"
   role             = aws_iam_role.lambda.arn
   handler          = "index.handler"
   runtime          = "python3.12"
@@ -168,7 +168,7 @@ resource "aws_lambda_function" "ol" {
 }
 
 resource "aws_s3control_object_lambda_access_point" "example" {
-  name       = "mega-batch-21-ol"
+  name       = "s3vl-ol"
   account_id = "000000000000"
 
   configuration {
@@ -202,12 +202,12 @@ resource "aws_s3control_object_lambda_access_point_policy" "example" {
 }
 
 resource "aws_s3_bucket" "lens_target" {
-  bucket = "mega-batch-21-lens-target"
+  bucket = "s3vl-lens-target"
 }
 
 resource "aws_s3control_storage_lens_configuration" "example" {
   account_id = "000000000000"
-  config_id  = "mega-batch-21-lens"
+  config_id  = "s3vl-lens"
 
   storage_lens_configuration {
     enabled = true
@@ -230,7 +230,7 @@ resource "aws_vpc" "lattice" {
   cidr_block = "10.121.0.0/16"
 
   tags = {
-    Name = "mega-batch-21-lattice-vpc"
+    Name = "s3vl-lattice-vpc"
   }
 }
 
@@ -239,26 +239,26 @@ resource "aws_subnet" "lattice" {
   cidr_block = "10.121.1.0/24"
 
   tags = {
-    Name = "mega-batch-21-lattice-subnet"
+    Name = "s3vl-lattice-subnet"
   }
 }
 
 resource "aws_security_group" "lattice" {
-  name   = "mega-batch-21-lattice-sg"
+  name   = "s3vl-lattice-sg"
   vpc_id = aws_vpc.lattice.id
 }
 
 resource "aws_vpclattice_service_network" "example" {
-  name = "mega-batch-21-service-network"
+  name = "s3vl-service-network"
 }
 
 resource "aws_vpclattice_service" "example" {
-  name      = "mega-batch-21-service"
+  name      = "s3vl-service"
   auth_type = "AWS_IAM"
 }
 
 resource "aws_vpclattice_target_group" "example" {
-  name = "mega-batch-21-target-group"
+  name = "s3vl-target-group"
   type = "IP"
 
   config {
@@ -278,7 +278,7 @@ resource "aws_vpclattice_target_group_attachment" "example" {
 }
 
 resource "aws_vpclattice_listener" "example" {
-  name               = "mega-batch-21-listener"
+  name               = "s3vl-listener"
   protocol           = "HTTP"
   service_identifier = aws_vpclattice_service.example.id
 
@@ -292,10 +292,10 @@ resource "aws_vpclattice_listener" "example" {
 }
 
 resource "aws_vpclattice_listener_rule" "example" {
-  name                 = "mega-batch-21-listener-rule"
-  listener_identifier  = aws_vpclattice_listener.example.listener_id
-  service_identifier   = aws_vpclattice_service.example.id
-  priority             = 10
+  name                = "s3vl-listener-rule"
+  listener_identifier = aws_vpclattice_listener.example.listener_id
+  service_identifier  = aws_vpclattice_service.example.id
+  priority            = 10
 
   match {
     http_match {
@@ -303,7 +303,7 @@ resource "aws_vpclattice_listener_rule" "example" {
         case_sensitive = false
 
         match {
-          exact = "/mega-batch-21"
+          exact = "/s3vl"
         }
       }
     }
@@ -341,7 +341,7 @@ resource "aws_vpclattice_resource_policy" "example" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid    = "mega-batch-21-resource-policy"
+      Sid    = "s3vl-resource-policy"
       Effect = "Allow"
       Principal = {
         AWS = "arn:aws:iam::000000000000:root"
@@ -356,12 +356,12 @@ resource "aws_vpclattice_resource_policy" "example" {
 }
 
 resource "aws_s3_bucket" "access_logs" {
-  bucket = "mega-batch-21-access-logs"
+  bucket = "s3vl-access-logs"
 }
 
 resource "aws_vpclattice_access_log_subscription" "example" {
   resource_identifier = aws_vpclattice_service_network.example.id
-  destination_arn      = aws_s3_bucket.access_logs.arn
+  destination_arn     = aws_s3_bucket.access_logs.arn
 }
 
 resource "aws_vpclattice_service_network_vpc_association" "example" {
@@ -376,13 +376,13 @@ resource "aws_vpclattice_service_network_service_association" "example" {
 }
 
 resource "aws_vpclattice_resource_gateway" "example" {
-  name       = "mega-batch-21-resource-gateway"
+  name       = "s3vl-resource-gateway"
   vpc_id     = aws_vpc.lattice.id
   subnet_ids = [aws_subnet.lattice.id]
 }
 
 resource "aws_vpclattice_resource_configuration" "example" {
-  name = "mega-batch-21-resource-configuration"
+  name = "s3vl-resource-configuration"
 
   resource_gateway_identifier = aws_vpclattice_resource_gateway.example.id
 

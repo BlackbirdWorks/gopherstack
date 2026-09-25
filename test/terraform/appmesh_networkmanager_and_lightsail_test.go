@@ -20,17 +20,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch8 provisions accessanalyzer, appmesh, cleanrooms,
+// TestTerraform_AppmeshNetworkmanagerAndLightsail provisions accessanalyzer, appmesh, cleanrooms,
 // cloudfront key value store, dlm, grafana, lightsail, networkmanager, and
 // inspector2 resources via Terraform and verifies each through its own SDK
 // client's Get/Describe path.
-func TestTerraform_MegaBatch8(t *testing.T) {
+func TestTerraform_AppmeshNetworkmanagerAndLightsail(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-8",
+			fixture: "appmesh-networkmanager-and-lightsail",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -44,25 +44,25 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				aaOut, err := aaClient.GetAnalyzer(ctx, &accessanalyzersvc.GetAnalyzerInput{
-					AnalyzerName: aws.String("mega-batch-8-analyzer"),
+					AnalyzerName: aws.String("anwl-analyzer"),
 				})
 				require.NoError(t, err, "GetAnalyzer should succeed")
 				require.NotNil(t, aaOut.Analyzer)
-				assert.Equal(t, "mega-batch-8-analyzer", aws.ToString(aaOut.Analyzer.Name))
+				assert.Equal(t, "anwl-analyzer", aws.ToString(aaOut.Analyzer.Name))
 
 				meshClient := appmeshsvc.NewFromConfig(cfg, func(o *appmeshsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				meshOut, err := meshClient.DescribeMesh(ctx, &appmeshsvc.DescribeMeshInput{
-					MeshName: aws.String("mega-batch-8-mesh"),
+					MeshName: aws.String("anwl-mesh"),
 				})
 				require.NoError(t, err, "DescribeMesh should succeed")
 				require.NotNil(t, meshOut.Mesh)
-				assert.Equal(t, "mega-batch-8-mesh", aws.ToString(meshOut.Mesh.MeshName))
+				assert.Equal(t, "anwl-mesh", aws.ToString(meshOut.Mesh.MeshName))
 
 				routerOut, err := meshClient.DescribeVirtualRouter(ctx, &appmeshsvc.DescribeVirtualRouterInput{
-					MeshName:          aws.String("mega-batch-8-mesh"),
-					VirtualRouterName: aws.String("mega-batch-8-vrouter"),
+					MeshName:          aws.String("anwl-mesh"),
+					VirtualRouterName: aws.String("anwl-vrouter"),
 				})
 				require.NoError(t, err, "DescribeVirtualRouter should succeed")
 				require.NotNil(t, routerOut.VirtualRouter)
@@ -78,25 +78,25 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 				var collabID string
 
 				for _, c := range listOut.CollaborationList {
-					if aws.ToString(c.Name) == "mega-batch-8-collab" {
+					if aws.ToString(c.Name) == "anwl-collab" {
 						collabID = aws.ToString(c.Id)
 					}
 				}
 
-				require.NotEmpty(t, collabID, "collaboration mega-batch-8-collab should be listed")
+				require.NotEmpty(t, collabID, "collaboration anwl-collab should be listed")
 
 				getCollabOut, err := crClient.GetCollaboration(ctx, &cleanroomssvc.GetCollaborationInput{
 					CollaborationIdentifier: aws.String(collabID),
 				})
 				require.NoError(t, err, "GetCollaboration should succeed")
 				require.NotNil(t, getCollabOut.Collaboration)
-				assert.Equal(t, "mega-batch-8-collab", aws.ToString(getCollabOut.Collaboration.Name))
+				assert.Equal(t, "anwl-collab", aws.ToString(getCollabOut.Collaboration.Name))
 
 				cfClient := cloudfrontsdkv2.NewFromConfig(cfg, func(o *cloudfrontsdkv2.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				kvsOut, err := cfClient.DescribeKeyValueStore(ctx, &cloudfrontsdkv2.DescribeKeyValueStoreInput{
-					Name: aws.String("mega-batch-8-kvs"),
+					Name: aws.String("anwl-kvs"),
 				})
 				require.NoError(t, err, "DescribeKeyValueStore should succeed")
 				require.NotNil(t, kvsOut.KeyValueStore)
@@ -106,10 +106,10 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 				})
 				keyOut, err := kvClient.GetKey(ctx, &cloudfrontkeyvaluestoresvc.GetKeyInput{
 					KvsARN: kvsOut.KeyValueStore.ARN,
-					Key:    aws.String("mega-batch-8-key"),
+					Key:    aws.String("anwl-key"),
 				})
 				require.NoError(t, err, "GetKey should succeed")
-				assert.Equal(t, "mega-batch-8-value", aws.ToString(keyOut.Value))
+				assert.Equal(t, "anwl-value", aws.ToString(keyOut.Value))
 
 				dlmClient := dlmsvc.NewFromConfig(cfg, func(o *dlmsvc.Options) {
 					o.BaseEndpoint = aws.String(endpoint)
@@ -120,7 +120,7 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 				var policyID string
 
 				for _, p := range policiesOut.Policies {
-					if aws.ToString(p.Description) == "mega batch 8 dlm policy" {
+					if aws.ToString(p.Description) == "anwl dlm policy" {
 						policyID = aws.ToString(p.PolicyId)
 					}
 				}
@@ -134,7 +134,7 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 				require.NotNil(t, getPolicyOut.Policy)
 				assert.Equal(
 					t,
-					"arn:aws:iam::000000000000:role/mega-batch-8-dlm-role",
+					"arn:aws:iam::000000000000:role/anwl-dlm-role",
 					aws.ToString(getPolicyOut.Policy.ExecutionRoleArn),
 				)
 
@@ -147,7 +147,7 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 				var workspaceID string
 
 				for _, w := range workspacesOut.Workspaces {
-					if aws.ToString(w.Name) == "mega-batch-8-grafana" {
+					if aws.ToString(w.Name) == "anwl-grafana" {
 						workspaceID = aws.ToString(w.Id)
 					}
 				}
@@ -164,7 +164,7 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				instOut, err := lsClient.GetInstance(ctx, &lightsailsvc.GetInstanceInput{
-					InstanceName: aws.String("mega-batch-8-instance"),
+					InstanceName: aws.String("anwl-instance"),
 				})
 				require.NoError(t, err, "GetInstance should succeed")
 				require.NotNil(t, instOut.Instance)
@@ -172,13 +172,13 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 				assert.Equal(t, "nano_3_0", aws.ToString(instOut.Instance.BundleId))
 
 				bucketOut, err := lsClient.GetBuckets(ctx, &lightsailsvc.GetBucketsInput{
-					BucketName: aws.String("mega-batch-8-bucket"),
+					BucketName: aws.String("anwl-bucket"),
 				})
 				require.NoError(t, err, "GetBuckets should succeed")
 				require.Len(t, bucketOut.Buckets, 1)
 
 				staticIPOut, err := lsClient.GetStaticIp(ctx, &lightsailsvc.GetStaticIpInput{
-					StaticIpName: aws.String("mega-batch-8-staticip"),
+					StaticIpName: aws.String("anwl-staticip"),
 				})
 				require.NoError(t, err, "GetStaticIp should succeed")
 				require.NotNil(t, staticIPOut.StaticIp)
@@ -192,7 +192,7 @@ func TestTerraform_MegaBatch8(t *testing.T) {
 				var globalNetworkID string
 
 				for _, gn := range gnOut.GlobalNetworks {
-					if aws.ToString(gn.Description) == "mega batch 8 global network" {
+					if aws.ToString(gn.Description) == "anwl global network" {
 						globalNetworkID = aws.ToString(gn.GlobalNetworkId)
 					}
 				}

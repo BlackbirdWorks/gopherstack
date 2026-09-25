@@ -545,7 +545,7 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 
 ## Notes
 
-### 2026-09-19 (terraform-coverage sweep, mega-batch-17)
+### 2026-09-19 (terraform-coverage sweep, ssm-and-backup)
 
 CreatePatchBaseline left ApprovalRules/GlobalFilters nil (crashed terraform-provider-aws's
 flattenPatchFilterGroup) and used a UUID baseline ID instead of "pb-"+17 hex; both fixed.

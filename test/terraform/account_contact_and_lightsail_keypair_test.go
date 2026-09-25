@@ -12,16 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch7 provisions an Account alternate contact and a
+// TestTerraform_AccountContactAndLightsailKeypair provisions an Account alternate contact and a
 // Lightsail key pair via Terraform and verifies each through its own SDK
 // client's Get path.
-func TestTerraform_MegaBatch7(t *testing.T) {
+func TestTerraform_AccountContactAndLightsailKeypair(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-7",
+			fixture: "account-contact-and-lightsail-keypair",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -45,11 +45,11 @@ func TestTerraform_MegaBatch7(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 				lsOut, err := lsClient.GetKeyPair(ctx, &lightsailsvc.GetKeyPairInput{
-					KeyPairName: aws.String("mega-batch-7-keypair"),
+					KeyPairName: aws.String("acyk-keypair"),
 				})
 				require.NoError(t, err, "GetKeyPair should succeed")
 				require.NotNil(t, lsOut.KeyPair)
-				assert.Equal(t, "mega-batch-7-keypair", aws.ToString(lsOut.KeyPair.Name))
+				assert.Equal(t, "acyk-keypair", aws.ToString(lsOut.KeyPair.Name))
 			},
 		},
 	}

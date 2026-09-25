@@ -31,8 +31,8 @@ resource "aws_bedrockagent_knowledge_base" "example" {
 }
 
 resource "aws_bedrock_guardrail" "example" {
-  name                      = "mega-batch-4-guardrail"
-  description               = "Test guardrail for mega-batch-4"
+  name                      = "bakb-guardrail"
+  description               = "Test guardrail for bakb"
   blocked_input_messaging   = "Sorry, I cannot help with that."
   blocked_outputs_messaging = "I cannot provide that information."
 
@@ -46,13 +46,13 @@ resource "aws_bedrock_guardrail" "example" {
 }
 
 resource "aws_transcribe_vocabulary" "example" {
-  vocabulary_name = "mega-batch-4-vocabulary"
+  vocabulary_name = "bakb-vocabulary"
   language_code   = "en-US"
   phrases         = ["gopherstack", "terraform"]
 }
 
 resource "aws_msk_cluster" "example" {
-  cluster_name           = "mega-batch-4-kafka"
+  cluster_name           = "bakb-kafka"
   kafka_version          = "3.5.1"
   number_of_broker_nodes = 1
 
@@ -69,7 +69,7 @@ resource "aws_msk_cluster" "example" {
 }
 
 resource "aws_dynamodb_table" "example" {
-  name         = "mega-batch-4-table"
+  name         = "bakb-table"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
 

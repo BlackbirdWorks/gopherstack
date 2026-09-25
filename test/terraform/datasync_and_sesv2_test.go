@@ -14,22 +14,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch23 provisions DataSync (agent, EFS/NFS/SMB/HDFS/
+// TestTerraform_DatasyncAndSesv2 provisions DataSync (agent, EFS/NFS/SMB/HDFS/
 // object-storage/Azure Blob locations, task -- the FSx-backed locations are
-// split into mega-batch-24 since each backing FSx file system's create/
+// split into datasync-fsx-locations.tf since each backing FSx file system's create/
 // delete waiter takes tens of seconds to minutes) and SESv2 (email identity
 // feedback/mail-from/policy
 // attributes, configuration set + event destination, contact list,
 // dedicated IP pool + assignment, account suppression + VDM attributes)
 // resources via Terraform and verifies each through its own SDK client's
 // Get/Describe path.
-func TestTerraform_MegaBatch23(t *testing.T) {
+func TestTerraform_DatasyncAndSesv2(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-23",
+			fixture: "datasync-and-sesv2",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -37,8 +37,8 @@ func TestTerraform_MegaBatch23(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch23DataSync(ctx, t)
-				verifyMegaBatch23SESv2(ctx, t)
+				verifyDatasyncAndSesv2DataSync(ctx, t)
+				verifyDatasyncAndSesv2SESv2(ctx, t)
 			},
 		},
 	}
@@ -51,7 +51,7 @@ func TestTerraform_MegaBatch23(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
+func verifyDatasyncAndSesv2DataSync(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -65,7 +65,7 @@ func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
 	var agentARN string
 
 	for _, a := range agentsOut.Agents {
-		if aws.ToString(a.Name) == "mega-batch-23-agent" {
+		if aws.ToString(a.Name) == "dssv-agent" {
 			agentARN = aws.ToString(a.AgentArn)
 		}
 	}
@@ -74,7 +74,7 @@ func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
 
 	agentOut, err := client.DescribeAgent(ctx, &datasyncsvc.DescribeAgentInput{AgentArn: aws.String(agentARN)})
 	require.NoError(t, err, "DescribeAgent should succeed")
-	assert.Equal(t, "mega-batch-23-agent", aws.ToString(agentOut.Name))
+	assert.Equal(t, "dssv-agent", aws.ToString(agentOut.Name))
 
 	locsOut, err := client.ListLocations(ctx, &datasyncsvc.ListLocationsInput{})
 	require.NoError(t, err, "ListLocations should succeed")
@@ -139,9 +139,9 @@ func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
 	}
 
 	require.NotNil(t, hdfsOut, "HDFS location should be describable")
-	assert.Equal(t, "mega-batch-23-user", aws.ToString(hdfsOut.SimpleUser))
+	assert.Equal(t, "dssv-user", aws.ToString(hdfsOut.SimpleUser))
 	require.Len(t, hdfsOut.NameNodes, 1)
-	assert.Equal(t, "namenode.mega-batch-23.example.com", aws.ToString(hdfsOut.NameNodes[0].Hostname))
+	assert.Equal(t, "namenode.dssv.example.com", aws.ToString(hdfsOut.NameNodes[0].Hostname))
 
 	var osOut *datasyncsvc.DescribeLocationObjectStorageOutput
 
@@ -155,7 +155,7 @@ func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
 	}
 
 	require.NotNil(t, osOut, "object storage location should be describable")
-	assert.Equal(t, "mega-batch-23-bucket", bucketNameFromURI(aws.ToString(osOut.LocationUri)))
+	assert.Equal(t, "dssv-bucket", bucketNameFromURI(aws.ToString(osOut.LocationUri)))
 
 	var azOut *datasyncsvc.DescribeLocationAzureBlobOutput
 
@@ -177,7 +177,7 @@ func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
 	var taskARN string
 
 	for _, tsk := range taskOut.Tasks {
-		if aws.ToString(tsk.Name) == "mega-batch-23-task" {
+		if aws.ToString(tsk.Name) == "dssv-task" {
 			taskARN = aws.ToString(tsk.TaskArn)
 		}
 	}
@@ -186,7 +186,7 @@ func verifyMegaBatch23DataSync(ctx context.Context, t *testing.T) {
 
 	describeTaskOut, err := client.DescribeTask(ctx, &datasyncsvc.DescribeTaskInput{TaskArn: aws.String(taskARN)})
 	require.NoError(t, err, "DescribeTask should succeed")
-	assert.Equal(t, "mega-batch-23-task", aws.ToString(describeTaskOut.Name))
+	assert.Equal(t, "dssv-task", aws.ToString(describeTaskOut.Name))
 }
 
 // bucketNameFromURI extracts the bucket name from an
@@ -207,7 +207,7 @@ func bucketNameFromURI(uri string) string {
 	return bucket
 }
 
-func verifyMegaBatch23SESv2(ctx context.Context, t *testing.T) {
+func verifyDatasyncAndSesv2SESv2(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -215,45 +215,45 @@ func verifyMegaBatch23SESv2(ctx context.Context, t *testing.T) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
-	identity := "mega-batch-23.example.com"
+	identity := "dssv.example.com"
 
 	idOut, err := client.GetEmailIdentity(ctx, &sesv2svc.GetEmailIdentityInput{EmailIdentity: aws.String(identity)})
 	require.NoError(t, err, "GetEmailIdentity should succeed")
 	assert.True(t, idOut.FeedbackForwardingStatus)
 	require.NotNil(t, idOut.MailFromAttributes)
-	assert.Equal(t, "bounce.mega-batch-23.example.com", aws.ToString(idOut.MailFromAttributes.MailFromDomain))
-	assert.Contains(t, idOut.Policies, "mega-batch-23-identity-policy")
+	assert.Equal(t, "bounce.dssv.example.com", aws.ToString(idOut.MailFromAttributes.MailFromDomain))
+	assert.Contains(t, idOut.Policies, "dssv-identity-policy")
 
 	configOut, err := client.GetConfigurationSetEventDestinations(
 		ctx,
 		&sesv2svc.GetConfigurationSetEventDestinationsInput{
-			ConfigurationSetName: aws.String("mega-batch-23-config-set"),
+			ConfigurationSetName: aws.String("dssv-config-set"),
 		},
 	)
 	require.NoError(t, err, "GetConfigurationSetEventDestinations should succeed")
 	require.Len(t, configOut.EventDestinations, 1)
-	assert.Equal(t, "mega-batch-23-event-dest", aws.ToString(configOut.EventDestinations[0].Name))
+	assert.Equal(t, "dssv-event-dest", aws.ToString(configOut.EventDestinations[0].Name))
 	require.NotNil(t, configOut.EventDestinations[0].SnsDestination)
 
 	contactListOut, err := client.GetContactList(
 		ctx,
-		&sesv2svc.GetContactListInput{ContactListName: aws.String("mega-batch-23-contacts")},
+		&sesv2svc.GetContactListInput{ContactListName: aws.String("dssv-contacts")},
 	)
 	require.NoError(t, err, "GetContactList should succeed")
 	require.Len(t, contactListOut.Topics, 1)
-	assert.Equal(t, "mega-batch-23-topic", aws.ToString(contactListOut.Topics[0].TopicName))
+	assert.Equal(t, "dssv-topic", aws.ToString(contactListOut.Topics[0].TopicName))
 
 	poolOut, err := client.GetDedicatedIpPool(
 		ctx,
-		&sesv2svc.GetDedicatedIpPoolInput{PoolName: aws.String("mega-batch-23-pool")},
+		&sesv2svc.GetDedicatedIpPoolInput{PoolName: aws.String("dssv-pool")},
 	)
 	require.NoError(t, err, "GetDedicatedIpPool should succeed")
 	require.NotNil(t, poolOut.DedicatedIpPool)
-	assert.Equal(t, "mega-batch-23-pool", aws.ToString(poolOut.DedicatedIpPool.PoolName))
+	assert.Equal(t, "dssv-pool", aws.ToString(poolOut.DedicatedIpPool.PoolName))
 
 	ipsOut, err := client.GetDedicatedIps(
 		ctx,
-		&sesv2svc.GetDedicatedIpsInput{PoolName: aws.String("mega-batch-23-pool")},
+		&sesv2svc.GetDedicatedIpsInput{PoolName: aws.String("dssv-pool")},
 	)
 	require.NoError(t, err, "GetDedicatedIps should succeed")
 

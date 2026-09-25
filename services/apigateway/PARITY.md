@@ -260,7 +260,7 @@ ops:
   ImportApiKeys: {wire: ok, errors: ok, state: ok, persist: ok}
   ImportRestApi: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-09-18 (gopherstack-xhu2t): FailOnWarnings httpQuery param (serializers.go:7920-7922) now honored -- collectOpenAPIWarnings (import.go) walks the raw document for the two deterministic warning categories this backend can honestly detect (an x-amazon-apigateway-* vendor extension it doesn't interpret, doc-level or per-operation; an operation with no operationId) and, when FailOnWarnings is set and any are found, rejects with BadRequestException before creating anything. Previously accepted-and-ignored unconditionally."}
   PutRestApi: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-09-18 (gopherstack-xhu2t): same FailOnWarnings fix as ImportRestApi, checked before any mutation so a rejected update leaves the existing API untouched (matches the doc's 'rollback the API update' wording)."}
-  UpdateRestApi (policy wire re-escaping): {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-19 (mega-batch-13): the \"policy\" field's wire value must be the plain policy JSON's escaped CONTENT with its wrapping quotes stripped (confirmed against terraform-provider-aws's flattenAPIPolicy, rest_api.go) -- gopherstack returned it plain, breaking every real client's decode (\"invalid character ... after top-level value\"). Fixed via a wireRestAPI wrapper (models.go) applied at every RestApi response site (Create/Get/GetRestApis/Update/Import/Put); internal storage stays plain. See TestRestAPIPolicy_WireReEscaping."}
+  UpdateRestApi (policy wire re-escaping): {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-19 (lambda-and-apigateway): the \"policy\" field's wire value must be the plain policy JSON's escaped CONTENT with its wrapping quotes stripped (confirmed against terraform-provider-aws's flattenAPIPolicy, rest_api.go) -- gopherstack returned it plain, breaking every real client's decode (\"invalid character ... after top-level value\"). Fixed via a wireRestAPI wrapper (models.go) applied at every RestApi response site (Create/Get/GetRestApis/Update/Import/Put); internal storage stays plain. See TestRestAPIPolicy_WireReEscaping."}
 families:
   proxy_invocation: {status: fixed, note: "proxy.go: MOCK/AWS/AWS_PROXY/HTTP/HTTP_PROXY dispatch, VTL passthrough (WHEN_NO_MATCH/WHEN_NO_TEMPLATES/NEVER), Lambda invoke via injected LambdaInvoker, usage-plan enforcement returns real 429 (LimitExceededException/TooManyRequestsException) via writeThrottleResponse — separate, already-correct code path from the control-plane handleError switch. 2026-09-04 (gopherstack-fum): FIXED -- handleProxyRequest never verified the URL's {stage} segment named a real deployed stage, so an undeployed RestApi (or any made-up stage name) still routed to and executed the configured integration; unmatched routes also returned a bare 404 instead of AWS's real 403 'Missing Authentication Token'. Both fixed (GetStage gate + writeMissingAuthenticationTokenResponse). Per-integration-type verdict: AWS_PROXY (Lambda proxy) wired and executing, event/response shape correct; AWS (Lambda, non-proxy, VTL) wired and executing; AWS (sqs SendMessage / sns Publish direct integration) FIXED 2026-09-06 (gopherstack-is2a) -- dispatches to the wired SQS/SNS hook via a simplified passthrough, see the dated note below and gaps; AWS (other non-Lambda service target, e.g. DynamoDB/Step Functions direct integration) STILL accepted at PutIntegration with no validation but NEVER executes -- see gaps; HTTP/HTTP_PROXY wired and executing (real outbound HTTP request); MOCK wired and executing; VPC_LINK is not a distinct Integration.Type (it's HTTP/HTTP_PROXY + connectionType=VPC_LINK) and is routed identically to a plain HTTP_PROXY request to integration.URI -- no real VPC/NLB emulation exists to route through, a structural simplification, not separately verified against connectionId. TOKEN/REQUEST/COGNITO_USER_POOLS authorizers and API-key/usage-plan enforcement confirmed wired and executing (unchanged this pass)."}
   authorizers_runtime: {status: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS resolution + JWKS validation via injected JWKSProvider, TTL-bounded cache (bd gopherstack #1403 fixed prior unbounded growth)"}
@@ -275,13 +275,13 @@ deferred:
 leaks: {status: fixed, note: "no new goroutines/tickers/persistent state introduced this sweep — all new code (StageKeyInput resolution, patch.go's new resolvers/stagedValue helper) is request-scoped and synchronous under the existing coarse b.mu; UpdateUsagePlan's missing defensive copy (return p instead of a copy, found while extending it for per-route throttle) was also fixed, closing a latent aliasing hole where a caller mutating the returned *UsagePlan would have corrupted backend state directly. 2026-09-04 (bd: gopherstack-fum): FIXED -- h.trieCache (the compiled per-API routing-trie cache, a sync.Map keyed by RestApi ID) was never evicted on DeleteRestApi; since IDs are fresh-random per CreateRestApi a deleted API's cached trie could never be overwritten by a later Store and stayed in process memory for the server's remaining lifetime. Fixed in handler_rest_apis.go's deleteRestAPIAction (h.trieCache.Delete after a successful backend delete); TestDeleteRestAPI_EvictsTrieCache confirmed failing pre-fix, passing post-fix."}
 ---
 
-## Notes (2026-09-19 pass — terraform mega-batch-13 fixture)
+## Notes (2026-09-19 pass — terraform lambda-and-apigateway fixture)
 
 Added real-provider fixture coverage for account/api_key/authorizer/
 base_path_mapping/client_certificate/documentation_part+version/domain_name/
 gateway_response/integration_response/method_response/method_settings/model/
 rest_api_policy/stage/usage_plan+key/vpc_link (test/terraform/fixtures/
-mega-batch-13.tf). Found+fixed one real bug: UpdateRestApi's "policy" field
+lambda-and-apigateway.tf). Found+fixed one real bug: UpdateRestApi's "policy" field
 needed wire re-escaping (see the UpdateRestApi op entry above) — every other
 resource applied/read/destroyed cleanly with no emulator change needed.
 
@@ -1205,7 +1205,7 @@ Gates: `go build ./...`, `go vet ./services/apigateway/...`, `go test -race
 ./services/apigateway/...` — all clean. No persisted (`backendSnapshot`)
 fields changed, no `snapshot_inventory.json` rows needed, no version bump.
 
-## mega-batch-54 terraform coverage (2026-09-24)
+## appmesh-shield-and-workspaces terraform coverage (2026-09-24)
 
 Two real bugs found wiring up `aws_api_gateway_domain_name_access_association`:
 

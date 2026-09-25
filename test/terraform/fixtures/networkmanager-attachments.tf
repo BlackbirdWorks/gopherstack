@@ -1,10 +1,10 @@
 resource "aws_networkmanager_global_network" "example" {
-  description = "mega-batch-34 global network"
+  description = "nmat global network"
 }
 
 resource "aws_networkmanager_core_network" "example" {
   global_network_id = aws_networkmanager_global_network.example.id
-  description       = "mega-batch-34 core network"
+  description       = "nmat core network"
 }
 
 resource "aws_networkmanager_core_network_policy_attachment" "example" {
@@ -78,7 +78,7 @@ resource "aws_networkmanager_connect_peer" "example" {
 }
 
 resource "aws_ec2_transit_gateway" "example" {
-  description = "mega-batch-34 tgw"
+  description = "nmat tgw"
 }
 
 resource "aws_networkmanager_transit_gateway_registration" "example" {
@@ -145,7 +145,7 @@ resource "aws_networkmanager_link_association" "example" {
 }
 
 resource "aws_dx_gateway" "example" {
-  name            = "mega-batch-34-dxgw"
+  name            = "nmat-dxgw"
   amazon_side_asn = 64515
 }
 
@@ -164,7 +164,7 @@ resource "aws_networkmanager_attachment_accepter" "dxgw" {
 
 resource "aws_vpn_gateway" "example" {
   tags = {
-    Name = "mega-batch-34-vgw"
+    Name = "nmat-vgw"
   }
 }
 

@@ -5,8 +5,8 @@
 # certificate, a user/group membership, and STS preferences.
 ##############################################################################
 
-resource "aws_iam_role" "mb50_role_inline_excl" {
-  name = "mega-batch-50-role-inline-excl"
+resource "aws_iam_role" "idsr_role_inline_excl" {
+  name = "idsr-role-inline-excl"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -17,22 +17,22 @@ resource "aws_iam_role" "mb50_role_inline_excl" {
   })
 }
 
-resource "aws_iam_role_policy" "mb50_role_inline" {
-  name = "mega-batch-50-role-inline-policy"
-  role = aws_iam_role.mb50_role_inline_excl.id
+resource "aws_iam_role_policy" "idsr_role_inline" {
+  name = "idsr-role-inline-policy"
+  role = aws_iam_role.idsr_role_inline_excl.id
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "s3:ListBucket", Resource = "*" }]
   })
 }
 
-resource "aws_iam_role_policies_exclusive" "mb50" {
-  role_name    = aws_iam_role.mb50_role_inline_excl.name
-  policy_names = [aws_iam_role_policy.mb50_role_inline.name]
+resource "aws_iam_role_policies_exclusive" "idsr" {
+  role_name    = aws_iam_role.idsr_role_inline_excl.name
+  policy_names = [aws_iam_role_policy.idsr_role_inline.name]
 }
 
-resource "aws_iam_role" "mb50_role_attach_excl" {
-  name = "mega-batch-50-role-attach-excl"
+resource "aws_iam_role" "idsr_role_attach_excl" {
+  name = "idsr-role-attach-excl"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -43,109 +43,109 @@ resource "aws_iam_role" "mb50_role_attach_excl" {
   })
 }
 
-resource "aws_iam_policy" "mb50_role_attach_policy" {
-  name = "mega-batch-50-role-attach-policy"
+resource "aws_iam_policy" "idsr_role_attach_policy" {
+  name = "idsr-role-attach-policy"
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "ec2:DescribeInstances", Resource = "*" }]
   })
 }
 
-resource "aws_iam_role_policy_attachments_exclusive" "mb50" {
-  role_name   = aws_iam_role.mb50_role_attach_excl.name
-  policy_arns = [aws_iam_policy.mb50_role_attach_policy.arn]
+resource "aws_iam_role_policy_attachments_exclusive" "idsr" {
+  role_name   = aws_iam_role.idsr_role_attach_excl.name
+  policy_arns = [aws_iam_policy.idsr_role_attach_policy.arn]
 }
 
-resource "aws_iam_group" "mb50_group_inline_excl" {
-  name = "mega-batch-50-group-inline-excl"
+resource "aws_iam_group" "idsr_group_inline_excl" {
+  name = "idsr-group-inline-excl"
 }
 
-resource "aws_iam_group_policy" "mb50_group_inline" {
-  name  = "mega-batch-50-group-inline-policy"
-  group = aws_iam_group.mb50_group_inline_excl.name
+resource "aws_iam_group_policy" "idsr_group_inline" {
+  name  = "idsr-group-inline-policy"
+  group = aws_iam_group.idsr_group_inline_excl.name
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "s3:GetObject", Resource = "*" }]
   })
 }
 
-resource "aws_iam_group_policies_exclusive" "mb50" {
-  group_name   = aws_iam_group.mb50_group_inline_excl.name
-  policy_names = [aws_iam_group_policy.mb50_group_inline.name]
+resource "aws_iam_group_policies_exclusive" "idsr" {
+  group_name   = aws_iam_group.idsr_group_inline_excl.name
+  policy_names = [aws_iam_group_policy.idsr_group_inline.name]
 }
 
-resource "aws_iam_group" "mb50_group_attach_excl" {
-  name = "mega-batch-50-group-attach-excl"
+resource "aws_iam_group" "idsr_group_attach_excl" {
+  name = "idsr-group-attach-excl"
 }
 
-resource "aws_iam_policy" "mb50_group_attach_policy" {
-  name = "mega-batch-50-group-attach-policy"
+resource "aws_iam_policy" "idsr_group_attach_policy" {
+  name = "idsr-group-attach-policy"
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "sqs:SendMessage", Resource = "*" }]
   })
 }
 
-resource "aws_iam_group_policy_attachments_exclusive" "mb50" {
-  group_name  = aws_iam_group.mb50_group_attach_excl.name
-  policy_arns = [aws_iam_policy.mb50_group_attach_policy.arn]
+resource "aws_iam_group_policy_attachments_exclusive" "idsr" {
+  group_name  = aws_iam_group.idsr_group_attach_excl.name
+  policy_arns = [aws_iam_policy.idsr_group_attach_policy.arn]
 }
 
-resource "aws_iam_user" "mb50_user_inline_excl" {
-  name = "mega-batch-50-user-inline-excl"
+resource "aws_iam_user" "idsr_user_inline_excl" {
+  name = "idsr-user-inline-excl"
 }
 
-resource "aws_iam_user_policy" "mb50_user_inline" {
-  name = "mega-batch-50-user-inline-policy"
-  user = aws_iam_user.mb50_user_inline_excl.name
+resource "aws_iam_user_policy" "idsr_user_inline" {
+  name = "idsr-user-inline-policy"
+  user = aws_iam_user.idsr_user_inline_excl.name
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "sns:Publish", Resource = "*" }]
   })
 }
 
-resource "aws_iam_user_policies_exclusive" "mb50" {
-  user_name    = aws_iam_user.mb50_user_inline_excl.name
-  policy_names = [aws_iam_user_policy.mb50_user_inline.name]
+resource "aws_iam_user_policies_exclusive" "idsr" {
+  user_name    = aws_iam_user.idsr_user_inline_excl.name
+  policy_names = [aws_iam_user_policy.idsr_user_inline.name]
 }
 
-resource "aws_iam_user" "mb50_user_attach_excl" {
-  name = "mega-batch-50-user-attach-excl"
+resource "aws_iam_user" "idsr_user_attach_excl" {
+  name = "idsr-user-attach-excl"
 }
 
-resource "aws_iam_policy" "mb50_user_attach_policy" {
-  name = "mega-batch-50-user-attach-policy"
+resource "aws_iam_policy" "idsr_user_attach_policy" {
+  name = "idsr-user-attach-policy"
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "dynamodb:GetItem", Resource = "*" }]
   })
 }
 
-resource "aws_iam_user_policy_attachments_exclusive" "mb50" {
-  user_name   = aws_iam_user.mb50_user_attach_excl.name
-  policy_arns = [aws_iam_policy.mb50_user_attach_policy.arn]
+resource "aws_iam_user_policy_attachments_exclusive" "idsr" {
+  user_name   = aws_iam_user.idsr_user_attach_excl.name
+  policy_arns = [aws_iam_policy.idsr_user_attach_policy.arn]
 }
 
-resource "aws_iam_user" "mb50_legacy_attach_user" {
-  name = "mega-batch-50-legacy-attach-user"
+resource "aws_iam_user" "idsr_legacy_attach_user" {
+  name = "idsr-legacy-attach-user"
 }
 
-resource "aws_iam_policy" "mb50_legacy_attach_policy" {
-  name = "mega-batch-50-legacy-attach-policy"
+resource "aws_iam_policy" "idsr_legacy_attach_policy" {
+  name = "idsr-legacy-attach-policy"
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "logs:PutLogEvents", Resource = "*" }]
   })
 }
 
-resource "aws_iam_policy_attachment" "mb50" {
-  name       = "mega-batch-50-policy-attachment"
-  users      = [aws_iam_user.mb50_legacy_attach_user.name]
-  policy_arn = aws_iam_policy.mb50_legacy_attach_policy.arn
+resource "aws_iam_policy_attachment" "idsr" {
+  name       = "idsr-policy-attachment"
+  users      = [aws_iam_user.idsr_legacy_attach_user.name]
+  policy_arn = aws_iam_policy.idsr_legacy_attach_policy.arn
 }
 
-resource "aws_iam_server_certificate" "mb50" {
-  name = "mega-batch-50-server-cert"
+resource "aws_iam_server_certificate" "idsr" {
+  name             = "idsr-server-cert"
   certificate_body = <<-EOT
   -----BEGIN CERTIFICATE-----
   MIIDKzCCAhOgAwIBAgIUIhZshXjuu+H5HtheoEVGSHV3qWswDQYJKoZIhvcNAQEL
@@ -167,7 +167,7 @@ resource "aws_iam_server_certificate" "mb50" {
   1veMA2JF4NdBcNFe32T1zCkQE32T85GcWfRE8RzfplPH1NLQaW7+hTAno9SzzJ0=
   -----END CERTIFICATE-----
   EOT
-  private_key = <<-EOT
+  private_key      = <<-EOT
   -----BEGIN PRIVATE KEY-----
   MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDBpXRWBRBExLPb
   OK8xgwnEpHmqxcaBqEaTJsKoiT3u1497d9FfkLsjniyacke95hZpdGxsIPI1j0OQ
@@ -199,13 +199,13 @@ resource "aws_iam_server_certificate" "mb50" {
   EOT
 }
 
-resource "aws_iam_user" "mb50_signing_user" {
-  name = "mega-batch-50-signing-user"
+resource "aws_iam_user" "idsr_signing_user" {
+  name = "idsr-signing-user"
 }
 
-resource "aws_iam_signing_certificate" "mb50" {
-  user_name = aws_iam_user.mb50_signing_user.name
-  status    = "Active"
+resource "aws_iam_signing_certificate" "idsr" {
+  user_name        = aws_iam_user.idsr_signing_user.name
+  status           = "Active"
   certificate_body = <<-EOT
   -----BEGIN CERTIFICATE-----
   MIIDOzCCAiOgAwIBAgIUUwpo2sU3ip5UZhogvJbZEG/sssEwDQYJKoZIhvcNAQEL
@@ -230,21 +230,21 @@ resource "aws_iam_signing_certificate" "mb50" {
   EOT
 }
 
-resource "aws_iam_user" "mb50_group_membership_user" {
-  name = "mega-batch-50-group-membership-user"
+resource "aws_iam_user" "idsr_group_membership_user" {
+  name = "idsr-group-membership-user"
 }
 
-resource "aws_iam_group" "mb50_membership_group_a" {
-  name = "mega-batch-50-membership-group-a"
+resource "aws_iam_group" "idsr_membership_group_a" {
+  name = "idsr-membership-group-a"
 }
 
-resource "aws_iam_group" "mb50_membership_group_b" {
-  name = "mega-batch-50-membership-group-b"
+resource "aws_iam_group" "idsr_membership_group_b" {
+  name = "idsr-membership-group-b"
 }
 
-resource "aws_iam_user_group_membership" "mb50" {
-  user   = aws_iam_user.mb50_group_membership_user.name
-  groups = [aws_iam_group.mb50_membership_group_a.name, aws_iam_group.mb50_membership_group_b.name]
+resource "aws_iam_user_group_membership" "idsr" {
+  user   = aws_iam_user.idsr_group_membership_user.name
+  groups = [aws_iam_group.idsr_membership_group_a.name, aws_iam_group.idsr_membership_group_b.name]
 }
 
 ##############################################################################
@@ -252,23 +252,23 @@ resource "aws_iam_user_group_membership" "mb50" {
 # designation, and an organization auto-enable configuration.
 ##############################################################################
 
-resource "aws_detective_graph" "mb50" {}
+resource "aws_detective_graph" "idsr" {}
 
-resource "aws_detective_member" "mb50" {
+resource "aws_detective_member" "idsr" {
   account_id                 = "444455556666"
-  email_address               = "mega-batch-50-member@example.test"
-  graph_arn                   = aws_detective_graph.mb50.graph_arn
-  message                     = "Join mega-batch-50 detective graph"
+  email_address              = "idsr-member@example.test"
+  graph_arn                  = aws_detective_graph.idsr.graph_arn
+  message                    = "Join idsr detective graph"
   disable_email_notification = true
 }
 
-resource "aws_detective_organization_admin_account" "mb50" {
+resource "aws_detective_organization_admin_account" "idsr" {
   account_id = "444455556677"
 }
 
-resource "aws_detective_organization_configuration" "mb50" {
+resource "aws_detective_organization_configuration" "idsr" {
   auto_enable = true
-  graph_arn   = aws_detective_graph.mb50.graph_arn
+  graph_arn   = aws_detective_graph.idsr.graph_arn
 }
 
 ##############################################################################
@@ -276,30 +276,30 @@ resource "aws_detective_organization_configuration" "mb50" {
 # bucket, and a copy-in-place object.
 ##############################################################################
 
-resource "aws_s3_bucket" "mb50_repl_src" {
-  bucket = "mega-batch-50-repl-src"
+resource "aws_s3_bucket" "idsr_repl_src" {
+  bucket = "idsr-repl-src"
 }
 
-resource "aws_s3_bucket_versioning" "mb50_repl_src" {
-  bucket = aws_s3_bucket.mb50_repl_src.id
+resource "aws_s3_bucket_versioning" "idsr_repl_src" {
+  bucket = aws_s3_bucket.idsr_repl_src.id
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-resource "aws_s3_bucket" "mb50_repl_dst" {
-  bucket = "mega-batch-50-repl-dst"
+resource "aws_s3_bucket" "idsr_repl_dst" {
+  bucket = "idsr-repl-dst"
 }
 
-resource "aws_s3_bucket_versioning" "mb50_repl_dst" {
-  bucket = aws_s3_bucket.mb50_repl_dst.id
+resource "aws_s3_bucket_versioning" "idsr_repl_dst" {
+  bucket = aws_s3_bucket.idsr_repl_dst.id
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-resource "aws_iam_role" "mb50_replication" {
-  name = "mega-batch-50-s3-replication-role"
+resource "aws_iam_role" "idsr_replication" {
+  name = "idsr-s3-replication-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -310,14 +310,14 @@ resource "aws_iam_role" "mb50_replication" {
   })
 }
 
-resource "aws_s3_bucket_replication_configuration" "mb50" {
-  depends_on = [aws_s3_bucket_versioning.mb50_repl_src]
+resource "aws_s3_bucket_replication_configuration" "idsr" {
+  depends_on = [aws_s3_bucket_versioning.idsr_repl_src]
 
-  bucket = aws_s3_bucket.mb50_repl_src.id
-  role   = aws_iam_role.mb50_replication.arn
+  bucket = aws_s3_bucket.idsr_repl_src.id
+  role   = aws_iam_role.idsr_replication.arn
 
   rule {
-    id     = "mega-batch-50-replication-rule"
+    id     = "idsr-replication-rule"
     status = "Enabled"
 
     filter {
@@ -325,28 +325,28 @@ resource "aws_s3_bucket_replication_configuration" "mb50" {
     }
 
     destination {
-      bucket        = aws_s3_bucket.mb50_repl_dst.arn
+      bucket        = aws_s3_bucket.idsr_repl_dst.arn
       storage_class = "STANDARD"
     }
   }
 }
 
-resource "aws_s3_bucket" "mb50_lock" {
-  bucket              = "mega-batch-50-object-lock"
+resource "aws_s3_bucket" "idsr_lock" {
+  bucket              = "idsr-object-lock"
   object_lock_enabled = true
 }
 
-resource "aws_s3_bucket_versioning" "mb50_lock" {
-  bucket = aws_s3_bucket.mb50_lock.id
+resource "aws_s3_bucket_versioning" "idsr_lock" {
+  bucket = aws_s3_bucket.idsr_lock.id
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-resource "aws_s3_bucket_object_lock_configuration" "mb50" {
-  depends_on = [aws_s3_bucket_versioning.mb50_lock]
+resource "aws_s3_bucket_object_lock_configuration" "idsr" {
+  depends_on = [aws_s3_bucket_versioning.idsr_lock]
 
-  bucket = aws_s3_bucket.mb50_lock.id
+  bucket = aws_s3_bucket.idsr_lock.id
 
   rule {
     default_retention {
@@ -356,20 +356,20 @@ resource "aws_s3_bucket_object_lock_configuration" "mb50" {
   }
 }
 
-resource "aws_s3_bucket" "mb50_copy" {
-  bucket = "mega-batch-50-copy-bucket"
+resource "aws_s3_bucket" "idsr_copy" {
+  bucket = "idsr-copy-bucket"
 }
 
-resource "aws_s3_object" "mb50_copy_src" {
-  bucket  = aws_s3_bucket.mb50_copy.id
+resource "aws_s3_object" "idsr_copy_src" {
+  bucket  = aws_s3_bucket.idsr_copy.id
   key     = "source/original.txt"
-  content = "mega-batch-50 original object"
+  content = "idsr original object"
 }
 
-resource "aws_s3_object_copy" "mb50" {
-  bucket = aws_s3_bucket.mb50_copy.id
+resource "aws_s3_object_copy" "idsr" {
+  bucket = aws_s3_bucket.idsr_copy.id
   key    = "dest/copied.txt"
-  source = "${aws_s3_bucket.mb50_copy.id}/${aws_s3_object.mb50_copy_src.key}"
+  source = "${aws_s3_bucket.idsr_copy.id}/${aws_s3_object.idsr_copy_src.key}"
 }
 
 ##############################################################################
@@ -377,12 +377,12 @@ resource "aws_s3_object_copy" "mb50" {
 # is auto-created).
 ##############################################################################
 
-resource "aws_efs_file_system" "mb50_repl_src" {
-  creation_token = "mega-batch-50-efs-repl-src"
+resource "aws_efs_file_system" "idsr_repl_src" {
+  creation_token = "idsr-efs-repl-src"
 }
 
-resource "aws_efs_replication_configuration" "mb50" {
-  source_file_system_id = aws_efs_file_system.mb50_repl_src.id
+resource "aws_efs_replication_configuration" "idsr" {
+  source_file_system_id = aws_efs_file_system.idsr_repl_src.id
 
   destination {
     region = "us-east-1"
@@ -394,16 +394,16 @@ resource "aws_efs_replication_configuration" "mb50" {
 # group.
 ##############################################################################
 
-resource "aws_elasticache_replication_group" "mb50_primary" {
-  replication_group_id = "mb50-primary-rg"
-  description           = "mega-batch-50 primary replication group"
-  node_type             = "cache.t3.micro"
-  num_cache_clusters     = 1
-  engine                 = "redis"
-  engine_version         = "7.0"
+resource "aws_elasticache_replication_group" "idsr_primary" {
+  replication_group_id = "idsr-primary-rg"
+  description          = "idsr primary replication group"
+  node_type            = "cache.t3.micro"
+  num_cache_clusters   = 1
+  engine               = "redis"
+  engine_version       = "7.0"
 }
 
-resource "aws_elasticache_global_replication_group" "mb50" {
-  global_replication_group_id_suffix = "mb50-global"
-  primary_replication_group_id       = aws_elasticache_replication_group.mb50_primary.id
+resource "aws_elasticache_global_replication_group" "idsr" {
+  global_replication_group_id_suffix = "idsr-global"
+  primary_replication_group_id       = aws_elasticache_replication_group.idsr_primary.id
 }

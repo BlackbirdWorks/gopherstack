@@ -22,7 +22,7 @@ resource "aws_vpc" "example" {
   cidr_block = "{{.VPCCidr}}"
 
   tags = {
-    Name = "mega-batch-35-vpc"
+    Name = "adkc-vpc"
   }
 }
 
@@ -32,7 +32,7 @@ resource "aws_subnet" "a" {
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-35-subnet-a"
+    Name = "adkc-subnet-a"
   }
 }
 
@@ -42,18 +42,18 @@ resource "aws_subnet" "b" {
   availability_zone = "us-east-1b"
 
   tags = {
-    Name = "mega-batch-35-subnet-b"
+    Name = "adkc-subnet-b"
   }
 }
 
 resource "aws_launch_template" "example" {
-  name          = "mega-batch-35-lt"
+  name          = "adkc-lt"
   image_id      = "ami-12345678"
   instance_type = "t2.micro"
 }
 
 resource "aws_autoscaling_group" "example" {
-  name                = "mega-batch-35-asg"
+  name                = "adkc-asg"
   min_size            = 1
   max_size            = 2
   desired_capacity    = 1
@@ -66,21 +66,21 @@ resource "aws_autoscaling_group" "example" {
 }
 
 resource "aws_lb" "nlb" {
-  name               = "mega-batch-35-nlb"
+  name               = "adkc-nlb"
   internal           = true
   load_balancer_type = "network"
   subnets            = [aws_subnet.a.id, aws_subnet.b.id]
 }
 
 resource "aws_lb_target_group" "attach" {
-  name     = "mega-batch-35-tg-attach"
+  name     = "adkc-tg-attach"
   port     = 80
   protocol = "TCP"
   vpc_id   = aws_vpc.example.id
 }
 
 resource "aws_lb_target_group" "traffic" {
-  name     = "mega-batch-35-tg-traffic"
+  name     = "adkc-tg-traffic"
   port     = 80
   protocol = "TCP"
   vpc_id   = aws_vpc.example.id
@@ -104,14 +104,14 @@ resource "aws_autoscaling_group_tag" "example" {
   autoscaling_group_name = aws_autoscaling_group.example.name
 
   tag {
-    key                 = "mega-batch-35-tag"
+    key                 = "adkc-tag"
     value               = "true"
     propagate_at_launch = true
   }
 }
 
 resource "aws_autoscaling_lifecycle_hook" "example" {
-  name                   = "mega-batch-35-hook"
+  name                   = "adkc-hook"
   autoscaling_group_name = aws_autoscaling_group.example.name
   default_result         = "CONTINUE"
   heartbeat_timeout      = 60
@@ -119,7 +119,7 @@ resource "aws_autoscaling_lifecycle_hook" "example" {
 }
 
 resource "aws_sns_topic" "asg_notify" {
-  name = "mega-batch-35-asg-topic"
+  name = "adkc-asg-topic"
 }
 
 resource "aws_autoscaling_notification" "example" {
@@ -132,7 +132,7 @@ resource "aws_autoscaling_notification" "example" {
 }
 
 resource "aws_autoscaling_policy" "example" {
-  name                   = "mega-batch-35-policy"
+  name                   = "adkc-policy"
   autoscaling_group_name = aws_autoscaling_group.example.name
   adjustment_type        = "ChangeInCapacity"
   scaling_adjustment     = 1
@@ -140,7 +140,7 @@ resource "aws_autoscaling_policy" "example" {
 }
 
 resource "aws_autoscaling_schedule" "example" {
-  scheduled_action_name  = "mega-batch-35-schedule"
+  scheduled_action_name  = "adkc-schedule"
   autoscaling_group_name = aws_autoscaling_group.example.name
   min_size               = 1
   max_size               = 3
@@ -151,9 +151,9 @@ resource "aws_autoscaling_schedule" "example" {
 # --- DynamoDB ---------------------------------------------------------------
 
 resource "aws_dynamodb_table" "example" {
-  name         = "mega-batch-35-table"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
+  name             = "adkc-table"
+  billing_mode     = "PAY_PER_REQUEST"
+  hash_key         = "id"
   stream_enabled   = true
   stream_view_type = "NEW_AND_OLD_IMAGES"
 
@@ -168,7 +168,7 @@ resource "aws_dynamodb_contributor_insights" "example" {
 }
 
 resource "aws_kinesis_stream" "example" {
-  name             = "mega-batch-35-stream"
+  name             = "adkc-stream"
   shard_count      = 1
   retention_period = 24
 }
@@ -184,7 +184,7 @@ resource "aws_dynamodb_resource_policy" "example" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "mega-batch-35-resource-policy"
+      Sid       = "adkc-resource-policy"
       Effect    = "Allow"
       Principal = { AWS = "arn:aws:iam::000000000000:root" }
       Action    = "dynamodb:DescribeTable"
@@ -198,19 +198,19 @@ resource "aws_dynamodb_table_item" "example" {
   hash_key   = aws_dynamodb_table.example.hash_key
 
   item = jsonencode({
-    id   = { S = "mega-batch-35-item" }
+    id   = { S = "adkc-item" }
     name = { S = "widget" }
   })
 }
 
 resource "aws_dynamodb_tag" "example" {
   resource_arn = aws_dynamodb_table.example.arn
-  key          = "mega-batch-35-tag"
+  key          = "adkc-tag"
   value        = "true"
 }
 
 resource "aws_s3_bucket" "export" {
-  bucket        = "mega-batch-35-export-bucket"
+  bucket        = "adkc-export-bucket"
   force_destroy = true
 }
 
@@ -222,18 +222,18 @@ resource "aws_dynamodb_table_export" "example" {
 # --- KMS ---------------------------------------------------------------------
 
 resource "aws_kms_key" "example" {
-  description = "mega-batch-35 kms key"
+  description = "adkc kms key"
 }
 
 resource "aws_kms_ciphertext" "example" {
   key_id    = aws_kms_key.example.key_id
-  plaintext = "mega-batch-35-secret"
+  plaintext = "adkc-secret"
 }
 
 resource "aws_kms_grant" "example" {
-  name              = "mega-batch-35-grant"
+  name              = "adkc-grant"
   key_id            = aws_kms_key.example.key_id
-  grantee_principal = "arn:aws:iam::000000000000:role/mega-batch-35-grantee"
+  grantee_principal = "arn:aws:iam::000000000000:role/adkc-grantee"
   operations        = ["Encrypt", "Decrypt"]
 }
 
@@ -243,7 +243,7 @@ resource "aws_kms_key_policy" "example" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "mega-batch-35-key-policy"
+      Sid       = "adkc-key-policy"
       Effect    = "Allow"
       Principal = { AWS = "arn:aws:iam::000000000000:root" }
       Action    = "kms:*"
@@ -253,47 +253,47 @@ resource "aws_kms_key_policy" "example" {
 }
 
 resource "aws_kms_external_key" "example" {
-  description             = "mega-batch-35 external key"
+  description             = "adkc external key"
   deletion_window_in_days = 7
 }
 
 resource "aws_kms_custom_key_store" "example" {
-  custom_key_store_name    = "mega-batch-35-cks"
-  cloud_hsm_cluster_id     = "cluster-megabatch35"
-  key_store_password       = "megaBatch35Password"
+  custom_key_store_name    = "adkc-cks"
+  cloud_hsm_cluster_id     = "cluster-adkc"
+  key_store_password       = "adkcPassword"
   trust_anchor_certificate = "-----BEGIN CERTIFICATE-----\nMIIBogIBAAKC\n-----END CERTIFICATE-----"
 }
 
 resource "aws_kms_key" "replica_primary" {
-  description  = "mega-batch-35 replica primary key"
+  description  = "adkc replica primary key"
   multi_region = true
 }
 
 resource "aws_kms_replica_key" "example" {
   provider        = aws.replica
   primary_key_arn = aws_kms_key.replica_primary.arn
-  description     = "mega-batch-35 replica key"
+  description     = "adkc replica key"
 }
 
 resource "aws_kms_external_key" "replica_primary" {
-  description         = "mega-batch-35 replica primary external key"
+  description         = "adkc replica primary external key"
   multi_region        = true
   key_material_base64 = base64encode("0123456789abcdef0123456789abcdef")
   enabled             = true
 }
 
 resource "aws_kms_replica_external_key" "example" {
-  provider             = aws.replica
-  primary_key_arn      = aws_kms_external_key.replica_primary.arn
-  description          = "mega-batch-35 replica external key"
-  key_material_base64  = base64encode("0123456789abcdef0123456789abcdef")
-  enabled              = true
+  provider            = aws.replica
+  primary_key_arn     = aws_kms_external_key.replica_primary.arn
+  description         = "adkc replica external key"
+  key_material_base64 = base64encode("0123456789abcdef0123456789abcdef")
+  enabled             = true
 }
 
 # --- CloudWatch ----------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "leaf_a" {
-  alarm_name          = "mega-batch-35-leaf-a"
+  alarm_name          = "adkc-leaf-a"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "CPUUtilization"
@@ -304,7 +304,7 @@ resource "aws_cloudwatch_metric_alarm" "leaf_a" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "leaf_b" {
-  alarm_name          = "mega-batch-35-leaf-b"
+  alarm_name          = "adkc-leaf-b"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "MemoryUtilization"
@@ -315,7 +315,7 @@ resource "aws_cloudwatch_metric_alarm" "leaf_b" {
 }
 
 resource "aws_cloudwatch_composite_alarm" "example" {
-  alarm_name = "mega-batch-35-composite-alarm"
+  alarm_name = "adkc-composite-alarm"
   alarm_rule = join(" OR ", [
     "ALARM(\"${aws_cloudwatch_metric_alarm.leaf_a.alarm_name}\")",
     "ALARM(\"${aws_cloudwatch_metric_alarm.leaf_b.alarm_name}\")",
@@ -323,7 +323,7 @@ resource "aws_cloudwatch_composite_alarm" "example" {
 }
 
 resource "aws_cloudwatch_contributor_insight_rule" "example" {
-  rule_name  = "mega-batch-35-insight-rule"
+  rule_name  = "adkc-insight-rule"
   rule_state = "ENABLED"
 
   rule_definition = jsonencode({
@@ -331,7 +331,7 @@ resource "aws_cloudwatch_contributor_insight_rule" "example" {
       Name    = "CloudWatchLogRule"
       Version = 1
     }
-    LogGroupNames = ["mega-batch-35-log-group"]
+    LogGroupNames = ["adkc-log-group"]
     LogFormat     = "JSON"
     Contribution = {
       Keys = ["$.ip"]
@@ -347,7 +347,7 @@ resource "aws_cloudwatch_contributor_managed_insight_rule" "example" {
 }
 
 resource "aws_iam_role" "firehose" {
-  name = "mega-batch-35-firehose-role"
+  name = "adkc-firehose-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -359,12 +359,12 @@ resource "aws_iam_role" "firehose" {
 }
 
 resource "aws_s3_bucket" "firehose" {
-  bucket        = "mega-batch-35-firehose-bucket"
+  bucket        = "adkc-firehose-bucket"
   force_destroy = true
 }
 
 resource "aws_kinesis_firehose_delivery_stream" "example" {
-  name        = "mega-batch-35-metric-stream-dest"
+  name        = "adkc-metric-stream-dest"
   destination = "extended_s3"
 
   extended_s3_configuration {
@@ -374,7 +374,7 @@ resource "aws_kinesis_firehose_delivery_stream" "example" {
 }
 
 resource "aws_iam_role" "metric_stream" {
-  name = "mega-batch-35-metric-stream-role"
+  name = "adkc-metric-stream-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -386,7 +386,7 @@ resource "aws_iam_role" "metric_stream" {
 }
 
 resource "aws_cloudwatch_metric_stream" "example" {
-  name          = "mega-batch-35-metric-stream"
+  name          = "adkc-metric-stream"
   role_arn      = aws_iam_role.metric_stream.arn
   firehose_arn  = aws_kinesis_firehose_delivery_stream.example.arn
   output_format = "json"

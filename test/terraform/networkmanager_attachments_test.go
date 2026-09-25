@@ -11,19 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch34 provisions Network Manager core network, policy
+// TestTerraform_NetworkmanagerAttachments provisions Network Manager core network, policy
 // attachment, VPC/Connect/site-to-site-VPN/Direct-Connect-gateway/transit-
 // gateway-route-table attachments, an attachment accepter for each, a
 // Connect peer, transit gateway peering/registration, and customer gateway
 // and link associations via Terraform, verifying each through the Network
 // Manager SDK client.
-func TestTerraform_MegaBatch34(t *testing.T) {
+func TestTerraform_NetworkmanagerAttachments(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-34",
+			fixture: "networkmanager-attachments",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -31,7 +31,7 @@ func TestTerraform_MegaBatch34(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch34NetworkManager(ctx, t)
+				verifyNetworkmanagerAttachmentsNetworkManager(ctx, t)
 			},
 		},
 	}
@@ -44,7 +44,7 @@ func TestTerraform_MegaBatch34(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch34NetworkManager(ctx context.Context, t *testing.T) {
+func verifyNetworkmanagerAttachmentsNetworkManager(ctx context.Context, t *testing.T) {
 	t.Helper()
 	cfg := megaConfig(t)
 
@@ -59,7 +59,7 @@ func verifyMegaBatch34NetworkManager(ctx context.Context, t *testing.T) {
 	var globalNetworkID string
 
 	for _, gn := range gnOut.GlobalNetworks {
-		if aws.ToString(gn.Description) == "mega-batch-34 global network" {
+		if aws.ToString(gn.Description) == "nmat global network" {
 			globalNetworkID = aws.ToString(gn.GlobalNetworkId)
 		}
 	}

@@ -62,7 +62,7 @@ func TestListCidrBlocks_WireShape(t *testing.T) {
 // blocks in the collection. The backend previously looked up
 // col.Locations[""] directly, always returning an empty result when the
 // caller omitted LocationName -- exactly what aws_route53_cidr_location's
-// own read path (and this repo's mega-batch-14 fixture) does.
+// own read path (and this repo's cloudfront-and-route53 fixture) does.
 func TestListCidrBlocks_NoLocationFilter(t *testing.T) {
 	t.Parallel()
 

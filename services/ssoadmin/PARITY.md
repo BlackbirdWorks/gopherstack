@@ -473,7 +473,7 @@ pre-fix by `TestListApplications_PortalOptions_RealClient`. All other item shape
 (AccountAssignment, ApplicationProvider, TrustedTokenIssuerMetadata, status metadata
 types, etc.) matched the SDK exactly. Gates clean (0 lint, new and full-run).
 
-## 2026-09-20 (mega-batch-30 terraform coverage)
+## 2026-09-20 (ssoadmin-config-and-lightsail terraform coverage)
 
 CreateApplication's PortalOptions and DescribeApplication's Description were
 both unconditionally-non-nil/present when unset, crashing the real

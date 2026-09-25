@@ -1,5 +1,5 @@
 ---
-# 2026-09-19 (mega-batch-8 terraform proof): DescribeGlobalNetworks errored
+# 2026-09-19 (appmesh-networkmanager-and-lightsail terraform proof): DescribeGlobalNetworks errored
 # ResourceNotFoundException for an unmatched GlobalNetworkIds filter entry
 # instead of omitting it from the result; real AWS/terraform-provider-aws's
 # findGlobalNetworks never checks for that exception and relies on an empty

@@ -2,7 +2,7 @@ resource "aws_vpc" "example" {
   cidr_block = "{{.VPCCidr}}"
 
   tags = {
-    Name = "mega-batch-45-vpc"
+    Name = "eita-vpc"
   }
 }
 
@@ -12,7 +12,7 @@ resource "aws_subnet" "example" {
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-45-subnet"
+    Name = "eita-subnet"
   }
 }
 
@@ -20,7 +20,7 @@ resource "aws_network_interface" "example" {
   subnet_id = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-45-eni"
+    Name = "eita-eni"
   }
 }
 
@@ -30,7 +30,7 @@ resource "aws_instance" "source" {
   subnet_id     = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-45-source"
+    Name = "eita-source"
   }
 }
 
@@ -40,7 +40,7 @@ resource "aws_instance" "destination" {
   subnet_id     = aws_subnet.example.id
 
   tags = {
-    Name = "mega-batch-45-destination"
+    Name = "eita-destination"
   }
 }
 
@@ -52,13 +52,13 @@ resource "aws_vpc_ipam" "example" {
   }
 
   tags = {
-    Name = "mega-batch-45-ipam"
+    Name = "eita-ipam"
   }
 }
 
 resource "aws_vpc_ipam_scope" "example" {
   ipam_id     = aws_vpc_ipam.example.id
-  description = "mega-batch-45 scope"
+  description = "eita scope"
 }
 
 resource "aws_vpc_ipam_pool" "example" {
@@ -67,7 +67,7 @@ resource "aws_vpc_ipam_pool" "example" {
   locale         = "us-east-1"
 
   tags = {
-    Name = "mega-batch-45-ipam-pool"
+    Name = "eita-ipam-pool"
   }
 }
 
@@ -89,7 +89,7 @@ resource "aws_vpc_ipam_resource_discovery" "example" {
   }
 
   tags = {
-    Name = "mega-batch-45-ipam-rd"
+    Name = "eita-ipam-rd"
   }
 }
 
@@ -101,11 +101,11 @@ resource "aws_vpc_ipam_resource_discovery_association" "example" {
 # ---- Traffic mirroring ----
 
 resource "aws_ec2_traffic_mirror_filter" "example" {
-  description = "mega-batch-45 filter"
+  description = "eita filter"
 }
 
 resource "aws_ec2_traffic_mirror_filter_rule" "example" {
-  description              = "mega-batch-45 rule"
+  description              = "eita rule"
   traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.example.id
   destination_cidr_block   = "0.0.0.0/0"
   source_cidr_block        = "0.0.0.0/0"
@@ -116,11 +116,11 @@ resource "aws_ec2_traffic_mirror_filter_rule" "example" {
 
 resource "aws_ec2_traffic_mirror_target" "example" {
   network_interface_id = aws_network_interface.example.id
-  description          = "mega-batch-45 target"
+  description          = "eita target"
 }
 
 resource "aws_ec2_traffic_mirror_session" "example" {
-  description              = "mega-batch-45 session"
+  description              = "eita session"
   network_interface_id     = aws_instance.source.primary_network_interface_id
   traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.example.id
   traffic_mirror_target_id = aws_ec2_traffic_mirror_target.example.id
@@ -130,7 +130,7 @@ resource "aws_ec2_traffic_mirror_session" "example" {
 # ---- Client VPN (needs an ACM cert) ----
 
 resource "aws_acm_certificate" "vpn" {
-  domain_name       = "mega-batch-45.example.test"
+  domain_name       = "eita.example.test"
   validation_method = "DNS"
 
   lifecycle {
@@ -139,7 +139,7 @@ resource "aws_acm_certificate" "vpn" {
 }
 
 resource "aws_ec2_client_vpn_endpoint" "example" {
-  description            = "mega-batch-45 client vpn"
+  description            = "eita client vpn"
   server_certificate_arn = aws_acm_certificate.vpn.arn
   client_cidr_block      = "10.200.0.0/22"
 
@@ -153,7 +153,7 @@ resource "aws_ec2_client_vpn_endpoint" "example" {
   }
 
   tags = {
-    Name = "mega-batch-45-cvpn"
+    Name = "eita-cvpn"
   }
 }
 
@@ -179,7 +179,7 @@ resource "aws_ec2_client_vpn_route" "example" {
 # ---- Instance connect endpoint ----
 
 resource "aws_security_group" "ice" {
-  name   = "mega-batch-45-ice-sg"
+  name   = "eita-ice-sg"
   vpc_id = aws_vpc.example.id
 }
 
@@ -188,7 +188,7 @@ resource "aws_ec2_instance_connect_endpoint" "example" {
   security_group_ids = [aws_security_group.ice.id]
 
   tags = {
-    Name = "mega-batch-45-ice"
+    Name = "eita-ice"
   }
 }
 
@@ -207,10 +207,10 @@ resource "aws_ec2_network_insights_analysis" "example" {
 # ---- Transit Gateway extras ----
 
 resource "aws_ec2_transit_gateway" "example" {
-  description = "mega-batch-45 tgw"
+  description = "eita tgw"
 
   tags = {
-    Name = "mega-batch-45-tgw"
+    Name = "eita-tgw"
   }
 }
 
@@ -220,7 +220,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "example" {
   subnet_ids         = [aws_subnet.example.id]
 
   tags = {
-    Name = "mega-batch-45-tgw-attachment"
+    Name = "eita-tgw-attachment"
   }
 }
 
@@ -229,7 +229,7 @@ resource "aws_ec2_transit_gateway_connect" "example" {
   transit_gateway_id      = aws_ec2_transit_gateway.example.id
 
   tags = {
-    Name = "mega-batch-45-tgw-connect"
+    Name = "eita-tgw-connect"
   }
 }
 
@@ -237,15 +237,15 @@ resource "aws_vpc" "peer" {
   cidr_block = "{{.PeerVPCCidr}}"
 
   tags = {
-    Name = "mega-batch-45-peer-vpc"
+    Name = "eita-peer-vpc"
   }
 }
 
 resource "aws_ec2_transit_gateway" "peer" {
-  description = "mega-batch-45 peer tgw"
+  description = "eita peer tgw"
 
   tags = {
-    Name = "mega-batch-45-peer-tgw"
+    Name = "eita-peer-tgw"
   }
 }
 
@@ -256,7 +256,7 @@ resource "aws_ec2_transit_gateway_peering_attachment" "example" {
   peer_region             = "us-east-1"
 
   tags = {
-    Name = "mega-batch-45-tgw-peering"
+    Name = "eita-tgw-peering"
   }
 }
 
@@ -264,7 +264,7 @@ resource "aws_ec2_transit_gateway_multicast_domain" "example" {
   transit_gateway_id = aws_ec2_transit_gateway.example.id
 
   tags = {
-    Name = "mega-batch-45-tgw-multicast"
+    Name = "eita-tgw-multicast"
   }
 }
 
@@ -272,6 +272,6 @@ resource "aws_ec2_transit_gateway_policy_table" "example" {
   transit_gateway_id = aws_ec2_transit_gateway.example.id
 
   tags = {
-    Name = "mega-batch-45-tgw-policy-table"
+    Name = "eita-tgw-policy-table"
   }
 }

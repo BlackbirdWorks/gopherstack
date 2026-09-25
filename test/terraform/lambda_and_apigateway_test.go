@@ -31,7 +31,7 @@ func writeZipFixture(t *testing.T, path, entryName, content string) {
 	require.NoError(t, zw.Close(), "closing zip writer for %s", path)
 }
 
-// TestTerraform_MegaBatch13 provisions Lambda (alias, code signing config,
+// TestTerraform_LambdaAndApigateway provisions Lambda (alias, code signing config,
 // function event invoke config, function recursion config, function URL,
 // layer version + permission, runtime management config) and API Gateway
 // (account, api key, authorizer, base path mapping, client certificate,
@@ -39,23 +39,23 @@ func writeZipFixture(t *testing.T, path, entryName, content string) {
 // response, method response, method settings, model, rest api policy,
 // stage, usage plan + key, VPC link) resources via Terraform and verifies
 // each through its own SDK client's Get/List path.
-func TestTerraform_MegaBatch13(t *testing.T) {
+func TestTerraform_LambdaAndApigateway(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-13",
+			fixture: "lambda-and-apigateway",
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 
-				functionZip := filepath.Join(dir, "mega-batch-13-function.zip")
+				functionZip := filepath.Join(dir, "lagw-function.zip")
 				writeZipFixture(t, functionZip, "index.py",
 					"def handler(event, context):\n    return {'statusCode': 200}\n")
 
-				layerZip := filepath.Join(dir, "mega-batch-13-layer.zip")
-				writeZipFixture(t, layerZip, "python/lib/python3.12/site-packages/megabatch13.py",
-					"# mega-batch-13 layer module\n")
+				layerZip := filepath.Join(dir, "lagw-layer.zip")
+				writeZipFixture(t, layerZip, "python/lib/python3.12/site-packages/lagw.py",
+					"# lagw layer module\n")
 
 				return map[string]any{
 					"FunctionZip": functionZip,
@@ -66,10 +66,10 @@ func TestTerraform_MegaBatch13(t *testing.T) {
 				t.Helper()
 
 				lambdaClient := createLambdaClient(t)
-				verifyMegaBatch13Lambda(ctx, t, lambdaClient)
+				verifyLambdaAndApigatewayLambda(ctx, t, lambdaClient)
 
 				apiClient := createAPIGatewayClient(t)
-				verifyMegaBatch13APIGateway(ctx, t, apiClient)
+				verifyLambdaAndApigatewayAPIGateway(ctx, t, apiClient)
 			},
 		},
 	}
@@ -82,10 +82,10 @@ func TestTerraform_MegaBatch13(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch13Lambda(ctx context.Context, t *testing.T, lambdaClient *lambdasvc.Client) {
+func verifyLambdaAndApigatewayLambda(ctx context.Context, t *testing.T, lambdaClient *lambdasvc.Client) {
 	t.Helper()
 
-	const functionName = "mega-batch-13-function"
+	const functionName = "lagw-function"
 
 	fnOut, err := lambdaClient.GetFunction(ctx, &lambdasvc.GetFunctionInput{
 		FunctionName: aws.String(functionName),
@@ -108,7 +108,7 @@ func verifyMegaBatch13Lambda(ctx context.Context, t *testing.T, lambdaClient *la
 	require.NoError(t, err, "ListCodeSigningConfigs should succeed")
 	foundCSC := false
 	for _, csc := range cscOut.CodeSigningConfigs {
-		if aws.ToString(csc.Description) == "mega-batch-13 code signing config" {
+		if aws.ToString(csc.Description) == "lagw code signing config" {
 			foundCSC = true
 			require.NotNil(t, csc.AllowedPublishers)
 			assert.Len(t, csc.AllowedPublishers.SigningProfileVersionArns, 1)
@@ -142,36 +142,36 @@ func verifyMegaBatch13Lambda(ctx context.Context, t *testing.T, lambdaClient *la
 	assert.Equal(t, "Auto", string(rmcOut.UpdateRuntimeOn))
 
 	layersOut, err := lambdaClient.ListLayerVersions(ctx, &lambdasvc.ListLayerVersionsInput{
-		LayerName: aws.String("mega-batch-13-layer"),
+		LayerName: aws.String("lagw-layer"),
 	})
 	require.NoError(t, err, "ListLayerVersions should succeed")
 	require.Len(t, layersOut.LayerVersions, 1)
 	versionNumber := layersOut.LayerVersions[0].Version
 
 	policyOut, err := lambdaClient.GetLayerVersionPolicy(ctx, &lambdasvc.GetLayerVersionPolicyInput{
-		LayerName:     aws.String("mega-batch-13-layer"),
+		LayerName:     aws.String("lagw-layer"),
 		VersionNumber: aws.Int64(versionNumber),
 	})
 	require.NoError(t, err, "GetLayerVersionPolicy should succeed")
-	assert.Contains(t, aws.ToString(policyOut.Policy), "mega-batch-13-layer-perm")
+	assert.Contains(t, aws.ToString(policyOut.Policy), "lagw-layer-perm")
 }
 
-func verifyMegaBatch13APIGateway(ctx context.Context, t *testing.T, apiClient *apigwsvc.Client) {
+func verifyLambdaAndApigatewayAPIGateway(ctx context.Context, t *testing.T, apiClient *apigwsvc.Client) {
 	t.Helper()
 
 	acctOut, err := apiClient.GetAccount(ctx, &apigwsvc.GetAccountInput{})
 	require.NoError(t, err, "GetAccount should succeed")
-	assert.Contains(t, aws.ToString(acctOut.CloudwatchRoleArn), "mega-batch-13-apigw-cw-role")
+	assert.Contains(t, aws.ToString(acctOut.CloudwatchRoleArn), "lagw-apigw-cw-role")
 
 	apisOut, err := apiClient.GetRestApis(ctx, &apigwsvc.GetRestApisInput{})
 	require.NoError(t, err, "GetRestApis should succeed")
 	restAPIID := ""
 	for _, api := range apisOut.Items {
-		if aws.ToString(api.Name) == "mega-batch-13-api" {
+		if aws.ToString(api.Name) == "lagw-api" {
 			restAPIID = aws.ToString(api.Id)
 		}
 	}
-	require.NotEmpty(t, restAPIID, "mega-batch-13-api should be listed")
+	require.NotEmpty(t, restAPIID, "lagw-api should be listed")
 
 	apiOut, err := apiClient.GetRestApi(ctx, &apigwsvc.GetRestApiInput{RestApiId: aws.String(restAPIID)})
 	require.NoError(t, err, "GetRestApi should succeed")
@@ -215,22 +215,22 @@ func verifyMegaBatch13APIGateway(ctx context.Context, t *testing.T, apiClient *a
 	require.NoError(t, err, "GetApiKeys should succeed")
 	apiKeyID := ""
 	for _, k := range keysOut.Items {
-		if aws.ToString(k.Name) == "mega-batch-13-key" {
+		if aws.ToString(k.Name) == "lagw-key" {
 			apiKeyID = aws.ToString(k.Id)
 		}
 	}
-	require.NotEmpty(t, apiKeyID, "mega-batch-13-key should be listed")
+	require.NotEmpty(t, apiKeyID, "lagw-key should be listed")
 
 	plansOut, err := apiClient.GetUsagePlans(ctx, &apigwsvc.GetUsagePlansInput{})
 	require.NoError(t, err, "GetUsagePlans should succeed")
 	usagePlanID := ""
 	for _, p := range plansOut.Items {
-		if aws.ToString(p.Name) == "mega-batch-13-usage-plan" {
+		if aws.ToString(p.Name) == "lagw-usage-plan" {
 			usagePlanID = aws.ToString(p.Id)
 			assert.Len(t, p.ApiStages, 1)
 		}
 	}
-	require.NotEmpty(t, usagePlanID, "mega-batch-13-usage-plan should be listed")
+	require.NotEmpty(t, usagePlanID, "lagw-usage-plan should be listed")
 
 	_, err = apiClient.GetUsagePlanKey(ctx, &apigwsvc.GetUsagePlanKeyInput{
 		UsagePlanId: aws.String(usagePlanID),
@@ -242,31 +242,31 @@ func verifyMegaBatch13APIGateway(ctx context.Context, t *testing.T, apiClient *a
 	require.NoError(t, err, "GetAuthorizers should succeed")
 	foundAuth := false
 	for _, a := range authsOut.Items {
-		if aws.ToString(a.Name) == "mega-batch-13-authorizer" {
+		if aws.ToString(a.Name) == "lagw-authorizer" {
 			foundAuth = true
 			assert.Equal(t, "TOKEN", string(a.Type))
 		}
 	}
-	assert.True(t, foundAuth, "mega-batch-13-authorizer should be listed")
+	assert.True(t, foundAuth, "lagw-authorizer should be listed")
 
 	certsOut, err := apiClient.GetClientCertificates(ctx, &apigwsvc.GetClientCertificatesInput{})
 	require.NoError(t, err, "GetClientCertificates should succeed")
 	foundCert := false
 	for _, c := range certsOut.Items {
-		if aws.ToString(c.Description) == "mega-batch-13 client certificate" {
+		if aws.ToString(c.Description) == "lagw client certificate" {
 			foundCert = true
 		}
 	}
 	assert.True(t, foundCert, "client certificate should be listed")
 
 	domainOut, err := apiClient.GetDomainName(ctx, &apigwsvc.GetDomainNameInput{
-		DomainName: aws.String("mega-batch-13.example.test"),
+		DomainName: aws.String("lagw.example.test"),
 	})
 	require.NoError(t, err, "GetDomainName should succeed")
 	assert.NotEmpty(t, aws.ToString(domainOut.RegionalCertificateArn))
 
 	bpmOut, err := apiClient.GetBasePathMapping(ctx, &apigwsvc.GetBasePathMappingInput{
-		DomainName: aws.String("mega-batch-13.example.test"),
+		DomainName: aws.String("lagw.example.test"),
 		BasePath:   aws.String("v1"),
 	})
 	require.NoError(t, err, "GetBasePathMapping should succeed")
@@ -277,10 +277,10 @@ func verifyMegaBatch13APIGateway(ctx context.Context, t *testing.T, apiClient *a
 	require.NoError(t, err, "GetVpcLinks should succeed")
 	foundVpcLink := false
 	for _, l := range vpcLinksOut.Items {
-		if aws.ToString(l.Name) == "mega-batch-13-vpc-link" {
+		if aws.ToString(l.Name) == "lagw-vpc-link" {
 			foundVpcLink = true
 			assert.Len(t, l.TargetArns, 1)
 		}
 	}
-	assert.True(t, foundVpcLink, "mega-batch-13-vpc-link should be listed")
+	assert.True(t, foundVpcLink, "lagw-vpc-link should be listed")
 }

@@ -3,68 +3,68 @@
 # instance assigned to one of them, and an RDS DB instance registration.
 ##############################################################################
 
-resource "aws_opsworks_stack" "mb48" {
-  name                         = "mega-batch-48-stack"
+resource "aws_opsworks_stack" "orap" {
+  name                         = "orap-stack"
   region                       = "us-east-1"
-  service_role_arn             = "arn:aws:iam::000000000000:role/mega-batch-48-opsworks-service-role"
-  default_instance_profile_arn = "arn:aws:iam::000000000000:instance-profile/mega-batch-48-opsworks-instance-profile"
+  service_role_arn             = "arn:aws:iam::000000000000:role/orap-opsworks-service-role"
+  default_instance_profile_arn = "arn:aws:iam::000000000000:instance-profile/orap-opsworks-instance-profile"
 }
 
-resource "aws_opsworks_ecs_cluster_layer" "mb48" {
-  stack_id        = aws_opsworks_stack.mb48.id
-  ecs_cluster_arn = "arn:aws:ecs:us-east-1:000000000000:cluster/mega-batch-48-cluster"
+resource "aws_opsworks_ecs_cluster_layer" "orap" {
+  stack_id        = aws_opsworks_stack.orap.id
+  ecs_cluster_arn = "arn:aws:ecs:us-east-1:000000000000:cluster/orap-cluster"
 }
 
-resource "aws_opsworks_ganglia_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
-  password = "megabatch48pw"
+resource "aws_opsworks_ganglia_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
+  password = "orappw"
 }
 
-resource "aws_opsworks_haproxy_layer" "mb48" {
-  stack_id       = aws_opsworks_stack.mb48.id
-  stats_password = "megabatch48statspw"
+resource "aws_opsworks_haproxy_layer" "orap" {
+  stack_id       = aws_opsworks_stack.orap.id
+  stats_password = "orapstatspw"
 }
 
-resource "aws_opsworks_java_app_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
+resource "aws_opsworks_java_app_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
 }
 
-resource "aws_opsworks_memcached_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
+resource "aws_opsworks_memcached_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
 }
 
-resource "aws_opsworks_mysql_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
+resource "aws_opsworks_mysql_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
 }
 
-resource "aws_opsworks_nodejs_app_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
+resource "aws_opsworks_nodejs_app_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
 }
 
-resource "aws_opsworks_php_app_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
+resource "aws_opsworks_php_app_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
 }
 
-resource "aws_opsworks_rails_app_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
+resource "aws_opsworks_rails_app_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
 }
 
-resource "aws_opsworks_static_web_layer" "mb48" {
-  stack_id = aws_opsworks_stack.mb48.id
+resource "aws_opsworks_static_web_layer" "orap" {
+  stack_id = aws_opsworks_stack.orap.id
 }
 
-resource "aws_opsworks_instance" "mb48" {
-  stack_id      = aws_opsworks_stack.mb48.id
-  layer_ids     = [aws_opsworks_rails_app_layer.mb48.id]
+resource "aws_opsworks_instance" "orap" {
+  stack_id      = aws_opsworks_stack.orap.id
+  layer_ids     = [aws_opsworks_rails_app_layer.orap.id]
   instance_type = "m5.large"
   state         = "stopped"
 }
 
-resource "aws_opsworks_rds_db_instance" "mb48" {
-  stack_id            = aws_opsworks_stack.mb48.id
-  rds_db_instance_arn = "arn:aws:rds:us-east-1:000000000000:db:mega-batch-48-db"
-  db_user             = "mb48admin"
-  db_password         = "megabatch48dbpw"
+resource "aws_opsworks_rds_db_instance" "orap" {
+  stack_id            = aws_opsworks_stack.orap.id
+  rds_db_instance_arn = "arn:aws:rds:us-east-1:000000000000:db:orap-db"
+  db_user             = "orapadmin"
+  db_password         = "orapdbpw"
 }
 
 ##############################################################################
@@ -72,22 +72,22 @@ resource "aws_opsworks_rds_db_instance" "mb48" {
 # builder, a user, and a user/stack association.
 ##############################################################################
 
-resource "aws_appstream_stack" "mb48" {
-  name = "mega-batch-48-stack"
+resource "aws_appstream_stack" "orap" {
+  name = "orap-stack"
 }
 
-resource "aws_appstream_directory_config" "mb48" {
-  directory_name                          = "mega-batch-48.example.test"
-  organizational_unit_distinguished_names = ["OU=mb48,DC=mega-batch-48,DC=example,DC=test"]
+resource "aws_appstream_directory_config" "orap" {
+  directory_name                          = "orap.example.test"
+  organizational_unit_distinguished_names = ["OU=orap,DC=orap,DC=example,DC=test"]
 
   service_account_credentials {
-    account_name     = "mb48-service-account"
-    account_password = "MegaBatch48Password1!"
+    account_name     = "orap-service-account"
+    account_password = "OrganizationsAndAppstreamPassword1!"
   }
 }
 
-resource "aws_appstream_fleet" "mb48" {
-  name          = "mega-batch-48-fleet"
+resource "aws_appstream_fleet" "orap" {
+  name          = "orap-fleet"
   image_name    = "AppStream-WinServer2019-06-01-2023"
   instance_type = "stream.standard.medium"
   fleet_type    = "ON_DEMAND"
@@ -97,28 +97,28 @@ resource "aws_appstream_fleet" "mb48" {
   }
 }
 
-resource "aws_appstream_fleet_stack_association" "mb48" {
-  fleet_name = aws_appstream_fleet.mb48.name
-  stack_name = aws_appstream_stack.mb48.name
+resource "aws_appstream_fleet_stack_association" "orap" {
+  fleet_name = aws_appstream_fleet.orap.name
+  stack_name = aws_appstream_stack.orap.name
 }
 
-resource "aws_appstream_image_builder" "mb48" {
-  name          = "mega-batch-48-image-builder"
+resource "aws_appstream_image_builder" "orap" {
+  name          = "orap-image-builder"
   image_name    = "AppStream-WinServer2019-06-01-2023"
   instance_type = "stream.standard.medium"
 }
 
-resource "aws_appstream_user" "mb48" {
-  user_name           = "mega-batch-48-user@example.test"
+resource "aws_appstream_user" "orap" {
+  user_name           = "orap-user@example.test"
   authentication_type = "USERPOOL"
   first_name          = "Mega"
   last_name           = "BatchFortyEight"
 }
 
-resource "aws_appstream_user_stack_association" "mb48" {
+resource "aws_appstream_user_stack_association" "orap" {
   authentication_type = "USERPOOL"
-  stack_name          = aws_appstream_stack.mb48.name
-  user_name           = aws_appstream_user.mb48.user_name
+  stack_name          = aws_appstream_stack.orap.name
+  user_name           = aws_appstream_user.orap.user_name
 }
 
 ##############################################################################
@@ -127,18 +127,18 @@ resource "aws_appstream_user_stack_association" "mb48" {
 # policy.
 ##############################################################################
 
-resource "aws_organizations_organization" "mb48" {
+resource "aws_organizations_organization" "orap" {
   feature_set = "ALL"
 }
 
-resource "aws_organizations_account" "mb48" {
-  name  = "mega-batch-48-account"
-  email = "mega-batch-48@example.test"
+resource "aws_organizations_account" "orap" {
+  name  = "orap-account"
+  email = "orap@example.test"
 
-  depends_on = [aws_organizations_organization.mb48]
+  depends_on = [aws_organizations_organization.orap]
 }
 
-resource "terraform_data" "mb48_enable_service_access" {
+resource "terraform_data" "orap_enable_service_access" {
   triggers_replace = {
     endpoint = "{{.Endpoint}}"
   }
@@ -152,42 +152,42 @@ resource "terraform_data" "mb48_enable_service_access" {
     command = "aws --endpoint-url '{{.Endpoint}}' organizations enable-aws-service-access --service-principal config.amazonaws.com"
   }
 
-  depends_on = [aws_organizations_organization.mb48]
+  depends_on = [aws_organizations_organization.orap]
 }
 
-resource "aws_organizations_delegated_administrator" "mb48" {
-  account_id        = aws_organizations_account.mb48.id
+resource "aws_organizations_delegated_administrator" "orap" {
+  account_id        = aws_organizations_account.orap.id
   service_principal = "config.amazonaws.com"
 
-  depends_on = [terraform_data.mb48_enable_service_access]
+  depends_on = [terraform_data.orap_enable_service_access]
 }
 
-resource "aws_organizations_policy" "mb48" {
-  name = "mega-batch-48-policy"
+resource "aws_organizations_policy" "orap" {
+  name = "orap-policy"
   type = "SERVICE_CONTROL_POLICY"
   content = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid      = "MegaBatch48"
+      Sid      = "OrganizationsAndAppstream"
       Effect   = "Allow"
       Action   = "*"
       Resource = "*"
     }]
   })
 
-  depends_on = [aws_organizations_organization.mb48]
+  depends_on = [aws_organizations_organization.orap]
 }
 
-resource "aws_organizations_policy_attachment" "mb48" {
-  policy_id = aws_organizations_policy.mb48.id
-  target_id = aws_organizations_account.mb48.id
+resource "aws_organizations_policy_attachment" "orap" {
+  policy_id = aws_organizations_policy.orap.id
+  target_id = aws_organizations_account.orap.id
 }
 
-resource "aws_organizations_resource_policy" "mb48" {
+resource "aws_organizations_resource_policy" "orap" {
   content = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "MegaBatch48ResourcePolicy"
+      Sid       = "OrganizationsAndAppstreamResourcePolicy"
       Effect    = "Allow"
       Principal = { AWS = "arn:aws:iam::999999999999:root" }
       Action    = "organizations:DescribeResourcePolicy"
@@ -195,5 +195,5 @@ resource "aws_organizations_resource_policy" "mb48" {
     }]
   })
 
-  depends_on = [aws_organizations_organization.mb48]
+  depends_on = [aws_organizations_organization.orap]
 }

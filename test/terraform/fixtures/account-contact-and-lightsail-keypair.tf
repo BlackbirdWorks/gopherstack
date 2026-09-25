@@ -7,5 +7,5 @@ resource "aws_account_alternate_contact" "example" {
 }
 
 resource "aws_lightsail_key_pair" "example" {
-  name = "mega-batch-7-keypair"
+  name = "acyk-keypair"
 }

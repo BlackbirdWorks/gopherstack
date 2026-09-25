@@ -1,7 +1,7 @@
 service: quicksight
 sdk_module: aws-sdk-go-v2/service/quicksight@v1.129.0
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED analysis unbounded-growth fix; prior: 4ad783e5c
-last_audit_date: 2026-09-24 # mega-batch-25 terraform coverage: CreateNamespace/Reset's
+last_audit_date: 2026-09-24 # quicksight-resources terraform coverage: CreateNamespace/Reset's
                       # default-namespace seed used the ResourceStatus enum's
                       # "CREATION_SUCCESSFUL" for Namespace.CreationStatus instead of the real,
                       # distinct NamespaceStatus enum's "CREATED" -- confirmed against

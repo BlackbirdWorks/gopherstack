@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch31 provisions API Gateway V2 (API mapping,
+// TestTerraform_Apigatewayv2ApprunnerAndMacie provisions API Gateway V2 (API mapping,
 // authorizer, deployment, domain name, integration response, model, route
 // response, VPC link), App Runner (connection, deployment, observability
 // configuration, VPC connector, VPC ingress connection), and Macie2
@@ -22,18 +22,18 @@ import (
 // identifier, findings filter, member, organization admin account,
 // organization configuration) resources via Terraform and verifies each
 // through its own SDK client's Get/List path.
-func TestTerraform_MegaBatch31(t *testing.T) {
+func TestTerraform_Apigatewayv2ApprunnerAndMacie(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-31",
+			fixture:    "apigatewayv2-apprunner-and-macie",
 			providerFn: macie2ProviderBlock,
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 
-				functionZip := filepath.Join(dir, "mega-batch-31-fn.zip")
+				functionZip := filepath.Join(dir, "agam-fn.zip")
 				writeZipFixture(t, functionZip, "index.py",
 					"def handler(event, context):\n    return {}\n")
 
@@ -43,9 +43,9 @@ func TestTerraform_MegaBatch31(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch31APIGatewayV2(ctx, t)
-				verifyMegaBatch31AppRunner(ctx, t)
-				verifyMegaBatch31Macie2(ctx, t)
+				verifyApigatewayv2ApprunnerAndMacieAPIGatewayV2(ctx, t)
+				verifyApigatewayv2ApprunnerAndMacieAppRunner(ctx, t)
+				verifyApigatewayv2ApprunnerAndMacieMacie2(ctx, t)
 			},
 		},
 	}
@@ -58,7 +58,7 @@ func TestTerraform_MegaBatch31(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch31APIGatewayV2(ctx context.Context, t *testing.T) {
+func verifyApigatewayv2ApprunnerAndMacieAPIGatewayV2(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createAPIGatewayV2Client(t)
@@ -70,25 +70,25 @@ func verifyMegaBatch31APIGatewayV2(ctx context.Context, t *testing.T) {
 
 	for _, api := range apisOut.Items {
 		switch aws.ToString(api.Name) {
-		case "mega-batch-31-http-api":
+		case "agam-http-api":
 			httpAPIID = aws.ToString(api.ApiId)
-		case "mega-batch-31-ws-api":
+		case "agam-ws-api":
 			wsAPIID = aws.ToString(api.ApiId)
 		}
 	}
 
-	require.NotEmpty(t, httpAPIID, "mega-batch-31 HTTP API should be listed")
-	require.NotEmpty(t, wsAPIID, "mega-batch-31 WebSocket API should be listed")
+	require.NotEmpty(t, httpAPIID, "agam HTTP API should be listed")
+	require.NotEmpty(t, wsAPIID, "agam WebSocket API should be listed")
 
 	authOut, err := client.GetAuthorizers(ctx, &apigwv2svc.GetAuthorizersInput{ApiId: aws.String(httpAPIID)})
 	require.NoError(t, err, "GetAuthorizers should succeed")
 	require.Len(t, authOut.Items, 1)
-	assert.Equal(t, "mega-batch-31-authorizer", aws.ToString(authOut.Items[0].Name))
+	assert.Equal(t, "agam-authorizer", aws.ToString(authOut.Items[0].Name))
 
 	modelsOut, err := client.GetModels(ctx, &apigwv2svc.GetModelsInput{ApiId: aws.String(httpAPIID)})
 	require.NoError(t, err, "GetModels should succeed")
 	require.Len(t, modelsOut.Items, 1)
-	assert.Equal(t, "MegaBatch31Model", aws.ToString(modelsOut.Items[0].Name))
+	assert.Equal(t, "Apigatewayv2ApprunnerAndMacieModel", aws.ToString(modelsOut.Items[0].Name))
 
 	integsOut, err := client.GetIntegrations(ctx, &apigwv2svc.GetIntegrationsInput{ApiId: aws.String(httpAPIID)})
 	require.NoError(t, err, "GetIntegrations should succeed")
@@ -108,13 +108,13 @@ func verifyMegaBatch31APIGatewayV2(ctx context.Context, t *testing.T) {
 	require.Len(t, deploysOut.Items, 1)
 
 	domOut, err := client.GetDomainName(ctx, &apigwv2svc.GetDomainNameInput{
-		DomainName: aws.String("mega-batch-31.example.test"),
+		DomainName: aws.String("agam.example.test"),
 	})
 	require.NoError(t, err, "GetDomainName should succeed")
 	require.NotNil(t, domOut.DomainNameConfigurations)
 
 	mappingsOut, err := client.GetApiMappings(ctx, &apigwv2svc.GetApiMappingsInput{
-		DomainName: aws.String("mega-batch-31.example.test"),
+		DomainName: aws.String("agam.example.test"),
 	})
 	require.NoError(t, err, "GetApiMappings should succeed")
 	require.Len(t, mappingsOut.Items, 1)
@@ -139,27 +139,27 @@ func verifyMegaBatch31APIGatewayV2(ctx context.Context, t *testing.T) {
 	var foundVPCLink bool
 
 	for _, link := range vpcLinksOut.Items {
-		if aws.ToString(link.Name) == "mega-batch-31-vpc-link" {
+		if aws.ToString(link.Name) == "agam-vpc-link" {
 			foundVPCLink = true
 		}
 	}
 
-	assert.True(t, foundVPCLink, "mega-batch-31 VPC link should be listed")
+	assert.True(t, foundVPCLink, "agam VPC link should be listed")
 }
 
-func verifyMegaBatch31AppRunner(ctx context.Context, t *testing.T) {
+func verifyApigatewayv2ApprunnerAndMacieAppRunner(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createAppRunnerClient(t)
 
 	obsOut, err := client.ListObservabilityConfigurations(ctx, &apprunnersdk.ListObservabilityConfigurationsInput{
-		ObservabilityConfigurationName: aws.String("mega-batch-31-obs"),
+		ObservabilityConfigurationName: aws.String("agam-obs"),
 	})
 	require.NoError(t, err, "ListObservabilityConfigurations should succeed")
 	require.Len(t, obsOut.ObservabilityConfigurationSummaryList, 1)
 
 	connsOut, err := client.ListConnections(ctx, &apprunnersdk.ListConnectionsInput{
-		ConnectionName: aws.String("mega-batch-31-connection"),
+		ConnectionName: aws.String("agam-connection"),
 	})
 	require.NoError(t, err, "ListConnections should succeed")
 	require.Len(t, connsOut.ConnectionSummaryList, 1)
@@ -171,12 +171,12 @@ func verifyMegaBatch31AppRunner(ctx context.Context, t *testing.T) {
 	var serviceArn string
 
 	for _, svc := range svcsOut.ServiceSummaryList {
-		if aws.ToString(svc.ServiceName) == "mega-batch-31-service" {
+		if aws.ToString(svc.ServiceName) == "agam-service" {
 			serviceArn = aws.ToString(svc.ServiceArn)
 		}
 	}
 
-	require.NotEmpty(t, serviceArn, "mega-batch-31 service should be listed")
+	require.NotEmpty(t, serviceArn, "agam service should be listed")
 
 	opsOut, err := client.ListOperations(ctx, &apprunnersdk.ListOperationsInput{ServiceArn: aws.String(serviceArn)})
 	require.NoError(t, err, "ListOperations should succeed")
@@ -188,12 +188,12 @@ func verifyMegaBatch31AppRunner(ctx context.Context, t *testing.T) {
 	var foundVPCConnector bool
 
 	for _, c := range vpcConnOut.VpcConnectors {
-		if aws.ToString(c.VpcConnectorName) == "mega-batch-31-vpc-connector" {
+		if aws.ToString(c.VpcConnectorName) == "agam-vpc-connector" {
 			foundVPCConnector = true
 		}
 	}
 
-	assert.True(t, foundVPCConnector, "mega-batch-31 VPC connector should be listed")
+	assert.True(t, foundVPCConnector, "agam VPC connector should be listed")
 
 	ingressOut, err := client.ListVpcIngressConnections(ctx, &apprunnersdk.ListVpcIngressConnectionsInput{
 		Filter: &apprunnertypes.ListVpcIngressConnectionsFilter{ServiceArn: aws.String(serviceArn)},
@@ -202,7 +202,7 @@ func verifyMegaBatch31AppRunner(ctx context.Context, t *testing.T) {
 	require.Len(t, ingressOut.VpcIngressConnectionSummaryList, 1)
 }
 
-func verifyMegaBatch31Macie2(ctx context.Context, t *testing.T) {
+func verifyApigatewayv2ApprunnerAndMacieMacie2(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createMacie2Client(t)
@@ -212,7 +212,7 @@ func verifyMegaBatch31Macie2(ctx context.Context, t *testing.T) {
 	require.NoError(t, err, "GetClassificationExportConfiguration should succeed")
 	require.NotNil(t, exportCfgOut.Configuration)
 	require.NotNil(t, exportCfgOut.Configuration.S3Destination)
-	assert.Equal(t, "mega-batch-31-macie-bucket", aws.ToString(exportCfgOut.Configuration.S3Destination.BucketName))
+	assert.Equal(t, "agam-macie-bucket", aws.ToString(exportCfgOut.Configuration.S3Destination.BucketName))
 
 	jobsOut, err := client.ListClassificationJobs(ctx, &macie2sdk.ListClassificationJobsInput{})
 	require.NoError(t, err, "ListClassificationJobs should succeed")
@@ -220,12 +220,12 @@ func verifyMegaBatch31Macie2(ctx context.Context, t *testing.T) {
 	var foundJob bool
 
 	for _, j := range jobsOut.Items {
-		if aws.ToString(j.Name) == "mega-batch-31-classification-job" {
+		if aws.ToString(j.Name) == "agam-classification-job" {
 			foundJob = true
 		}
 	}
 
-	assert.True(t, foundJob, "mega-batch-31 classification job should be listed")
+	assert.True(t, foundJob, "agam classification job should be listed")
 
 	cdiOut, err := client.ListCustomDataIdentifiers(ctx, &macie2sdk.ListCustomDataIdentifiersInput{})
 	require.NoError(t, err, "ListCustomDataIdentifiers should succeed")
@@ -233,12 +233,12 @@ func verifyMegaBatch31Macie2(ctx context.Context, t *testing.T) {
 	var foundCDI bool
 
 	for _, c := range cdiOut.Items {
-		if aws.ToString(c.Name) == "mega-batch-31-custom-data-identifier" {
+		if aws.ToString(c.Name) == "agam-custom-data-identifier" {
 			foundCDI = true
 		}
 	}
 
-	assert.True(t, foundCDI, "mega-batch-31 custom data identifier should be listed")
+	assert.True(t, foundCDI, "agam custom data identifier should be listed")
 
 	filtersOut, err := client.ListFindingsFilters(ctx, &macie2sdk.ListFindingsFiltersInput{})
 	require.NoError(t, err, "ListFindingsFilters should succeed")
@@ -246,16 +246,16 @@ func verifyMegaBatch31Macie2(ctx context.Context, t *testing.T) {
 	var foundFilter bool
 
 	for _, f := range filtersOut.FindingsFilterListItems {
-		if aws.ToString(f.Name) == "mega-batch-31-findings-filter" {
+		if aws.ToString(f.Name) == "agam-findings-filter" {
 			foundFilter = true
 		}
 	}
 
-	assert.True(t, foundFilter, "mega-batch-31 findings filter should be listed")
+	assert.True(t, foundFilter, "agam findings filter should be listed")
 
 	memberOut, err := client.GetMember(ctx, &macie2sdk.GetMemberInput{Id: aws.String("111111111111")})
 	require.NoError(t, err, "GetMember should succeed")
-	assert.Equal(t, "mega-batch-31-member@example.test", aws.ToString(memberOut.Email))
+	assert.Equal(t, "agam-member@example.test", aws.ToString(memberOut.Email))
 
 	orgAdminsOut, err := client.ListOrganizationAdminAccounts(ctx, &macie2sdk.ListOrganizationAdminAccountsInput{})
 	require.NoError(t, err, "ListOrganizationAdminAccounts should succeed")
@@ -268,7 +268,7 @@ func verifyMegaBatch31Macie2(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundOrgAdmin, "mega-batch-31 organization admin account should be listed")
+	assert.True(t, foundOrgAdmin, "agam organization admin account should be listed")
 
 	orgCfgOut, err := client.DescribeOrganizationConfiguration(ctx, &macie2sdk.DescribeOrganizationConfigurationInput{})
 	require.NoError(t, err, "DescribeOrganizationConfiguration should succeed")

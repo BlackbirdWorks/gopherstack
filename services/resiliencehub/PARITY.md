@@ -647,7 +647,7 @@ confirmed absent, not silently skipped.
 
 ## Notes
 
-**2026-09-19**: First terraform coverage (mega-batch-6) found `validatePolicyMap` wrongly
+**2026-09-19**: First terraform coverage (grafana-inspector-and-resiliencehub) found `validatePolicyMap` wrongly
 required a `Region` FailurePolicy entry; hashicorp/aws's provider marks `policy.region`
 Optional. Fixed (`requiredDisruptionTypes` = Software/Hardware/AZ only); apply+destroy
 verified against real provider v5.100.0.

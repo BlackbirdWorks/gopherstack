@@ -2335,7 +2335,7 @@ Re-adjudicated `items_still_open`: fixed `CreateChangeSet`'s dropped
 `ResourceTypes`/`DisableValidation` (threaded into `ExecuteChangeSet`, like
 `Capabilities`); the other 10 entries are confirmed-accurate, tightened.
 
-## 2026-09-20: Type Registry ARN shape (mega-batch-37 coverage, `aws_cloudformation_type`)
+## 2026-09-20: Type Registry ARN shape (cognito-ecs-cloudformation-and-wafv2 coverage, `aws_cloudformation_type`)
 
 Real type ARNs are account/region-scoped with `::` hyphenated
 (`arn:aws:cloudformation:<region>:<account>:type/resource/Vendor-Svc-Type`);
@@ -2355,7 +2355,7 @@ register — added the same `Arn`-or-`TypeName` fallback the other type-registry
 ops already had. `DescribeType` also now accepts a version-suffixed `Arn`
 (stripping and resolving `/<versionId>`), since the resource's `Read` re-reads
 by the `TypeVersionArn` it stored as `id`. Proven end-to-end by
-`TestTerraform_MegaBatch37` (real `aws_cloudformation_type` apply) and unit
+`TestTerraform_CognitoEcsCloudformationAndWafv2` (real `aws_cloudformation_type` apply) and unit
 tests `TestDescribeType_Registered/lookup_by_version-suffixed_ARN_after_RegisterType`
 plus the updated ARN literals across `type_registry_test.go`,
 `type_registry_feature_test.go`, `deregister_type_version_test.go`,

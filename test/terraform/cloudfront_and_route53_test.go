@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraform_MegaBatch14 provisions the 14 CloudFront resource types
+// TestTerraform_CloudfrontAndRoute53 provisions the 14 CloudFront resource types
 // (cache policy, continuous deployment policy, distribution, field-level
 // encryption config/profile, function, key group, monitoring subscription,
 // origin access control, origin request policy, public key, real-time log
@@ -22,13 +22,13 @@ import (
 // policy/instance, VPC association authorization, zone association) that
 // had no Terraform fixture coverage, and verifies each via its own SDK
 // client's Get/List path.
-func TestTerraform_MegaBatch14(t *testing.T) {
+func TestTerraform_CloudfrontAndRoute53(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-14",
+			fixture: "cloudfront-and-route53",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -45,8 +45,8 @@ func TestTerraform_MegaBatch14(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 
-				verifyMegaBatch14CloudFront(ctx, t, cf)
-				verifyMegaBatch14Route53(ctx, t, r53)
+				verifyCloudfrontAndRoute53CloudFront(ctx, t, cf)
+				verifyCloudfrontAndRoute53Route53(ctx, t, r53)
 			},
 		},
 	}
@@ -59,7 +59,7 @@ func TestTerraform_MegaBatch14(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
+func verifyCloudfrontAndRoute53CloudFront(ctx context.Context, t *testing.T, cf *cloudfrontsvc.Client) {
 	t.Helper()
 
 	pkOut, err := cf.ListPublicKeys(ctx, &cloudfrontsvc.ListPublicKeysInput{})
@@ -68,12 +68,12 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var publicKeyID string
 
 	for _, pk := range pkOut.PublicKeyList.Items {
-		if aws.ToString(pk.Name) == "mega-batch-14-public-key" {
+		if aws.ToString(pk.Name) == "cfr5-public-key" {
 			publicKeyID = aws.ToString(pk.Id)
 		}
 	}
 
-	require.NotEmpty(t, publicKeyID, "public key mega-batch-14-public-key should be listed")
+	require.NotEmpty(t, publicKeyID, "public key cfr5-public-key should be listed")
 
 	kgOut, err := cf.ListKeyGroups(ctx, &cloudfrontsvc.ListKeyGroupsInput{})
 	require.NoError(t, err, "ListKeyGroups should succeed")
@@ -81,14 +81,14 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var foundKeyGroup bool
 
 	for _, kg := range kgOut.KeyGroupList.Items {
-		if aws.ToString(kg.KeyGroup.KeyGroupConfig.Name) == "mega-batch-14-key-group" {
+		if aws.ToString(kg.KeyGroup.KeyGroupConfig.Name) == "cfr5-key-group" {
 			foundKeyGroup = true
 
 			require.Contains(t, kg.KeyGroup.KeyGroupConfig.Items, publicKeyID)
 		}
 	}
 
-	assert.True(t, foundKeyGroup, "key group mega-batch-14-key-group should be listed")
+	assert.True(t, foundKeyGroup, "key group cfr5-key-group should be listed")
 
 	fleProfileOut, err := cf.ListFieldLevelEncryptionProfiles(
 		ctx,
@@ -99,7 +99,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var fleProfileID string
 
 	for _, p := range fleProfileOut.FieldLevelEncryptionProfileList.Items {
-		if aws.ToString(p.Name) == "mega-batch-14-fle-profile" {
+		if aws.ToString(p.Name) == "cfr5-fle-profile" {
 			fleProfileID = aws.ToString(p.Id)
 		}
 	}
@@ -112,7 +112,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var foundFLEConfig bool
 
 	for _, c := range fleConfigOut.FieldLevelEncryptionList.Items {
-		if aws.ToString(c.Comment) == "mega batch 14 field level encryption config" {
+		if aws.ToString(c.Comment) == "cfr5 field level encryption config" {
 			foundFLEConfig = true
 		}
 	}
@@ -125,7 +125,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var foundOAC bool
 
 	for _, o := range oacOut.OriginAccessControlList.Items {
-		if aws.ToString(o.Name) == "mega-batch-14-oac" {
+		if aws.ToString(o.Name) == "cfr5-oac" {
 			foundOAC = true
 		}
 	}
@@ -140,7 +140,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var foundORP bool
 
 	for _, o := range orpOut.OriginRequestPolicyList.Items {
-		if aws.ToString(o.OriginRequestPolicy.OriginRequestPolicyConfig.Name) == "mega-batch-14-orp" {
+		if aws.ToString(o.OriginRequestPolicy.OriginRequestPolicyConfig.Name) == "cfr5-orp" {
 			foundORP = true
 		}
 	}
@@ -155,7 +155,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var foundRHP bool
 
 	for _, r := range rhpOut.ResponseHeadersPolicyList.Items {
-		if aws.ToString(r.ResponseHeadersPolicy.ResponseHeadersPolicyConfig.Name) == "mega-batch-14-rhp" {
+		if aws.ToString(r.ResponseHeadersPolicy.ResponseHeadersPolicyConfig.Name) == "cfr5-rhp" {
 			foundRHP = true
 		}
 	}
@@ -170,7 +170,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var foundCachePolicy bool
 
 	for _, c := range cpOut.CachePolicyList.Items {
-		if aws.ToString(c.CachePolicy.CachePolicyConfig.Name) == "mega-batch-14-cache-policy" {
+		if aws.ToString(c.CachePolicy.CachePolicyConfig.Name) == "cfr5-cache-policy" {
 			foundCachePolicy = true
 		}
 	}
@@ -178,13 +178,13 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	assert.True(t, foundCachePolicy, "cache policy should be listed")
 
 	fnOut, err := cf.GetFunction(ctx, &cloudfrontsvc.GetFunctionInput{
-		Name: aws.String("mega-batch-14-function"),
+		Name: aws.String("cfr5-function"),
 	})
 	require.NoError(t, err, "GetFunction should succeed")
 	assert.Contains(t, string(fnOut.FunctionCode), "return event.request")
 
 	rtlOut, err := cf.GetRealtimeLogConfig(ctx, &cloudfrontsvc.GetRealtimeLogConfigInput{
-		Name: aws.String("mega-batch-14-realtime-log-config"),
+		Name: aws.String("cfr5-realtime-log-config"),
 	})
 	require.NoError(t, err, "GetRealtimeLogConfig should succeed")
 	assert.EqualValues(t, 75, aws.ToInt64(rtlOut.RealtimeLogConfig.SamplingRate))
@@ -195,7 +195,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var distributionID string
 
 	for _, d := range distOut.DistributionList.Items {
-		if aws.ToString(d.Comment) == "mega-batch-14 staging distribution" {
+		if aws.ToString(d.Comment) == "cfr5 staging distribution" {
 			distributionID = aws.ToString(d.Id)
 		}
 	}
@@ -234,7 +234,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	var foundVPCOrigin bool
 
 	for _, v := range vpcOriginOut.VpcOriginList.Items {
-		if aws.ToString(v.Name) == "mega-batch-14-vpc-origin" {
+		if aws.ToString(v.Name) == "cfr5-vpc-origin" {
 			foundVPCOrigin = true
 		}
 	}
@@ -242,7 +242,7 @@ func verifyMegaBatch14CloudFront(ctx context.Context, t *testing.T, cf *cloudfro
 	assert.True(t, foundVPCOrigin, "VPC origin should be listed")
 }
 
-func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
+func verifyCloudfrontAndRoute53Route53(ctx context.Context, t *testing.T, r53 *route53svc.Client) {
 	t.Helper()
 
 	dsOut, err := r53.ListReusableDelegationSets(ctx, &route53svc.ListReusableDelegationSetsInput{})
@@ -264,12 +264,12 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	var foundHealthCheck bool
 
 	for _, hc := range hcOut.HealthChecks {
-		if aws.ToString(hc.HealthCheckConfig.FullyQualifiedDomainName) == "mega-batch-14.example.com" {
+		if aws.ToString(hc.HealthCheckConfig.FullyQualifiedDomainName) == "cfr5.example.com" {
 			foundHealthCheck = true
 		}
 	}
 
-	assert.True(t, foundHealthCheck, "health check mega-batch-14.example.com should be listed")
+	assert.True(t, foundHealthCheck, "health check cfr5.example.com should be listed")
 
 	collOut, err := r53.ListCidrCollections(ctx, &route53svc.ListCidrCollectionsInput{})
 	require.NoError(t, err, "ListCidrCollections should succeed")
@@ -277,7 +277,7 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	var collectionID string
 
 	for _, c := range collOut.CidrCollections {
-		if aws.ToString(c.Name) == "mega-batch-14-cidr-collection" {
+		if aws.ToString(c.Name) == "cfr5-cidr-collection" {
 			collectionID = aws.ToString(c.Id)
 		}
 	}
@@ -292,15 +292,15 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	var foundCidrBlock bool
 
 	for _, b := range blocksOut.CidrBlocks {
-		if aws.ToString(b.LocationName) == "mb14-location" && aws.ToString(b.CidrBlock) == "10.114.32.0/24" {
+		if aws.ToString(b.LocationName) == "cfr5-location" && aws.ToString(b.CidrBlock) == "10.114.32.0/24" {
 			foundCidrBlock = true
 		}
 	}
 
-	assert.True(t, foundCidrBlock, "CIDR location mega-batch-14-location should be listed")
+	assert.True(t, foundCidrBlock, "CIDR location cfr5-location should be listed")
 
 	zonesOut, err := r53.ListHostedZonesByName(ctx, &route53svc.ListHostedZonesByNameInput{
-		DNSName: aws.String("mega-batch-14-dnssec.example.com"),
+		DNSName: aws.String("cfr5-dnssec.example.com"),
 	})
 	require.NoError(t, err, "ListHostedZonesByName should succeed")
 	require.NotEmpty(t, zonesOut.HostedZones, "dnssec hosted zone should exist")
@@ -317,12 +317,12 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	var foundKSK bool
 
 	for _, ksk := range dnssecOut.KeySigningKeys {
-		if aws.ToString(ksk.Name) == "mega_batch_14_ksk" {
+		if aws.ToString(ksk.Name) == "cfr5_ksk" {
 			foundKSK = true
 		}
 	}
 
-	assert.True(t, foundKSK, "key signing key mega_batch_14_ksk should be listed")
+	assert.True(t, foundKSK, "key signing key cfr5_ksk should be listed")
 
 	qlOut, err := r53.ListQueryLoggingConfigs(ctx, &route53svc.ListQueryLoggingConfigsInput{
 		HostedZoneId: aws.String(dnssecZoneID),
@@ -336,7 +336,7 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	var foundTrafficPolicy bool
 
 	for _, tp := range tpOut.TrafficPolicySummaries {
-		if aws.ToString(tp.Name) == "mega-batch-14-traffic-policy" {
+		if aws.ToString(tp.Name) == "cfr5-traffic-policy" {
 			foundTrafficPolicy = true
 		}
 	}
@@ -349,7 +349,7 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	var foundTrafficPolicyInstance bool
 
 	for _, tpi := range tpiOut.TrafficPolicyInstances {
-		if aws.ToString(tpi.Name) == "tp.mega-batch-14-dnssec.example.com." {
+		if aws.ToString(tpi.Name) == "tp.cfr5-dnssec.example.com." {
 			foundTrafficPolicyInstance = true
 		}
 	}
@@ -357,7 +357,7 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	assert.True(t, foundTrafficPolicyInstance, "traffic policy instance should be listed")
 
 	exclZonesOut, err := r53.ListHostedZonesByName(ctx, &route53svc.ListHostedZonesByNameInput{
-		DNSName: aws.String("mega-batch-14-excl.example.com"),
+		DNSName: aws.String("cfr5-excl.example.com"),
 	})
 	require.NoError(t, err, "ListHostedZonesByName should succeed")
 	require.NotEmpty(t, exclZonesOut.HostedZones, "excl hosted zone should exist")
@@ -370,7 +370,7 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	var foundExclusiveRecord bool
 
 	for _, rr := range rrOut.ResourceRecordSets {
-		if aws.ToString(rr.Name) == "sub.mega-batch-14-excl.example.com." {
+		if aws.ToString(rr.Name) == "sub.cfr5-excl.example.com." {
 			foundExclusiveRecord = true
 		}
 	}
@@ -378,7 +378,7 @@ func verifyMegaBatch14Route53(ctx context.Context, t *testing.T, r53 *route53svc
 	assert.True(t, foundExclusiveRecord, "record created by records_exclusive should be listed")
 
 	privZonesOut, err := r53.ListHostedZonesByName(ctx, &route53svc.ListHostedZonesByNameInput{
-		DNSName: aws.String("mega-batch-14-private.internal"),
+		DNSName: aws.String("cfr5-private.internal"),
 	})
 	require.NoError(t, err, "ListHostedZonesByName should succeed")
 	require.NotEmpty(t, privZonesOut.HostedZones, "private hosted zone should exist")

@@ -1,6 +1,6 @@
 resource "aws_default_vpc" "example" {
   tags = {
-    Name = "mega-batch-12-default-vpc"
+    Name = "edtg-default-vpc"
   }
 }
 
@@ -8,7 +8,7 @@ resource "aws_default_subnet" "example" {
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-12-default-subnet"
+    Name = "edtg-default-subnet"
   }
 }
 
@@ -16,7 +16,7 @@ resource "aws_default_route_table" "example" {
   default_route_table_id = aws_default_vpc.example.default_route_table_id
 
   tags = {
-    Name = "mega-batch-12-default-rt"
+    Name = "edtg-default-rt"
   }
 }
 
@@ -25,7 +25,7 @@ resource "aws_default_network_acl" "example" {
   subnet_ids             = [aws_default_subnet.example.id]
 
   tags = {
-    Name = "mega-batch-12-default-nacl"
+    Name = "edtg-default-nacl"
   }
 }
 
@@ -33,13 +33,13 @@ resource "aws_default_security_group" "example" {
   vpc_id = aws_default_vpc.example.id
 
   tags = {
-    Name = "mega-batch-12-default-sg"
+    Name = "edtg-default-sg"
   }
 }
 
 resource "aws_default_vpc_dhcp_options" "example" {
   tags = {
-    Name = "mega-batch-12-default-dhcp-opts"
+    Name = "edtg-default-dhcp-opts"
   }
 }
 
@@ -47,7 +47,7 @@ resource "aws_vpc" "requester" {
   cidr_block = "{{.VPCCidr}}"
 
   tags = {
-    Name = "mega-batch-12-requester"
+    Name = "edtg-requester"
   }
 }
 
@@ -55,7 +55,7 @@ resource "aws_vpc" "accepter" {
   cidr_block = "{{.PeerVPCCidr}}"
 
   tags = {
-    Name = "mega-batch-12-accepter"
+    Name = "edtg-accepter"
   }
 }
 
@@ -89,7 +89,7 @@ resource "aws_ec2_carrier_gateway" "example" {
   vpc_id = aws_vpc.requester.id
 
   tags = {
-    Name = "mega-batch-12-carrier-gw"
+    Name = "edtg-carrier-gw"
   }
 }
 
@@ -99,13 +99,13 @@ resource "aws_customer_gateway" "example" {
   type       = "ipsec.1"
 
   tags = {
-    Name = "mega-batch-12-cgw"
+    Name = "edtg-cgw"
   }
 }
 
 resource "aws_vpn_gateway" "example" {
   tags = {
-    Name = "mega-batch-12-vgw"
+    Name = "edtg-vgw"
   }
 }
 
@@ -121,7 +121,7 @@ resource "aws_vpn_connection" "example" {
   static_routes_only  = true
 
   tags = {
-    Name = "mega-batch-12-vpn"
+    Name = "edtg-vpn"
   }
 }
 
@@ -142,12 +142,12 @@ resource "aws_vpn_gateway_route_propagation" "example" {
 }
 
 resource "aws_ec2_transit_gateway" "example" {
-  description                     = "mega-batch-12 tgw"
+  description                     = "edtg tgw"
   default_route_table_association = "disable"
   default_route_table_propagation = "disable"
 
   tags = {
-    Name = "mega-batch-12-tgw"
+    Name = "edtg-tgw"
   }
 }
 
@@ -157,7 +157,7 @@ resource "aws_subnet" "tgw_attach" {
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "mega-batch-12-tgw-subnet"
+    Name = "edtg-tgw-subnet"
   }
 }
 
@@ -167,7 +167,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "example" {
   subnet_ids         = [aws_subnet.tgw_attach.id]
 
   tags = {
-    Name = "mega-batch-12-tgw-attachment"
+    Name = "edtg-tgw-attachment"
   }
 }
 
@@ -175,7 +175,7 @@ resource "aws_ec2_transit_gateway_route_table" "example" {
   transit_gateway_id = aws_ec2_transit_gateway.example.id
 
   tags = {
-    Name = "mega-batch-12-tgw-rt"
+    Name = "edtg-tgw-rt"
   }
 }
 

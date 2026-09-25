@@ -1222,7 +1222,7 @@ clean; `go test -race -count=1 -p 2 ./services/eks/...` and
 --new-from-rev=HEAD ./services/eks/...` 0 issues; `go run ./cmd/paritylint`
 0 FAIL.
 
-## 2026-09-24: mega-batch-53 fixture fix -- Associate/DisassociateIdentityProviderConfig never stored a real Update record (gopherstack-mb53)
+## 2026-09-24: ec2-transit-gateway-multicast-route-server fixture fix -- Associate/DisassociateIdentityProviderConfig never stored a real Update record (gopherstack-mb53)
 
 Both ops fabricated a random 8-hex-char `id` for the `update` object in their
 response and never persisted it via `storeUpdateLocked`/`scheduleUpdateTransition`
@@ -1248,7 +1248,7 @@ The follow-up flagged above. `AssociateEncryptionConfig` fabricated a random
 8-hex-char `id` for its `update` response object and never persisted it via
 `storeUpdateLocked`/`scheduleUpdateTransition`, so a client polling
 `DescribeUpdate` on that ID always got `ResourceNotFoundException` and never
-converged -- identical bug class to `mega-batch-53`'s
+converged -- identical bug class to `ec2-transit-gateway-multicast-route-server`'s
 Associate/DisassociateIdentityProviderConfig fix. `AssociateEncryptionConfig`
 now builds and stores a real `*Update` (`Type` = `AssociateEncryptionConfig`,
 `InProgress` -> `Successful` on the same 100ms transition delay, `Params`

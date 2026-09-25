@@ -1,5 +1,5 @@
 resource "aws_iam_role" "sagemaker" {
-  name = "mega-batch-26-sagemaker-role"
+  name = "smkr-sagemaker-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -15,7 +15,7 @@ resource "aws_vpc" "sagemaker" {
   cidr_block = "10.130.0.0/16"
 
   tags = {
-    Name = "mega-batch-26-sagemaker-vpc"
+    Name = "smkr-sagemaker-vpc"
   }
 }
 
@@ -24,46 +24,46 @@ resource "aws_subnet" "sagemaker" {
   cidr_block = "10.130.1.0/24"
 
   tags = {
-    Name = "mega-batch-26-sagemaker-subnet"
+    Name = "smkr-sagemaker-subnet"
   }
 }
 
 resource "aws_security_group" "sagemaker" {
-  name   = "mega-batch-26-sagemaker-sg"
+  name   = "smkr-sagemaker-sg"
   vpc_id = aws_vpc.sagemaker.id
 }
 
 resource "aws_s3_bucket" "sagemaker" {
-  bucket = "mega-batch-26-sagemaker-bucket"
+  bucket = "smkr-sagemaker-bucket"
 }
 
 resource "aws_ecr_repository" "sagemaker" {
-  name = "mega-batch-26-sagemaker-repo"
+  name = "smkr-sagemaker-repo"
 }
 
 resource "aws_sagemaker_code_repository" "example" {
-  code_repository_name = "mega-batch-26-code-repo"
+  code_repository_name = "smkr-code-repo"
 
   git_config {
-    repository_url = "https://github.com/example/mega-batch-26-repo.git"
+    repository_url = "https://github.com/example/smkr-repo.git"
   }
 }
 
 resource "aws_sagemaker_notebook_instance_lifecycle_configuration" "example" {
-  name      = "mega-batch-26-nb-lifecycle"
+  name      = "smkr-nb-lifecycle"
   on_create = base64encode("echo create")
   on_start  = base64encode("echo start")
 }
 
 resource "aws_sagemaker_notebook_instance" "example" {
-  name                   = "mega-batch-26-notebook"
-  role_arn               = aws_iam_role.sagemaker.arn
-  instance_type          = "ml.t2.medium"
-  lifecycle_config_name  = aws_sagemaker_notebook_instance_lifecycle_configuration.example.name
+  name                  = "smkr-notebook"
+  role_arn              = aws_iam_role.sagemaker.arn
+  instance_type         = "ml.t2.medium"
+  lifecycle_config_name = aws_sagemaker_notebook_instance_lifecycle_configuration.example.name
 }
 
 resource "aws_sagemaker_app_image_config" "example" {
-  app_image_config_name = "mega-batch-26-app-image-config"
+  app_image_config_name = "smkr-app-image-config"
 
   kernel_gateway_image_config {
     kernel_spec {
@@ -73,13 +73,13 @@ resource "aws_sagemaker_app_image_config" "example" {
 }
 
 resource "aws_sagemaker_studio_lifecycle_config" "example" {
-  studio_lifecycle_config_name     = "mega-batch-26-studio-lifecycle"
+  studio_lifecycle_config_name     = "smkr-studio-lifecycle"
   studio_lifecycle_config_app_type = "JupyterServer"
   studio_lifecycle_config_content  = base64encode("echo hello")
 }
 
 resource "aws_sagemaker_domain" "example" {
-  domain_name = "mega-batch-26-domain"
+  domain_name = "smkr-domain"
   auth_mode   = "IAM"
   vpc_id      = aws_vpc.sagemaker.id
   subnet_ids  = [aws_subnet.sagemaker.id]
@@ -91,7 +91,7 @@ resource "aws_sagemaker_domain" "example" {
 
 resource "aws_sagemaker_user_profile" "example" {
   domain_id         = aws_sagemaker_domain.example.id
-  user_profile_name = "mega-batch-26-user-profile"
+  user_profile_name = "smkr-user-profile"
 
   user_settings {
     execution_role = aws_iam_role.sagemaker.arn
@@ -100,18 +100,18 @@ resource "aws_sagemaker_user_profile" "example" {
 
 resource "aws_sagemaker_space" "example" {
   domain_id  = aws_sagemaker_domain.example.id
-  space_name = "mega-batch-26-space"
+  space_name = "smkr-space"
 }
 
 resource "aws_sagemaker_app" "example" {
   domain_id         = aws_sagemaker_domain.example.id
   user_profile_name = aws_sagemaker_user_profile.example.user_profile_name
-  app_name          = "mega-batch-26-app"
+  app_name          = "smkr-app"
   app_type          = "JupyterServer"
 }
 
 resource "aws_sagemaker_image" "example" {
-  image_name = "mega-batch-26-image"
+  image_name = "smkr-image"
   role_arn   = aws_iam_role.sagemaker.arn
 }
 
@@ -121,7 +121,7 @@ resource "aws_sagemaker_image_version" "example" {
 }
 
 resource "aws_sagemaker_model_package_group" "example" {
-  model_package_group_name = "mega-batch-26-model-package-group"
+  model_package_group_name = "smkr-model-package-group"
 }
 
 resource "aws_sagemaker_model_package_group_policy" "example" {
@@ -140,7 +140,7 @@ resource "aws_sagemaker_model_package_group_policy" "example" {
 }
 
 resource "aws_sagemaker_workforce" "example" {
-  workforce_name = "mega-batch-26-workforce"
+  workforce_name = "smkr-workforce"
 
   cognito_config {
     client_id = "abcd1234abcd1234abcd1234ab"
@@ -149,21 +149,21 @@ resource "aws_sagemaker_workforce" "example" {
 }
 
 resource "aws_sagemaker_workteam" "example" {
-  workteam_name  = "mega-batch-26-workteam"
+  workteam_name  = "smkr-workteam"
   workforce_name = aws_sagemaker_workforce.example.id
-  description    = "mega-batch-26 workteam"
+  description    = "smkr workteam"
 
   member_definition {
     cognito_member_definition {
       client_id  = "abcd1234abcd1234abcd1234ab"
       user_pool  = "us-east-1_abcdefghi"
-      user_group = "mega-batch-26-group"
+      user_group = "smkr-group"
     }
   }
 }
 
 resource "aws_sagemaker_human_task_ui" "example" {
-  human_task_ui_name = "mega-batch-26-human-task-ui"
+  human_task_ui_name = "smkr-human-task-ui"
 
   ui_template {
     content = <<EOF
@@ -173,15 +173,15 @@ EOF
 }
 
 resource "aws_sagemaker_flow_definition" "example" {
-  flow_definition_name = "mega-batch-26-flow-definition"
-  role_arn              = aws_iam_role.sagemaker.arn
+  flow_definition_name = "smkr-flow-definition"
+  role_arn             = aws_iam_role.sagemaker.arn
 
   human_loop_config {
     human_task_ui_arn                     = aws_sagemaker_human_task_ui.example.arn
     task_availability_lifetime_in_seconds = 3600
     task_count                            = 1
-    task_description                      = "mega-batch-26 task"
-    task_title                            = "mega-batch-26 title"
+    task_description                      = "smkr task"
+    task_title                            = "smkr title"
     workteam_arn                          = aws_sagemaker_workteam.example.arn
   }
 
@@ -191,9 +191,9 @@ resource "aws_sagemaker_flow_definition" "example" {
 }
 
 resource "aws_sagemaker_hub" "example" {
-  hub_name          = "mega-batch-26-hub"
-  hub_description   = "mega-batch-26 hub"
-  hub_display_name  = "Mega Batch 26 Hub"
+  hub_name         = "smkr-hub"
+  hub_description  = "smkr hub"
+  hub_display_name = "Smkr Hub"
 }
 
 resource "aws_sagemaker_servicecatalog_portfolio_status" "example" {
@@ -201,7 +201,7 @@ resource "aws_sagemaker_servicecatalog_portfolio_status" "example" {
 }
 
 resource "aws_sagemaker_device_fleet" "example" {
-  device_fleet_name = "mega-batch-26-device-fleet"
+  device_fleet_name = "smkr-device-fleet"
   role_arn          = aws_iam_role.sagemaker.arn
 
   output_config {
@@ -213,12 +213,12 @@ resource "aws_sagemaker_device" "example" {
   device_fleet_name = aws_sagemaker_device_fleet.example.device_fleet_name
 
   device {
-    device_name = "mega-batch-26-device"
+    device_name = "smkr-device"
   }
 }
 
 resource "aws_sagemaker_model" "example" {
-  name               = "mega-batch-26-model"
+  name               = "smkr-model"
   execution_role_arn = aws_iam_role.sagemaker.arn
 
   primary_container {
@@ -227,7 +227,7 @@ resource "aws_sagemaker_model" "example" {
 }
 
 resource "aws_sagemaker_endpoint_configuration" "example" {
-  name = "mega-batch-26-endpoint-config"
+  name = "smkr-endpoint-config"
 
   production_variants {
     variant_name           = "variant-1"
@@ -238,13 +238,13 @@ resource "aws_sagemaker_endpoint_configuration" "example" {
 }
 
 resource "aws_sagemaker_endpoint" "example" {
-  name                 = "mega-batch-26-endpoint"
+  name                 = "smkr-endpoint"
   endpoint_config_name = aws_sagemaker_endpoint_configuration.example.name
 }
 
 resource "aws_sagemaker_pipeline" "example" {
-  pipeline_name         = "mega-batch-26-pipeline"
-  pipeline_display_name = "MegaBatch26Pipeline"
+  pipeline_name         = "smkr-pipeline"
+  pipeline_display_name = "SagemakerResourcesPipeline"
   role_arn              = aws_iam_role.sagemaker.arn
 
   pipeline_definition = jsonencode({
@@ -254,8 +254,8 @@ resource "aws_sagemaker_pipeline" "example" {
 }
 
 resource "aws_sagemaker_project" "example" {
-  project_name        = "mega-batch-26-project"
-  project_description = "mega-batch-26 project"
+  project_name        = "smkr-project"
+  project_description = "smkr project"
 
   service_catalog_provisioning_details {
     product_id = "prod-abcdefghijklm"
@@ -263,7 +263,7 @@ resource "aws_sagemaker_project" "example" {
 }
 
 resource "aws_sagemaker_feature_group" "example" {
-  feature_group_name             = "mega-batch-26-feature-group"
+  feature_group_name             = "smkr-feature-group"
   record_identifier_feature_name = "id"
   event_time_feature_name        = "event_time"
   role_arn                       = aws_iam_role.sagemaker.arn
@@ -284,13 +284,13 @@ resource "aws_sagemaker_feature_group" "example" {
 }
 
 resource "aws_sagemaker_mlflow_tracking_server" "example" {
-  tracking_server_name = "mega-batch-26-mlflow"
+  tracking_server_name = "smkr-mlflow"
   artifact_store_uri   = "s3://${aws_s3_bucket.sagemaker.bucket}/mlflow/"
-  role_arn              = aws_iam_role.sagemaker.arn
+  role_arn             = aws_iam_role.sagemaker.arn
 }
 
 resource "aws_sagemaker_data_quality_job_definition" "example" {
-  name     = "mega-batch-26-data-quality-job"
+  name     = "smkr-data-quality-job"
   role_arn = aws_iam_role.sagemaker.arn
 
   data_quality_app_specification {
@@ -299,8 +299,8 @@ resource "aws_sagemaker_data_quality_job_definition" "example" {
 
   data_quality_job_input {
     endpoint_input {
-      endpoint_name       = aws_sagemaker_endpoint.example.name
-      local_path          = "/opt/ml/processing/input"
+      endpoint_name = aws_sagemaker_endpoint.example.name
+      local_path    = "/opt/ml/processing/input"
     }
   }
 
@@ -322,7 +322,7 @@ resource "aws_sagemaker_data_quality_job_definition" "example" {
 }
 
 resource "aws_sagemaker_monitoring_schedule" "example" {
-  name = "mega-batch-26-monitoring-schedule"
+  name = "smkr-monitoring-schedule"
 
   monitoring_schedule_config {
     monitoring_job_definition_name = aws_sagemaker_data_quality_job_definition.example.name

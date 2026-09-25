@@ -3,23 +3,23 @@
 # customization, and risk configuration on a shared user pool.
 ##############################################################################
 
-resource "aws_cognito_user_pool" "mb37" {
-  name = "mega-batch-37-pool"
+resource "aws_cognito_user_pool" "cecw" {
+  name = "cecw-pool"
 }
 
-resource "aws_cognito_user_pool_client" "mb37" {
-  name         = "mega-batch-37-client"
-  user_pool_id = aws_cognito_user_pool.mb37.id
+resource "aws_cognito_user_pool_client" "cecw" {
+  name         = "cecw-client"
+  user_pool_id = aws_cognito_user_pool.cecw.id
 }
 
-resource "aws_cognito_identity_provider" "mb37" {
-  user_pool_id  = aws_cognito_user_pool.mb37.id
-  provider_name = "MegaBatch37Google"
+resource "aws_cognito_identity_provider" "cecw" {
+  user_pool_id  = aws_cognito_user_pool.cecw.id
+  provider_name = "CognitoEcsCloudformationAndWafv2Google"
   provider_type = "Google"
 
   provider_details = {
-    client_id        = "mega-batch-37-client-id"
-    client_secret    = "mega-batch-37-client-secret"
+    client_id        = "cecw-client-id"
+    client_secret    = "cecw-client-secret"
     authorize_scopes = "email profile"
   }
 
@@ -28,10 +28,10 @@ resource "aws_cognito_identity_provider" "mb37" {
   }
 }
 
-resource "aws_cognito_resource_server" "mb37" {
-  user_pool_id = aws_cognito_user_pool.mb37.id
-  identifier   = "mega-batch-37-api"
-  name         = "mega-batch-37-resource-server"
+resource "aws_cognito_resource_server" "cecw" {
+  user_pool_id = aws_cognito_user_pool.cecw.id
+  identifier   = "cecw-api"
+  name         = "cecw-resource-server"
 
   scope {
     scope_name        = "read"
@@ -44,21 +44,21 @@ resource "aws_cognito_resource_server" "mb37" {
   }
 }
 
-resource "aws_cognito_user_pool_domain" "mb37" {
-  domain       = "mega-batch-37-domain"
-  user_pool_id = aws_cognito_user_pool.mb37.id
+resource "aws_cognito_user_pool_domain" "cecw" {
+  domain       = "cecw-domain"
+  user_pool_id = aws_cognito_user_pool.cecw.id
 }
 
-resource "aws_cognito_user_pool_ui_customization" "mb37" {
-  user_pool_id = aws_cognito_user_pool.mb37.id
+resource "aws_cognito_user_pool_ui_customization" "cecw" {
+  user_pool_id = aws_cognito_user_pool.cecw.id
   client_id    = "ALL"
   css          = ".label-customizable {font-weight: 400;}"
 
-  depends_on = [aws_cognito_user_pool_domain.mb37]
+  depends_on = [aws_cognito_user_pool_domain.cecw]
 }
 
-resource "aws_cognito_risk_configuration" "mb37" {
-  user_pool_id = aws_cognito_user_pool.mb37.id
+resource "aws_cognito_risk_configuration" "cecw" {
+  user_pool_id = aws_cognito_user_pool.cecw.id
 
   compromised_credentials_risk_configuration {
     actions {
@@ -73,35 +73,35 @@ resource "aws_cognito_risk_configuration" "mb37" {
 # EXTERNAL-controller service.
 ##############################################################################
 
-resource "aws_ecs_account_setting_default" "mb37" {
+resource "aws_ecs_account_setting_default" "cecw" {
   name  = "containerInsights"
   value = "enabled"
 }
 
-resource "aws_launch_template" "mb37_ecs" {
-  name_prefix   = "mega-batch-37-lt-"
+resource "aws_launch_template" "cecw_ecs" {
+  name_prefix   = "cecw-lt-"
   image_id      = "ami-0c55b159cbfafe1f0"
   instance_type = "t2.micro"
 }
 
-resource "aws_autoscaling_group" "mb37_ecs" {
-  name                = "mega-batch-37-ecs-asg"
-  min_size            = 1
-  max_size            = 3
-  desired_capacity    = 1
-  availability_zones  = ["us-east-1a"]
+resource "aws_autoscaling_group" "cecw_ecs" {
+  name               = "cecw-ecs-asg"
+  min_size           = 1
+  max_size           = 3
+  desired_capacity   = 1
+  availability_zones = ["us-east-1a"]
 
   launch_template {
-    id      = aws_launch_template.mb37_ecs.id
+    id      = aws_launch_template.cecw_ecs.id
     version = "$Latest"
   }
 }
 
-resource "aws_ecs_capacity_provider" "mb37" {
-  name = "mega-batch-37-cp"
+resource "aws_ecs_capacity_provider" "cecw" {
+  name = "cecw-cp"
 
   auto_scaling_group_provider {
-    auto_scaling_group_arn = aws_autoscaling_group.mb37_ecs.arn
+    auto_scaling_group_arn = aws_autoscaling_group.cecw_ecs.arn
 
     managed_scaling {
       status          = "ENABLED"
@@ -110,28 +110,28 @@ resource "aws_ecs_capacity_provider" "mb37" {
   }
 }
 
-resource "aws_ecs_cluster" "mb37" {
-  name = "mega-batch-37-cluster"
+resource "aws_ecs_cluster" "cecw" {
+  name = "cecw-cluster"
 }
 
-resource "aws_ecs_cluster_capacity_providers" "mb37" {
-  cluster_name       = aws_ecs_cluster.mb37.name
-  capacity_providers = [aws_ecs_capacity_provider.mb37.name]
+resource "aws_ecs_cluster_capacity_providers" "cecw" {
+  cluster_name       = aws_ecs_cluster.cecw.name
+  capacity_providers = [aws_ecs_capacity_provider.cecw.name]
 
   default_capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.mb37.name
+    capacity_provider = aws_ecs_capacity_provider.cecw.name
     weight            = 1
   }
 }
 
-resource "aws_ecs_tag" "mb37" {
-  resource_arn = aws_ecs_cluster.mb37.arn
-  key          = "mega-batch-37-key"
-  value        = "mega-batch-37-value"
+resource "aws_ecs_tag" "cecw" {
+  resource_arn = aws_ecs_cluster.cecw.arn
+  key          = "cecw-key"
+  value        = "cecw-value"
 }
 
-resource "aws_ecs_task_definition" "mb37" {
-  family = "mega-batch-37-task"
+resource "aws_ecs_task_definition" "cecw" {
+  family = "cecw-task"
 
   container_definitions = jsonencode([
     {
@@ -142,9 +142,9 @@ resource "aws_ecs_task_definition" "mb37" {
   ])
 }
 
-resource "aws_ecs_service" "mb37" {
-  name                  = "mega-batch-37-service"
-  cluster               = aws_ecs_cluster.mb37.arn
+resource "aws_ecs_service" "cecw" {
+  name                  = "cecw-service"
+  cluster               = aws_ecs_cluster.cecw.arn
   desired_count         = 1
   wait_for_steady_state = false
 
@@ -153,10 +153,10 @@ resource "aws_ecs_service" "mb37" {
   }
 }
 
-resource "aws_ecs_task_set" "mb37" {
-  cluster         = aws_ecs_cluster.mb37.arn
-  service         = aws_ecs_service.mb37.id
-  task_definition = aws_ecs_task_definition.mb37.arn
+resource "aws_ecs_task_set" "cecw" {
+  cluster         = aws_ecs_cluster.cecw.arn
+  service         = aws_ecs_service.cecw.id
+  task_definition = aws_ecs_task_definition.cecw.arn
 }
 
 ##############################################################################
@@ -165,8 +165,8 @@ resource "aws_ecs_task_set" "mb37" {
 # registration.
 ##############################################################################
 
-resource "aws_iam_role" "mb37_cfn_admin" {
-  name = "mega-batch-37-cfn-admin-role"
+resource "aws_iam_role" "cecw_cfn_admin" {
+  name = "cecw-cfn-admin-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -178,10 +178,10 @@ resource "aws_iam_role" "mb37_cfn_admin" {
   })
 }
 
-resource "aws_cloudformation_stack_set" "mb37" {
-  name                    = "mega-batch-37-stackset"
-  administration_role_arn = aws_iam_role.mb37_cfn_admin.arn
-  execution_role_name     = "mega-batch-37-cfn-exec-role"
+resource "aws_cloudformation_stack_set" "cecw" {
+  name                    = "cecw-stackset"
+  administration_role_arn = aws_iam_role.cecw_cfn_admin.arn
+  execution_role_name     = "cecw-cfn-exec-role"
 
   template_body = <<TEMPLATE
 {
@@ -195,8 +195,8 @@ resource "aws_cloudformation_stack_set" "mb37" {
 TEMPLATE
 }
 
-resource "aws_cloudformation_stack_set_instance" "mb37" {
-  stack_set_name = aws_cloudformation_stack_set.mb37.name
+resource "aws_cloudformation_stack_set_instance" "cecw" {
+  stack_set_name = aws_cloudformation_stack_set.cecw.name
   account_id     = "000000000000"
   region         = "us-east-1"
 }
@@ -204,15 +204,15 @@ resource "aws_cloudformation_stack_set_instance" "mb37" {
 # Separate stack set: the provider reads back every instance of a stack set
 # as the resource's accounts/regions, so sharing one with the singular
 # stack_set_instance above would never re-plan empty.
-resource "aws_cloudformation_stack_set" "mb37_bulk" {
-  name                    = "mega-batch-37-stackset-bulk"
-  administration_role_arn = aws_iam_role.mb37_cfn_admin.arn
-  execution_role_name     = "mega-batch-37-cfn-exec-role"
-  template_body           = aws_cloudformation_stack_set.mb37.template_body
+resource "aws_cloudformation_stack_set" "cecw_bulk" {
+  name                    = "cecw-stackset-bulk"
+  administration_role_arn = aws_iam_role.cecw_cfn_admin.arn
+  execution_role_name     = "cecw-cfn-exec-role"
+  template_body           = aws_cloudformation_stack_set.cecw.template_body
 }
 
-resource "aws_cloudformation_stack_instances" "mb37" {
-  stack_set_name = aws_cloudformation_stack_set.mb37_bulk.name
+resource "aws_cloudformation_stack_instances" "cecw" {
+  stack_set_name = aws_cloudformation_stack_set.cecw_bulk.name
   regions        = ["us-west-2"]
 
   # Without deployment_targets the provider replaces `accounts` with its own
@@ -222,10 +222,10 @@ resource "aws_cloudformation_stack_instances" "mb37" {
   }
 }
 
-resource "aws_cloudformation_type" "mb37" {
-  type                  = "RESOURCE"
-  type_name             = "MegaBatch37::Example::Resource"
-  schema_handler_package = "s3://mega-batch-37-bucket/schema-handler.zip"
+resource "aws_cloudformation_type" "cecw" {
+  type                   = "RESOURCE"
+  type_name              = "CognitoEcsCloudformationAndWafv2::Example::Resource"
+  schema_handler_package = "s3://cecw-bucket/schema-handler.zip"
 }
 
 ##############################################################################
@@ -233,15 +233,15 @@ resource "aws_cloudformation_type" "mb37" {
 # credential, and a GitHub-sourced project with a webhook.
 ##############################################################################
 
-resource "aws_codebuild_fleet" "mb37" {
-  name             = "mega-batch-37-fleet"
+resource "aws_codebuild_fleet" "cecw" {
+  name             = "cecw-fleet"
   base_capacity    = 1
   compute_type     = "BUILD_GENERAL1_SMALL"
   environment_type = "LINUX_CONTAINER"
 }
 
-resource "aws_codebuild_report_group" "mb37" {
-  name = "mega-batch-37-report-group"
+resource "aws_codebuild_report_group" "cecw" {
+  name = "cecw-report-group"
   type = "TEST"
 
   export_config {
@@ -249,29 +249,29 @@ resource "aws_codebuild_report_group" "mb37" {
   }
 }
 
-resource "aws_codebuild_resource_policy" "mb37" {
-  resource_arn = aws_codebuild_report_group.mb37.arn
+resource "aws_codebuild_resource_policy" "cecw" {
+  resource_arn = aws_codebuild_report_group.cecw.arn
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "mega-batch-37-policy"
+      Sid       = "cecw-policy"
       Effect    = "Allow"
       Principal = { AWS = "arn:aws:iam::000000000000:root" }
       Action    = "codebuild:BatchGetReportGroups"
-      Resource  = aws_codebuild_report_group.mb37.arn
+      Resource  = aws_codebuild_report_group.cecw.arn
     }]
   })
 }
 
-resource "aws_codebuild_source_credential" "mb37" {
+resource "aws_codebuild_source_credential" "cecw" {
   auth_type   = "PERSONAL_ACCESS_TOKEN"
   server_type = "GITHUB"
-  token       = "mega-batch-37-github-token"
+  token       = "cecw-github-token"
 }
 
-resource "aws_codebuild_project" "mb37" {
-  name         = "mega-batch-37-project"
+resource "aws_codebuild_project" "cecw" {
+  name         = "cecw-project"
   service_role = "arn:aws:iam::000000000000:role/codebuild-role"
 
   artifacts {
@@ -286,12 +286,12 @@ resource "aws_codebuild_project" "mb37" {
 
   source {
     type     = "GITHUB"
-    location = "https://github.com/mega-batch-37/example.git"
+    location = "https://github.com/cecw/example.git"
   }
 }
 
-resource "aws_codebuild_webhook" "mb37" {
-  project_name    = aws_codebuild_project.mb37.name
+resource "aws_codebuild_webhook" "cecw" {
+  project_name    = aws_codebuild_project.cecw.name
   build_type      = "BUILD"
   manual_creation = true
 }
@@ -301,24 +301,24 @@ resource "aws_codebuild_webhook" "mb37" {
 # a web ACL associated with an ALB, and a logging configuration.
 ##############################################################################
 
-resource "aws_wafv2_ip_set" "mb37" {
-  name               = "mega-batch-37-ip-set"
+resource "aws_wafv2_ip_set" "cecw" {
+  name               = "cecw-ip-set"
   scope              = "REGIONAL"
   ip_address_version = "IPV4"
   addresses          = ["10.0.0.0/16", "192.168.0.0/24"]
 }
 
-resource "aws_wafv2_regex_pattern_set" "mb37" {
-  name  = "mega-batch-37-regex-pattern-set"
+resource "aws_wafv2_regex_pattern_set" "cecw" {
+  name  = "cecw-regex-pattern-set"
   scope = "REGIONAL"
 
   regular_expression {
-    regex_string = "mega-batch-37-.*"
+    regex_string = "cecw-.*"
   }
 }
 
-resource "aws_wafv2_rule_group" "mb37" {
-  name     = "mega-batch-37-rule-group"
+resource "aws_wafv2_rule_group" "cecw" {
+  name     = "cecw-rule-group"
   scope    = "REGIONAL"
   capacity = 25
 
@@ -332,13 +332,13 @@ resource "aws_wafv2_rule_group" "mb37" {
 
     statement {
       ip_set_reference_statement {
-        arn = aws_wafv2_ip_set.mb37.arn
+        arn = aws_wafv2_ip_set.cecw.arn
       }
     }
 
     visibility_config {
       cloudwatch_metrics_enabled = false
-      metric_name                = "mega-batch-37-block-ip-set"
+      metric_name                = "cecw-block-ip-set"
       sampled_requests_enabled   = false
     }
   }
@@ -353,7 +353,7 @@ resource "aws_wafv2_rule_group" "mb37" {
 
     statement {
       regex_pattern_set_reference_statement {
-        arn = aws_wafv2_regex_pattern_set.mb37.arn
+        arn = aws_wafv2_regex_pattern_set.cecw.arn
 
         field_to_match {
           uri_path {}
@@ -368,25 +368,25 @@ resource "aws_wafv2_rule_group" "mb37" {
 
     visibility_config {
       cloudwatch_metrics_enabled = false
-      metric_name                = "mega-batch-37-block-regex"
+      metric_name                = "cecw-block-regex"
       sampled_requests_enabled   = false
     }
   }
 
   visibility_config {
     cloudwatch_metrics_enabled = false
-    metric_name                = "mega-batch-37-rule-group"
+    metric_name                = "cecw-rule-group"
     sampled_requests_enabled   = false
   }
 }
 
-resource "aws_wafv2_api_key" "mb37" {
+resource "aws_wafv2_api_key" "cecw" {
   scope         = "REGIONAL"
-  token_domains = ["mega-batch-37.example.com"]
+  token_domains = ["cecw.example.com"]
 }
 
-resource "aws_wafv2_web_acl" "mb37" {
-  name  = "mega-batch-37-web-acl"
+resource "aws_wafv2_web_acl" "cecw" {
+  name  = "cecw-web-acl"
   scope = "REGIONAL"
 
   default_action {
@@ -403,67 +403,67 @@ resource "aws_wafv2_web_acl" "mb37" {
 
     statement {
       rule_group_reference_statement {
-        arn = aws_wafv2_rule_group.mb37.arn
+        arn = aws_wafv2_rule_group.cecw.arn
       }
     }
 
     visibility_config {
       cloudwatch_metrics_enabled = false
-      metric_name                = "mega-batch-37-use-rule-group"
+      metric_name                = "cecw-use-rule-group"
       sampled_requests_enabled   = false
     }
   }
 
   visibility_config {
     cloudwatch_metrics_enabled = false
-    metric_name                = "mega-batch-37-web-acl"
+    metric_name                = "cecw-web-acl"
     sampled_requests_enabled   = false
   }
 }
 
-resource "aws_vpc" "mb37" {
+resource "aws_vpc" "cecw" {
   cidr_block = "{{.VPCCidr}}"
 
   tags = {
-    Name = "mega-batch-37-vpc"
+    Name = "cecw-vpc"
   }
 }
 
-resource "aws_subnet" "mb37_a" {
-  vpc_id     = aws_vpc.mb37.id
+resource "aws_subnet" "cecw_a" {
+  vpc_id     = aws_vpc.cecw.id
   cidr_block = "{{.SubnetCidrA}}"
 
   tags = {
-    Name = "mega-batch-37-subnet-a"
+    Name = "cecw-subnet-a"
   }
 }
 
-resource "aws_subnet" "mb37_b" {
-  vpc_id     = aws_vpc.mb37.id
+resource "aws_subnet" "cecw_b" {
+  vpc_id     = aws_vpc.cecw.id
   cidr_block = "{{.SubnetCidrB}}"
 
   tags = {
-    Name = "mega-batch-37-subnet-b"
+    Name = "cecw-subnet-b"
   }
 }
 
-resource "aws_lb" "mb37" {
-  name               = "mega-batch-37-alb"
+resource "aws_lb" "cecw" {
+  name               = "cecw-alb"
   internal           = false
   load_balancer_type = "application"
-  subnets            = [aws_subnet.mb37_a.id, aws_subnet.mb37_b.id]
+  subnets            = [aws_subnet.cecw_a.id, aws_subnet.cecw_b.id]
 }
 
-resource "aws_wafv2_web_acl_association" "mb37" {
-  resource_arn = aws_lb.mb37.arn
-  web_acl_arn  = aws_wafv2_web_acl.mb37.arn
+resource "aws_wafv2_web_acl_association" "cecw" {
+  resource_arn = aws_lb.cecw.arn
+  web_acl_arn  = aws_wafv2_web_acl.cecw.arn
 }
 
-resource "aws_cloudwatch_log_group" "mb37_waf" {
-  name = "aws-waf-logs-mega-batch-37"
+resource "aws_cloudwatch_log_group" "cecw_waf" {
+  name = "aws-waf-logs-cecw"
 }
 
-resource "aws_wafv2_web_acl_logging_configuration" "mb37" {
-  resource_arn            = aws_wafv2_web_acl.mb37.arn
-  log_destination_configs = [aws_cloudwatch_log_group.mb37_waf.arn]
+resource "aws_wafv2_web_acl_logging_configuration" "cecw" {
+  resource_arn            = aws_wafv2_web_acl.cecw.arn
+  log_destination_configs = [aws_cloudwatch_log_group.cecw_waf.arn]
 }

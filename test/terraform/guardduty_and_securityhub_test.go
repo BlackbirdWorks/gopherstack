@@ -32,7 +32,7 @@ func mega19ProviderBlock(addr string) string {
 		"    securityhub     = " + `"` + addr + `"` + "\n" + closing
 }
 
-// TestTerraform_MegaBatch19 provisions the 12 GuardDuty resource types
+// TestTerraform_GuarddutyAndSecurityhub provisions the 12 GuardDuty resource types
 // (detector feature, filter, ipset, malware protection plan, member plus
 // member detector feature, organization admin account plus configuration
 // plus configuration feature, publishing destination, threatintelset) and
@@ -43,13 +43,13 @@ func mega19ProviderBlock(addr string) string {
 // that had no Terraform fixture coverage, and verifies each via its own SDK
 // client's Get/List path. aws_guardduty_invite_accepter and
 // aws_securityhub_invite_accepter are left out: see PARITY.md.
-func TestTerraform_MegaBatch19(t *testing.T) {
+func TestTerraform_GuarddutyAndSecurityhub(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:       "success",
-			fixture:    "mega-batch-19",
+			fixture:    "guardduty-and-securityhub",
 			providerFn: mega19ProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -67,8 +67,8 @@ func TestTerraform_MegaBatch19(t *testing.T) {
 					o.BaseEndpoint = aws.String(endpoint)
 				})
 
-				detectorID := verifyMegaBatch19GuardDuty(ctx, t, gd)
-				verifyMegaBatch19SecurityHub(ctx, t, sh, detectorID)
+				detectorID := verifyGuarddutyAndSecurityhubGuardDuty(ctx, t, gd)
+				verifyGuarddutyAndSecurityhubSecurityHub(ctx, t, sh, detectorID)
 			},
 		},
 	}
@@ -81,7 +81,7 @@ func TestTerraform_MegaBatch19(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch19GuardDuty(ctx context.Context, t *testing.T, c *guarddutysvc.Client) string {
+func verifyGuarddutyAndSecurityhubGuardDuty(ctx context.Context, t *testing.T, c *guarddutysvc.Client) string {
 	t.Helper()
 
 	detOut, err := c.ListDetectors(ctx, &guarddutysvc.ListDetectorsInput{})
@@ -104,7 +104,7 @@ func verifyMegaBatch19GuardDuty(ctx context.Context, t *testing.T, c *guarddutys
 
 	filterOut, err := c.ListFilters(ctx, &guarddutysvc.ListFiltersInput{DetectorId: aws.String(detectorID)})
 	require.NoError(t, err, "ListFilters should succeed")
-	assert.Contains(t, filterOut.FilterNames, "mega-batch-19-filter")
+	assert.Contains(t, filterOut.FilterNames, "gdsh-filter")
 
 	ipsetOut, err := c.ListIPSets(ctx, &guarddutysvc.ListIPSetsInput{DetectorId: aws.String(detectorID)})
 	require.NoError(t, err, "ListIPSets should succeed")
@@ -163,7 +163,7 @@ func verifyMegaBatch19GuardDuty(ctx context.Context, t *testing.T, c *guarddutys
 	return detectorID
 }
 
-func verifyMegaBatch19SecurityHub(ctx context.Context, t *testing.T, c *securityhubsvc.Client, _ string) {
+func verifyGuarddutyAndSecurityhubSecurityHub(ctx context.Context, t *testing.T, c *securityhubsvc.Client, _ string) {
 	t.Helper()
 
 	hubOut, err := c.DescribeHub(ctx, &securityhubsvc.DescribeHubInput{})
@@ -176,7 +176,7 @@ func verifyMegaBatch19SecurityHub(ctx context.Context, t *testing.T, c *security
 	var foundAction bool
 
 	for _, a := range atOut.ActionTargets {
-		if aws.ToString(a.Name) == "mega-batch-19-action" {
+		if aws.ToString(a.Name) == "gdsh-action" {
 			foundAction = true
 		}
 	}
@@ -193,7 +193,7 @@ func verifyMegaBatch19SecurityHub(ctx context.Context, t *testing.T, c *security
 	var foundInsight bool
 
 	for _, i := range insOut.Insights {
-		if aws.ToString(i.Name) == "mega-batch-19-insight" {
+		if aws.ToString(i.Name) == "gdsh-insight" {
 			foundInsight = true
 		}
 	}
@@ -205,7 +205,7 @@ func verifyMegaBatch19SecurityHub(ctx context.Context, t *testing.T, c *security
 	})
 	require.NoError(t, err, "BatchGetAutomationRules should succeed")
 	require.NotEmpty(t, arOut.Rules)
-	assert.Equal(t, "mega-batch-19-automation-rule", aws.ToString(arOut.Rules[0].RuleName))
+	assert.Equal(t, "gdsh-automation-rule", aws.ToString(arOut.Rules[0].RuleName))
 
 	subOut, err := c.GetEnabledStandards(ctx, &securityhubsvc.GetEnabledStandardsInput{})
 	require.NoError(t, err, "GetEnabledStandards should succeed")
@@ -248,7 +248,7 @@ func verifyMegaBatch19SecurityHub(ctx context.Context, t *testing.T, c *security
 	var foundPolicy bool
 
 	for _, p := range cpOut.ConfigurationPolicySummaries {
-		if aws.ToString(p.Name) == "mega-batch-19-config-policy" {
+		if aws.ToString(p.Name) == "gdsh-config-policy" {
 			foundPolicy = true
 		}
 	}

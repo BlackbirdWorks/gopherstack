@@ -148,7 +148,7 @@ items_still_open:
     gap above)."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
 
-### 2026-09-19: terraform mega-batch-21 coverage (13 previously-uncovered resources)
+### 2026-09-19: terraform s3control-and-vpclattice coverage (13 previously-uncovered resources)
 
 Real terraform apply/verify/destroy of all 13 previously-uncovered vpclattice
 resource types (access_log_subscription, auth_policy, listener(+rule),

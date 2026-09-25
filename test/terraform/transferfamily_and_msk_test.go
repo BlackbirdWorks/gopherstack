@@ -18,22 +18,22 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// TestTerraform_MegaBatch29 provisions Transfer Family (server, user, SSH key,
+// TestTerraform_TransferfamilyAndMsk provisions Transfer Family (server, user, SSH key,
 // access, certificate, profile x2, agreement, connector, workflow, tag) and
 // Kafka/MSK (two provisioned clusters, cluster policy, VPC connection,
 // serverless cluster, SCRAM secret association x2, replicator) resources via
 // Terraform and verifies each through its own SDK client's Describe path.
-func TestTerraform_MegaBatch29(t *testing.T) {
+func TestTerraform_TransferfamilyAndMsk(t *testing.T) {
 	t.Parallel()
 
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "mega-batch-29",
+			fixture: "transferfamily-and-msk",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
-				certPEM, _, err := devtls.GenerateSelfSignedCertPEM("mega-batch-29.example.com")
+				certPEM, _, err := devtls.GenerateSelfSignedCertPEM("trfm.example.com")
 				require.NoError(t, err, "generate self-signed cert")
 
 				pub, _, err := ed25519.GenerateKey(rand.Reader)
@@ -49,8 +49,8 @@ func TestTerraform_MegaBatch29(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
-				verifyMegaBatch29Transfer(ctx, t)
-				verifyMegaBatch29Kafka(ctx, t)
+				verifyTransferfamilyAndMskTransfer(ctx, t)
+				verifyTransferfamilyAndMskKafka(ctx, t)
 			},
 		},
 	}
@@ -63,7 +63,7 @@ func TestTerraform_MegaBatch29(t *testing.T) {
 	}
 }
 
-func verifyMegaBatch29Transfer(ctx context.Context, t *testing.T) {
+func verifyTransferfamilyAndMskTransfer(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createTransferClient(t)
@@ -78,21 +78,21 @@ func verifyMegaBatch29Transfer(ctx context.Context, t *testing.T) {
 		require.NoError(t, descErr, "DescribeServer should succeed")
 
 		for _, tag := range descOut.Server.Tags {
-			if aws.ToString(tag.Key) == "Name" && aws.ToString(tag.Value) == "mega-batch-29-server" {
+			if aws.ToString(tag.Key) == "Name" && aws.ToString(tag.Value) == "trfm-server" {
 				serverID = aws.ToString(s.ServerId)
 			}
 		}
 	}
 
-	require.NotEmpty(t, serverID, "mega-batch-29-server not found")
+	require.NotEmpty(t, serverID, "trfm-server not found")
 
 	userOut, err := client.DescribeUser(ctx, &transfersvc.DescribeUserInput{
 		ServerId: aws.String(serverID),
-		UserName: aws.String("mega-batch-29-user"),
+		UserName: aws.String("trfm-user"),
 	})
 	require.NoError(t, err, "DescribeUser should succeed")
 	require.Len(t, userOut.User.SshPublicKeys, 1)
-	assert.Contains(t, aws.ToString(userOut.User.HomeDirectory), "mega-batch-29-transfer-bucket")
+	assert.Contains(t, aws.ToString(userOut.User.HomeDirectory), "trfm-transfer-bucket")
 
 	accessOut, err := client.DescribeAccess(ctx, &transfersvc.DescribeAccessInput{
 		ServerId:   aws.String(serverID),
@@ -121,15 +121,15 @@ func verifyMegaBatch29Transfer(ctx context.Context, t *testing.T) {
 		require.NoError(t, profErr, "DescribeProfile should succeed")
 
 		switch aws.ToString(profOut.Profile.As2Id) {
-		case "MEGABATCH29LOCAL":
+		case "TRFMLOCAL":
 			localProfileID = aws.ToString(p.ProfileId)
-		case "MEGABATCH29PARTNER":
+		case "TRFMPARTNER":
 			partnerProfileID = aws.ToString(p.ProfileId)
 		}
 	}
 
-	require.NotEmpty(t, localProfileID, "mega-batch-29 local profile not found")
-	require.NotEmpty(t, partnerProfileID, "mega-batch-29 partner profile not found")
+	require.NotEmpty(t, localProfileID, "trfm local profile not found")
+	require.NotEmpty(t, partnerProfileID, "trfm partner profile not found")
 
 	agreementsOut, err := client.ListAgreements(ctx, &transfersvc.ListAgreementsInput{ServerId: aws.String(serverID)})
 	require.NoError(t, err, "ListAgreements should succeed")
@@ -151,7 +151,7 @@ func verifyMegaBatch29Transfer(ctx context.Context, t *testing.T) {
 		ConnectorId: connectorsOut.Connectors[0].ConnectorId,
 	})
 	require.NoError(t, err, "DescribeConnector should succeed")
-	assert.Equal(t, "https://mega-batch-29.example.com/as2", aws.ToString(connOut.Connector.Url))
+	assert.Equal(t, "https://trfm.example.com/as2", aws.ToString(connOut.Connector.Url))
 
 	workflowsOut, err := client.ListWorkflows(ctx, &transfersvc.ListWorkflowsInput{})
 	require.NoError(t, err, "ListWorkflows should succeed")
@@ -175,21 +175,21 @@ func verifyMegaBatch29Transfer(ctx context.Context, t *testing.T) {
 	foundTag := false
 
 	for _, tag := range tagsOut.Tags {
-		if aws.ToString(tag.Key) == "Environment" && aws.ToString(tag.Value) == "mega-batch-29" {
+		if aws.ToString(tag.Key) == "Environment" && aws.ToString(tag.Value) == "transferfamily-and-msk" {
 			foundTag = true
 		}
 	}
 
-	assert.True(t, foundTag, "Environment=mega-batch-29 tag not found on transfer server")
+	assert.True(t, foundTag, "Environment=trfm tag not found on transfer server")
 }
 
-func verifyMegaBatch29Kafka(ctx context.Context, t *testing.T) {
+func verifyTransferfamilyAndMskKafka(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	client := createKafkaClient(t)
 
 	listOut, err := client.ListClusters(ctx, &kafkasvc.ListClustersInput{
-		ClusterNameFilter: aws.String("mega-batch-29-"),
+		ClusterNameFilter: aws.String("trfm-"),
 	})
 	require.NoError(t, err, "ListClusters should succeed")
 
@@ -197,19 +197,19 @@ func verifyMegaBatch29Kafka(ctx context.Context, t *testing.T) {
 
 	for _, c := range listOut.ClusterInfoList {
 		switch aws.ToString(c.ClusterName) {
-		case "mega-batch-29-source":
+		case "trfm-source":
 			sourceArn = aws.ToString(c.ClusterArn)
-		case "mega-batch-29-target":
+		case "trfm-target":
 			targetArn = aws.ToString(c.ClusterArn)
 		}
 	}
 
-	require.NotEmpty(t, sourceArn, "mega-batch-29-source cluster not found")
-	require.NotEmpty(t, targetArn, "mega-batch-29-target cluster not found")
+	require.NotEmpty(t, sourceArn, "trfm-source cluster not found")
+	require.NotEmpty(t, targetArn, "trfm-target cluster not found")
 
 	policyOut, err := client.GetClusterPolicy(ctx, &kafkasvc.GetClusterPolicyInput{ClusterArn: aws.String(targetArn)})
 	require.NoError(t, err, "GetClusterPolicy should succeed")
-	assert.Contains(t, aws.ToString(policyOut.Policy), "MegaBatch29ClusterPolicy")
+	assert.Contains(t, aws.ToString(policyOut.Policy), "TransferfamilyAndMskClusterPolicy")
 
 	vpcConnsOut, err := client.ListVpcConnections(ctx, &kafkasvc.ListVpcConnectionsInput{})
 	require.NoError(t, err, "ListVpcConnections should succeed")
@@ -222,10 +222,10 @@ func verifyMegaBatch29Kafka(ctx context.Context, t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundVpcConn, "mega-batch-29 VPC connection not found")
+	assert.True(t, foundVpcConn, "trfm VPC connection not found")
 
 	serverlessOut, err := client.ListClustersV2(ctx, &kafkasvc.ListClustersV2Input{
-		ClusterNameFilter: aws.String("mega-batch-29-serverless"),
+		ClusterNameFilter: aws.String("trfm-serverless"),
 		ClusterTypeFilter: aws.String("SERVERLESS"),
 	})
 	require.NoError(t, err, "ListClustersV2 should succeed")
@@ -249,12 +249,12 @@ func verifyMegaBatch29Kafka(ctx context.Context, t *testing.T) {
 	replicatorArn := ""
 
 	for _, r := range replicatorsOut.Replicators {
-		if aws.ToString(r.ReplicatorName) == "mega-batch-29-replicator" {
+		if aws.ToString(r.ReplicatorName) == "trfm-replicator" {
 			replicatorArn = aws.ToString(r.ReplicatorArn)
 		}
 	}
 
-	require.NotEmpty(t, replicatorArn, "mega-batch-29-replicator not found")
+	require.NotEmpty(t, replicatorArn, "trfm-replicator not found")
 
 	replicatorOut, err := client.DescribeReplicator(ctx,
 		&kafkasvc.DescribeReplicatorInput{ReplicatorArn: aws.String(replicatorArn)})
