@@ -23675,6 +23675,7 @@
       "StoredBucket.TransitionDefaultMinObjectSize string `json:\"transitionDefaultMinObjectSize,omitempty\"`",
       "StoredBucket.Versioning types.BucketVersioningStatus `json:\"versioning,omitempty\"`",
       "StoredBucket.WebsiteConfig string `json:\"websiteConfig,omitempty\"`",
+      "StoredBucket.keyIndex []string",
       "StoredBucket.mu *lockmetrics.RWMutex",
       "StoredMultipartUpload.ACL string `json:\"acl,omitempty\"`",
       "StoredMultipartUpload.Bucket string `json:\"bucket\"`",

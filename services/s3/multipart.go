@@ -505,6 +505,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 				mu:       lockmetrics.New("s3.object"),
 			}
 			bucket.Objects[key] = obj
+			bucket.indexInsert(key)
 		}
 
 		versionID = NullVersion

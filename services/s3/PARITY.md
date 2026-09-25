@@ -56,6 +56,68 @@ leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replicat
 
 ## Notes
 
+### 2026-09-24 (sorted key-index for ListObjects/V2/ListObjectVersions, gopherstack-0mji2)
+
+`processListObjects` (`listing.go`) ranged over every key in `bucket.Objects`
+with `strings.HasPrefix` on every `ListObjects`/`ListObjectsV2` call, then
+re-sorted the (already-filtered) matches every time — at 50k objects with a
+~1%-selective prefix this loop was 46% of CPU in
+`BenchmarkListObjectsV2/prefix_delimiter`. `ListObjectVersions`'
+`snapshotVersions` had the same O(bucket) scan.
+
+Fixed by adding `StoredBucket.keyIndex []string` — the bucket's keys in
+sorted (UTF-8 binary, same comparator as before) order, kept in sync under
+`bucket.mu` on every insert/delete (`saveObjectVersion`, `commitMultipartObject`,
+`RenameObject`, `deleteSpecificVersion`, `deleteLatestVersion`,
+`janitor_lifecycle.go`'s `collectExpiredKeys` and
+`evictNoncurrentVersionsForKeyLocked` — every site that adds or removes a
+`bucket.Objects` entry). It's unexported and unpersisted (rebuilt by
+`rebuildKeyIndex` on `Restore`, from `bucket.Objects`, an additive-only
+struct-shape change confirmed via `TestSnapshotVersionGuard -update`, no
+version bump).
+
+`ListObjects`/`ListObjectsV2` now binary-search `keyIndex` straight to the
+first key ≥ max(prefix, marker/start-after/continuation-token) and walk
+forward only while the key still has the prefix (a contiguous range in
+sorted order), stopping at `maxKeys+1` for a non-delimited listing; a
+delimited listing still needs every candidate to group `CommonPrefixes`
+correctly. This also removed the now-redundant `slices.SortFunc` call
+(`keyIndex` is already sorted). `ListObjectVersions` gets the same
+binary-search-to-prefix walk in `snapshotVersions`; its marker/versionId-marker
+handling (`seekVersionMarker`) is untouched.
+
+Benchmarked `-count=5`/`-count=10` with `benchstat` (Intel i7-7700K, 50k
+objects, 100 dirs):
+
+| benchmark | before | after | delta |
+|---|---|---|---|
+| `ListObjectsV2/flat_maxkeys1000` | 17.9ms | 0.83ms | **-95%** |
+| `ListObjectsV2/prefix_delimiter` | 3.41ms | 0.44ms | **-87%** |
+| `ListObjectsV2/common_prefix_only` | 52.1ms | 41.1ms | -21% |
+| `PutObject` / `PutObject_64KiB` / `PutObject_1MiB` | — | — | no significant change (p > 0.3) |
+| `DeleteObjects` (100 & 1000 objects) | — | — | no significant change (p > 0.15) |
+
+An ad hoc 50k-sequential-unique-key `PutObject` benchmark (not part of the
+permanent suite) showed the sorted-slice's O(n) memmove insert cost is within
+noise on this machine (interleaved runs: p=0.31, +0.77% B/op) — consistent
+with the task's own read that a sorted slice is fine at this scale; no
+alternative structure (e.g. a balanced tree) was needed.
+
+New differential test `listing_differential_test.go`: a from-scratch,
+independently-written brute-force reference (`bruteForceList`) checked
+against `ListObjects`/`ListObjectsV2`/`ListObjectVersions` across randomized
+buckets (shared prefixes, delimiters, unicode/emoji keys) and randomized
+prefix/delimiter/marker/maxKeys combinations, including full pagination
+walks, across 20 seeds.
+
+`go build ./...`, `go vet ./services/s3/...`, `go test -race -count=1
+./services/s3/...`, `golangci-lint run ./services/s3/...` (0 issues), `go
+test ./pkgs/persistence/...` (after `-update`ing
+`testdata/snapshot_inventory.json` for the additive `StoredBucket.keyIndex`
+field — pure addition, no version bump, confirmed by the guard itself not
+hard-failing), and `go run ./cmd/parityfmtcheck -dir services` all clean.
+`git diff --stat go.mod go.sum` empty.
+
 ### 2026-09-19 (terraform mega-batch-10)
 
 Added real-provider fixture coverage for bucket accelerate/ACL/analytics/

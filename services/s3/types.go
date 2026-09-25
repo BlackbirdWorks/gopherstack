@@ -18,9 +18,15 @@ const NullVersion = "null"
 // all regions, mirroring real S3's global bucket-namespace). Region never changes
 // after creation (S3 has no "move bucket to another region" operation).
 type StoredBucket struct {
-	CreationDate                   time.Time                `json:"creationDate"`
-	Objects                        map[string]*StoredObject `json:"objects,omitempty"`
-	mu                             *lockmetrics.RWMutex
+	CreationDate time.Time                `json:"creationDate"`
+	Objects      map[string]*StoredObject `json:"objects,omitempty"`
+	mu           *lockmetrics.RWMutex
+	// keyIndex is Objects' keys in sorted (UTF-8 binary) order, kept in sync on
+	// every insert/delete under mu so ListObjects/ListObjectsV2/
+	// ListObjectVersions can binary-search to a prefix/marker start point
+	// instead of scanning every key. Derived, never persisted -- see
+	// rebuildKeyIndex.
+	keyIndex                       []string
 	Region                         string                       `json:"region,omitempty"`
 	WebsiteConfig                  string                       `json:"websiteConfig,omitempty"`
 	PublicAccessBlockConfig        string                       `json:"publicAccessBlockConfig,omitempty"`

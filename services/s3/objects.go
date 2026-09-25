@@ -312,9 +312,11 @@ func (b *InMemoryBackend) RenameObject(
 		existing.mu.Unlock()
 	} else {
 		bucket.Objects[targetKey] = dstObj
+		bucket.indexInsert(targetKey)
 	}
 
 	delete(bucket.Objects, sourceKey)
+	bucket.indexRemove(sourceKey)
 
 	return nil
 }
@@ -1099,6 +1101,7 @@ func (b *InMemoryBackend) saveObjectVersion(
 			mu:       lockmetrics.New("s3.object"),
 		}
 		bucket.Objects[key] = obj
+		bucket.indexInsert(key)
 	}
 
 	// Capture obj.mu while bucket lock is held

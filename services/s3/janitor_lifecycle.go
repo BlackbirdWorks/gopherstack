@@ -524,6 +524,7 @@ func (j *Janitor) collectExpiredKeys(
 
 		evicted = append(evicted, key)
 		delete(bucket.Objects, key)
+		bucket.indexRemove(key)
 		obj.mu.Close()
 	}
 
@@ -854,6 +855,7 @@ func evictNoncurrentVersionsForKeyLocked(
 
 	if isEmpty {
 		delete(bucket.Objects, key)
+		bucket.indexRemove(key)
 		obj.mu.Close()
 	}
 
