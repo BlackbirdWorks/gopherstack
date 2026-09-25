@@ -12458,6 +12458,7 @@
       "backendSnapshot.SharedVpcEnabled string `json:\"sharedVpcEnabled\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.Tags map[string]map[string]string `json:\"tags\"`",
+      "fsCreateTokenEntry.CreatedAt time.Time `json:\"createdAt,omitzero\"`",
       "fsCreateTokenEntry.FileSystemID string `json:\"fileSystemId\"`",
       "fsCreateTokenEntry.Fingerprint string `json:\"fingerprint\"`",
       "storedBackup.BackupID string `json:\"backupId\"`",

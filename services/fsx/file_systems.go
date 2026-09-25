@@ -412,8 +412,25 @@ func applyFileSystemTypeConfig(fs *storedFileSystem, input *createFileSystemInpu
 // persistence.go) instead of silently encoding as "{}" the way an
 // unexported-field struct would.
 type fsCreateTokenEntry struct {
-	Fingerprint  string `json:"fingerprint"`
-	FileSystemID string `json:"fileSystemId"`
+	CreatedAt    time.Time `json:"createdAt,omitzero"`
+	Fingerprint  string    `json:"fingerprint"`
+	FileSystemID string    `json:"fileSystemId"`
+}
+
+// createFileSystemTokenTTL bounds how long a ClientRequestToken is remembered for
+// CreateFileSystem's idempotent replay. AWS's docs don't state an explicit retention
+// window, so this uses the repo's default for undocumented idempotency windows.
+const createFileSystemTokenTTL = 24 * time.Hour
+
+// sweepCreateFileSystemTokensLocked deletes createFileSystemTokens entries past
+// createFileSystemTokenTTL so the map does not grow unbounded across a long-running
+// backend. Caller must hold b.mu (write).
+func (b *InMemoryBackend) sweepCreateFileSystemTokensLocked(now time.Time) {
+	for k, e := range b.createFileSystemTokens {
+		if now.Sub(e.CreatedAt) >= createFileSystemTokenTTL {
+			delete(b.createFileSystemTokens, k)
+		}
+	}
 }
 
 // fingerprintCreateFileSystemInput returns a canonical encoding of the
@@ -443,7 +460,7 @@ func fingerprintCreateFileSystemInput(input *createFileSystemInput) (string, err
 // error) rather than proceeding to create a new file system.
 func (b *InMemoryBackend) dedupCreateFileSystemLocked(token, fingerprint string) (*FileSystem, bool, error) {
 	entry, ok := b.createFileSystemTokens[token]
-	if !ok {
+	if !ok || time.Since(entry.CreatedAt) >= createFileSystemTokenTTL {
 		return nil, false, nil
 	}
 
@@ -554,9 +571,12 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 	b.tags[arn] = tags
 
 	if input.ClientRequestToken != "" {
+		b.sweepCreateFileSystemTokensLocked(now)
+
 		b.createFileSystemTokens[input.ClientRequestToken] = fsCreateTokenEntry{
 			Fingerprint:  fingerprint,
 			FileSystemID: fs.FileSystemID,
+			CreatedAt:    now,
 		}
 	}
 

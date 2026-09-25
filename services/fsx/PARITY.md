@@ -818,3 +818,20 @@ DeleteFileSystem/DescribeFileSystems already round-trip a typed
 (`internal/service/fsx/lustre_file_system.go`, shared by all 4 FSx types)
 firing before its first poll. Applied `mega-batch-32.tf`'s `timeouts {
 delete = "5s" }` workaround to `fixtures/fsx/lustre.tf` too.
+
+## 2026-09-24: unbounded-map audit (gopherstack parity-sweep)
+
+**leaks:** `createFileSystemTokens` (file_systems.go) recorded ClientRequestToken
+idempotency state for CreateFileSystem with no expiry at all -- an entry outlived
+even the file system it pointed at (DeleteFileSystem never touched it), so a
+long-running backend fed unique tokens leaked memory forever. AWS's docs don't
+state an explicit ClientRequestToken retention window for FSx, so this now uses
+the repo's 24h default (`createFileSystemTokenTTL`). Fixed:
+`dedupCreateFileSystemLocked` now honors the TTL on lookup, and CreateFileSystem
+calls `sweepCreateFileSystemTokensLocked` to purge expired entries on every write
+(lazy prune-on-write, no new goroutine). `createFileSystemTokens` is persisted;
+added `fsCreateTokenEntry.CreatedAt` as an additive field (no version bump; `go
+test ./pkgs/persistence/ -update` diff reviewed and applied). Regression test:
+`TestCreateFileSystemTokens_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go),
+proves a replay is kept inside the window and a stale token creates a fresh file
+system after it.
