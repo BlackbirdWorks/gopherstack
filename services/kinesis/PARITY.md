@@ -68,6 +68,49 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 
 ## Notes
 
+### 2026-09-24 (gopherstack-j60e re-verification: no new server-side root cause, one test fixed)
+
+No SubscribeToShard server code changed this pass. Re-verified the
+2026-09-18 Connection: close fix (this file's SubscribeToShard row) against
+the pinned SDK's actual reader (kinesis@v1.53.0 eventstream.go:80-104,
+subscribeToShardEventStreamReader.readEventStream): it treats io.EOF as a
+clean end (no error), any other read error as a real one -- UNLESS the
+consumer already called stream.Close() first, which closes r.done and makes
+every later read error take the swallowed-error branch instead. A live
+container-based repro attempt (go test -race -count=15 -timeout 9m -run
+TestIntegration_Kinesis_EnhancedFanOut) never completed even one iteration:
+its goroutine dump showed the SDK reader blocked exactly in
+eventstream.Decoder.Decode -> persistConn.Read, waiting out the real 5-minute
+SubscribeToShard deadline (the integration harness runs real server timing,
+no WithSubscribeToShardTiming override) -- confirms the server side is
+behaving, not hanging.
+
+New data point for gopherstack-j60e (recorded in bd, not repeated here):
+reproduced the same "use of closed network connection" symptom locally and
+in-process, with no artificial load, via `go test -race -count=100 -run
+'TestSubscribeToShard' ./services/kinesis/...` (1 failure/100, at
+TestSubscribeToShard_IdleCloseIsGraceful's stream.Err() check) -- ordinary
+parallel-subtest contention under -race was enough. Confirms the prior
+finding (a rare Go net/http client-side race, not a server defect) rather
+than superseding it.
+
+Fixed test/integration/kinesis_test.go's TestIntegration_Kinesis_EnhancedFanOut:
+it drained stream.Events() until the channel closed on its own, which only
+happens at that real 5-minute deadline, instead of calling stream.Close()
+once it had the record it asserts on -- exactly what SubscribeToShardEventStream.Close's
+own doc comment calls for ("Close must be called when done using the stream
+API. Not calling Close may result in resource leaks."). Not a
+retry/sleep/tolerance change. Verified: 20x -v and 200x plain against the
+real container all green, and a full -shuffle=on 20x run of every Kinesis
+integration test together also green -- total runtime for 200 EnhancedFanOut
+runs dropped from >9 minutes (didn't finish one) to ~26s.
+
+Recommendation: gopherstack-j60e should stay OPEN. The one deterministic
+root cause found for its symptom class was fixed server-side on 2026-09-18
+(Connection: close); what's left is a documented, rare net/http client-side
+race with no server-side fix possible. Not closing it myself per the issue's
+own standing instruction.
+
 ### 2026-09-19 (zeroguard int/float-widening sweep)
 
 Fixed UpdateStreamMode.WarmThroughputMiBps (optional *int32; now *int,
