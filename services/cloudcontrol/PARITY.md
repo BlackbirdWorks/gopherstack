@@ -485,3 +485,20 @@ version-lag false positive in the Go SDK snapshot; both sources agree the field 
   gracefully (accepted-and-ignored) rather than erroring. Not worth the struct-field noise across
   every op given neither field changes response shape or observable behavior in this emulator
   (no IAM role assumption, no private-type-version registry).
+
+## 2026-09-24: unbounded-map audit (gopherstack parity-sweep)
+
+**leaks:** `clientTokens` (store.go) recorded ClientToken idempotency/conflict
+state for CreateResource/UpdateResource/DeleteResource with no expiry at all --
+an entry lived, and could be replayed, forever, and a long-running backend fed
+unique ClientTokens leaked memory forever. Cloud Control API's docs don't state
+an explicit ClientToken retention window, so this now uses the repo's 24h default
+for undocumented idempotency windows (`clientTokenTTL`). Fixed:
+`cachedEventForToken` now honors the TTL on lookup, and `rememberClientToken` calls
+`sweepClientTokensLocked` to purge expired entries on every write (lazy
+prune-on-write, no new goroutine). `clientTokens` is persisted
+(`backendSnapshot.ClientTokens`); added `clientTokenEntry.CreatedAt` as an
+additive field (no version bump; `go test ./pkgs/persistence/ -update` diff
+reviewed and applied). Regression test: `TestClientTokens_TTLBoundsMapGrowth`
+(idempotency_ttl_internal_test.go), proves a replay is kept inside the window and
+a stale token neither replays nor conflicts after it.

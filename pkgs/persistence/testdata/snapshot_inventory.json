@@ -4329,6 +4329,7 @@
       "backendSnapshot.ClientTokens map[string]clientTokenEntry `json:\"clientTokens\"`",
       "backendSnapshot.Region string `json:\"region\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
+      "clientTokenEntry.CreatedAt time.Time `json:\"createdAt,omitzero\"`",
       "clientTokenEntry.Fingerprint string `json:\"fingerprint\"`",
       "clientTokenEntry.RequestToken string `json:\"requestToken\"`"
     ],
