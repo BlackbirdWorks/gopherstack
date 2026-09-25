@@ -638,3 +638,16 @@ resource).
 clean), `go test -race -count=1 ./services/verifiedpermissions/...` (all pass),
 `golangci-lint run ./services/verifiedpermissions/...` (0 issues). No other service's
 files touched.
+
+## 2026-09-24: unbounded-map audit (gopherstack parity-sweep)
+
+**leaks:** `clientTokens` (store.go) recorded ClientToken idempotency state for
+CreatePolicyStore/CreatePolicy/CreatePolicyTemplate/CreateIdentitySource but never
+deleted an entry: `checkClientToken` already treated an entry past the documented
+8-hour idempotencyWindow as absent, but nothing reclaimed it, so a long-running
+backend fed unique ClientTokens leaked memory forever. Fixed:
+`recordClientToken` now calls `sweepClientTokensLocked` to purge expired entries on
+every write (lazy prune-on-write, no new goroutine). `clientTokens` is not
+persisted, so no snapshot change. Regression test:
+`TestClientTokens_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go), proves an
+entry is kept and replays inside the window and is swept/forgotten after it.
