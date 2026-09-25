@@ -329,8 +329,9 @@ func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
 	}
 
 	inFlightByHandle := make(map[string]*InFlightMessage, len(qs.InFlightMessages))
-	for _, inf := range qs.InFlightMessages {
+	for i, inf := range qs.InFlightMessages {
 		inFlightByHandle[inf.ReceiptHandle] = inf
+		inf.sliceIdx = i
 	}
 
 	now := time.Now()

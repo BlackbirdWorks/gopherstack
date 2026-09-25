@@ -26210,6 +26210,7 @@
       "InFlightMessage.Msg *Message `json:\"msg\"`",
       "InFlightMessage.ReceiptHandle string `json:\"receiptHandle\"`",
       "InFlightMessage.VisibleAt time.Time `json:\"visibleAt\"`",
+      "InFlightMessage.sliceIdx int",
       "Message.ApproximateFirstReceiveTimestamp int64 `json:\"approximateFirstReceiveTimestamp\"`",
       "Message.ApproximateReceiveCount int `json:\"approximateReceiveCount\"`",
       "Message.Attributes map[string]string `json:\"attributes,omitempty\"`",
