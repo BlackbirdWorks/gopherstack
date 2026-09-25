@@ -141,9 +141,23 @@ func (b *InMemoryBackend) rememberIdempotency(region, op, token, resourceARN str
 		return
 	}
 
+	b.sweepIdempotencyLocked(now)
+
 	b.idempotency[idempotencyCacheKey(region, op, token)] = idempotencyRecord{
 		resourceARN: resourceARN,
 		expiresAt:   now.Add(idempotencyWindow),
+	}
+}
+
+// sweepIdempotencyLocked deletes idempotency entries past their expiresAt so the map
+// does not grow unbounded across a long-running backend. idempotentResourceARN already
+// treats an expired entry as absent; this just reclaims its memory. Caller must hold
+// the write lock.
+func (b *InMemoryBackend) sweepIdempotencyLocked(now time.Time) {
+	for k, rec := range b.idempotency {
+		if now.After(rec.expiresAt) {
+			delete(b.idempotency, k)
+		}
 	}
 }
 

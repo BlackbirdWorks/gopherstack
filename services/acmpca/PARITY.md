@@ -740,3 +740,16 @@ which this backend auto-self-signs and activates on creation
 (newCertificateAuthorityLocked's own doc comment), so no separate Csr/Import
 round trip was needed to reach ACTIVE for most subtests. Zero bugs --
 confirms the `ops:` table's existing verdicts.
+
+## 2026-09-24: unbounded-map audit (gopherstack parity-sweep)
+
+**leaks:** `idempotency` (store.go/models.go) cached (resourceARN, expiresAt) for
+CreateCertificateAuthority/IssueCertificate's documented 5-minute idempotency
+window, but `idempotentResourceARN` only checked expiry on read -- nothing ever
+deleted an expired entry, so a long-running backend fed unique idempotency tokens
+leaked memory forever. Fixed: `rememberIdempotency` now calls
+`sweepIdempotencyLocked` to purge expired entries on every write (lazy
+prune-on-write, no new goroutine). `idempotency` is deliberately not persisted
+(see models.go), so no snapshot change. Regression test:
+`TestIdempotency_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go), proves an
+entry is kept and resolves inside the window and is swept/forgotten after it.
