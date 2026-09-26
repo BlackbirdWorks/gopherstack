@@ -30,6 +30,17 @@ type dbSnapshot struct {
 	Version       int                  `json:"version"`
 }
 
+// dbSnapshotWire mirrors dbSnapshot but carries Tables as pre-marshaled JSON.
+// This lets Snapshot serialise each table under its own table.mu instead of racing PutItem/UpdateTable.
+type dbSnapshotWire struct {
+	DefaultRegion string               `json:"defaultRegion"`
+	AccountID     string               `json:"accountID"`
+	Tables        json.RawMessage      `json:"tables"`
+	Backups       []*Backup            `json:"backups,omitempty"`
+	GlobalTables  []*StoredGlobalTable `json:"globalTables,omitempty"`
+	Version       int                  `json:"version"`
+}
+
 // Snapshot serialises the backend state to JSON; implements persistence.Persistable.
 // streamSeq is unexported and not serialised -- Restore reconstructs it from
 // the highest SequenceNumber in each table's StreamRecords ring buffer.
@@ -37,9 +48,19 @@ func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 	db.mu.RLock("Snapshot")
 	defer db.mu.RUnlock()
 
-	snap := dbSnapshot{
+	tablesJSON, err := marshalTablesRLocked(db.tables.Snapshot())
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx,
+			"DynamoDB: failed to serialise snapshot; state will not be persisted",
+			slog.String("error", err.Error()),
+		)
+
+		return nil
+	}
+
+	snap := dbSnapshotWire{
 		Version:       dynamodbSnapshotVersion,
-		Tables:        db.tables.Snapshot(),
+		Tables:        tablesJSON,
 		Backups:       db.backups.Snapshot(),
 		GlobalTables:  db.globalTables.Snapshot(),
 		DefaultRegion: db.defaultRegion,
@@ -57,6 +78,30 @@ func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 	}
 
 	return data
+}
+
+// marshalTablesRLocked marshals each table under its own table.mu.RLock, then reassembles the JSON array.
+// Reassembling per-table bytes, rather than marshaling the slice directly, keeps the wire format byte-identical.
+func marshalTablesRLocked(tables []*Table) (json.RawMessage, error) {
+	if len(tables) == 0 {
+		return json.RawMessage("null"), nil
+	}
+
+	parts := make([]json.RawMessage, len(tables))
+
+	for i, t := range tables {
+		t.mu.RLock("Snapshot")
+		data, err := json.Marshal(t)
+		t.mu.RUnlock()
+
+		if err != nil {
+			return nil, err
+		}
+
+		parts[i] = data
+	}
+
+	return json.Marshal(parts)
 }
 
 // Restore loads backend state from a JSON snapshot.
