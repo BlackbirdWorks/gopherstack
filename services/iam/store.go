@@ -590,7 +590,9 @@ func sortedUsers(t *store.Table[User]) []User {
 	users := make([]User, 0, len(items))
 
 	for _, u := range items {
-		users = append(users, *u)
+		cp := *u
+		cp.Tags = maps.Clone(u.Tags)
+		users = append(users, cp)
 	}
 
 	return users
