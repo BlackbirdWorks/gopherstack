@@ -608,7 +608,7 @@ func (h *S3Handler) createBucket(
 	}
 
 	logger.Load(ctx).
-		DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
+		DebugContext(ctx, "S3 createBucket output", "bucket", bucketName)
 
 	// Set Location header from output
 	if output.Location != nil {
