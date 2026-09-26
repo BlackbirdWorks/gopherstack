@@ -9,6 +9,15 @@ import (
 
 // --- Capacity providers ---
 
+// cloneCapacityProvider copies cp so a caller can't race Update/Seed, which
+// mutate the stored provider in place.
+func cloneCapacityProvider(cp *CapacityProvider) *CapacityProvider {
+	out := *cp
+	out.AssignedFunctionVersions = append([]string(nil), cp.AssignedFunctionVersions...)
+
+	return &out
+}
+
 // CreateCapacityProvider creates a new Lambda capacity provider.
 func (b *InMemoryBackend) CreateCapacityProvider(
 	input *CreateCapacityProviderInput,
@@ -37,7 +46,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 
 	b.capacityProviders.Put(cp)
 
-	return cp, nil
+	return cloneCapacityProvider(cp), nil
 }
 
 // GetCapacityProvider retrieves a capacity provider by name.
@@ -50,7 +59,7 @@ func (b *InMemoryBackend) GetCapacityProvider(name string) (*CapacityProvider, e
 		return nil, ErrFunctionNotFound
 	}
 
-	return cp, nil
+	return cloneCapacityProvider(cp), nil
 }
 
 // DeleteCapacityProvider removes a capacity provider by name and returns the
@@ -68,7 +77,7 @@ func (b *InMemoryBackend) DeleteCapacityProvider(name string) (*CapacityProvider
 
 	b.capacityProviders.Delete(name)
 
-	return cp, nil
+	return cloneCapacityProvider(cp), nil
 }
 
 // UpdateCapacityProvider updates an existing capacity provider.
@@ -99,7 +108,7 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 	cp.LastModified = time.Now().UTC().Format(time.RFC3339)
 	b.capacityProviders.Put(cp)
 
-	return cp, nil
+	return cloneCapacityProvider(cp), nil
 }
 
 // ListCapacityProviders returns all capacity providers.
@@ -109,11 +118,16 @@ func (b *InMemoryBackend) ListCapacityProviders() []*CapacityProvider {
 
 	cps := b.capacityProviders.All()
 
-	sort.Slice(cps, func(i, j int) bool {
-		return cps[i].Name < cps[j].Name
+	out := make([]*CapacityProvider, len(cps))
+	for i, cp := range cps {
+		out[i] = cloneCapacityProvider(cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
 	})
 
-	return cps
+	return out
 }
 
 // SeedCapacityProviderFunctionVersions assigns the given function-version ARNs to

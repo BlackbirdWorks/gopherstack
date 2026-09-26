@@ -79,6 +79,7 @@ func (b *InMemoryBackend) CreateRepository(
 	b.repos.Put(repo)
 
 	cp := *repo
+	cp.Tags = cloneTagMap(repo.Tags)
 
 	return &cp, nil
 }
@@ -100,6 +101,7 @@ func (b *InMemoryBackend) DescribeRepositories(registryID string, names []string
 
 		for _, r := range all {
 			cp := *r
+			cp.Tags = cloneTagMap(r.Tags)
 			out = append(out, &cp)
 		}
 
@@ -117,6 +119,7 @@ func (b *InMemoryBackend) DescribeRepositories(registryID string, names []string
 		}
 
 		cp := *r
+		cp.Tags = cloneTagMap(r.Tags)
 		out = append(out, &cp)
 	}
 
@@ -151,6 +154,7 @@ func (b *InMemoryBackend) DeleteRepository(registryID, name string, force bool) 
 	delete(b.uploadedLayers, name)
 
 	cp := *repo
+	cp.Tags = cloneTagMap(repo.Tags)
 
 	return &cp, nil
 }
