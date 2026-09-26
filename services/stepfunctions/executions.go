@@ -8,6 +8,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -125,7 +127,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	}
 
 	if name == "" {
-		name = fmt.Sprintf("sync-%d", time.Now().UnixNano())
+		name = uuid.NewString()
 	}
 
 	// Execution/MapRun ARNs are always keyed off the base (unqualified) state

@@ -2,8 +2,11 @@ package redshift
 
 import (
 	"fmt"
-	"time"
 )
+
+// usageLimitIDHexBytes is the byte length of a UsageLimit's random ID suffix
+// (16 hex chars), keeping the existing "ul-" prefix convention.
+const usageLimitIDHexBytes = 8
 
 // CreateUsageLimit creates a new usage limit for a cluster feature.
 func (b *InMemoryBackend) CreateUsageLimit(
@@ -22,7 +25,7 @@ func (b *InMemoryBackend) CreateUsageLimit(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	id := fmt.Sprintf("ul-%d", time.Now().UnixNano())
+	id := fmt.Sprintf("ul-%s", randomHex(usageLimitIDHexBytes))
 
 	ul := &UsageLimit{
 		UsageLimitID:      id,
