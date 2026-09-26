@@ -679,8 +679,8 @@ func TestRotateSecret_InvalidDays(t *testing.T) {
 // RotateSecret cron scheduling
 // ---------------------------------------------------------------------------
 
-// TestRotateSecret_CronScheduleTriggersRotation verifies that setting a
-// ScheduleExpression with a cron expression enables automatic background rotation.
+// TestRotateSecret_CronScheduleTriggersRotation checks the scheduler rotates on a cron;
+// RotateImmediately=false keeps RotateSecret from rotating first.
 func TestRotateSecret_CronScheduleTriggersRotation(t *testing.T) {
 	t.Parallel()
 
@@ -699,38 +699,44 @@ func TestRotateSecret_CronScheduleTriggersRotation(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		// Use a cron that fires every minute to trigger fast in tests.
+		rotateImmediately := false
 		_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
 			SecretID:          "cron-sched-secret",
 			RotationLambdaARN: testLambdaARN,
+			RotateImmediately: &rotateImmediately,
 			RotationRules: &secretsmanager.RotationRulesType{
 				ScheduleExpression: "cron(* * * * ? *)",
 			},
 		})
 		require.NoError(t, err)
 
-		// nextCronTime rounds forward to the next whole-minute boundary, so the
-		// scheduler loop may need up to ~60s of (virtual) wall time to fire.
-		deadline := time.Now().Add(90 * time.Second)
-		rotated := false
+		afterCall, err := b.GetSecretValue(
+			context.Background(),
+			&secretsmanager.GetSecretValueInput{SecretID: "cron-sched-secret"},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, before.VersionID, afterCall.VersionID,
+			"RotateImmediately=false must not rotate synchronously")
 
-		for time.Now().Before(deadline) {
-			current, currentErr := b.GetSecretValue(
-				context.Background(),
-				&secretsmanager.GetSecretValueInput{SecretID: "cron-sched-secret"},
-			)
-			require.NoError(t, currentErr)
+		// The next cron boundary is at most 60s away; advance past it and let the
+		// scheduler goroutine finish.
+		time.Sleep(65 * time.Second)
+		synctest.Wait()
 
-			if current.VersionID != before.VersionID {
-				rotated = true
+		after, err := b.GetSecretValue(
+			context.Background(),
+			&secretsmanager.GetSecretValueInput{SecretID: "cron-sched-secret"},
+		)
+		require.NoError(t, err)
+		assert.NotEqual(t, before.VersionID, after.VersionID,
+			"cron-scheduled rotation must fire once the virtual clock passes the boundary")
 
-				break
-			}
-
-			time.Sleep(200 * time.Millisecond)
-		}
-
-		assert.True(t, rotated, "cron-scheduled rotation must fire within 90 seconds")
+		desc, err := b.DescribeSecret(
+			context.Background(),
+			&secretsmanager.DescribeSecretInput{SecretID: "cron-sched-secret"},
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, desc.LastRotatedDate)
 	})
 }
 
