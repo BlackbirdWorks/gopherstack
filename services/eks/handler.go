@@ -268,7 +268,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return path == pathClusters ||
-			strings.HasPrefix(path, pathClusters+"/") ||
+			(strings.HasPrefix(path, pathClusters+"/") && !isDSQLVpcEndpointServiceNamePath(path)) ||
 			strings.HasPrefix(path, pathEKSTags+"arn:aws:eks:") ||
 			path == pathSubscriptions ||
 			strings.HasPrefix(path, pathSubscriptions+"/") ||
@@ -279,6 +279,15 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == pathClusterRegistrations ||
 			strings.HasPrefix(path, pathClusterRegistrations+"/")
 	}
+}
+
+// isDSQLVpcEndpointServiceNamePath reports whether path is DSQL's
+// GetVpcEndpointServiceName route (/clusters/{id}/vpc-endpoint-service-name),
+// which happens to share EKS's "/clusters/" prefix. EKS has no such
+// operation, so this exact suffix can safely be excluded from EKS's claim
+// (gopherstack-7r6bz).
+func isDSQLVpcEndpointServiceNamePath(path string) bool {
+	return strings.HasSuffix(path, "/vpc-endpoint-service-name")
 }
 
 // MatchPriority returns the routing priority.

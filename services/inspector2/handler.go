@@ -165,6 +165,10 @@ var ambiguousRouteMatchPrefixes = map[string]bool{ //nolint:gochecknoglobals // 
 	"/findings/":      true,
 	"/members/":       true,
 	"/configuration/": true,
+	// "/cluster/": DSQL's cluster resource paths (/cluster/{id},
+	// /cluster/{id}/policy) share this prefix; Inspector2's only real
+	// operation here is the exact POST /cluster/get (gopherstack-7r6bz).
+	"/cluster/": true,
 }
 
 // RouteMatcher returns a matcher that accepts Inspector2 REST paths.
