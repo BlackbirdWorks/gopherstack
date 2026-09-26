@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -108,32 +109,34 @@ func TestListSecretVersionIds_IncludeDeprecated(t *testing.T) {
 func TestListSecretVersionIds_SortedNewestFirst(t *testing.T) {
 	t.Parallel()
 
-	b := secretsmanager.NewInMemoryBackend()
-	t.Cleanup(b.StopRotationScheduler)
-	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
-		Name:               "lvid-sort",
-		SecretString:       "v1",
-		ClientRequestToken: "v1",
+	synctest.Test(t, func(t *testing.T) {
+		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
+		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+			Name:               "lvid-sort",
+			SecretString:       "v1",
+			ClientRequestToken: "v1",
+		})
+		require.NoError(t, err)
+
+		time.Sleep(2 * time.Millisecond)
+
+		_, err = b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
+			SecretID:           "lvid-sort",
+			SecretString:       "v2",
+			ClientRequestToken: "v2",
+		})
+		require.NoError(t, err)
+
+		out, err := b.ListSecretVersionIDs(
+			context.Background(),
+			&secretsmanager.ListSecretVersionIDsInput{SecretID: "lvid-sort"},
+		)
+		require.NoError(t, err)
+		require.Len(t, out.Versions, 2)
+		// Newest (v2 = AWSCURRENT) should be first
+		assert.Equal(t, "v2", out.Versions[0].VersionID)
 	})
-	require.NoError(t, err)
-
-	time.Sleep(2 * time.Millisecond)
-
-	_, err = b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
-		SecretID:           "lvid-sort",
-		SecretString:       "v2",
-		ClientRequestToken: "v2",
-	})
-	require.NoError(t, err)
-
-	out, err := b.ListSecretVersionIDs(
-		context.Background(),
-		&secretsmanager.ListSecretVersionIDsInput{SecretID: "lvid-sort"},
-	)
-	require.NoError(t, err)
-	require.Len(t, out.Versions, 2)
-	// Newest (v2 = AWSCURRENT) should be first
-	assert.Equal(t, "v2", out.Versions[0].VersionID)
 }
 
 func TestListSecretVersionIds_NotFound(t *testing.T) {

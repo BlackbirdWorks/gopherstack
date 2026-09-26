@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -16,29 +17,36 @@ import (
 func TestHandler_DeleteProcessingJob(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateProcessingJob", map[string]any{
-		"ProcessingJobName": "del-pj",
-		"RoleArn":           "arn:aws:iam::000000000000:role/test",
-		"AppSpecification":  map[string]any{"ImageUri": "img:latest"},
-		"ProcessingResources": map[string]any{
-			"ClusterConfig": map[string]any{"InstanceType": "ml.m5.large", "InstanceCount": 1, "VolumeSizeInGB": 10},
-		},
+		doSageMakerRequest(t, h, "CreateProcessingJob", map[string]any{
+			"ProcessingJobName": "del-pj",
+			"RoleArn":           "arn:aws:iam::000000000000:role/test",
+			"AppSpecification":  map[string]any{"ImageUri": "img:latest"},
+			"ProcessingResources": map[string]any{
+				"ClusterConfig": map[string]any{
+					"InstanceType":   "ml.m5.large",
+					"InstanceCount":  1,
+					"VolumeSizeInGB": 10,
+				},
+			},
+		})
+
+		// Cannot delete while still InProgress.
+		recEarly := doSageMakerRequest(t, h, "DeleteProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
+		assert.Equal(t, http.StatusBadRequest, recEarly.Code)
+
+		// Wait for the simulated job to reach a terminal state.
+		time.Sleep(400 * time.Millisecond)
+		synctest.Wait()
+
+		recDelete := doSageMakerRequest(t, h, "DeleteProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
+		require.Equal(t, http.StatusOK, recDelete.Code)
+
+		recDescribe := doSageMakerRequest(t, h, "DescribeProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
+		assert.Equal(t, http.StatusBadRequest, recDescribe.Code)
 	})
-
-	// Cannot delete while still InProgress.
-	recEarly := doSageMakerRequest(t, h, "DeleteProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
-	assert.Equal(t, http.StatusBadRequest, recEarly.Code)
-
-	// Wait for the simulated job to reach a terminal state.
-	time.Sleep(400 * time.Millisecond)
-
-	recDelete := doSageMakerRequest(t, h, "DeleteProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
-	require.Equal(t, http.StatusOK, recDelete.Code)
-
-	recDescribe := doSageMakerRequest(t, h, "DescribeProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
-	assert.Equal(t, http.StatusBadRequest, recDescribe.Code)
 }
 
 func TestHandler_DeleteProcessingJob_NotFound(t *testing.T) {

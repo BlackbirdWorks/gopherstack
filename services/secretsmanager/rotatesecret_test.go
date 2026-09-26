@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -683,50 +684,54 @@ func TestRotateSecret_InvalidDays(t *testing.T) {
 func TestRotateSecret_CronScheduleTriggersRotation(t *testing.T) {
 	t.Parallel()
 
-	b := secretsmanager.NewInMemoryBackend()
-	t.Cleanup(b.StopRotationScheduler)
-	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
-		Name:         "cron-sched-secret",
-		SecretString: "initial",
-	})
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
+		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+			Name:         "cron-sched-secret",
+			SecretString: "initial",
+		})
+		require.NoError(t, err)
 
-	before, err := b.GetSecretValue(
-		context.Background(),
-		&secretsmanager.GetSecretValueInput{SecretID: "cron-sched-secret"},
-	)
-	require.NoError(t, err)
-
-	// Use a cron that fires every minute to trigger fast in tests.
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
-		SecretID:          "cron-sched-secret",
-		RotationLambdaARN: testLambdaARN,
-		RotationRules: &secretsmanager.RotationRulesType{
-			ScheduleExpression: "cron(* * * * ? *)",
-		},
-	})
-	require.NoError(t, err)
-
-	deadline := time.Now().Add(5 * time.Second)
-	rotated := false
-
-	for time.Now().Before(deadline) {
-		current, currentErr := b.GetSecretValue(
+		before, err := b.GetSecretValue(
 			context.Background(),
 			&secretsmanager.GetSecretValueInput{SecretID: "cron-sched-secret"},
 		)
-		require.NoError(t, currentErr)
+		require.NoError(t, err)
 
-		if current.VersionID != before.VersionID {
-			rotated = true
+		// Use a cron that fires every minute to trigger fast in tests.
+		_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+			SecretID:          "cron-sched-secret",
+			RotationLambdaARN: testLambdaARN,
+			RotationRules: &secretsmanager.RotationRulesType{
+				ScheduleExpression: "cron(* * * * ? *)",
+			},
+		})
+		require.NoError(t, err)
 
-			break
+		// nextCronTime rounds forward to the next whole-minute boundary, so the
+		// scheduler loop may need up to ~60s of (virtual) wall time to fire.
+		deadline := time.Now().Add(90 * time.Second)
+		rotated := false
+
+		for time.Now().Before(deadline) {
+			current, currentErr := b.GetSecretValue(
+				context.Background(),
+				&secretsmanager.GetSecretValueInput{SecretID: "cron-sched-secret"},
+			)
+			require.NoError(t, currentErr)
+
+			if current.VersionID != before.VersionID {
+				rotated = true
+
+				break
+			}
+
+			time.Sleep(200 * time.Millisecond)
 		}
 
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	assert.True(t, rotated, "cron-scheduled rotation must fire within 5 seconds")
+		assert.True(t, rotated, "cron-scheduled rotation must fire within 90 seconds")
+	})
 }
 
 // TestRotateSecret_ScheduleExpressionPersisted verifies that a cron ScheduleExpression

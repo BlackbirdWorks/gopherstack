@@ -3,6 +3,7 @@ package elasticbeanstalk_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -143,16 +144,18 @@ func TestInMemoryBackend_DeleteApplicationVersion_RefusesRunningEnvironment(t *t
 func TestInMemoryBackend_UpdateApplicationVersion_BumpsDateUpdated(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend()
-	_, err := b.CreateApplication(context.Background(), "app2", "", nil)
-	require.NoError(t, err)
-	ver, err := b.CreateApplicationVersion(context.Background(), "app2", "v1", "orig", "", "", nil)
-	require.NoError(t, err)
-	created := ver.DateUpdated
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
+		_, err := b.CreateApplication(context.Background(), "app2", "", nil)
+		require.NoError(t, err)
+		ver, err := b.CreateApplicationVersion(context.Background(), "app2", "v1", "orig", "", "", nil)
+		require.NoError(t, err)
+		created := ver.DateUpdated
 
-	time.Sleep(time.Second)
+		time.Sleep(time.Second)
 
-	updated, err := b.UpdateApplicationVersion(context.Background(), "app2", "v1", "new desc")
-	require.NoError(t, err)
-	assert.NotEqual(t, created, updated.DateUpdated)
+		updated, err := b.UpdateApplicationVersion(context.Background(), "app2", "v1", "new desc")
+		require.NoError(t, err)
+		assert.NotEqual(t, created, updated.DateUpdated)
+	})
 }

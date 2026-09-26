@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -663,24 +664,32 @@ func TestInitiateJob_SucceedsAfterDelay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newDelayedHandler(tt.delay)
-			jobID := initiateJob(t, h, tt.vaultName, tt.jobType)
+			synctest.Test(t, func(t *testing.T) {
+				h := newDelayedHandler(tt.delay)
+				jobID := initiateJob(t, h, tt.vaultName, tt.jobType)
 
-			// Immediately after initiation the job should be InProgress.
-			recEarly := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+tt.vaultName+"/jobs/"+jobID, "")
-			require.Equal(t, http.StatusOK, recEarly.Code)
-			var earlyDesc map[string]any
-			require.NoError(t, json.Unmarshal(recEarly.Body.Bytes(), &earlyDesc))
-			assert.Equal(t, "InProgress", earlyDesc["StatusCode"])
+				// Immediately after initiation the job should be InProgress.
+				recEarly := doRequest(
+					t,
+					h,
+					http.MethodGet,
+					"/"+testAccountID+"/vaults/"+tt.vaultName+"/jobs/"+jobID,
+					"",
+				)
+				require.Equal(t, http.StatusOK, recEarly.Code)
+				var earlyDesc map[string]any
+				require.NoError(t, json.Unmarshal(recEarly.Body.Bytes(), &earlyDesc))
+				assert.Equal(t, "InProgress", earlyDesc["StatusCode"])
 
-			// After the delay elapses the job should be Succeeded.
-			time.Sleep(tt.wait)
+				// After the delay elapses the job should be Succeeded.
+				time.Sleep(tt.wait)
 
-			recLate := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+tt.vaultName+"/jobs/"+jobID, "")
-			require.Equal(t, http.StatusOK, recLate.Code)
-			var lateDesc map[string]any
-			require.NoError(t, json.Unmarshal(recLate.Body.Bytes(), &lateDesc))
-			assert.Equal(t, "Succeeded", lateDesc["StatusCode"])
+				recLate := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+tt.vaultName+"/jobs/"+jobID, "")
+				require.Equal(t, http.StatusOK, recLate.Code)
+				var lateDesc map[string]any
+				require.NoError(t, json.Unmarshal(recLate.Body.Bytes(), &lateDesc))
+				assert.Equal(t, "Succeeded", lateDesc["StatusCode"])
+			})
 		})
 	}
 }
