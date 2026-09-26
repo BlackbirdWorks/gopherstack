@@ -260,7 +260,7 @@ func validateGetAttAttribute(logicalID, resType, attrName string) error {
 		return nil
 	}
 
-	attrs, known := cfnResourceAttributes[resType]
+	attrs, known := resourceAttributeTable()[resType]
 	if !known {
 		return nil
 	}

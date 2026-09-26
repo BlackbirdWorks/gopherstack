@@ -5,31 +5,24 @@
 // type <Y> in Fn::GetAtt"); this table is what lets validateIntrinsics tell
 // an undocumented attribute from a merely-unmodelled one (gopherstack-p7pvq).
 //
-// Every string this table introduces is checked against goconst's own rule
-// (a literal repeated 3+ times across the package should be a constant)
-// before being emitted, so this generator never hands golangci-lint new
-// goconst violations to fix by hand:
-//
-//   - A resource type is keyed by its existing resTypeXxx constant
-//     identifier (found by scanning -src), never re-quoted as a new string
-//     literal -- the type string already appears at that constant's
-//     declaration and every switch/case dispatching on it.
-//   - An attribute name is keyed by its existing attrNameXxx-style constant
-//     when one exists; otherwise the literal is counted against every
-//     string literal already in -src (tests included, matching goconst's
-//     own corpus), and only emitted when doing so keeps that string under
-//     goconst's min-occurrences threshold.
-//
-// A type with no declared constant, or an attribute that would trip
-// goconst, is simply left out of the table -- scoping the table to what the
-// package already names/can safely re-quote is also exactly "the types we
-// support" (gopherstack-p7pvq's intent), so this is conservative, not
-// lossy: anything absent from the table is treated as "not in spec" by the
-// validator and falls back to today's behaviour.
+// The table is emitted as JSON (services/cloudformation/cfn_attributes.json),
+// not Go source: goconst counts string literals package-wide, and a
+// generated .go file's literals still push hand-written files over the
+// min-occurrences threshold even when the generated file itself is excluded
+// from lint reporting (verified empirically -- see gopherstack-erj2j). A
+// resource type is included only when the package declares a resTypeXxx
+// constant for it (the provisioner's supported-types surface) and the spec
+// documents a non-empty Attributes set for it; every documented attribute is
+// emitted, since there's no literal-count reason left to drop any.
 //
 // Usage:
 //
-//	go run ./cmd/cfnattrgen -spec <cfn-resource-spec.json> -src <dir> -out <out.go>
+//	go run ./cmd/cfnattrgen -spec <cfn-resource-spec.json> -src <dir> -out <out.json>
+//
+// Or, to refresh the trimmed spec fixture used for -spec from a fresh
+// download of the full CloudFormation resource specification:
+//
+//	go run ./cmd/cfnattrgen -spec <full-spec.json> -trimspec-out <fixture.json>
 package main
 
 import (
@@ -37,7 +30,6 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
@@ -46,11 +38,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-// goconstMinOccurrences mirrors this repo's golangci-lint goconst default
-// (min-occurrences: 3, unconfigured in .golangci.yml): a literal used at
-// least this many times across the package should be a constant instead.
-const goconstMinOccurrences = 3
 
 type resourceTypeSpec struct {
 	Attributes map[string]json.RawMessage `json:"Attributes"`
@@ -62,47 +49,99 @@ type resourceSpec struct {
 
 func main() {
 	specPath := flag.String("spec", "", "path to the CloudFormation resource specification JSON")
-	srcDir := flag.String("src", "", "directory to scan for resTypeXxx constants and existing string literals")
-	outPath := flag.String("out", "", "output Go file path")
-	pkgName := flag.String("pkg", "cloudformation", "package name for the generated file")
+	srcDir := flag.String("src", "", "directory to scan for resTypeXxx constants")
+	outPath := flag.String("out", "", "output attribute-table JSON file path")
+	trimSpecOut := flag.String(
+		"trimspec-out", "",
+		"write a trimmed (types+attribute names only) copy of -spec here instead of generating the table",
+	)
 	flag.Parse()
 
+	if *trimSpecOut != "" {
+		if *specPath == "" {
+			fmt.Fprintln(os.Stderr, "usage: cfnattrgen -spec <full-spec.json> -trimspec-out <fixture.json>")
+			os.Exit(1)
+		}
+
+		if err := runTrimSpec(*specPath, *trimSpecOut); err != nil {
+			fmt.Fprintln(os.Stderr, "cfnattrgen:", err)
+			os.Exit(1)
+		}
+
+		return
+	}
+
 	if *specPath == "" || *srcDir == "" || *outPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: cfnattrgen -spec <spec.json> -src <dir> -out <out.go>")
+		fmt.Fprintln(os.Stderr, "usage: cfnattrgen -spec <spec.json> -src <dir> -out <out.json>")
 		os.Exit(1)
 	}
 
-	if err := run(*specPath, *srcDir, *outPath, *pkgName); err != nil {
+	if err := run(*specPath, *srcDir, *outPath); err != nil {
 		fmt.Fprintln(os.Stderr, "cfnattrgen:", err)
 		os.Exit(1)
 	}
 }
 
-func run(specPath, srcDir, outPath, pkgName string) error {
+func run(specPath, srcDir, outPath string) error {
 	spec, err := loadSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("load spec: %w", err)
 	}
 
-	// Excludes outPath itself: a stale copy from a prior run must not inflate
-	// litCounts against itself when the table is regenerated.
-	files, err := parseDir(srcDir, filepath.Base(outPath))
+	files, err := parseDir(srcDir)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", srcDir, err)
 	}
 
-	typeConsts := collectStringConsts(files, false, isResourceTypeConst)
-	attrConsts := collectStringConsts(files, false, isAttrNameConst)
-	litCounts := countStringLiterals(files)
+	supportedTypes := collectResourceTypeConsts(files)
 
-	table := buildTable(spec, typeConsts, attrConsts, litCounts)
+	table := buildTable(spec, supportedTypes)
 
-	src, err := renderTable(pkgName, table)
+	out, err := renderJSON(table)
 	if err != nil {
 		return fmt.Errorf("render: %w", err)
 	}
 
-	if writeErr := os.WriteFile(outPath, src, 0o600); writeErr != nil {
+	if writeErr := os.WriteFile(outPath, out, 0o600); writeErr != nil {
+		return fmt.Errorf("write %s: %w", outPath, writeErr)
+	}
+
+	return nil
+}
+
+// runTrimSpec strips the full CloudFormation resource specification down to
+// just the ResourceTypes/Attributes this generator reads, so a fixture small
+// enough to commit can be refreshed from a fresh download without hand
+// editing.
+func runTrimSpec(specPath, outPath string) error {
+	spec, err := loadSpec(specPath)
+	if err != nil {
+		return fmt.Errorf("load spec: %w", err)
+	}
+
+	trimmed := resourceSpec{ResourceTypes: make(map[string]resourceTypeSpec, len(spec.ResourceTypes))}
+
+	for name, rt := range spec.ResourceTypes {
+		if len(rt.Attributes) == 0 {
+			continue
+		}
+
+		attrs := make(map[string]json.RawMessage, len(rt.Attributes))
+		for attr := range rt.Attributes {
+			attrs[attr] = json.RawMessage("{}")
+		}
+
+		trimmed.ResourceTypes[name] = resourceTypeSpec{Attributes: attrs}
+	}
+
+	out, err := json.MarshalIndent(trimmed, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal trimmed spec: %w", err)
+	}
+
+	out = append(out, '\n')
+
+	if writeErr := os.WriteFile(outPath, out, 0o600); writeErr != nil {
 		return fmt.Errorf("write %s: %w", outPath, writeErr)
 	}
 
@@ -123,13 +162,8 @@ func loadSpec(path string) (*resourceSpec, error) {
 	return &spec, nil
 }
 
-type parsedFile struct {
-	file   *ast.File
-	isTest bool
-}
-
-// parseDir parses every .go file directly under dir (no recursion), skipping skipName.
-func parseDir(dir, skipName string) ([]parsedFile, error) {
+// parseDir parses every non-test .go file directly under dir (no recursion).
+func parseDir(dir string) ([]*ast.File, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -137,11 +171,11 @@ func parseDir(dir, skipName string) ([]parsedFile, error) {
 
 	fset := token.NewFileSet()
 
-	var files []parsedFile
+	var files []*ast.File
 
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || name == skipName {
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 
@@ -150,128 +184,67 @@ func parseDir(dir, skipName string) ([]parsedFile, error) {
 			return nil, fmt.Errorf("parse %s: %w", name, perr)
 		}
 
-		files = append(files, parsedFile{file: file, isTest: strings.HasSuffix(name, "_test.go")})
+		files = append(files, file)
 	}
 
 	return files, nil
 }
 
-// collectStringConsts collects top-level `const` declarations (non-test
-// files only) whose (identifier, value) pair passes keep, returning a map
-// from that value to the constant's identifier name. The first declaration
-// found wins when a value has more than one qualifying constant.
-func collectStringConsts(files []parsedFile, includeTests bool, keep func(name, value string) bool) map[string]string {
-	byValue := make(map[string]string)
+// collectResourceTypeConsts returns the set of CloudFormation resource type
+// strings named by a top-level resTypeXxx constant anywhere in files -- the
+// provisioner's supported-types surface.
+func collectResourceTypeConsts(files []*ast.File) map[string]struct{} {
+	types := make(map[string]struct{})
 
-	for _, pf := range files {
-		if pf.isTest && !includeTests {
-			continue
-		}
-
-		for _, decl := range pf.file.Decls {
+	for _, file := range files {
+		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
 			if !ok || gen.Tok != token.CONST {
 				continue
 			}
 
 			for _, spec := range gen.Specs {
-				valueSpec, isValueSpec := spec.(*ast.ValueSpec)
-				if !isValueSpec {
-					continue
-				}
-
-				collectValueSpecConst(valueSpec, keep, byValue)
+				collectConstResourceType(spec, types)
 			}
 		}
 	}
 
-	return byValue
+	return types
 }
 
-func collectValueSpecConst(valueSpec *ast.ValueSpec, keep func(name, value string) bool, byValue map[string]string) {
-	for i, name := range valueSpec.Names {
-		if i >= len(valueSpec.Values) {
+func collectConstResourceType(spec ast.Spec, types map[string]struct{}) {
+	valueSpec, ok := spec.(*ast.ValueSpec)
+	if !ok {
+		return
+	}
+
+	for _, val := range valueSpec.Values {
+		lit, isBasicLit := val.(*ast.BasicLit)
+		if !isBasicLit || lit.Kind != token.STRING {
 			continue
 		}
 
-		lit, ok := valueSpec.Values[i].(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
+		value, err := strconv.Unquote(lit.Value)
+		if err != nil || !isResourceTypeValue(value) {
 			continue
 		}
 
-		value, unquoteErr := strconv.Unquote(lit.Value)
-		if unquoteErr != nil || !keep(name.Name, value) {
-			continue
-		}
-
-		if _, exists := byValue[value]; !exists {
-			byValue[value] = name.Name
-		}
+		types[value] = struct{}{}
 	}
 }
 
-func isResourceTypeConst(_, value string) bool {
+func isResourceTypeValue(value string) bool {
 	return strings.HasPrefix(value, "AWS::") || strings.HasPrefix(value, "Alexa::") ||
 		strings.HasPrefix(value, "Custom::")
 }
 
-// isAttrNameConst matches this package's attrNameXxx naming convention
-// (attrNameArn, attrNameName, ...) by identifier, not by value: an
-// attribute name has no shared shape to check like a resource type does.
-func isAttrNameConst(name, _ string) bool {
-	return strings.HasPrefix(name, "attrName")
-}
+// buildTable keeps every supported type (declared via a resTypeXxx constant)
+// that the spec documents a non-empty Attributes set for, with its complete
+// documented attribute set.
+func buildTable(spec *resourceSpec, supportedTypes map[string]struct{}) map[string][]string {
+	table := make(map[string][]string, len(supportedTypes))
 
-// countStringLiterals tallies every string literal expression across all
-// files (tests included, matching this repo's own goconst corpus) so the
-// caller can tell whether adding one more occurrence would cross
-// goconstMinOccurrences.
-func countStringLiterals(files []parsedFile) map[string]int {
-	counts := make(map[string]int)
-
-	for _, pf := range files {
-		ast.Inspect(pf.file, func(n ast.Node) bool {
-			lit, ok := n.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-
-			if value, err := strconv.Unquote(lit.Value); err == nil {
-				counts[value]++
-			}
-
-			return true
-		})
-	}
-
-	return counts
-}
-
-// attrTable is one resource type's entry: its resTypeXxx constant
-// identifier, and its attributes rendered as ready-to-emit Go map-key
-// expressions (either an attrNameXxx identifier or a quoted literal).
-type attrTable struct {
-	constIdent string
-	attrExprs  []string
-}
-
-// buildTable keeps only types with both a spec-documented, non-empty
-// Attributes set and a declared resTypeXxx constant, and where every one of
-// that type's documented attributes can be safely emitted (see package
-// doc). A type is registered in cfnResourceAttributes only with its COMPLETE
-// documented attribute set: emitting a partial set would make validation
-// reject a real, documented attribute we merely declined to re-quote here,
-// which is worse than not validating the type at all -- so a type with even
-// one unsafe attribute is dropped whole, falling back to today's behaviour
-// for all of its attributes.
-func buildTable(
-	spec *resourceSpec,
-	typeConsts, attrConsts map[string]string,
-	litCounts map[string]int,
-) map[string]attrTable {
-	table := make(map[string]attrTable)
-
-	for value, constIdent := range typeConsts {
+	for value := range supportedTypes {
 		rt, ok := spec.ResourceTypes[value]
 		if !ok || len(rt.Attributes) == 0 {
 			continue
@@ -281,72 +254,19 @@ func buildTable(
 		for a := range rt.Attributes {
 			names = append(names, a)
 		}
+
 		sort.Strings(names)
-
-		exprs := make([]string, 0, len(names))
-		complete := true
-
-		for _, a := range names {
-			expr, safe := attrExpr(a, attrConsts, litCounts)
-			if !safe {
-				complete = false
-
-				break
-			}
-
-			exprs = append(exprs, expr)
-		}
-
-		if !complete || len(exprs) == 0 {
-			continue
-		}
-
-		table[value] = attrTable{constIdent: constIdent, attrExprs: exprs}
+		table[value] = names
 	}
 
 	return table
 }
 
-// attrExpr returns the Go expression to use as attribute a's map key, and
-// whether it's safe to emit at all.
-func attrExpr(a string, attrConsts map[string]string, litCounts map[string]int) (string, bool) {
-	if constIdent, ok := attrConsts[a]; ok {
-		return constIdent, true
+func renderJSON(table map[string][]string) ([]byte, error) {
+	out, err := json.MarshalIndent(table, "", "  ")
+	if err != nil {
+		return nil, err
 	}
 
-	if litCounts[a] >= goconstMinOccurrences-1 {
-		return "", false
-	}
-
-	return strconv.Quote(a), true
-}
-
-func renderTable(pkgName string, table map[string]attrTable) ([]byte, error) {
-	var b strings.Builder
-
-	fmt.Fprintf(
-		&b,
-		"// Code generated by cmd/cfnattrgen from the CloudFormation resource specification; DO NOT EDIT.\n",
-	)
-	fmt.Fprintf(&b, "package %s\n\n", pkgName)
-	fmt.Fprintf(&b, "//nolint:gochecknoglobals // generated static lookup table\n")
-	fmt.Fprintf(&b, "var cfnResourceAttributes = map[string]map[string]struct{}{\n")
-
-	values := make([]string, 0, len(table))
-	for v := range table {
-		values = append(values, v)
-	}
-	sort.Strings(values)
-
-	for _, v := range values {
-		entry := table[v]
-		fmt.Fprintf(&b, "\t%s: {\n", entry.constIdent)
-		for _, expr := range entry.attrExprs {
-			fmt.Fprintf(&b, "\t\t%s: {},\n", expr)
-		}
-		fmt.Fprintf(&b, "\t},\n")
-	}
-	fmt.Fprintf(&b, "}\n")
-
-	return format.Source([]byte(b.String()))
+	return append(out, '\n'), nil
 }
