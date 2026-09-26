@@ -37,3 +37,9 @@ func VerifyTestMain(m *testing.M, extra ...goleak.Option) {
 	opts := append(defaultIgnores(), extra...)
 	goleak.VerifyTestMain(m, opts...)
 }
+
+// DefaultIgnores exposes the shared ignore list for callers that verify
+// goroutines directly (e.g. goleak.VerifyNone) instead of via TestMain.
+func DefaultIgnores() []goleak.Option {
+	return defaultIgnores()
+}
