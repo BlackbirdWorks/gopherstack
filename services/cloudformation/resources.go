@@ -1402,6 +1402,8 @@ func (b *InMemoryBackend) deleteResolveContext(stack *Stack) map[string]string {
 	return out
 }
 
+// Delete deletes a single resource by type and physical ID. An already-gone target counts
+// as deleted, as CloudFormation's handler contract treats NotFound on delete.
 func (rc *ResourceCreator) Delete(
 	ctx context.Context,
 	resourceType, physicalID string,
@@ -1412,6 +1414,32 @@ func (rc *ResourceCreator) Delete(
 		return nil
 	}
 
+	err := rc.deleteResource(ctx, resourceType, physicalID, props, stackPhysicalIDs)
+	if isResourceGoneError(err) {
+		return nil
+	}
+
+	return err
+}
+
+// isResourceGoneError reports whether delErr is a NotFound-class error; every such error
+// in this codebase names itself "not found" or "NotFound".
+func isResourceGoneError(delErr error) bool {
+	if delErr == nil {
+		return false
+	}
+
+	msg := strings.ToLower(delErr.Error())
+
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "notfound")
+}
+
+func (rc *ResourceCreator) deleteResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+	props map[string]any,
+	stackPhysicalIDs map[string]string,
+) error {
 	if rc.deleteHook != nil {
 		rc.deleteHook(resourceType)
 	}
