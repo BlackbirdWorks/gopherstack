@@ -25,7 +25,7 @@ import (
 func setupEnforcementTestServer(
 	t *testing.T,
 	backend *mockEnforcementBackend,
-) (*httptest.Server, *mockEnforcementBackend) {
+) *httptest.Server {
 	t.Helper()
 
 	e := echo.New()
@@ -75,7 +75,7 @@ func setupEnforcementTestServer(
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
-	return srv, backend
+	return srv
 }
 
 func createTestS3Client(
@@ -117,6 +117,124 @@ func createTestDynamoDBClient(
 	return dynamodbsdk.NewFromConfig(cfg, func(o *dynamodbsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	}), nil
+}
+
+// TestEnforcement_ConditionOperators_SDKIntegration drives the real
+// EnforcementMiddleware with a typed S3 client to prove the IpAddress and
+// Date condition operators are enforced end to end. httptest.Server
+// connections originate from loopback, so aws:SourceIp always resolves to
+// 127.0.0.1 here; the date conditions use a fixed reference far in the past
+// so the outcome does not depend on when the test runs (no time.Sleep, no
+// clock injection needed).
+func TestEnforcement_ConditionOperators_SDKIntegration(t *testing.T) {
+	t.Parallel()
+
+	const farPast = "2020-01-01T00:00:00Z"
+
+	tests := []struct {
+		policy        map[string]any
+		name          string
+		expectAllowed bool
+	}{
+		{
+			name: "allowed_when_source_ip_in_loopback_cidr",
+			policy: map[string]any{
+				"Version": "2012-10-17",
+				"Statement": []map[string]any{{
+					"Effect":   "Allow",
+					"Action":   []string{"s3:PutObject"},
+					"Resource": []string{"arn:aws:s3:::allowed-bucket/*"},
+					"Condition": map[string]any{
+						"IpAddress": map[string]any{"aws:SourceIp": "127.0.0.1/32"},
+					},
+				}},
+			},
+			expectAllowed: true,
+		},
+		{
+			name: "denied_when_source_ip_outside_cidr",
+			policy: map[string]any{
+				"Version": "2012-10-17",
+				"Statement": []map[string]any{{
+					"Effect":   "Allow",
+					"Action":   []string{"s3:PutObject"},
+					"Resource": []string{"arn:aws:s3:::allowed-bucket/*"},
+					"Condition": map[string]any{
+						"IpAddress": map[string]any{"aws:SourceIp": "10.0.0.0/8"},
+					},
+				}},
+			},
+			expectAllowed: false,
+		},
+		{
+			name: "allowed_when_date_less_than_still_in_future",
+			policy: map[string]any{
+				"Version": "2012-10-17",
+				"Statement": []map[string]any{{
+					"Effect":   "Allow",
+					"Action":   []string{"s3:PutObject"},
+					"Resource": []string{"arn:aws:s3:::allowed-bucket/*"},
+					"Condition": map[string]any{
+						"DateGreaterThan": map[string]any{"aws:CurrentTime": farPast},
+					},
+				}},
+			},
+			expectAllowed: true,
+		},
+		{
+			name: "denied_when_date_less_than_condition_cannot_hold",
+			policy: map[string]any{
+				"Version": "2012-10-17",
+				"Statement": []map[string]any{{
+					"Effect":   "Allow",
+					"Action":   []string{"s3:PutObject"},
+					"Resource": []string{"arn:aws:s3:::allowed-bucket/*"},
+					"Condition": map[string]any{
+						"DateLessThan": map[string]any{"aws:CurrentTime": farPast},
+					},
+				}},
+			},
+			expectAllowed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			policyBytes, marshalErr := json.Marshal(tt.policy)
+			require.NoError(t, marshalErr)
+
+			const (
+				accessKeyID = "AKIACONDITIONUSER"
+				userName    = "condition-user"
+			)
+
+			backend := newMockEnforcementBackend()
+			backend.users[userName] = &iam.User{
+				UserName: userName,
+				Arn:      "arn:aws:iam::000000000000:user/" + userName,
+			}
+			backend.keyMap[accessKeyID] = userName
+			backend.policies[userName] = []string{string(policyBytes)}
+
+			srv := setupEnforcementTestServer(t, backend)
+
+			client, err := createTestS3Client(t.Context(), srv.URL, accessKeyID, "secret", "")
+			require.NoError(t, err)
+
+			_, err = client.PutObject(t.Context(), &s3sdk.PutObjectInput{
+				Bucket: aws.String("allowed-bucket"),
+				Key:    aws.String("data.json"),
+			})
+
+			if tt.expectAllowed {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
 }
 
 func TestEnforcement_MultiServiceSDKIntegration(t *testing.T) {
@@ -240,7 +358,7 @@ func TestEnforcement_MultiServiceSDKIntegration(t *testing.T) {
 			backend.keyMap[tt.accessKeyID] = tt.userName
 			backend.policies[tt.userName] = tt.policies
 
-			srv, _ := setupEnforcementTestServer(t, backend)
+			srv := setupEnforcementTestServer(t, backend)
 
 			tt.runTest(t.Context(), t, srv.URL)
 		})

@@ -123,6 +123,23 @@ invented_ops_removed:
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 items_still_open:
+  - "2026-09-26 (condition-operator sweep, --enforce-iam evaluator): the 2026-08-30 value-semantics
+    audit's claim that conditions.go's ArnEquals/ArnLike were correct understated the gap -- they were
+    a single case-INSENSITIVE glob over the whole ARN string (anyStringLike on lower-cased input), not
+    AWS's documented case-sensitive, six-colon-segment-wise match, so a wildcard could incorrectly span
+    a segment boundary (e.g. 'arn:aws:s3:*:mybucket' would have matched a real ARN with a non-empty
+    region). Fixed: ArnEquals/ArnLike/ArnNotEquals/ArnNotLike now use condeval.ArnMatch (see
+    services/sts/PARITY.md's matching entry -- extracted to pkgs/condeval since services/sts/trust_policy.go
+    had begun duplicating this exact ARN-matching and Date-parsing logic verbatim). IpAddress/NotIpAddress's
+    bare-literal branch also fixed: it compared ctxVal to condVals[i] as raw strings, which could false-negative
+    on a semantically-equal but differently-formatted IPv6 literal (e.g. case, or a compressible zero run);
+    now parses both sides and compares net.IP.Equal. Added: aws:SecureTransport as a first-class
+    ConditionContext field (previously only reachable via a caller-supplied Extra entry, never populated
+    by the enforcement middleware itself), wired from r.TLS/X-Forwarded-Proto in middleware.go. Added: Date
+    operators now accept epoch (UNIX) seconds interchangeably with ISO 8601, matching AWS's documented
+    Date value grammar (previously ISO 8601 only). NullIfExists is now rejected as an unrecognized operator
+    rather than silently treated as Null (AWS documents IfExists as invalid on Null). No behavior change
+    without --enforce-iam; see enforcement_integration_test.go's SDK-driven regression coverage."
   - "aws_iam_security_token_service_preferences (2026-09-24, iam-detective-and-s3-replication terraform
     sweep): dropped from test/terraform/fixtures/iam-detective-and-s3-replication.tf after a real
     attempt. terraform-provider-aws v5.100.0 fails apply with 'Provider produced

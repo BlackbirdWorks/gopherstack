@@ -257,6 +257,41 @@ func TestEnforcementMiddleware(t *testing.T) {
 			},
 			wantStatus: http.StatusOK,
 		},
+		{
+			// httptest.NewRequest never sets req.TLS, so aws:SecureTransport
+			// can only resolve true here via the X-Forwarded-Proto signal.
+			name: "condition_secure_transport_via_forwarded_proto",
+			setupBackend: func(b *mockEnforcementBackend) {
+				policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*",` +
+					`"Resource":"*","Condition":{"Bool":{"aws:SecureTransport":"true"}}}]}`
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIATLS1"] = "alice"
+				b.policies["alice"] = []string{policy}
+			},
+			requestPath:   "/my-bucket/key",
+			requestMethod: http.MethodGet,
+			headers: map[string]string{
+				"Authorization":     "AWS4-HMAC-SHA256 Credential=AKIATLS1/20230101/us-east-1/s3/aws4_request",
+				"X-Forwarded-Proto": "https",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "condition_secure_transport_plain_http_denied",
+			setupBackend: func(b *mockEnforcementBackend) {
+				policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*",` +
+					`"Resource":"*","Condition":{"Bool":{"aws:SecureTransport":"true"}}}]}`
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIATLS2"] = "alice"
+				b.policies["alice"] = []string{policy}
+			},
+			requestPath:   "/my-bucket/key",
+			requestMethod: http.MethodGet,
+			headers: map[string]string{
+				"Authorization": "AWS4-HMAC-SHA256 Credential=AKIATLS2/20230101/us-east-1/s3/aws4_request",
+			},
+			wantStatus: http.StatusForbidden,
+		},
 	}
 
 	for _, tt := range tests {
