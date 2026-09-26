@@ -99,6 +99,16 @@ type TrainingPlan struct {
 	TotalInstanceCount        int32                      `json:"TotalInstanceCount,omitempty"`
 	AvailableInstanceCount    int32                      `json:"AvailableInstanceCount,omitempty"`
 	InUseInstanceCount        int32                      `json:"InUseInstanceCount,omitempty"`
+	// TotalUltraServerCount/AvailableSpareInstanceCount are
+	// DescribeTrainingPlanOutput-only members (absent from
+	// TrainingPlanSummary, api_op_DescribeTrainingPlan.go vs
+	// api_op_ListTrainingPlans.go), aggregated from this plan's UltraServer
+	// reserved capacities in applyOfferingToPlan. UnhealthyInstanceCount is
+	// not tracked: no unhealthy-UltraServer simulation exists (see
+	// ultraServerSummary), so it would always be the same 0 that omitting
+	// it already conveys.
+	TotalUltraServerCount       int32 `json:"TotalUltraServerCount,omitempty"`
+	AvailableSpareInstanceCount int32 `json:"AvailableSpareInstanceCount,omitempty"`
 }
 
 // TrainingPlanExtension records one purchased extension of a training plan's
@@ -290,6 +300,15 @@ func (b *InMemoryBackend) applyOfferingToPlan(
 		rc := b.createReservedCapacity(region, t.TrainingPlanArn, rco, now, spareInstanceCountPerUltraServer)
 		t.TotalInstanceCount += rc.TotalInstanceCount
 		t.AvailableInstanceCount += rc.AvailableInstanceCount
+
+		if rc.ReservedCapacityType == reservedCapacityTypeUltraServer {
+			//nolint:gosec // at most 1 UltraServer per reserved capacity
+			t.TotalUltraServerCount += int32(len(rc.UltraServers))
+			for _, u := range rc.UltraServers {
+				t.AvailableSpareInstanceCount += u.AvailableSpareInstanceCount
+			}
+		}
+
 		t.ReservedCapacitySummaries = append(t.ReservedCapacitySummaries, rc.toSummary())
 	}
 }

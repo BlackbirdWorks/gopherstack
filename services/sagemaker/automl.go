@@ -361,6 +361,8 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 	objective *AutoMLJobObjective,
 	inputDataConfig []AutoMLChannel,
 	modelDeployConfig *ModelDeployConfig,
+	dataSplitConfig *AutoMLDataSplitConfig,
+	securityConfig *AutoMLSecurityConfig,
 ) error {
 	b.mu.Lock("SetAutoMLJobExtras")
 	defer b.mu.Unlock()
@@ -389,6 +391,16 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 	if modelDeployConfig != nil {
 		mdc := *modelDeployConfig
 		j.ModelDeployConfig = &mdc
+	}
+
+	if dataSplitConfig != nil {
+		dsc := *dataSplitConfig
+		j.DataSplitConfig = &dsc
+	}
+
+	if securityConfig != nil {
+		sc := *securityConfig
+		j.SecurityConfig = &sc
 	}
 
 	return nil

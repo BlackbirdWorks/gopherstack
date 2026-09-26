@@ -101,6 +101,45 @@ func TestHandler_DescribeOptimizationJob(t *testing.T) {
 	assert.Equal(t, "ml.g5.2xlarge", resp["DeploymentInstanceType"])
 }
 
+// TestHandler_DescribeOptimizationJob_StartEndTime_RealClient asserts OptimizationStartTime/
+// OptimizationEndTime are both the creation instant, since Create completes synchronously.
+func TestHandler_DescribeOptimizationJob_StartEndTime_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateOptimizationJob(t.Context(), &sagemakersdk.CreateOptimizationJobInput{
+		OptimizationJobName:    aws.String("opt-start-end-time"),
+		RoleArn:                aws.String("arn:aws:iam::000000000000:role/TestRole"),
+		DeploymentInstanceType: smtypes.OptimizationJobDeploymentInstanceType("ml.g5.2xlarge"),
+		ModelSource: &smtypes.OptimizationJobModelSource{
+			S3: &smtypes.OptimizationJobModelSourceS3{S3Uri: aws.String("s3://bucket/model/")},
+		},
+		OptimizationConfigs: []smtypes.OptimizationConfig{
+			&smtypes.OptimizationConfigMemberModelQuantizationConfig{
+				Value: smtypes.ModelQuantizationConfig{
+					Image: aws.String("acct.dkr.ecr.region.amazonaws.com/lmi:latest"),
+				},
+			},
+		},
+		OutputConfig: &smtypes.OptimizationJobOutputConfig{
+			S3OutputLocation: aws.String("s3://bucket/output/"),
+		},
+		StoppingCondition: &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeOptimizationJob(t.Context(), &sagemakersdk.DescribeOptimizationJobInput{
+		OptimizationJobName: aws.String("opt-start-end-time"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.OptimizationStartTime)
+	require.NotNil(t, out.OptimizationEndTime)
+	assert.Equal(t, *out.OptimizationStartTime, *out.OptimizationEndTime)
+	assert.Equal(t, aws.ToTime(out.CreationTime), *out.OptimizationStartTime)
+}
+
 func TestHandler_StopOptimizationJob(t *testing.T) {
 	t.Parallel()
 
