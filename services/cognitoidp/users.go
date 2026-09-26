@@ -114,7 +114,8 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 
 // deleteUserStateLocked removes the user record for poolID:username and every
 // piece of per-user state that would otherwise outlive it: refresh tokens,
-// devices, auth events, WebAuthn credentials, and group memberships. Shared
+// devices, auth events, WebAuthn credentials, sign-out revocation markers,
+// and group memberships. Shared
 // by AdminDeleteUser, DeleteUser, and DeleteUserPool's cascade so a cleanup
 // added to one path can't drift from the others -- DeleteUserPool's cascade
 // was already fixed once to repeat this list by hand and missed groupMembers
@@ -128,6 +129,8 @@ func (b *InMemoryBackend) deleteUserStateLocked(poolID, username string) {
 	delete(b.devices, key)
 	delete(b.authEvents, key)
 	delete(b.webauthnCredentials, key)
+	delete(b.tokenRevokedBeforeSeq, key)
+	delete(b.tokenRevokedBefore, key)
 
 	for _, members := range b.groupMembers[poolID] {
 		delete(members, username)
