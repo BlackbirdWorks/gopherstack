@@ -376,6 +376,8 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 		State:        v.State,
 		SnapStart:    v.SnapStart,
 		Version:      v.Version,
+		// Invoke reads this to detect durable invocations of versions/aliases.
+		DurableConfig: v.DurableConfig,
 	}
 }
 

@@ -72,28 +72,21 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 
 	executedVersion := h.resolveExecutedVersion(name, qualifier)
 
-	var result []byte
-	var logResult string
-	var functionError string
-	var statusCode int
-	var invokeErr error
-
-	if qi, ok := h.Backend.(QualifierInvoker); ok {
-		result, logResult, functionError, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
-			ctx,
-			name,
-			qualifier,
-			clientContext,
-			logType,
-			invType,
-			body,
-		)
-	} else {
-		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, invType, body)
+	durableARN, reusedExec, ok := h.beginDurableInvoke(c, name, qualifier, invType, body)
+	if !ok {
+		return nil
 	}
+
+	result, logResult, functionError, statusCode, invokeErr := h.dispatchInvoke(
+		ctx, name, qualifier, clientContext, logType, invType, body, reusedExec,
+	)
 
 	if invokeErr != nil {
 		return h.writeInvokeError(c, name, invokeErr)
+	}
+
+	if durableARN != "" && reusedExec == nil && invType == InvocationTypeRequestResponse {
+		h.completeDurableInvokeExecution(durableARN, functionError == "", result)
 	}
 
 	// Set X-Amz-Executed-Version on all successful responses (real AWS always sends this).
@@ -126,6 +119,57 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// beginDurableInvoke starts or reuses handleInvoke's durable execution (if
+// the target is a durable function) and sets the X-Amz-Durable-Execution-Arn
+// response header. When the DurableExecutionName conflicts with a
+// differently-payloaded execution, it writes the 409 response itself and
+// returns ok=false so the caller stops immediately (matching this file's
+// existing "already wrote a response, return nil" convention).
+func (h *Handler) beginDurableInvoke(
+	c *echo.Context, name, qualifier, invType string, body []byte,
+) (string, *DurableExecution, bool) {
+	execName := c.Request().Header.Get("X-Amz-Durable-Execution-Name")
+
+	arn, reusedExec, err := h.startDurableInvokeExecution(name, qualifier, invType, execName, body)
+	if err != nil {
+		_ = h.writeError(c, http.StatusConflict, "DurableExecutionAlreadyStartedException", err.Error())
+
+		return "", nil, false
+	}
+
+	if arn != "" {
+		c.Response().Header().Set("X-Amz-Durable-Execution-Arn", arn)
+	}
+
+	return arn, reusedExec, true
+}
+
+// dispatchInvoke performs one Invoke's actual work: replaying an
+// idempotent-replay hit against an already-closed durable execution
+// (reusedExec set and closed — must NOT invoke the function again), or
+// otherwise the real invocation via QualifierInvoker/InvokeFunction exactly
+// as before this file gained durable-execution awareness.
+func (h *Handler) dispatchInvoke(
+	ctx context.Context,
+	name, qualifier, clientContext, logType, invType string,
+	body []byte,
+	reusedExec *DurableExecution,
+) ([]byte, string, string, int, error) {
+	if reusedExec != nil && reusedExec.Status != DurableExecutionStatusRunning {
+		result, functionError, statusCode := replayClosedDurableExecution(reusedExec, invType)
+
+		return result, "", functionError, statusCode, nil
+	}
+
+	if qi, ok := h.Backend.(QualifierInvoker); ok {
+		return qi.InvokeFunctionWithQualifier(ctx, name, qualifier, clientContext, logType, invType, body)
+	}
+
+	result, statusCode, invokeErr := h.Backend.InvokeFunction(ctx, name, invType, body)
+
+	return result, "", "", statusCode, invokeErr
 }
 
 // resolveExecutedVersion returns the version string for the X-Amz-Executed-Version header.
