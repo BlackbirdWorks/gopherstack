@@ -27,6 +27,7 @@ const (
 	opListConnectors             = "ListConnectors"
 	opUpdateConnector            = "UpdateConnector"
 	opDeleteConnector            = "DeleteConnector"
+	opRestartConnector           = "RestartConnector"
 	opDescribeConnectorOperation = "DescribeConnectorOperation"
 	opListConnectorOperations    = "ListConnectorOperations"
 
@@ -93,6 +94,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListConnectors,
 		opUpdateConnector,
 		opDeleteConnector,
+		opRestartConnector,
 		opDescribeConnectorOperation,
 		opListConnectorOperations,
 		opCreateCustomPlugin,

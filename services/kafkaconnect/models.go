@@ -30,6 +30,12 @@ const (
 	connectorOperationStepStateCompleted      = "COMPLETED"
 )
 
+// ConnectorOperationState/Type values this backend produces for RestartConnector.
+const (
+	connectorOperationStateRestartComplete = "RESTART_COMPLETE"
+	connectorOperationTypeRestart          = "RESTART_CONNECTOR"
+)
+
 // AutoScaling mirrors types.AutoScalingDescription.
 type AutoScaling struct {
 	MinWorkerCount          int32

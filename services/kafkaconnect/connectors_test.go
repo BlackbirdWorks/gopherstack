@@ -233,6 +233,66 @@ func TestDeleteConnector(t *testing.T) {
 	assert.Equal(t, "NotFoundException", apiErr.ErrorCode())
 }
 
+func TestRestartConnector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		onlyFailedTasks bool
+	}{
+		{name: "full"},
+		{name: "only_failed_tasks", onlyFailedTasks: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestClient(t, newTestHandler())
+			ctx := t.Context()
+
+			created, err := client.CreateConnector(ctx, minimalCreateConnectorInput("restart-"+tt.name))
+			require.NoError(t, err)
+
+			out, err := client.RestartConnector(ctx, &kafkaconnectsdk.RestartConnectorInput{
+				ConnectorArn:    created.ConnectorArn,
+				OnlyFailedTasks: tt.onlyFailedTasks,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, aws.ToString(created.ConnectorArn), aws.ToString(out.ConnectorArn))
+			assert.NotEmpty(t, aws.ToString(out.ConnectorOperationArn))
+
+			opOut, err := client.DescribeConnectorOperation(ctx, &kafkaconnectsdk.DescribeConnectorOperationInput{
+				ConnectorOperationArn: out.ConnectorOperationArn,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, types.ConnectorOperationStateRestartComplete, opOut.ConnectorOperationState)
+			assert.Equal(t, types.ConnectorOperationTypeRestartConnector, opOut.ConnectorOperationType)
+
+			described, err := client.DescribeConnector(ctx, &kafkaconnectsdk.DescribeConnectorInput{
+				ConnectorArn: created.ConnectorArn,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, types.ConnectorStateRunning, described.ConnectorState)
+		})
+	}
+}
+
+func TestRestartConnector_NotFound(t *testing.T) {
+	t.Parallel()
+
+	client := newTestClient(t, newTestHandler())
+
+	_, err := client.RestartConnector(t.Context(), &kafkaconnectsdk.RestartConnectorInput{
+		ConnectorArn: aws.String("arn:aws:kafkaconnect:us-east-1:123456789012:connector/nope/abc"),
+	})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "NotFoundException", apiErr.ErrorCode())
+}
+
 func TestDescribeConnectorOperation_NotFound(t *testing.T) {
 	t.Parallel()
 

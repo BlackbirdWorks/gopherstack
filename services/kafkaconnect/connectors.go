@@ -191,6 +191,34 @@ func (b *InMemoryBackend) DeleteConnector(connectorArn, currentVersion string) (
 	return out, nil
 }
 
+// RestartConnector restarts a connector, recording a ConnectorOperation that
+// completes immediately (RESTART_COMPLETE) -- see PARITY.md for the
+// transient RESTARTING connector state and per-task restart tracking this
+// backend deliberately does not model.
+func (b *InMemoryBackend) RestartConnector(connectorArn string, _ bool) (*Connector, *ConnectorOperation, error) {
+	b.mu.Lock("RestartConnector")
+	defer b.mu.Unlock()
+
+	c, ok := b.connectors.Get(connectorArn)
+	if !ok {
+		return nil, nil, ErrConnectorNotFound
+	}
+
+	now := time.Now().UTC()
+	op := &ConnectorOperation{
+		ARN:          connectorOperationARN(connectorArn),
+		ConnectorArn: connectorArn,
+		Type:         connectorOperationTypeRestart,
+		State:        connectorOperationStateRestartComplete,
+		CreationTime: now,
+		EndTime:      now,
+	}
+
+	b.connectorOperations.Put(op)
+
+	return c.clone(), op.clone(), nil
+}
+
 // DescribeConnectorOperation returns the details of a single connector operation.
 func (b *InMemoryBackend) DescribeConnectorOperation(operationArn string) (*ConnectorOperation, error) {
 	b.mu.RLock("DescribeConnectorOperation")

@@ -17,6 +17,7 @@ const (
 	tagsPrefix               = "/v1/tags/"
 
 	operationsSuffix = "/operations"
+	restartSuffix    = "/restart"
 )
 
 // parseKafkaConnectPath parses an HTTP method + path into an operation name
@@ -62,6 +63,14 @@ func parseConnectorResource(method, remainder string) (string, string) {
 	if connectorArn, ok := strings.CutSuffix(decoded, operationsSuffix); ok {
 		if method == http.MethodGet {
 			return opListConnectorOperations, connectorArn
+		}
+
+		return "", ""
+	}
+
+	if connectorArn, ok := strings.CutSuffix(decoded, restartSuffix); ok {
+		if method == http.MethodPost {
+			return opRestartConnector, connectorArn
 		}
 
 		return "", ""

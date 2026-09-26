@@ -24,6 +24,9 @@ func (h *Handler) buildConnectorOps() map[string]opFunc {
 		opDeleteConnector: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteConnector(c, resource)
 		},
+		opRestartConnector: func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleRestartConnector(c, resource)
+		},
 		opDescribeConnectorOperation: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribeConnectorOperation(c, resource)
 		},
@@ -139,6 +142,17 @@ func (h *Handler) handleDeleteConnector(c *echo.Context, connectorArn string) er
 	}
 
 	return h.writeJSON(c, deleteConnectorResponse{ConnectorArn: connector.ARN, ConnectorState: connector.State})
+}
+
+func (h *Handler) handleRestartConnector(c *echo.Context, connectorArn string) error {
+	onlyFailedTasks := c.Request().URL.Query().Get("onlyFailedTasks") == "true"
+
+	_, op, err := h.Backend.RestartConnector(connectorArn, onlyFailedTasks)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return h.writeJSON(c, restartConnectorResponse{ConnectorArn: op.ConnectorArn, ConnectorOperationArn: op.ARN})
 }
 
 func (h *Handler) handleDescribeConnectorOperation(c *echo.Context, operationArn string) error {

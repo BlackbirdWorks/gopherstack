@@ -36,6 +36,7 @@ type StorageBackend interface {
 		update ConnectorUpdate,
 	) (*Connector, *ConnectorOperation, error)
 	DeleteConnector(connectorArn, currentVersion string) (*Connector, error)
+	RestartConnector(connectorArn string, onlyFailedTasks bool) (*Connector, *ConnectorOperation, error)
 	DescribeConnectorOperation(operationArn string) (*ConnectorOperation, error)
 	ListConnectorOperations(connectorArn, nextToken string, maxResults int) ([]*ConnectorOperation, string, error)
 

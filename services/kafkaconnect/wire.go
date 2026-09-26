@@ -351,6 +351,11 @@ type deleteConnectorResponse struct {
 	ConnectorState string `json:"connectorState,omitempty"`
 }
 
+type restartConnectorResponse struct {
+	ConnectorArn          string `json:"connectorArn,omitempty"`
+	ConnectorOperationArn string `json:"connectorOperationArn,omitempty"`
+}
+
 type s3LocationDTO struct {
 	BucketArn     string `json:"bucketArn,omitempty"`
 	FileKey       string `json:"fileKey,omitempty"`

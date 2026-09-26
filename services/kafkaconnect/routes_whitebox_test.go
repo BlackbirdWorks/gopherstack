@@ -34,6 +34,10 @@ func TestParseKafkaConnectPath(t *testing.T) {
 			wantOp: opDeleteConnector, wantResource: connArn,
 		},
 		{
+			name: "restart_connector", method: http.MethodPost, path: "/v1/connectors/" + connArn + "/restart",
+			wantOp: opRestartConnector, wantResource: connArn,
+		},
+		{
 			name:         "list_connector_operations",
 			method:       http.MethodGet,
 			path:         "/v1/connectors/" + connArn + "/operations",
