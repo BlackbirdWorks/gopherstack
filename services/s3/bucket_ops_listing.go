@@ -140,7 +140,11 @@ func (h *S3Handler) listObjects(
 		}
 	}
 
-	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+	buf := httputils.GetBuffer()
+	defer httputils.PutBuffer(buf)
+	buf.WriteString(xml.Header)
+	writeListBucketXML(buf, &resp)
+	writeListXMLResponse(ctx, w, http.StatusOK, buf)
 }
 
 func (h *S3Handler) mapObjectsToXML(

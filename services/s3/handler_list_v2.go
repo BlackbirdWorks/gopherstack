@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"net/http"
 	"net/url"
@@ -135,5 +136,9 @@ func (h *S3Handler) renderListObjectsV2Response(
 	}
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 
-	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+	buf := httputils.GetBuffer()
+	defer httputils.PutBuffer(buf)
+	buf.WriteString(xml.Header)
+	writeListBucketV2XML(buf, &resp)
+	writeListXMLResponse(ctx, w, http.StatusOK, buf)
 }
