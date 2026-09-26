@@ -470,7 +470,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Batch](services/batch/README.md) | A | 45 | 8 gaps |
 | [EC2](services/ec2/README.md) | A | — | 22 families; 16 gaps; 2 structural gaps; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 13 gaps |
-| [Lambda](services/lambda/README.md) | A | — | 10 families; 2 gaps |
+| [Lambda](services/lambda/README.md) | A | — | 10 families |
 
 ### Containers
 
