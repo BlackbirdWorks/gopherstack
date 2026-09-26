@@ -402,7 +402,7 @@ func TestProxy_StageMethodSettings_ZeroRateLimitMeansUnlimited(t *testing.T) {
 	}
 }
 
-func TestProxy_TrieCache_InvalidatesOnNewResource(t *testing.T) {
+func TestProxy_TrieCache_PerDeployment(t *testing.T) {
 	t.Parallel()
 
 	backend := apigateway.NewInMemoryBackend()
@@ -421,18 +421,26 @@ func TestProxy_TrieCache_InvalidatesOnNewResource(t *testing.T) {
 	_, err = backend.CreateDeployment(api.ID, "prod", "v1")
 	require.NoError(t, err)
 
-	// Prime the trie cache.
+	// Prime the trie cache for the first deployment's snapshot.
 	assert.Equal(t, http.StatusOK, rawProxyGet(t, h, e, api.ID, "/first").Code)
 	// Unmatched resource path on a deployed stage: AWS returns 403 "Missing
 	// Authentication Token", not 404.
 	assert.Equal(t, http.StatusForbidden, rawProxyGet(t, h, e, api.ID, "/second").Code)
 
-	// Add a new resource; the cached trie must be invalidated by the version bump.
+	// A resource added after the deployment is invisible to the stage until a
+	// new deployment captures it -- real API Gateway serves the snapshot taken
+	// at CreateDeployment time, not the live configuration.
 	second, err := backend.CreateResource(api.ID, rootID, "second")
 	require.NoError(t, err)
 	wireMock(t, backend, api.ID, second.ID)
+	assert.Equal(t, http.StatusForbidden, rawProxyGet(t, h, e, api.ID, "/second").Code)
 
+	// Redeploying builds a fresh trie for the new snapshot; the old
+	// deployment's cached trie is untouched.
+	_, err = backend.CreateDeployment(api.ID, "prod", "v2")
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rawProxyGet(t, h, e, api.ID, "/second").Code)
+	assert.Equal(t, http.StatusOK, rawProxyGet(t, h, e, api.ID, "/first").Code)
 }
 
 func wireMock(t *testing.T, b *apigateway.InMemoryBackend, apiID, resourceID string) {

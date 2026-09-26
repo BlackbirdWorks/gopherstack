@@ -57,8 +57,10 @@ type Handler struct {
 	// dispatchCache is the op→handler table, built exactly once (see dispatchOnce)
 	// instead of per request.
 	dispatchCache map[string]actionFn
-	// trieCache holds the per-API routing trie (map[apiID]*trieCacheEntry). It is
-	// rebuilt only when the API's resource-set version changes.
+	// trieCache holds the per-deployment routing trie (map[deploymentID]*resourcePathTrie).
+	// A deployment's snapshot is immutable once created, so entries are built once and
+	// evicted only when their deployment is deleted (see deleteDeploymentAction /
+	// deleteRestAPIAction).
 	trieCache sync.Map
 	// dispatchOnce guards the one-time build of dispatchCache.
 	dispatchOnce sync.Once

@@ -137,6 +137,51 @@ overall: A            # closed all 5 documented gaps + 3 deferred items from the
 # deliberately does not reject CreateDeployment for a method with no integration —
 # guessing a rejection rule is worse than not enforcing one (a wrong rejection breaks
 # working user code; a missing one only under-enforces).
+# 2026-09-26 follow-up (bd: gopherstack-fum): FIXED the per-deployment snapshot gap the
+# two notes above deferred as structural/out of scope ("Properly fixing this needs a
+# real per-deployment snapshot plus stage-to-deployment pinning in the data plane").
+# CreateDeployment (deployment_snapshot.go) now deep-copies the API's resources (with
+# their nested methods, integrations, and method/integration responses), models,
+# request validators, authorizers, gateway responses, and minimumCompressionSize onto
+# the new Deployment's Config field (internal-only, json:"-", not on the real
+# GetDeploymentOutput wire shape -- apiSummary remains the only wire-visible summary,
+# still display-only). The data plane now resolves every stage request against the
+# stage's pinned deployment Config instead of live backend state:
+# handleProxyRequest/routingTrie (proxy.go/proxy_routing.go) resolve resources/methods/
+# integrations from it; runRequestValidator/requestModelSchema (proxy_validation.go)
+# resolve request validators and models from it; runAuthorizer (proxy_authorizer.go)
+# resolves authorizers from it; minCompressSize (proxy_integrations.go) resolves
+# minimumCompressionSize from it. A resource/method/integration edit made after
+# CreateDeployment is now correctly invisible to an already-deployed stage until the
+# next CreateDeployment (proven by TestDeploymentSnapshot_ServesCapturedConfig); a stage
+# repointed to an older deployment via UpdateStage's "/deploymentId" replace correctly
+# rolls back to that deployment's snapshot (same test). Stage variables remain resolved
+# live from the stage (unaffected -- they're stage state, not deployment state,
+# confirmed unchanged by TestDeploymentSnapshot_StageVariables). A stage with
+# DeploymentID == "" (unreachable via the public API today -- CreateStage and
+# CreateDeployment's inline stage creation both require a deploymentId -- but defended
+# against for a restored-from-an-older-snapshot or future-regression stage) 403s with
+# "Missing Authentication Token", the same response real API Gateway returns for an
+# undeployed stage/API ("Why did I receive a 403 Missing Authentication Token error from
+# an API Gateway API endpoint?" lists "you didn't deploy the API" as a cause) --
+# TestHandleProxyRequest_StageWithNoDeployment / TestDeploymentSnapshot_StageWithNoDeployment.
+# The routing-trie cache (h.trieCache) is now keyed by deploymentID instead of RestApi
+# ID -- a deployment's snapshot is immutable once created, so no version-based
+# invalidation is needed, only eviction when the deployment (or its owning RestApi) is
+# deleted (deleteDeploymentAction / deleteRestAPIAction), freeing the snapshot's memory;
+# TestDeleteRestAPI_EvictsTrieCache updated for the new key scheme, still passing.
+# Persistence: Deployment.Config is a new, additive (omitempty) field on the existing
+# deploymentSnapshot DTO -- no snapshot version bump, verified via
+# TestInMemoryBackend_SnapshotRestore_DeploymentConfig (a restored backend can still
+# serve real stage traffic from the restored Config, and a live edit made before the
+# snapshot but after CreateDeployment does not leak into it, proving the deep copy is
+# real). GatewayResponses are captured in the snapshot for completeness/future-proofing
+# even though no proxy code path reads them today (see gaps: DEFAULT_4XX/DEFAULT_5XX
+# etc. are not yet wired into the data plane's error responses at all, unchanged by this
+# pass). apigatewayv2 (HTTP APIs) already had the equivalent fix (gopherstack-cfr1,
+# 2026-09-06) including autoDeploy=true handling; WebSocket APIs there remain a
+# separate, disclosed gap (apigatewayv2/PARITY.md), out of this pass's scope (v1 has no
+# WebSocket support at all).
 ops:
   UpdateStage: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "prior sweep: PATCH semantics rewritten (/variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields). Prior sweep 2: documentationVersion field + PATCH added; /canarySettings/stageVariableOverrides whole-map-replace PATCH added; caching/dataEncrypted + caching/unauthorizedCacheControlHeaderStrategy per-route PATCH properties added. 2026-09-08 (gopherstack-9ard): FIXED — deploymentId was never validated against real Deployment state (unlike CreateStage's existing guard); now rejects a nonexistent deploymentId with NotFoundException. See the dated note above for detail; TestUpdateStage_RejectsNonexistentDeploymentID."}
   UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH /binaryMediaTypes/{escaped} add/remove merge, minimumCompressionSize coercion. This sweep: ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode fields added (Create + Update + PATCH replace); Description switched to *string so PATCH remove on /description actually clears it (was a silent no-op) — see Notes"}
@@ -180,7 +225,7 @@ ops:
   PutIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GetIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "inline stage create/update via stageName param. 2026-09-08 (gopherstack-9ard): the 'real snapshot of resources/methods/integrations at deploy time' claim previously on this line was INACCURATE — corrected, see the dated note above and gopherstack-fum's gaps entry below: apiSummary is a display-only metadata summary, NOT something the data plane routes against. Investigated whether a method with no integration should reject CreateDeployment (BadRequestException) — found no authoritative evidence (neither the pinned Go SDK module nor botocore's wire model documents this precondition; only third-party tooling claimed it), so deliberately left unenforced rather than guessed at. Deploying an API with zero resources/methods at all remains allowed, matching real AWS (TestBackend_DeploymentAndStage/create_deployment_and_stage)."}
+  CreateDeployment: {wire: ok, errors: ok, state: fixed, persist: fixed, note: "inline stage create/update via stageName param. 2026-09-08 (gopherstack-9ard): the 'real snapshot of resources/methods/integrations at deploy time' claim previously on this line was INACCURATE at the time — apiSummary is a display-only metadata summary, NOT something the data plane routes against, and no other snapshot existed yet. FIXED 2026-09-26 (gopherstack-fum): CreateDeployment now also captures a real Deployment.Config (deployment_snapshot.go, internal-only -- json:\"-\", not part of the real GetDeploymentOutput wire shape) deep-copying the API's resources (with their nested methods, integrations, and method/integration responses), models, request validators, authorizers, gateway responses, and minimumCompressionSize; the data plane (proxy.go/proxy_routing.go/proxy_validation.go/proxy_authorizer.go/proxy_integrations.go) now resolves every stage request against the stage's pinned deployment's Config instead of live state -- see the dated note below and Notes. apiSummary itself remains display-only, unchanged. Investigated whether a method with no integration should reject CreateDeployment (BadRequestException) — found no authoritative evidence (neither the pinned Go SDK module nor botocore's wire model documents this precondition; only third-party tooling claimed it), so deliberately left unenforced rather than guessed at. Deploying an API with zero resources/methods at all remains allowed, matching real AWS (TestBackend_DeploymentAndStage/create_deployment_and_stage)."}
   GetDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDeployments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified against apigateway@v1.42.4 serializers.go (prior grading was response-only). limit/position were never read at all -- every call returned the full unpaginated list regardless of Limit; now paginated via paginatePageByKey. Also found and fixed a service-wide bug in injectJSONFieldAPIGW: query-string limit was always JSON-quoted, so a real client's numeric Limit 500'd on json.Unmarshal into every Limit-typed handler struct (affected every list op with pagination, not just this one) -- limit is now injected as a bare JSON number."}
   DeleteDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-08 (gopherstack-9ard): audited the 'delete a deployment a stage still references' precondition — ALREADY CORRECT (rejects with BadRequestException, matching api_op_DeleteDeployment.go's doc comment), pinned by pre-existing TestDeleteDeployment_StageProtection. No change needed."}
@@ -269,7 +314,6 @@ gaps: []
 items_still_open:
   - "UpdateAuthorizer's PATCH table documents \"/authType\" (types.Authorizer.AuthType, distinct from the existing \"Type\"/authorizerType) and UpdateRestApi's documents \"/securityPolicy\" (only DomainName has SecurityPolicy today) -- both real, doc-documented PATCH paths with no backing model field anywhere in this backend. Unmodeled, not a casing or plumbing bug; not fabricated. (gopherstack-6q5h)"
   - "'AWS' (non-proxy) integration target: sqs path-style and sns action-style dispatch for real (gopherstack-is2a); every other target (DynamoDB, Step Functions, S3, ...) is still accepted at PutIntegration with no validation and unconditionally invoked as Lambda at request time. Fixing the rest needs per-service invoker interfaces or a real VTL + AWS query-protocol encoder -- out of a targeted pass's scope. (gopherstack-fum)"
-  - "CreateDeployment does not freeze a routable snapshot: the data plane always matches the RestApi's LIVE resource/method/integration state, not the state at deploy time (Deployment.ApiSummary is display-only metadata). Reproduced by deleting a resource post-deploy with no redeploy -- the already-deployed stage 403s immediately. Fixing this needs a real per-deployment snapshot plus stage-to-deployment pinning in the data plane, a substantial redesign; deliberately not attempted in a targeted pass. (gopherstack-fum, gopherstack-9ard)"
 deferred:
   - "Method.AuthorizationScopes is not modeled (not on Method, not on PutMethodInput/CreateAuthorizerInput's COGNITO_USER_POOLS flow) even though UpdateMethod's \"/authorizationScopes\" is documented add/remove-supported; UpdateMethod explicitly REJECTS this path (BadRequestException) rather than silently no-opping. Needs PutMethod/PutMethodInput plumbing too, a larger change than a PATCH-focused pass. (gopherstack-oius)"
 leaks: {status: fixed, note: "no new goroutines/tickers/persistent state introduced this sweep — all new code (StageKeyInput resolution, patch.go's new resolvers/stagedValue helper) is request-scoped and synchronous under the existing coarse b.mu; UpdateUsagePlan's missing defensive copy (return p instead of a copy, found while extending it for per-route throttle) was also fixed, closing a latent aliasing hole where a caller mutating the returned *UsagePlan would have corrupted backend state directly. 2026-09-04 (bd: gopherstack-fum): FIXED -- h.trieCache (the compiled per-API routing-trie cache, a sync.Map keyed by RestApi ID) was never evicted on DeleteRestApi; since IDs are fresh-random per CreateRestApi a deleted API's cached trie could never be overwritten by a later Store and stayed in process memory for the server's remaining lifetime. Fixed in handler_rest_apis.go's deleteRestAPIAction (h.trieCache.Delete after a successful backend delete); TestDeleteRestAPI_EvictsTrieCache confirmed failing pre-fix, passing post-fix."}

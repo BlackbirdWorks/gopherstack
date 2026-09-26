@@ -75,11 +75,14 @@ func fromResourceSnapshot(v *resourceSnapshot) *Resource {
 }
 
 type deploymentSnapshot struct {
-	APISummary  map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
-	CreatedDate unixEpochTime                        `json:"createdDate"`
-	ID          string                               `json:"id"`
-	RestAPIID   string                               `json:"restApiId"`
-	Description string                               `json:"description,omitempty"`
+	APISummary map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
+	// Config is additive: an older snapshot without it simply restores a
+	// deployment with a nil Config, same as any pre-this-feature deployment.
+	Config      *DeploymentConfig `json:"config,omitempty"`
+	CreatedDate unixEpochTime     `json:"createdDate"`
+	ID          string            `json:"id"`
+	RestAPIID   string            `json:"restApiId"`
+	Description string            `json:"description,omitempty"`
 }
 
 func deploymentSnapshotKey(v *deploymentSnapshot) string { return deploymentKey(v.RestAPIID, v.ID) }
@@ -91,6 +94,7 @@ func toDeploymentSnapshot(v *Deployment) *deploymentSnapshot {
 		Description: v.Description,
 		CreatedDate: v.CreatedDate,
 		APISummary:  v.APISummary,
+		Config:      v.Config,
 	}
 }
 
@@ -101,6 +105,7 @@ func fromDeploymentSnapshot(v *deploymentSnapshot) *Deployment {
 		Description: v.Description,
 		CreatedDate: v.CreatedDate,
 		APISummary:  v.APISummary,
+		Config:      v.Config,
 	}
 }
 

@@ -55,6 +55,19 @@ func gatewayResponseDefaultStatus(responseType string) string {
 	}
 }
 
+// gatewayResponseTypes lists every AWS gateway response type, used both to
+// list a REST API's responses (defaulting the ones never PUT) and to build a
+// deployment's gateway-response snapshot (see deployment_snapshot.go).
+//
+//nolint:gochecknoglobals // fixed lookup table, mirrors dirtyTableNames elsewhere
+var gatewayResponseTypes = []string{
+	"UNAUTHORIZED", "ACCESS_DENIED", "RESOURCE_NOT_FOUND",
+	"THROTTLED", "QUOTA_EXCEEDED", "BAD_REQUEST_BODY",
+	"BAD_REQUEST_PARAMETERS", "REQUEST_TOO_LARGE",
+	"AUTHORIZER_FAILURE", "AUTHORIZER_CONFIGURATION_ERROR",
+	"DEFAULT_4XX", "DEFAULT_5XX",
+}
+
 // GetGatewayResponses retrieves all gateway responses for a REST API.
 func (b *InMemoryBackend) GetGatewayResponses(restAPIID string) ([]GatewayResponse, error) {
 	b.mu.RLock("GetGatewayResponses")
@@ -64,17 +77,9 @@ func (b *InMemoryBackend) GetGatewayResponses(restAPIID string) ([]GatewayRespon
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	defaultTypes := []string{
-		"UNAUTHORIZED", "ACCESS_DENIED", "RESOURCE_NOT_FOUND",
-		"THROTTLED", "QUOTA_EXCEEDED", "BAD_REQUEST_BODY",
-		"BAD_REQUEST_PARAMETERS", "REQUEST_TOO_LARGE",
-		"AUTHORIZER_FAILURE", "AUTHORIZER_CONFIGURATION_ERROR",
-		"DEFAULT_4XX", "DEFAULT_5XX",
-	}
+	result := make([]GatewayResponse, 0, len(gatewayResponseTypes))
 
-	result := make([]GatewayResponse, 0, len(defaultTypes))
-
-	for _, rt := range defaultTypes {
+	for _, rt := range gatewayResponseTypes {
 		key := gatewayResponseKey(restAPIID, rt)
 		if gr, ok := b.gatewayResponses.Get(key); ok {
 			result = append(result, *gr)
