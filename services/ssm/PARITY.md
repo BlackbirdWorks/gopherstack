@@ -1657,3 +1657,29 @@ additive-only.
 
 Added `leak_main_test.go`. Janitor StartWorker test call sites already
 cancel their ctx via `context.WithCancel(t.Context())`. `go test -race -count=2` clean.
+
+## 2026-09-26 de-stub sweep: fake-success "stub compat" paths
+
+`UpdateMaintenanceWindowTarget`/`UpdateMaintenanceWindowTask` fabricated a
+200 success (echoing the request IDs back) for a non-existent
+`WindowTargetId`/`WindowTaskId` instead of the real `DoesNotExistException`
+both ops' own deserializers model. `DisassociateOpsItemRelatedItem` did the
+same for an unknown `OpsItemId`/`AssociationId`, now `OpsItemNotFoundException`
+/ new `OpsItemRelatedItemAssociationNotFoundException` (`errors.go`). All
+three also now reject an empty required ID with `ValidationException`
+instead of silently proceeding. `GetMaintenanceWindowTask`'s doc comment
+was stale (code already validated/errored correctly) -- corrected, no
+behavior change.
+
+Test coverage: `error_path_sweep_test.go` -- two new table-driven real
+`aws-sdk-go-v2` client tests for the maintenance-window ops (not-found via
+`errors.As(*ssmtypes.DoesNotExistException)`, empty-ID via
+`smithy.APIError.ErrorCode() == "ValidationException"`), one for
+`DisassociateOpsItemRelatedItem`. Updated `maintenance_window_test.go`'s
+two stub-ratifying tests to assert the new 400/DoesNotExistException
+instead of 200.
+
+Gates: `gofmt -l`, `go build ./...`, `go vet ./services/ssm/...`,
+`go test -race -count=1 ./services/ssm/...`, `golangci-lint run
+./services/ssm/...` (0 issues), `go run ./cmd/parityfmtcheck -dir services`
+all clean.

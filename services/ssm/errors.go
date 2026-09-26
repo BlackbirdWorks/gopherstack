@@ -44,6 +44,11 @@ var (
 	// still referenced by a registered task. TargetInUseException is the
 	// real declared exception (ssm@v1.77.0 types/errors.go).
 	ErrMaintenanceWindowTargetInUse = errors.New("TargetInUseException")
+	// ErrOpsItemRelatedItemAssociationNotFound is returned by
+	// DisassociateOpsItemRelatedItem when AssociationId doesn't match any
+	// related item on the OpsItem. OpsItemRelatedItemAssociationNotFoundException
+	// is the op's own declared exception (ssm@v1.77.0 deserializers.go).
+	ErrOpsItemRelatedItemAssociationNotFound = errors.New("OpsItemRelatedItemAssociationNotFoundException")
 )
 var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")
