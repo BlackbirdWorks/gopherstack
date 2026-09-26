@@ -2654,6 +2654,7 @@ func TestTerraform_AWSConfig(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockAWSConfig(t)
 			runTFTest(t, tc)
 		})
 	}
@@ -5939,6 +5940,54 @@ func lockOrganizations(t *testing.T) {
 	t.Helper()
 	organizationsMu.Lock()
 	t.Cleanup(organizationsMu.Unlock)
+}
+
+// Like organizationsMu, each mutex guards an account/region singleton whose second
+// create fails as in AWS, so fixtures sharing it must not run concurrently.
+//
+//nolint:gochecknoglobals // shared across parallel fixtures
+var (
+	guarddutyMu   sync.Mutex
+	securityhubMu sync.Mutex
+	macie2Mu      sync.Mutex
+	detectiveMu   sync.Mutex
+	awsConfigMu   sync.Mutex
+)
+
+// lockGuardDuty holds guarddutyMu until the test's destroy cleanup has run.
+func lockGuardDuty(t *testing.T) {
+	t.Helper()
+	guarddutyMu.Lock()
+	t.Cleanup(guarddutyMu.Unlock)
+}
+
+// lockSecurityHub holds securityhubMu until the test's destroy cleanup has run.
+func lockSecurityHub(t *testing.T) {
+	t.Helper()
+	securityhubMu.Lock()
+	t.Cleanup(securityhubMu.Unlock)
+}
+
+// lockMacie2 holds macie2Mu until the test's destroy cleanup has run.
+func lockMacie2(t *testing.T) {
+	t.Helper()
+	macie2Mu.Lock()
+	t.Cleanup(macie2Mu.Unlock)
+}
+
+// lockDetective holds detectiveMu until destroy runs; DeleteGraph on an already
+// deleted graph would otherwise fail the second fixture's destroy.
+func lockDetective(t *testing.T) {
+	t.Helper()
+	detectiveMu.Lock()
+	t.Cleanup(detectiveMu.Unlock)
+}
+
+// lockAWSConfig holds awsConfigMu until the test's destroy cleanup has run.
+func lockAWSConfig(t *testing.T) {
+	t.Helper()
+	awsConfigMu.Lock()
+	t.Cleanup(awsConfigMu.Unlock)
 }
 
 // TestTerraform_MWAA provisions an MWAA environment via Terraform, then verifies
