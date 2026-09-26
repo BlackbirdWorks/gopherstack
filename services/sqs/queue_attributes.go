@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
-	"time"
 )
 
 // GetQueueAttributes returns queue attributes, computing dynamic ones on the fly.
@@ -98,7 +97,7 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 
 	mergeQueueAttributes(q.Attributes, input.Attributes)
 
-	q.Attributes[attrLastModifiedTimestamp] = strconv.FormatInt(time.Now().Unix(), 10)
+	q.Attributes[attrLastModifiedTimestamp] = strconv.FormatInt(b.now().Unix(), 10)
 
 	return nil
 }

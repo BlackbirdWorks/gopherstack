@@ -382,7 +382,7 @@ func (b *InMemoryBackend) pollReceive(
 	input *ReceiveMessageInput,
 	waitSecs int,
 ) (*ReceiveMessageOutput, error) {
-	deadline := time.Now().Add(time.Duration(waitSecs) * time.Second)
+	deadline := b.now().Add(time.Duration(waitSecs) * time.Second)
 
 	const recheckInterval = time.Second
 
@@ -402,7 +402,7 @@ func (b *InMemoryBackend) pollReceive(
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
 
-		remaining := time.Until(deadline)
+		remaining := deadline.Sub(b.now())
 		if remaining <= 0 {
 			return &ReceiveMessageOutput{}, nil
 		}
@@ -475,7 +475,7 @@ func (b *InMemoryBackend) receiveOnce(
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	now := time.Now()
+	now := b.now()
 
 	// #54: single-pass prepareAndPickMessages replaces the four-pass sequence.
 	if q.IsFIFO {

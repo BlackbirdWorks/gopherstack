@@ -343,14 +343,14 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	return changeVisibility(q, input.ReceiptHandle, input.VisibilityTimeout)
+	return changeVisibility(q, input.ReceiptHandle, input.VisibilityTimeout, b.now())
 }
 
 // changeVisibility updates the VisibleAt time for an in-flight message by receipt handle.
 // When visibilityTimeout is 0 the message is immediately returned to the visible queue,
 // matching the AWS behaviour where a zero timeout makes a message immediately available.
 // Caller must hold q.mu.
-func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) error {
+func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int, now time.Time) error {
 	// Use inFlightByHandle for lookup; fall back to linear scan if map not populated
 	// (e.g., restored from snapshot before #56 was applied).
 	inf, found := q.inFlightByHandle[receiptHandle]
@@ -372,7 +372,6 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 
 	if visibilityTimeout == 0 {
 		// Move back to the visible queue immediately.
-		now := time.Now()
 		inf.Msg.VisibleAt = now
 		if !tryRouteToDLQ(q, inf.Msg, now) {
 			requeueMessage(q, inf.Msg)
@@ -389,7 +388,7 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 		return nil
 	}
 
-	inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
+	inf.VisibleAt = now.Add(time.Duration(visibilityTimeout) * time.Second)
 
 	return nil
 }
@@ -421,6 +420,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	defer q.mu.Unlock()
 
 	out := &ChangeMessageVisibilityBatchOutput{}
+	now := b.now()
 
 	for _, entry := range input.Entries {
 		if entry.VisibilityTimeout < 0 || entry.VisibilityTimeout > maxVisibilityTimeoutSeconds {
@@ -434,7 +434,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 			continue
 		}
 
-		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout); err != nil {
+		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout, now); err != nil {
 			out.Failed = append(out.Failed, BatchErrorEntry{
 				ID:          entry.ID,
 				Code:        "MessageNotInflight",

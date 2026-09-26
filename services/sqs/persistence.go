@@ -256,7 +256,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			region = b.effectiveRegion("")
 		}
 
-		liveQueues = append(liveQueues, restoreQueueFromSnapshot(qs, region))
+		liveQueues = append(liveQueues, restoreQueueFromSnapshot(qs, region, b.now()))
 	}
 
 	b.queues.Restore(liveQueues)
@@ -295,7 +295,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// Restore the ErrQueueDeletedRecently cooldown, dropping any entry whose
 	// 60-second window has already elapsed since it was snapshotted so the
 	// map doesn't carry stale cooldowns forward indefinitely.
-	now := time.Now()
+	now := b.now()
 	recentlyDeleted := make(map[string]time.Time, len(snap.RecentlyDeleted))
 
 	for key, deletedAtMillis := range snap.RecentlyDeleted {
@@ -311,7 +311,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 }
 
 // restoreQueueFromSnapshot rebuilds a Queue from its persisted snapshot.
-func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
+func restoreQueueFromSnapshot(qs *queueSnapshot, region string, now time.Time) *Queue {
 	if qs.DeduplicationIDs == nil {
 		qs.DeduplicationIDs = make(map[string]time.Time)
 	}
@@ -334,7 +334,6 @@ func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
 		inf.sliceIdx = i
 	}
 
-	now := time.Now()
 	delayedCount := 0
 
 	for _, msg := range qs.Messages {

@@ -75,7 +75,7 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	q.MaxReceiveCount = int(count)
 	q.dlq = dlq
 
-	now := time.Now()
+	now := backend.now()
 
 	q.mu.Lock()
 	defer q.mu.Unlock()
