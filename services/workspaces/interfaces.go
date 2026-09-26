@@ -58,6 +58,8 @@ type StorageBackend interface {
 	DescribeWorkspaceDirectories(
 		ctx context.Context,
 		directoryIDs []string,
+		directoryNames []string,
+		limit int32,
 		nextToken string,
 	) ([]*WorkspaceDirectory, string, error)
 
@@ -166,7 +168,9 @@ type StorageBackend interface {
 	TerminateWorkspacesPoolSession(sessionID string) error
 
 	// Directories
-	RegisterWorkspaceDirectory(directoryID string, subnetIDs []string, tags map[string]string) error
+	RegisterWorkspaceDirectory(
+		directoryID string, subnetIDs []string, tags map[string]string, requestedName string,
+	) error
 	DeregisterWorkspaceDirectory(directoryID string) error
 
 	// Account
@@ -480,8 +484,10 @@ type WorkspaceDirectory struct {
 	Alias                          string
 	State                          string
 	EndpointEncryptionMode         string
+	CustomerUserName               string
 	SubnetIDs                      []string
 	IPGroupIDs                     []string
+	DNSIPAddresses                 []string
 }
 
 // CertificateBasedAuthProperties mirrors types.CertificateBasedAuthProperties.

@@ -114,7 +114,8 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 
 		// Idempotency: if token already seen, return existing job.
 		if clientRequestToken != "" {
-			if existingID, ok := b.expenseClientTokenToJobIDStore(region)[clientRequestToken]; ok {
+			if existingID, ok := b.expenseClientTokenToJobIDStore(region)[clientRequestToken]; ok &&
+				b.clientTokenFresh("expense", region, clientRequestToken, time.Now()) {
 				if existing, ok2 := b.expenseJobs.Get(regionKey(region, existingID)); ok2 {
 					result = cloneExpenseJob(existing)
 					done = true
@@ -140,7 +141,9 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 		trimExpenseJobsIfNeeded(b.expenseJobs, b.expenseJobsByRegion, region, b.maxJobs)
 
 		if clientRequestToken != "" {
-			b.expenseClientTokenToJobIDStore(region)[clientRequestToken] = jobID
+			tokens := b.expenseClientTokenToJobIDStore(region)
+			b.touchClientToken("expense", region, clientRequestToken, tokens, time.Now())
+			tokens[clientRequestToken] = jobID
 		}
 
 		if b.asyncJobDelay == 0 {

@@ -95,14 +95,7 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created endpoint config",
-		"name",
-		ec.EndpointConfigName,
-		"arn",
-		ec.EndpointConfigARN,
-	)
+	log.InfoContext(ctx, "sagemaker: created endpoint config", "name", ec.EndpointConfigName)
 
 	return json.Marshal(map[string]string{"EndpointConfigArn": ec.EndpointConfigARN})
 }

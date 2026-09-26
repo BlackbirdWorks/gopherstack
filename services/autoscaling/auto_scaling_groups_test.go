@@ -104,12 +104,16 @@ func TestInMemoryBackend_AutoScalingGroup(t *testing.T) {
 			},
 		},
 		{
+			// Real AWS silently omits unmatched names from the result rather
+			// than erroring; Terraform's ASG delete waiter relies on this to
+			// observe an empty list once deletion completes.
 			name: "describe_nonexistent_group",
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.DescribeAutoScalingGroups([]string{"no-such-asg"}, nil)
-				require.Error(t, err)
+				groups, err := b.DescribeAutoScalingGroups([]string{"no-such-asg"}, nil)
+				require.NoError(t, err)
+				assert.Empty(t, groups)
 			},
 		},
 		{
@@ -584,8 +588,9 @@ func TestInMemoryBackend_DeletionProtection(t *testing.T) {
 
 			require.NoError(t, delErr)
 
-			_, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"}, nil)
-			require.Error(t, describeErr, "group must be gone after an allowed delete")
+			groups, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"}, nil)
+			require.NoError(t, describeErr)
+			assert.Empty(t, groups, "group must be gone after an allowed delete")
 		})
 	}
 }

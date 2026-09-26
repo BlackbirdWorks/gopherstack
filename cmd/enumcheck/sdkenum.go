@@ -5,6 +5,8 @@ import (
 	"go/parser"
 	"go/token"
 	"strconv"
+	"unicode"
+	"unicode/utf8"
 )
 
 // enumConst is one declared member of a pinned SDK string enum: the Go
@@ -14,6 +16,30 @@ type enumConst struct {
 	value    string
 }
 
+// fieldResolution is how precisely resolveRealField pinned down a
+// gopherstack struct field's real SDK member -- gopherstack-cpztm's core
+// fix: resolve the ONE real member a field maps to, instead of comparing a
+// value against every enum that happens to share its wire key.
+type fieldResolution int
+
+const (
+	// fieldUnknownType: structTypeName has no real pinned-SDK struct of the
+	// same name at all -- nothing to resolve against. Unresolved bucket.
+	fieldUnknownType fieldResolution = iota
+	// fieldAbsent: the real type is known, but no field named wireKey exists
+	// on it or on a directly nested field's own type (one hop) -- the
+	// phantom-field shape (gopherstack-7fps).
+	fieldAbsent
+	// fieldNotEnum: the field exists and its real declared Go type is known,
+	// but that type isn't a named SDK enum (plain *string, *int32, ...) --
+	// never checked, never flagged.
+	fieldNotEnum
+	// fieldIsEnum: the field exists and its real declared type is exactly
+	// one named SDK enum -- the sole candidate to check value membership
+	// against.
+	fieldIsEnum
+)
+
 // enumRegistry is every named string enum this service's pinned SDK
 // declares in types/enums.go: membersByType is the real declared member set
 // per enum type name (e.g. "DataSource" -> {"FLOW_LOGS", ...}), and
@@ -21,12 +47,13 @@ type enumConst struct {
 // back to its owning type and value, for reading a service's own
 // types.XxxEnumMember selector expressions.
 //
-// keyEnumModules, nativeModules, and wireFieldsByType are gopherstack-7fps
-// ground truth, populated only by the per-directory merge in main.go (a
-// registry built directly by loadEnumRegistry, as every existing test in
-// this package does, leaves them nil/empty -- confidentModuleOK treats an
-// empty nativeModules as "nothing to prefer over", never as "refuse
-// everything", so those tests are unaffected):
+// keyEnumModules and nativeModules are gopherstack-7fps ground truth,
+// sdkFieldTypes is gopherstack-cpztm's, all populated only by the
+// per-directory merge in main.go (a registry built directly by
+// loadEnumRegistry, as every existing test in this package does, leaves
+// them nil/empty -- confidentModuleOK treats an empty nativeModules as
+// "nothing to prefer over", never as "refuse everything", so those tests
+// are unaffected):
 //
 //   - keyEnumModules resolves a (wire key, enum type) PAIR -- keyed as
 //     "wireKey\x00EnumType" -- back to every SDK module whose OWN
@@ -51,15 +78,80 @@ type enumConst struct {
 //     whose OWN module name equals the service directory's own basename
 //     (nativeModuleSet in main.go) -- as opposed to a second SDK the
 //     directory also happens to import.
-//   - wireFieldsByType is, per real SDK type name, the full wire-key set
-//     that type's own deserializeDocument<Type> function handles -- ground
-//     truth for checkPhantomField.
+//   - sdkFieldTypes is, per real pinned-SDK struct name (from that module's
+//     own api_op_*.go/types/types.go, via cmd/internal/sdkshape -- the SDK's
+//     own generated code carries no json tags, so the wire name for a
+//     JSON-family field IS the Go field name), the field's own bare declared
+//     Go type name: "ClusterStatus" for an enum-typed field, "string" for a
+//     plain *string, "JobSummary" for a nested struct, etc. Ground truth for
+//     resolveRealField.
 type enumRegistry struct {
-	membersByType    map[string]map[string]bool
-	constByIdent     map[string]enumConst
-	keyEnumModules   map[string]map[string]bool
-	nativeModules    map[string]bool
-	wireFieldsByType map[string]map[string]bool
+	membersByType  map[string]map[string]bool
+	constByIdent   map[string]enumConst
+	keyEnumModules map[string]map[string]bool
+	nativeModules  map[string]bool
+	sdkFieldTypes  map[string]map[string]string
+}
+
+// resolveRealField resolves wireKey on structTypeName to the ONE real SDK
+// member it maps to: a direct field of the real same-named type, or --
+// amplify's Job/JobSummary shape -- a field on a type one of structTypeName's
+// own fields directly nests. This replaces comparing a value against every
+// enum sharing a bare wire key: gopherstack-cpztm's false-positive class.
+//
+// wireKey is looked up as its own Go-exported form (first rune uppercased):
+// enumRegistry.sdkFieldTypes is keyed by the real SDK's own Go field names
+// (from cmd/internal/sdkshape, always PascalCase -- "Status", "ClusterName"),
+// while wireKey comes from gopherstack's own json tag, which mirrors the
+// real WIRE format and so varies by protocol -- restjson1 camelCase
+// ("status", confirmed live against eks's deserializers.go), awsjson1.0/1.1
+// already PascalCase and identical to the Go field name (confirmed against
+// dynamodb's). Uppercasing wireKey's first rune is a correct transform for
+// both: it fixes the restjson1 case and is a no-op where it's already
+// PascalCase.
+func (reg *enumRegistry) resolveRealField(structTypeName, wireKey string) (fieldResolution, string) {
+	fields, known := reg.sdkFieldTypes[structTypeName]
+	if !known {
+		return fieldUnknownType, ""
+	}
+
+	goName := exportedFieldName(wireKey)
+
+	if bareType, ok := fields[goName]; ok {
+		return reg.classifyFieldType(bareType)
+	}
+
+	for _, nestedType := range fields {
+		nestedFields, isStruct := reg.sdkFieldTypes[nestedType]
+		if !isStruct {
+			continue
+		}
+
+		if bareType, ok := nestedFields[goName]; ok {
+			return reg.classifyFieldType(bareType)
+		}
+	}
+
+	return fieldAbsent, ""
+}
+
+// exportedFieldName uppercases wireKey's first rune -- see resolveRealField's
+// doc comment for why this is the right (and only) transform needed.
+func exportedFieldName(wireKey string) string {
+	r, size := utf8.DecodeRuneInString(wireKey)
+	if r == utf8.RuneError {
+		return wireKey
+	}
+
+	return string(unicode.ToUpper(r)) + wireKey[size:]
+}
+
+func (reg *enumRegistry) classifyFieldType(bareType string) (fieldResolution, string) {
+	if _, isEnum := reg.membersByType[bareType]; isEnum {
+		return fieldIsEnum, bareType
+	}
+
+	return fieldNotEnum, ""
 }
 
 func keyEnumModuleKey(wireKey, enumType string) string {

@@ -686,12 +686,14 @@ type createPipelineResponse struct {
 }
 
 // pipelineReprocessingSummary is a typed reprocessing summary for list/describe responses.
+// types.ReprocessingSummary (iotanalytics@v1.32.0) has exactly three members --
+// id/status/creationTime -- verified against
+// awsRestjson1_deserializeDocumentReprocessingSummary, which recognizes no
+// startTime/endTime key at all.
 type pipelineReprocessingSummary struct {
 	ID           string  `json:"id"`
 	Status       string  `json:"status"`
 	CreationTime float64 `json:"creationTime"`
-	StartTime    float64 `json:"startTime,omitempty"`
-	EndTime      float64 `json:"endTime,omitempty"`
 }
 
 // pipelineSummary is a summary of a pipeline for list operations. AWS's

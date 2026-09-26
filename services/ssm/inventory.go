@@ -565,7 +565,58 @@ func (b *InMemoryBackend) ListComplianceItems(
 	return &ListComplianceItemsOutput{NextToken: nextToken, ComplianceItems: all[startIdx:end]}, nil
 }
 
-// buildComplianceTallies accumulates compliant/non-compliant item counts per ComplianceType.
+// bumpSeverity increments s's counter matching item's Severity
+// (types.ComplianceSeverity: CRITICAL/HIGH/MEDIUM/LOW/INFORMATIONAL), falling
+// back to UnspecifiedCount for an empty or unrecognized value rather than
+// dropping it silently.
+func bumpSeverity(s *SeveritySummary, severity string) {
+	switch severity {
+	case "CRITICAL":
+		s.CriticalCount++
+	case "HIGH":
+		s.HighCount++
+	case "MEDIUM":
+		s.MediumCount++
+	case "LOW":
+		s.LowCount++
+	case "INFORMATIONAL":
+		s.InformationalCount++
+	default:
+		s.UnspecifiedCount++
+	}
+}
+
+// Severity ranks for severityRank -- higher is more severe.
+const (
+	severityRankInformational = iota + 1
+	severityRankLow
+	severityRankMedium
+	severityRankHigh
+	severityRankCritical
+)
+
+// severityRank orders ComplianceSeverity from most to least severe, used to
+// derive ResourceComplianceSummaryItem.OverallSeverity from a resource's
+// items.
+func severityRank(severity string) int {
+	switch severity {
+	case "CRITICAL":
+		return severityRankCritical
+	case "HIGH":
+		return severityRankHigh
+	case "MEDIUM":
+		return severityRankMedium
+	case "LOW":
+		return severityRankLow
+	case "INFORMATIONAL":
+		return severityRankInformational
+	default:
+		return 0
+	}
+}
+
+// buildComplianceTallies accumulates compliant/non-compliant item counts and
+// their per-severity breakdown per ComplianceType.
 func buildComplianceTallies(store map[string][]ComplianceItem) map[string]*complianceTally {
 	tallies := make(map[string]*complianceTally)
 	for _, items := range store {
@@ -579,8 +630,10 @@ func buildComplianceTallies(store map[string][]ComplianceItem) map[string]*compl
 			}
 			if item.Status == complianceStatusCompliant {
 				tallies[ct].compliantCount++
+				bumpSeverity(&tallies[ct].compliantSeverity, item.Severity)
 			} else {
 				tallies[ct].nonCompliantCount++
+				bumpSeverity(&tallies[ct].nonCompliantSeverity, item.Severity)
 			}
 		}
 	}
@@ -604,10 +657,12 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 		summaries = append(summaries, ComplianceSummaryItem{
 			ComplianceType: ct,
 			CompliantSummary: ComplianceCountSummary{
-				CompliantCount: t.compliantCount,
+				CompliantCount:  t.compliantCount,
+				SeveritySummary: &t.compliantSeverity,
 			},
 			NonCompliantSummary: ComplianceCountSummary{
 				NonCompliantCount: t.nonCompliantCount,
+				SeveritySummary:   &t.nonCompliantSeverity,
 			},
 		})
 	}
@@ -658,6 +713,52 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 	}, nil
 }
 
+// resourceComplianceSummaryFor tallies one resource's compliance items into
+// a ResourceComplianceSummaryItem: counts, per-status severity breakdown,
+// and OverallSeverity (the highest real severity among its items).
+func resourceComplianceSummaryFor(resourceID string, items []ComplianceItem) ResourceComplianceSummaryItem {
+	compliant := 0
+	nonCompliant := 0
+	overallSeverity := "UNSPECIFIED"
+
+	var compliantSeverity, nonCompliantSeverity SeveritySummary
+
+	for _, item := range items {
+		if item.Status == complianceStatusCompliant {
+			compliant++
+			bumpSeverity(&compliantSeverity, item.Severity)
+		} else {
+			nonCompliant++
+			bumpSeverity(&nonCompliantSeverity, item.Severity)
+		}
+
+		if severityRank(item.Severity) > severityRank(overallSeverity) {
+			overallSeverity = item.Severity
+		}
+	}
+
+	status := complianceStatusCompliant
+	if nonCompliant > 0 {
+		status = complianceStatusNonCompliant
+	}
+
+	return ResourceComplianceSummaryItem{
+		ResourceID:      resourceID,
+		ResourceType:    items[0].ResourceType,
+		ComplianceType:  items[0].ComplianceType,
+		OverallSeverity: overallSeverity,
+		Status:          status,
+		CompliantSummary: ComplianceCountSummary{
+			CompliantCount:  compliant,
+			SeveritySummary: &compliantSeverity,
+		},
+		NonCompliantSummary: ComplianceCountSummary{
+			NonCompliantCount: nonCompliant,
+			SeveritySummary:   &nonCompliantSeverity,
+		},
+	}
+}
+
 // ListResourceComplianceSummaries returns per-resource compliance summaries
 // derived from stored compliance items.
 func (b *InMemoryBackend) ListResourceComplianceSummaries(
@@ -676,35 +777,7 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 			continue
 		}
 
-		compliant := 0
-		nonCompliant := 0
-
-		for _, item := range items {
-			if item.Status == complianceStatusCompliant {
-				compliant++
-			} else {
-				nonCompliant++
-			}
-		}
-
-		status := complianceStatusCompliant
-		if nonCompliant > 0 {
-			status = complianceStatusNonCompliant
-		}
-
-		summaries = append(summaries, ResourceComplianceSummaryItem{
-			ResourceID:      resourceID,
-			ResourceType:    items[0].ResourceType,
-			ComplianceType:  items[0].ComplianceType,
-			OverallSeverity: "INFORMATIONAL",
-			Status:          status,
-			CompliantSummary: ComplianceCountSummary{
-				CompliantCount: compliant,
-			},
-			NonCompliantSummary: ComplianceCountSummary{
-				NonCompliantCount: nonCompliant,
-			},
-		})
+		summaries = append(summaries, resourceComplianceSummaryFor(resourceID, items))
 	}
 
 	sort.Slice(summaries, func(i, j int) bool {

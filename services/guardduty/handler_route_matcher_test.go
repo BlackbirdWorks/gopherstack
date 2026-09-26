@@ -44,6 +44,34 @@ func routeMatcherContext(t *testing.T, method, path string) *echo.Context {
 	return c
 }
 
+// routeMatcherContextSignedAs is routeMatcherContext plus a minimal SigV4
+// Authorization header so RouteMatcher's svc-scoped checks see a signing
+// service.
+func routeMatcherContextSignedAs(t *testing.T, method, path, svc string) *echo.Context {
+	t.Helper()
+
+	c := routeMatcherContext(t, method, path)
+	c.Request().Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20260101/us-east-1/"+svc+"/aws4_request")
+
+	return c
+}
+
+// TestRouteMatcher_AdminListDisambiguatesBySigV4Service is a regression
+// guard for a RouteMatcher prefix collision: Macie2's
+// ListOrganizationAdminAccounts and GuardDuty's own op of the same name are
+// byte-for-byte the same (GET, "/admin") shape, so only the SigV4 signing
+// service can tell them apart.
+func TestRouteMatcher_AdminListDisambiguatesBySigV4Service(t *testing.T) {
+	t.Parallel()
+
+	h := guardduty.NewHandler(guardduty.NewInMemoryBackend("123456789012", "us-east-1"))
+
+	assert.True(t, h.RouteMatcher()(routeMatcherContextSignedAs(t, http.MethodGet, "/admin", "guardduty")),
+		"GET /admin signed as guardduty is GuardDuty's ListOrganizationAdminAccounts")
+	assert.False(t, h.RouteMatcher()(routeMatcherContextSignedAs(t, http.MethodGet, "/admin", "macie2")),
+		"GET /admin signed as macie2 is Macie2's ListOrganizationAdminAccounts")
+}
+
 // TestRouteMatcher_RecognizesServicePaths checks that RouteMatcher accepts
 // every top-level path prefix a real GuardDuty client can hit and rejects
 // paths belonging to other services.
@@ -64,8 +92,33 @@ func TestRouteMatcher_RecognizesServicePaths(t *testing.T) {
 		{name: "malware-protection-plan", method: http.MethodPost, path: "/malware-protection-plan", want: true},
 		{name: "malware-scan", method: http.MethodPost, path: "/malware-scan/start", want: true},
 		{name: "admin", method: http.MethodGet, path: "/admin", want: true},
+		{name: "admin enable", method: http.MethodPost, path: "/admin/enable", want: true},
+		{name: "admin disable", method: http.MethodPost, path: "/admin/disable", want: true},
+		// A blanket HasPrefix(path, "/admin") swallowed these Macie2 paths
+		// (RouteMatcher prefix collision); GuardDuty never routes a bare
+		// POST /admin (that's Macie2's EnableOrganizationAdminAccount) or
+		// /admin/configuration (Macie2's UpdateOrganizationConfiguration).
+		{
+			name: "macie2 enable organization admin account not claimed", method: http.MethodPost,
+			path: "/admin", want: false,
+		},
+		{
+			name: "macie2 organization configuration not claimed", method: http.MethodPost,
+			path: "/admin/configuration", want: false,
+		},
 		{name: "invitation", method: http.MethodGet, path: "/invitation", want: true},
 		{name: "organization", method: http.MethodGet, path: "/organization/statistics", want: true},
+		// A blanket HasPrefix(path, "/organization") swallowed these
+		// SecurityHub paths (RouteMatcher prefix collision); GuardDuty only
+		// ever routes /organization/statistics.
+		{
+			name: "securityhub organization admin enable not claimed", method: http.MethodPost,
+			path: "/organization/admin/enable", want: false,
+		},
+		{
+			name: "securityhub organization configuration not claimed", method: http.MethodPost,
+			path: "/organization/configuration", want: false,
+		},
 		{name: "object-malware-scan", method: http.MethodPost, path: "/object-malware-scan/send", want: true},
 		{
 			name: "tags for a guardduty ARN", method: http.MethodGet,

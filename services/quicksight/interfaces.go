@@ -110,6 +110,7 @@ type StorageBackend interface {
 	ListIngestions(accountID, dataSetID string, maxResults int32, nextToken string) ([]*Ingestion, string, error)
 
 	// Dashboards
+	ResolveSourceEntityDefinition(sourceEntityArn string) map[string]any
 	CreateDashboard(
 		accountID, dashboardID, name, themeArn, versionDescription string,
 		definition, publishOptions map[string]any,
@@ -813,6 +814,22 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*LimitsProfile, string, error)
+
+	BatchDescribeUserLimits(
+		accountID string, users []UserLimitsQuery, resourceTypes []string,
+	) ([]UserLimits, []UserLimitsError)
+
+	// Q Apps (console-only creation; see AddAppInternal)
+	DescribeApp(accountID, appID string) (*App, error)
+	DeleteApp(accountID, appID string) error
+	ListApps(accountID string, maxResults int32, nextToken string) ([]*App, string, error)
+	SearchApps(
+		accountID string, filters []SearchFilter, maxResults int32, nextToken string,
+	) ([]*App, string, error)
+	DescribeAppPermissions(accountID, appID string) (*App, []ResourcePermission, error)
+	UpdateAppPermissions(
+		accountID, appID string, grant, revoke []ResourcePermission, visibility string,
+	) (*App, []ResourcePermission, error)
 
 	AccountID() string
 	Region() string

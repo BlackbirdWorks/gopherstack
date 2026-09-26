@@ -88,6 +88,22 @@ func caPastRestorationWindow(ca *CertificateAuthority, now time.Time) bool {
 	return ca != nil && ca.Status == caStatusDeleted && !ca.RestorableUntil.IsZero() && now.After(ca.RestorableUntil)
 }
 
+// pruneExpiredCertificateAuthoritiesLocked evicts every CA past its
+// restoration window from b.cas. caGet/casInRegion already hide these CAs
+// from every read (see caPastRestorationWindow), matching real AWS, which
+// "permanently and irrevocably deletes a CA once its restoration window
+// ends" -- but until now nothing ever removed the row, so a long-running
+// emulator's create/delete churn grew b.cas unbounded, the same leak class
+// fixed for ec2 (c254cd795), ecs (3fa9337a8), and medialive
+// (gopherstack-f9w3k). Caller must hold the write lock.
+func (b *InMemoryBackend) pruneExpiredCertificateAuthoritiesLocked(now time.Time) {
+	for _, ca := range b.cas.All() {
+		if caPastRestorationWindow(ca, now) {
+			b.cas.Delete(regionKey(ca.region, ca.ARN))
+		}
+	}
+}
+
 // idempotencyCacheKey scopes an idempotency-token lookup by region, operation
 // name, and the token itself, so a token reused across different regions or
 // operations is never conflated.
@@ -125,9 +141,23 @@ func (b *InMemoryBackend) rememberIdempotency(region, op, token, resourceARN str
 		return
 	}
 
+	b.sweepIdempotencyLocked(now)
+
 	b.idempotency[idempotencyCacheKey(region, op, token)] = idempotencyRecord{
 		resourceARN: resourceARN,
 		expiresAt:   now.Add(idempotencyWindow),
+	}
+}
+
+// sweepIdempotencyLocked deletes idempotency entries past their expiresAt so the map
+// does not grow unbounded across a long-running backend. idempotentResourceARN already
+// treats an expired entry as absent; this just reclaims its memory. Caller must hold
+// the write lock.
+func (b *InMemoryBackend) sweepIdempotencyLocked(now time.Time) {
+	for k, rec := range b.idempotency {
+		if now.After(rec.expiresAt) {
+			delete(b.idempotency, k)
+		}
 	}
 }
 

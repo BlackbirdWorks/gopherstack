@@ -117,13 +117,13 @@ func TestFIS_PersistenceSnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := fis.NewTestBackend()
+			b := fis.NewTestBackend(t)
 			tt.setup(b)
 
 			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
-			b2 := fis.NewTestBackend()
+			b2 := fis.NewTestBackend(t)
 			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
@@ -139,7 +139,7 @@ func TestFIS_PersistenceSnapshotRestore(t *testing.T) {
 func TestFIS_PersistenceFullStateRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	b.InjectTemplate(&fis.ExperimentTemplate{
 		ID:             "EXT-full1",
@@ -175,7 +175,7 @@ func TestFIS_PersistenceFullStateRoundTrip(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := fis.NewTestBackend()
+	b2 := fis.NewTestBackend(t)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.TemplateCount())
@@ -213,7 +213,7 @@ func TestFIS_PersistenceFullStateRoundTrip(t *testing.T) {
 func TestFIS_PersistenceIncompatibleVersionDiscarded(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.InjectTemplate(&fis.ExperimentTemplate{
 		ID:      "EXT-stale",
 		Arn:     "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-stale",
@@ -236,7 +236,7 @@ func TestFIS_PersistenceIncompatibleVersionDiscarded(t *testing.T) {
 func TestFIS_PersistenceMalformedSnapshotErrors(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	err := b.Restore(t.Context(), []byte("{not valid json"))
 	assert.Error(t, err)

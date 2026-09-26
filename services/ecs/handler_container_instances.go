@@ -3,6 +3,7 @@ package ecs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -242,12 +243,13 @@ type attributeInput struct {
 }
 
 type listAttributesInput struct {
-	Cluster       string `json:"cluster,omitempty"`
-	TargetType    string `json:"targetType,omitempty"`
-	AttributeName string `json:"attributeName,omitempty"`
-	TargetID      string `json:"targetId,omitempty"`
-	NextToken     string `json:"nextToken,omitempty"`
-	MaxResults    int    `json:"maxResults,omitempty"`
+	Cluster        string `json:"cluster,omitempty"`
+	TargetType     string `json:"targetType,omitempty"`
+	AttributeName  string `json:"attributeName,omitempty"`
+	AttributeValue string `json:"attributeValue,omitempty"`
+	TargetID       string `json:"targetId,omitempty"`
+	NextToken      string `json:"nextToken,omitempty"`
+	MaxResults     int    `json:"maxResults,omitempty"`
 }
 
 type listAttributesOutput struct {
@@ -259,6 +261,12 @@ func (h *Handler) handleListAttributes(
 	_ context.Context,
 	in *listAttributesInput,
 ) (*listAttributesOutput, error) {
+	// ecs@v1.96.0 api_op_ListAttributes.go's AttributeValue doc: "You must
+	// also specify an attribute name to use this parameter."
+	if in.AttributeValue != "" && in.AttributeName == "" {
+		return nil, fmt.Errorf("%w: attributeName is required when attributeValue is specified", ErrInvalidParameter)
+	}
+
 	attrs, err := h.Backend.ListAttributes(in.Cluster, in.TargetType, in.AttributeName, in.TargetID)
 	if err != nil {
 		return nil, err
@@ -266,6 +274,10 @@ func (h *Handler) handleListAttributes(
 
 	views := make([]attributeInput, 0, len(attrs))
 	for _, a := range attrs {
+		if in.AttributeValue != "" && a.Value != in.AttributeValue {
+			continue
+		}
+
 		views = append(views, attributeInput(a))
 	}
 

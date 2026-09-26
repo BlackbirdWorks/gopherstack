@@ -7,7 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
@@ -23,6 +25,7 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -60,6 +63,9 @@ func newDependentServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
 	b.IoT = iotbackend.NewHandler(iotbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), nil)
 	b.Pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.EMR = emrbackend.NewHandler(emrbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.AWSConfig = awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackendWithMeta("000000000000", "us-east-1"))
+	b.SageMaker = sagemakerbackend.NewHandler(sagemakerbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.Athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend("us-east-1", "000000000000"))
 
 	return b
 }
@@ -211,7 +217,7 @@ func TestResourceCreator_DependentServiceTypes_NilBackends(t *testing.T) {
 			assert.NotEmpty(t, physID)
 
 			// Delete should also be a no-op without a backend.
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -407,7 +413,7 @@ func TestResourceCreator_DependentServiceTypes_RealBackends(t *testing.T) {
 			}
 
 			// Delete should succeed.
-			err = rc.Delete(ctx, tt.resourceType, physID, nil)
+			err = rc.Delete(ctx, tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -440,11 +446,11 @@ func TestResourceCreator_EFSMountTargetAfterFileSystem(t *testing.T) {
 	require.NotEmpty(t, mtID)
 
 	// Delete mount target.
-	err = rc.Delete(ctx, "AWS::EFS::MountTarget", mtID, nil)
+	err = rc.Delete(ctx, "AWS::EFS::MountTarget", mtID, nil, nil)
 	require.NoError(t, err)
 
 	// Delete file system.
-	err = rc.Delete(ctx, "AWS::EFS::FileSystem", fsID, nil)
+	err = rc.Delete(ctx, "AWS::EFS::FileSystem", fsID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -484,9 +490,9 @@ func TestResourceCreator_BatchJobQueueWithCE(t *testing.T) {
 	require.NotEmpty(t, jdARN)
 
 	// Delete resources.
-	require.NoError(t, rc.Delete(ctx, "AWS::Batch::JobDefinition", jdARN, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::Batch::JobQueue", jqARN, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::Batch::ComputeEnvironment", ceARN, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Batch::JobDefinition", jdARN, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Batch::JobQueue", jqARN, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Batch::ComputeEnvironment", ceARN, nil, nil))
 }
 
 // EKSNodegroupAfterCluster verifies nodegroup creation
@@ -523,8 +529,8 @@ func TestResourceCreator_EKSNodegroupAfterCluster(t *testing.T) {
 	require.NotEmpty(t, ngARN)
 
 	// Delete nodegroup then cluster.
-	require.NoError(t, rc.Delete(ctx, "AWS::EKS::Nodegroup", ngARN, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::EKS::Cluster", clusterPhysID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::EKS::Nodegroup", ngARN, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::EKS::Cluster", clusterPhysID, nil, nil))
 }
 
 // APIGatewayV2StageAfterAPI verifies stage creation
@@ -557,8 +563,8 @@ func TestResourceCreator_APIGatewayV2StageAfterAPI(t *testing.T) {
 	require.NotEmpty(t, stageID)
 
 	// Delete stage then API.
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Stage", stageID, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Api", apiID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Stage", stageID, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Api", apiID, nil, nil))
 }
 
 // DocDBInstanceAfterCluster verifies DocDB instance creation
@@ -589,8 +595,8 @@ func TestResourceCreator_DocDBInstanceAfterCluster(t *testing.T) {
 	require.Equal(t, "unit-docdb-inst", instID)
 
 	// Delete instance then cluster.
-	require.NoError(t, rc.Delete(ctx, "AWS::DocDB::DBInstance", instID, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::DocDB::DBCluster", clusterID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::DocDB::DBInstance", instID, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::DocDB::DBCluster", clusterID, nil, nil))
 }
 
 // NeptuneInstanceAfterCluster verifies Neptune instance creation
@@ -621,8 +627,8 @@ func TestResourceCreator_NeptuneInstanceAfterCluster(t *testing.T) {
 	require.Equal(t, "unit-neptune-inst", instID)
 
 	// Delete instance then cluster.
-	require.NoError(t, rc.Delete(ctx, "AWS::Neptune::DBInstance", instID, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::Neptune::DBCluster", clusterID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Neptune::DBInstance", instID, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Neptune::DBCluster", clusterID, nil, nil))
 }
 
 // AutoScalingGroup_StringSizes exercises the string-parsing
@@ -657,6 +663,6 @@ func TestResourceCreator_AutoScalingGroupStringSizes(t *testing.T) {
 	require.Equal(t, "unit-asg-str", asgID)
 
 	// Cleanup.
-	require.NoError(t, rc.Delete(ctx, "AWS::AutoScaling::AutoScalingGroup", asgID, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::AutoScaling::LaunchConfiguration", lcID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::AutoScaling::AutoScalingGroup", asgID, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::AutoScaling::LaunchConfiguration", lcID, nil, nil))
 }

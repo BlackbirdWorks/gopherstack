@@ -29,7 +29,7 @@ func (b *InMemoryBackend) CreateDefaultVpc() (*VPC, error) {
 		ID:            newVPCID(),
 		CIDRBlock:     defaultVPCCIDR,
 		IsDefault:     true,
-		DHCPOptionsID: dhcpOptionsDefault,
+		DHCPOptionsID: dhcpOptionsDefaultID,
 	}
 	b.vpcs.Put(vpc)
 
@@ -71,9 +71,12 @@ func (b *InMemoryBackend) VpcTenancy(vpcID string) string {
 
 // ---- ModifyVpcPeeringConnectionOptions ----
 
-// ModifyVpcPeeringConnectionOptions updates DNS options for a VPC peering connection.
+// ModifyVpcPeeringConnectionOptions updates DNS/routing options for one side
+// (requester or accepter) of a VPC peering connection. Each side is stored in
+// its own map so the two never overwrite each other.
 func (b *InMemoryBackend) ModifyVpcPeeringConnectionOptions(
 	peeringID string,
+	isAccepter bool,
 	opts PeeringConnectionOptions,
 ) error {
 	if peeringID == "" {
@@ -86,20 +89,40 @@ func (b *InMemoryBackend) ModifyVpcPeeringConnectionOptions(
 	if _, ok := b.vpcPeeringConnections.Get(peeringID); !ok {
 		return fmt.Errorf("%w: %s", ErrVpcPeeringConnectionNotFound, peeringID)
 	}
+
 	o := opts
-	b.vpcPeeringOptions[peeringID] = &o
+	if isAccepter {
+		b.vpcPeeringAccepterOptions[peeringID] = &o
+	} else {
+		b.vpcPeeringOptions[peeringID] = &o
+	}
 
 	return nil
 }
 
-// GetVpcPeeringConnectionOptions returns stored options for a peering connection.
+// GetVpcPeeringConnectionOptions returns stored requester/accepter options
+// for a peering connection, or nil if neither side has ever been modified.
 func (b *InMemoryBackend) GetVpcPeeringConnectionOptions(
 	peeringID string,
-) *PeeringConnectionOptions {
+) *PeeringConnectionOptionsBoth {
 	b.mu.RLock("GetVpcPeeringConnectionOptions")
 	defer b.mu.RUnlock()
 
-	return b.vpcPeeringOptions[peeringID]
+	req, hasReq := b.vpcPeeringOptions[peeringID]
+	acc, hasAcc := b.vpcPeeringAccepterOptions[peeringID]
+	if !hasReq && !hasAcc {
+		return nil
+	}
+
+	var both PeeringConnectionOptionsBoth
+	if hasReq {
+		both.Requester = *req
+	}
+	if hasAcc {
+		both.Accepter = *acc
+	}
+
+	return &both
 }
 
 // ---- EIP attributes ----
@@ -131,6 +154,56 @@ func (b *InMemoryBackend) DisassociateVpcCidrBlock(associationID string) (string
 	}
 
 	return "", nil, fmt.Errorf("%w: %s", ErrInvalidParameter, associationID)
+}
+
+// DisassociateVpcIpv6CidrBlock removes an IPv6 CIDR block association from a
+// VPC, mirroring DisassociateVpcCidrBlock's synchronous-removal behavior.
+func (b *InMemoryBackend) DisassociateVpcIpv6CidrBlock(
+	associationID string,
+) (string, *VpcIpv6CidrBlockAssociation, error) {
+	if associationID == "" {
+		return "", nil, fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DisassociateVpcIpv6CidrBlock")
+	defer b.mu.Unlock()
+
+	for key, assoc := range b.vpcIpv6CidrAssociations {
+		if assoc.AssociationID == associationID {
+			delete(b.vpcIpv6CidrAssociations, key)
+
+			cp := *assoc
+			cp.State = vpcCidrBlockStateDisassociated
+			vpcID := strings.TrimSuffix(key, ":"+associationID)
+
+			return vpcID, &cp, nil
+		}
+	}
+
+	return "", nil, fmt.Errorf("%w: %s", ErrInvalidParameter, associationID)
+}
+
+// SecondaryIpv6CidrBlockAssociationsForVPC returns the IPv6 CIDR blocks
+// associated with vpcID via AssociateVpcIpv6CidrBlock, sorted by association
+// ID for stable output.
+func (b *InMemoryBackend) SecondaryIpv6CidrBlockAssociationsForVPC(vpcID string) []*VpcIpv6CidrBlockAssociation {
+	b.mu.RLock("SecondaryIpv6CidrBlockAssociationsForVPC")
+	defer b.mu.RUnlock()
+
+	prefix := vpcID + ":"
+
+	out := make([]*VpcIpv6CidrBlockAssociation, 0, len(b.vpcIpv6CidrAssociations))
+
+	for key, assoc := range b.vpcIpv6CidrAssociations {
+		if strings.HasPrefix(key, prefix) {
+			cp := *assoc
+			out = append(out, &cp)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].AssociationID < out[j].AssociationID })
+
+	return out
 }
 
 // vpcCidrBlockStateDisassociated matches types.VpcCidrBlockStateCodeDisassociated
@@ -265,10 +338,11 @@ const (
 
 // TransitGatewayOptions holds the configurable options of a transit gateway,
 // mirroring the real AWS TransitGatewayOptions/TransitGatewayRequestOptions
-// shapes. AssociationDefaultRouteTableId / PropagationDefaultRouteTableId are
-// intentionally left unset: this backend does not auto-create a default
-// transit gateway route table on CreateTransitGateway, so there is no real ID
-// to report (see PARITY.md).
+// shapes. AssociationDefaultRouteTableId / PropagationDefaultRouteTableId
+// start unset: this backend does not auto-create a default transit gateway
+// route table on CreateTransitGateway (see PARITY.md), but ModifyTransitGateway
+// sets them once a caller designates an existing TGW route table as the
+// default via its Options.
 type TransitGatewayOptions struct {
 	AutoAcceptSharedAttachments     string   `json:"autoAcceptSharedAttachments,omitempty"`
 	DefaultRouteTableAssociation    string   `json:"defaultRouteTableAssociation,omitempty"`
@@ -277,6 +351,8 @@ type TransitGatewayOptions struct {
 	MulticastSupport                string   `json:"multicastSupport,omitempty"`
 	SecurityGroupReferencingSupport string   `json:"securityGroupReferencingSupport,omitempty"`
 	VpnEcmpSupport                  string   `json:"vpnEcmpSupport,omitempty"`
+	AssociationDefaultRouteTableID  string   `json:"associationDefaultRouteTableId,omitempty"`
+	PropagationDefaultRouteTableID  string   `json:"propagationDefaultRouteTableId,omitempty"`
 	TransitGatewayCidrBlocks        []string `json:"transitGatewayCidrBlocks,omitempty"`
 	AmazonSideAsn                   int64    `json:"amazonSideAsn,omitempty"`
 }
@@ -340,18 +416,14 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 	b.mu.Lock("CreateVpc")
 	defer b.mu.Unlock()
 
-	for _, existing := range b.vpcs.All() {
-		if cidrsOverlap(cidr, existing.CIDRBlock) {
-			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing VPC %s (%s)",
-				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
-		}
-	}
-
+	// Real AWS allows overlapping CIDRs across separate VPCs; overlap is only
+	// rejected within a VPC (subnets, AssociateVpcCidrBlock) or for
+	// operations that route between VPCs (peering, TGW routes).
 	id := newVPCID()
 	v := &VPC{
 		ID:            id,
 		CIDRBlock:     cidr,
-		DHCPOptionsID: dhcpOptionsDefault,
+		DHCPOptionsID: dhcpOptionsDefaultID,
 	}
 	b.vpcs.Put(v)
 	b.vpcTenancy[id] = tenancy
@@ -368,10 +440,18 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 	})
 	b.indexSGLocked(sgID, id)
 
-	rtID := newRouteTableID()
+	b.createMainRouteTableLocked(newRouteTableID(), id, cidr)
+
+	return v, nil
+}
+
+// createMainRouteTableLocked creates the main route table AWS auto-creates for
+// every VPC (a local route for cidr plus a main association), used both by
+// CreateVpc and by the seeded default VPC. Must be called with b.mu held.
+func (b *InMemoryBackend) createMainRouteTableLocked(rtID, vpcID, cidr string) {
 	b.routeTables.Put(&RouteTable{
 		ID:    rtID,
-		VPCID: id,
+		VPCID: vpcID,
 		Main:  true,
 		Routes: []Route{
 			{DestinationCIDR: cidr, GatewayID: routeGatewayLocal, State: stateActive},
@@ -380,9 +460,7 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 			{ID: newRouteTableAssociationID(), RouteTableID: rtID, Main: true},
 		},
 	})
-	b.indexRouteTableLocked(rtID, id)
-
-	return v, nil
+	b.indexRouteTableLocked(rtID, vpcID)
 }
 
 // vpcDependencyViolationLocked returns a DependencyViolation error naming the

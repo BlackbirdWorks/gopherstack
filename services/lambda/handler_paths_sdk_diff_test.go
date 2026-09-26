@@ -46,6 +46,7 @@ func sdkRouteCases() []struct{ op, method, path string } {
 		{"DeleteFunctionUrlConfig", "DELETE", "/2021-10-31/functions/PLACEHOLDER/url"},
 		{"DeleteLayerVersion", "DELETE", "/2018-10-31/layers/PLACEHOLDER/versions/PLACEHOLDER"},
 		{"DeleteProvisionedConcurrencyConfig", "DELETE", "/2019-09-30/functions/PLACEHOLDER/provisioned-concurrency"},
+		{"DeleteResourcePolicy", "DELETE", "/2026-07-09/resource-policy/PLACEHOLDER"},
 		{"GetAccountSettings", "GET", "/2016-08-19/account-settings"},
 		{"GetAlias", "GET", "/2015-03-31/functions/PLACEHOLDER/aliases/PLACEHOLDER"},
 		{"GetCapacityProvider", "GET", "/2025-11-30/capacity-providers/PLACEHOLDER"},
@@ -70,6 +71,7 @@ func sdkRouteCases() []struct{ op, method, path string } {
 			"GetProvisionedConcurrencyConfig", "GET",
 			"/2019-09-30/functions/PLACEHOLDER/provisioned-concurrency?Qualifier=PLACEHOLDER",
 		},
+		{"GetResourcePolicy", "GET", "/2026-07-09/resource-policy/PLACEHOLDER"},
 		{"GetRuntimeManagementConfig", "GET", "/2021-07-20/functions/PLACEHOLDER/runtime-management-config"},
 		{"Invoke", "POST", "/2015-03-31/functions/PLACEHOLDER/invocations"},
 		{"InvokeAsync", "POST", "/2014-11-13/functions/PLACEHOLDER/invoke-async"},
@@ -103,6 +105,7 @@ func sdkRouteCases() []struct{ op, method, path string } {
 		{"PutFunctionRecursionConfig", "PUT", "/2024-08-31/functions/PLACEHOLDER/recursion-config"},
 		{"PutFunctionScalingConfig", "PUT", "/2025-11-30/functions/PLACEHOLDER/function-scaling-config"},
 		{"PutProvisionedConcurrencyConfig", "PUT", "/2019-09-30/functions/PLACEHOLDER/provisioned-concurrency"},
+		{"PutResourcePolicy", "PUT", "/2026-07-09/resource-policy/PLACEHOLDER"},
 		{"PutRuntimeManagementConfig", "PUT", "/2021-07-20/functions/PLACEHOLDER/runtime-management-config"},
 		{
 			"RemoveLayerVersionPermission", "DELETE",

@@ -174,6 +174,13 @@ func resourceTypeByID(id string) string {
 // resource family, each kept small enough to stay under the cyclomatic/
 // cognitive complexity limits) rather than one flat function.
 func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
+	// A VPC's synthetic default network ACL (deepdive_ops.go's
+	// DescribeNetworkAcls) is never a real row in b.networkACLs, but real
+	// AWS clients (including aws_default_network_acl) can still tag it.
+	if isDefaultNetworkACLID(id) {
+		return b.vpcs.Has(strings.TrimPrefix(id, networkACLDefaultIDPrefix))
+	}
+
 	return b.resourceExistsCoreLocked(id) ||
 		b.resourceExistsImagesLocked(id) ||
 		b.resourceExistsVpcAuxLocked(id) ||
@@ -264,6 +271,8 @@ func (b *InMemoryBackend) subnetCidrReservationExistsLocked(id string) bool {
 
 // resourceExistsGatewayLocked checks VPN/customer gateways, capacity
 // reservations/hosts, fleets, and reserved instances.
+//
+//nolint:dupl // structurally similar table-has checks for different resource families
 func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
 	ok := b.vpnGateways.Has(id)
 	ok = ok || b.customerGateways.Has(id)
@@ -311,6 +320,8 @@ func (b *InMemoryBackend) resourceExistsLGWLocked(id string) bool {
 }
 
 // resourceExistsIpamLocked checks the IPAM resource family.
+//
+//nolint:dupl // structurally similar table-has checks for different resource families
 func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
 	ok := b.ipams.Has(id)
 	ok = ok || b.ipamPools.Has(id)
@@ -324,6 +335,7 @@ func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
 	ok = ok || b.ipv4Pools.Has(id)
 	ok = ok || b.ipv6Pools.Has(id)
 	ok = ok || b.coipPools.Has(id)
+	ok = ok || b.ipamInternetRegistryAssociations.Has(id)
 
 	return ok
 }

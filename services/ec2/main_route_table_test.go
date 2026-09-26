@@ -132,12 +132,15 @@ func TestDisassociateRouteTable_MainAssociationRejected(t *testing.T) {
 	assert.Len(t, rts[0].Associations, 1, "implicit main association must survive the rejected disassociate")
 }
 
-// TestReplaceRouteTableAssociation_MainAssociationRejected verifies
-// reassigning a VPC's main route table via the implicit association ID is
-// rejected without mutating any state. The original lookup loop spliced the
-// matched association out of its table before checking whether the move was
-// valid, so a rejected implicit association was still destructively removed.
-func TestReplaceRouteTableAssociation_MainAssociationRejected(t *testing.T) {
+// TestReplaceRouteTableAssociation_MainAssociationReassigned verifies
+// reassigning a VPC's main route table via the implicit association ID moves
+// the Main association to the new table -- real AWS's ReplaceRouteTableAssociation
+// doc explicitly supports this ("You can also use ReplaceRouteTableAssociation
+// to change which table is the main route table in the VPC"), and
+// aws_main_route_table_association (terraform-provider-aws) relies on exactly
+// this call after finding the current main association via DescribeRouteTables'
+// association.main filter.
+func TestReplaceRouteTableAssociation_MainAssociationReassigned(t *testing.T) {
 	t.Parallel()
 
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
@@ -153,20 +156,22 @@ func TestReplaceRouteTableAssociation_MainAssociationRejected(t *testing.T) {
 	require.Len(t, main.Associations, 1)
 	mainAssocID := main.Associations[0].ID
 
-	_, err = b.ReplaceRouteTableAssociation(mainAssocID, other.ID)
-	require.Error(t, err)
-	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+	newAssocID, err := b.ReplaceRouteTableAssociation(mainAssocID, other.ID)
+	require.NoError(t, err)
+	assert.NotEqual(t, mainAssocID, newAssocID)
 
 	rts, err := b.DescribeRouteTables([]string{main.ID})
 	require.NoError(t, err)
 	require.Len(t, rts, 1)
-	require.Len(t, rts[0].Associations, 1, "implicit main association must not be removed by a rejected replace")
-	assert.Equal(t, mainAssocID, rts[0].Associations[0].ID)
+	assert.Empty(t, rts[0].Associations, "the old main route table loses its implicit association")
 
 	rts, err = b.DescribeRouteTables([]string{other.ID})
 	require.NoError(t, err)
 	require.Len(t, rts, 1)
-	assert.Empty(t, rts[0].Associations, "association must not have moved to the new table")
+	require.Len(t, rts[0].Associations, 1, "the new route table gains the main association")
+	assert.True(t, rts[0].Associations[0].Main)
+	assert.Empty(t, rts[0].Associations[0].SubnetID)
+	assert.Equal(t, newAssocID, rts[0].Associations[0].ID)
 }
 
 // TestHandler_DescribeRouteTables_MainAssociation verifies the wire response

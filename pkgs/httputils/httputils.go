@@ -415,6 +415,18 @@ func extractBareAccessKey(raw string) string {
 	return ""
 }
 
+// SigV4RequestFields returns the access key, region and service in one parse,
+// matching the three Extract*FromRequest functions.
+func SigV4RequestFields(r *http.Request, defaultRegion string) (string, string, string) {
+	if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+		return SanitizeHeaderString(scope[sigV4AccessKeyIndex]),
+			SanitizeHeaderString(scope[sigV4RegionIndex]),
+			SanitizeHeaderString(scope[sigV4ServiceIndex])
+	}
+
+	return ExtractAccessKeyFromRequest(r), ExtractRegionFromRequest(r, defaultRegion), ExtractServiceFromRequest(r)
+}
+
 // ExtractAccessKeyFromRequest extracts the AWS access key ID from an HTTP request.
 // It checks the SigV4 Authorization header credential scope first, then the
 // X-Amz-Credential query parameter, and returns an empty string if none is found.

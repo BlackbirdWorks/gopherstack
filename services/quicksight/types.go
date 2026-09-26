@@ -249,6 +249,57 @@ type ResourcePermission struct {
 	Actions   []string `json:"actions"`
 }
 
+// App represents a Q App (quicksight@v1.129.0 types.AppSummary /
+// DescribeAppOutput.App). Real AWS has no CreateApp operation -- Q Apps are
+// created only through the console -- so this backend seeds them via
+// AddAppInternal (app.go) instead of a Create* op, mirroring
+// services/cloudwatchlogs's AddAnomalyInternal test seam for the same class
+// of console-only resource.
+type App struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	AppID           string
+	Arn             string
+	Name            string
+	Visibility      string
+	Permissions     []ResourcePermission
+}
+
+// EffectiveLimit is one resolved per-resource-type limit for a user
+// (quicksight@v1.129.0 types.EffectiveLimit, BatchDescribeUserLimits).
+type EffectiveLimit struct {
+	ProfileID    string
+	ResourceType string
+	LimitUnit    string
+	Source       string
+	LimitValue   int64
+}
+
+// UserLimits is one user's resolved effective limits
+// (types.UserLimits, BatchDescribeUserLimitsOutput.UserLimits).
+type UserLimits struct {
+	UserName        string
+	Namespace       string
+	EffectiveLimits []EffectiveLimit
+}
+
+// UserLimitsQuery identifies one user in a BatchDescribeUserLimits request
+// (types.UserLimitsEntry: Namespace + UserName).
+type UserLimitsQuery struct {
+	UserName  string
+	Namespace string
+}
+
+// UserLimitsError reports a user BatchDescribeUserLimits could not resolve
+// limits for (types.BatchDescribeUserLimitsError).
+type UserLimitsError struct {
+	UserName  string
+	Namespace string
+	UserArn   string
+	ErrorCode string
+	Message   string
+}
+
 // FolderMember represents a QuickSight folder membership (a dashboard, analysis,
 // dataset, or other asset that belongs to a folder).
 type FolderMember struct {

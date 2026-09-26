@@ -16,6 +16,7 @@ func newTestELBv2Backend(t *testing.T) *elbv2sdk.Client {
 	t.Helper()
 
 	backend := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	handler := elbv2.NewHandler(backend)
 
 	return newTestELBv2Client(t, handler)

@@ -50,6 +50,21 @@ func TestRealClient_FileSystemAndStorageConfiguration(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, types.NetworkTypeDual, explicitOut.FileSystem.NetworkType)
 		}},
+		{name: "lustre data repository configuration lifecycle is a real enum member", run: func(t *testing.T) {
+			t.Helper()
+
+			backend := fsx.NewInMemoryBackend("000000000000", tagsRTRegion)
+			client := newTestFSxClient(t, fsx.NewHandler(backend))
+
+			fsOut := createTestLustreFS(t, client)
+			require.NotNil(t, fsOut.FileSystem.LustreConfiguration)
+			require.NotNil(t, fsOut.FileSystem.LustreConfiguration.DataRepositoryConfiguration)
+			assert.Equal(
+				t,
+				types.DataRepositoryLifecycleAvailable,
+				fsOut.FileSystem.LustreConfiguration.DataRepositoryConfiguration.Lifecycle,
+			)
+		}},
 		{name: "data repository association imported file chunk size defaults and updates", run: func(t *testing.T) {
 			t.Helper()
 

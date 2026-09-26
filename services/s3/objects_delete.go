@@ -216,6 +216,7 @@ func deleteSpecificVersion(
 	if empty {
 		// Remove the now-empty object from the bucket map (still under bucket.mu).
 		delete(bucket.Objects, key)
+		bucket.indexRemove(key)
 		obj.mu.Close()
 	}
 
@@ -293,6 +294,7 @@ func deleteLatestVersion(
 
 	if isEmpty {
 		delete(bucket.Objects, key)
+		bucket.indexRemove(key)
 		obj.mu.Close()
 
 		return &s3.DeleteObjectOutput{}

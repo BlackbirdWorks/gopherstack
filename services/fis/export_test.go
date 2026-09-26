@@ -33,8 +33,12 @@ type ExperimentTemplateActionForTest = ExperimentTemplateAction
 var ErrResourceNotFoundForTest = ErrResourceNotFound
 
 // NewTestBackend creates a new InMemoryBackend for testing.
-func NewTestBackend() *InMemoryBackend {
-	return NewInMemoryBackend("000000000000", "us-east-1")
+func NewTestBackend(t *testing.T) *InMemoryBackend {
+	t.Helper()
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+
+	return b
 }
 
 // ParseISODurationForTest exposes parseISODuration for testing.

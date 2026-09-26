@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -169,6 +170,10 @@ const (
 	imageAttrImdsSupport = "imdsSupport"
 )
 
+// permissionGroupAll is the real AWS "all" (public) grantee value shared by
+// AMI LaunchPermission and snapshot CreateVolumePermission grants.
+const permissionGroupAll = "all"
+
 // fastLaunchDefaultMaxParallelLaunches is real AWS's documented default for
 // EnableFastLaunchInput.MaxParallelLaunches when the request omits it.
 const fastLaunchDefaultMaxParallelLaunches = 6
@@ -189,6 +194,21 @@ func (h *Handler) handleModifyImageAttribute(vals url.Values, reqID string) (any
 	case vals.Get("ImdsSupport.Value") != "":
 		attribute = imageAttrImdsSupport
 		value = vals.Get("ImdsSupport.Value")
+	case hasLaunchPermissionModification(vals):
+		addIDs, addPublic := parseLaunchPermissionList(vals, "LaunchPermission.Add")
+		removeIDs, removePublic := parseLaunchPermissionList(vals, "LaunchPermission.Remove")
+
+		if err := h.Backend.ModifyImageLaunchPermission(
+			imageID, addIDs, addPublic, removeIDs, removePublic,
+		); err != nil {
+			return nil, err
+		}
+
+		return &stubResponse{
+			XMLName:   xml.Name{Local: "ModifyImageAttributeResponse"},
+			RequestID: reqID,
+			Return:    true,
+		}, nil
 	}
 
 	if err := h.Backend.ModifyImageAttribute(imageID, attribute, value); err != nil {
@@ -200,6 +220,47 @@ func (h *Handler) handleModifyImageAttribute(vals url.Values, reqID string) (any
 		RequestID: reqID,
 		Return:    true,
 	}, nil
+}
+
+// hasLaunchPermissionModification reports whether vals carries a
+// LaunchPermission.Add/Remove modification (api_op_ModifyImageAttribute.go).
+func hasLaunchPermissionModification(vals url.Values) bool {
+	_, hasAdd := vals["LaunchPermission.Add.1.UserId"]
+	_, hasAddGroup := vals["LaunchPermission.Add.1.Group"]
+	_, hasRemove := vals["LaunchPermission.Remove.1.UserId"]
+	_, hasRemoveGroup := vals["LaunchPermission.Remove.1.Group"]
+
+	return hasAdd || hasAddGroup || hasRemove || hasRemoveGroup
+}
+
+// parseLaunchPermissionList parses a LaunchPermission.Add/Remove.N.{UserId,Group}
+// list, returning the account IDs and whether the "all" (public) group was
+// present. Org/OU ARNs are documented but not modelled -- this backend has no
+// AWS Organizations membership graph to resolve them against.
+func parseLaunchPermissionList(vals url.Values, prefix string) ([]string, bool) {
+	var ids []string
+
+	public := false
+
+	for i := 1; ; i++ {
+		itemPrefix := fmt.Sprintf("%s.%d.", prefix, i)
+		userID := vals.Get(itemPrefix + "UserId")
+		group := vals.Get(itemPrefix + "Group")
+
+		if userID == "" && group == "" {
+			break
+		}
+
+		if userID != "" {
+			ids = append(ids, userID)
+		}
+
+		if group == permissionGroupAll {
+			public = true
+		}
+	}
+
+	return ids, public
 }
 
 func (h *Handler) handleResetImageAttribute(vals url.Values, reqID string) (any, error) {
@@ -361,11 +422,57 @@ func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error
 		virtType = "paravirtual" // api_op_RegisterImage.go: "Default: paravirtual"
 	}
 	h.Backend.SetImageMetadata(img.ImageID, vals.Get("ImdsSupport"), virtType)
+	h.Backend.SetImageRootDeviceName(img.ImageID, vals.Get("RootDeviceName"))
+	h.Backend.SetImageBlockDeviceMappings(img.ImageID, parseImageBlockDeviceMappings(vals))
+
+	_, hasEnaSupport := vals["EnaSupport"]
+	h.Backend.SetImageEnhancedNetworking(
+		img.ImageID, hasEnaSupport, vals.Get("EnaSupport") == ec2BooleanTrue, vals.Get("SriovNetSupport"),
+	)
+
+	if tags := parseTagSpecification(vals, "image"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{img.ImageID}, tags); err != nil {
+			return nil, err
+		}
+	}
 
 	return &registerImageResponse{
 		RequestID: reqID,
 		ImageID:   img.ImageID,
 	}, nil
+}
+
+// parseImageBlockDeviceMappings parses RegisterImage's BlockDeviceMapping.N.*
+// members (api_op_RegisterImage.go), stopping at the first index with neither
+// a DeviceName nor a NoDevice marker.
+func parseImageBlockDeviceMappings(vals url.Values) []ImageBlockDeviceMapping {
+	var mappings []ImageBlockDeviceMapping
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("BlockDeviceMapping.%d.", i)
+		deviceName := vals.Get(prefix + "DeviceName")
+		virtualName := vals.Get(prefix + "VirtualName")
+		_, hasNoDevice := vals[prefix+"NoDevice"]
+
+		if deviceName == "" && virtualName == "" && !hasNoDevice {
+			break
+		}
+
+		mappings = append(mappings, ImageBlockDeviceMapping{
+			DeviceName:          deviceName,
+			VirtualName:         virtualName,
+			NoDevice:            hasNoDevice,
+			SnapshotID:          vals.Get(prefix + "Ebs.SnapshotId"),
+			VolumeType:          vals.Get(prefix + "Ebs.VolumeType"),
+			VolumeSize:          parseInt32Value(vals.Get(prefix + "Ebs.VolumeSize")),
+			Iops:                parseInt32Value(vals.Get(prefix + "Ebs.Iops")),
+			Throughput:          parseInt32Value(vals.Get(prefix + "Ebs.Throughput")),
+			DeleteOnTermination: vals.Get(prefix+"Ebs.DeleteOnTermination") == ec2BooleanTrue,
+			Encrypted:           vals.Get(prefix+"Ebs.Encrypted") == ec2BooleanTrue,
+		})
+	}
+
+	return mappings
 }
 
 func (h *Handler) handleImportImage(vals url.Values, reqID string) (any, error) {
@@ -392,6 +499,10 @@ func (h *Handler) handleImportImage(vals url.Values, reqID string) (any, error) 
 func (h *Handler) handleDescribeImportImageTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ImportTaskId")
 	tasks := h.Backend.DescribeImportImageTasks(ids)
+	// DescribeImportImageTasksInput flattens its filter list under "Filters",
+	// not "Filter" (api_op_DescribeImportImageTasks.go serializer FlatKey) --
+	// parseEC2Filters would silently read nothing.
+	tasks = applyImportImageTaskFilters(tasks, parseEC2FilterListKeyed(vals, "Filters"))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -854,6 +965,37 @@ func (h *Handler) handleGetImageAncestry(vals url.Values, reqID string) (any, er
 	return resp, nil
 }
 
+// replaceImageInstanceTypeSpecificationResponse mirrors the real
+// ReplaceImageInstanceTypeSpecificationOutput: the wire field is "returnValue", not "return"
+// (ec2@v1.329.0 deserializers.go, awsEc2query_deserializeOpDocumentReplaceImageInstanceTypeSpecificationOutput).
+type replaceImageInstanceTypeSpecificationResponse struct {
+	XMLName     xml.Name `xml:"ReplaceImageInstanceTypeSpecificationResponse"`
+	Xmlns       string   `xml:"xmlns,attr"`
+	RequestID   string   `xml:"requestId"`
+	ReturnValue bool     `xml:"returnValue"`
+}
+
+// handleReplaceImageInstanceTypeSpecification replaces or (given no
+// InstanceTypeSpecification member at all) removes an AMI's instance type
+// compatibility rules. Wire field names verified against ec2@v1.329.0
+// serializers.go's awsEc2query_serializeDocumentInstanceTypeSpecificationRequest:
+// InstanceTypeSpecification.SupportedInstanceType.N / .UnsupportedInstanceType.N
+// (FlatKey, no ".member." wrapper).
+func (h *Handler) handleReplaceImageInstanceTypeSpecification(vals url.Values, reqID string) (any, error) {
+	supported := parseMemberList(vals, "InstanceTypeSpecification.SupportedInstanceType")
+	unsupported := parseMemberList(vals, "InstanceTypeSpecification.UnsupportedInstanceType")
+
+	if err := h.Backend.ReplaceImageInstanceTypeSpecification(
+		vals.Get("ImageId"), supported, unsupported,
+	); err != nil {
+		return nil, err
+	}
+
+	return &replaceImageInstanceTypeSpecificationResponse{
+		Xmlns: ec2XMLNS, RequestID: reqID, ReturnValue: true,
+	}, nil
+}
+
 // registerImagesOps registers the Images operation handlers.
 func registerImagesOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisableImage"] = h.handleDisableImage
@@ -883,6 +1025,7 @@ func registerImagesOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CancelImageLaunchPermission"] = h.handleCancelImageLaunchPermission
 	ops["DescribeImageReferences"] = h.handleDescribeImageReferences
 	ops["GetImageAncestry"] = h.handleGetImageAncestry
+	ops["ReplaceImageInstanceTypeSpecification"] = h.handleReplaceImageInstanceTypeSpecification
 }
 
 // imagesSupportedOperations lists the operation names registered by
@@ -916,27 +1059,122 @@ func imagesSupportedOperations() []string {
 		"CancelImageLaunchPermission",
 		"DescribeImageReferences",
 		"GetImageAncestry",
+		"ReplaceImageInstanceTypeSpecification",
 	}
 }
 
+// instanceTypeItem wraps a single instance type/wildcard pattern entry
+// (ec2@v1.329.0 types.InstanceTypeItem: a struct with one InstanceType field, not a bare
+// string -- confirmed via deserializers.go's awsEc2query_deserializeDocumentInstanceTypeItem).
+type instanceTypeItem struct {
+	InstanceType string `xml:"instanceType"`
+}
+
+// instanceTypeSpecificationItem mirrors ec2@v1.329.0 types.InstanceTypeSpecification
+// (deserializers.go's awsEc2query_deserializeDocumentInstanceTypeSpecification):
+// supportedInstanceTypeSet/unsupportedInstanceTypeSet, each wrapping <item> entries.
+type instanceTypeSpecificationItem struct {
+	SupportedInstanceTypeSet struct {
+		Items []instanceTypeItem `xml:"item"`
+	} `xml:"supportedInstanceTypeSet"`
+	UnsupportedInstanceTypeSet struct {
+		Items []instanceTypeItem `xml:"item"`
+	} `xml:"unsupportedInstanceTypeSet"`
+}
+
+func toInstanceTypeSpecificationItem(spec *InstanceTypeSpecification) *instanceTypeSpecificationItem {
+	if spec == nil {
+		return nil
+	}
+
+	item := &instanceTypeSpecificationItem{}
+	for _, t := range spec.SupportedInstanceTypes {
+		item.SupportedInstanceTypeSet.Items = append(
+			item.SupportedInstanceTypeSet.Items,
+			instanceTypeItem{InstanceType: t},
+		)
+	}
+
+	for _, t := range spec.UnsupportedInstanceTypes {
+		item.UnsupportedInstanceTypeSet.Items = append(
+			item.UnsupportedInstanceTypeSet.Items, instanceTypeItem{InstanceType: t},
+		)
+	}
+
+	return item
+}
+
+type amiEbsBlockDeviceItem struct {
+	SnapshotID          string `xml:"snapshotId,omitempty"`
+	VolumeType          string `xml:"volumeType,omitempty"`
+	VolumeSize          int32  `xml:"volumeSize,omitempty"`
+	Iops                int32  `xml:"iops,omitempty"`
+	Throughput          int32  `xml:"throughput,omitempty"`
+	DeleteOnTermination bool   `xml:"deleteOnTermination"`
+	Encrypted           bool   `xml:"encrypted"`
+}
+
+type amiBlockDeviceMappingItem struct {
+	Ebs         *amiEbsBlockDeviceItem `xml:"ebs,omitempty"`
+	NoDevice    *string                `xml:"noDevice,omitempty"`
+	DeviceName  string                 `xml:"deviceName,omitempty"`
+	VirtualName string                 `xml:"virtualName,omitempty"`
+}
+
 type amiItem struct {
-	ImageID        string `xml:"imageId"`
-	Name           string `xml:"name"`
-	Description    string `xml:"description,omitempty"`
-	Architecture   string `xml:"architecture"`
-	Platform       string `xml:"platform,omitempty"`
-	State          string `xml:"imageState"`
-	RootDeviceName string `xml:"rootDeviceName,omitempty"`
-	// OwnerID/OwnerAlias are distinct real wire fields
-	// (deserializers.go's awsEc2query_deserializeDocumentImage: "imageOwnerId"
-	// is always the numeric account ID, "imageOwnerAlias" the well-known
-	// alias string e.g. "amazon" -- there is no plain "ownerId" key).
-	OwnerID            string          `xml:"imageOwnerId,omitempty"`
-	OwnerAlias         string          `xml:"imageOwnerAlias,omitempty"`
-	ImdsSupport        string          `xml:"imdsSupport,omitempty"`
-	VirtualizationType string          `xml:"virtualizationType,omitempty"`
-	DeprecationTime    string          `xml:"deprecationTime,omitempty"`
-	TagSet             []simpleTagItem `xml:"tagSet>item,omitempty"`
+	InstanceTypeSpecification *instanceTypeSpecificationItem `xml:"instanceTypeSpecification,omitempty"`
+	EnaSupport                *bool                          `xml:"enaSupport,omitempty"`
+	OwnerAlias                string                         `xml:"imageOwnerAlias,omitempty"`
+	ImdsSupport               string                         `xml:"imdsSupport,omitempty"`
+	Platform                  string                         `xml:"platform,omitempty"`
+	State                     string                         `xml:"imageState"`
+	ImageID                   string                         `xml:"imageId"`
+	OwnerID                   string                         `xml:"imageOwnerId,omitempty"`
+	Description               string                         `xml:"description,omitempty"`
+	Architecture              string                         `xml:"architecture"`
+	VirtualizationType        string                         `xml:"virtualizationType,omitempty"`
+	DeprecationTime           string                         `xml:"deprecationTime,omitempty"`
+	Name                      string                         `xml:"name"`
+	SriovNetSupport           string                         `xml:"sriovNetSupport,omitempty"`
+	RootDeviceName            string                         `xml:"rootDeviceName,omitempty"`
+	BlockDeviceMapping        []amiBlockDeviceMappingItem    `xml:"blockDeviceMapping>item,omitempty"`
+	TagSet                    []simpleTagItem                `xml:"tagSet>item,omitempty"`
+}
+
+// toAMIBlockDeviceMappingItems converts stored block device mappings to their
+// wire shape (api_op_RegisterImage.go request / Image.BlockDeviceMappings
+// response, both named blockDeviceMapping on the wire).
+func toAMIBlockDeviceMappingItems(mappings []ImageBlockDeviceMapping) []amiBlockDeviceMappingItem {
+	items := make([]amiBlockDeviceMappingItem, 0, len(mappings))
+
+	for _, m := range mappings {
+		item := amiBlockDeviceMappingItem{
+			DeviceName:  m.DeviceName,
+			VirtualName: m.VirtualName,
+		}
+
+		if m.NoDevice {
+			empty := ""
+			item.NoDevice = &empty
+		}
+
+		if m.SnapshotID != "" || m.VolumeType != "" || m.VolumeSize != 0 ||
+			m.DeleteOnTermination || m.Encrypted {
+			item.Ebs = &amiEbsBlockDeviceItem{
+				SnapshotID:          m.SnapshotID,
+				VolumeType:          m.VolumeType,
+				VolumeSize:          m.VolumeSize,
+				Iops:                m.Iops,
+				Throughput:          m.Throughput,
+				DeleteOnTermination: m.DeleteOnTermination,
+				Encrypted:           m.Encrypted,
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	return items
 }
 
 // knownImageOwnerAliases holds this backend's well-known non-numeric AMIStub.OwnerID
@@ -978,9 +1216,12 @@ type describeRegionsResponse struct {
 }
 
 type azItem struct {
-	ZoneName   string `xml:"zoneName"`
-	RegionName string `xml:"regionName"`
-	State      string `xml:"zoneState"`
+	ZoneName    string `xml:"zoneName"`
+	RegionName  string `xml:"regionName"`
+	State       string `xml:"zoneState"`
+	GroupName   string `xml:"groupName,omitempty"`
+	OptInStatus string `xml:"optInStatus,omitempty"`
+	ZoneType    string `xml:"zoneType,omitempty"`
 }
 
 type azItemSet struct {
@@ -1166,7 +1407,16 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 			VirtualizationType: a.VirtualizationType,
 			DeprecationTime:    deprecation[a.ImageID],
 			TagSet:             tagItemsFromMap(h.Backend.TagsForResource(a.ImageID)),
+			InstanceTypeSpecification: toInstanceTypeSpecificationItem(
+				h.Backend.GetImageInstanceTypeSpecification(a.ImageID),
+			),
+			BlockDeviceMapping: toAMIBlockDeviceMappingItems(a.BlockDeviceMappings),
+			SriovNetSupport:    a.SriovNetSupport,
 		})
+
+		if a.EnaSupportSet {
+			filtered[len(filtered)-1].EnaSupport = &a.EnaSupport
+		}
 	}
 
 	maxResults, offset, err := parseImagesPagination(vals)
@@ -1223,17 +1473,87 @@ func (h *Handler) handleDescribeAvailabilityZones(vals url.Values, reqID string)
 	items := make([]azItem, 0, len(azs))
 	for _, az := range azs {
 		items = append(items, azItem{
-			ZoneName:   az,
-			RegionName: effectiveRegion,
-			State:      stateAvailable,
+			ZoneName:    az,
+			RegionName:  effectiveRegion,
+			State:       stateAvailable,
+			GroupName:   effectiveRegion + "-zg-1",
+			OptInStatus: "opt-in-not-required",
+			ZoneType:    filterKeyAvailabilityZone,
 		})
 	}
+
+	if vals.Get("AllAvailabilityZones") == ec2BooleanTrue {
+		for groupName, optInStatus := range h.Backend.GetAvailabilityZoneGroups() {
+			items = append(items, azItem{
+				ZoneName:    groupName,
+				RegionName:  effectiveRegion,
+				State:       stateAvailable,
+				GroupName:   groupName,
+				OptInStatus: optInStatus,
+				ZoneType:    zoneTypeForGroupName(groupName),
+			})
+		}
+	}
+
+	items = applyAvailabilityZoneFilters(items, parseEC2Filters(vals))
 
 	return &describeAvailabilityZonesResponse{
 		Xmlns:                ec2XMLNS,
 		RequestID:            reqID,
 		AvailabilityZoneInfo: azItemSet{Items: items},
 	}, nil
+}
+
+// zoneTypeForGroupName infers a zone group's ZoneType from its name, matching
+// real AWS's documented naming (api_op_DescribeAvailabilityZones.go examples:
+// Local Zones "us-west-2-lax-1", Wavelength Zones "us-east-1-wl1-bos-wlz-1").
+func zoneTypeForGroupName(groupName string) string {
+	if strings.Contains(groupName, "-wl") {
+		return "wavelength-zone"
+	}
+
+	return "local-zone"
+}
+
+// applyAvailabilityZoneFilters supports the documented group-name/zone-name/
+// region-name/state/zone-type filters (api_op_DescribeAvailabilityZones.go).
+func applyAvailabilityZoneFilters(items []azItem, filters map[string][]string) []azItem {
+	if len(filters) == 0 {
+		return items
+	}
+
+	out := items[:0:0]
+itemLoop:
+	for _, item := range items {
+		for name, values := range filters {
+			if !azItemMatchesFilter(item, name, values) {
+				continue itemLoop
+			}
+		}
+
+		out = append(out, item)
+	}
+
+	return out
+}
+
+func azItemMatchesFilter(item azItem, filterName string, values []string) bool {
+	switch filterName {
+	case "group-name":
+		return anyEqual(item.GroupName, values)
+	case "zone-name":
+		return anyEqual(item.ZoneName, values)
+	case "region-name":
+		return anyEqual(item.RegionName, values)
+	case filterKeyState:
+		return anyEqual(item.State, values)
+	case "zone-type":
+		return anyEqual(item.ZoneType, values)
+	case "opt-in-status":
+		return anyEqual(item.OptInStatus, values)
+	}
+
+	return true
 }
 
 // ---- DescribeImageAttribute ----
@@ -1283,11 +1603,18 @@ func (h *Handler) handleDescribeImageAttribute(vals url.Values, reqID string) (a
 
 	switch attribute {
 	case "launchPermission":
-		// launchPermission grants aren't tracked per-grantee by this backend;
-		// stub a single "all" (public) grant rather than an empty list.
-		resp.LaunchPermission = launchPermissionList{
-			Items: []launchPermissionItem{{Group: "all"}},
+		accountIDs, public := h.Backend.GetImageLaunchPermission(imageID)
+
+		items := make([]launchPermissionItem, 0, len(accountIDs)+1)
+		if public {
+			items = append(items, launchPermissionItem{Group: permissionGroupAll})
 		}
+
+		for _, id := range accountIDs {
+			items = append(items, launchPermissionItem{UserID: id})
+		}
+
+		resp.LaunchPermission = launchPermissionList{Items: items}
 	case imageAttrDescription:
 		if v := h.Backend.GetImageAttribute(imageID, imageAttrDescription); v != "" {
 			resp.Description = &imageAttributeValueItem{Value: v}

@@ -21,7 +21,9 @@ func (h *S3Handler) putBucketLifecycleConfiguration(
 
 		return
 	}
-	err = h.Backend.PutBucketLifecycleConfiguration(ctx, bucket, string(body))
+	transitionDefaultMinObjectSize := r.Header.Get("X-Amz-Transition-Default-Minimum-Object-Size")
+
+	err = h.Backend.PutBucketLifecycleConfiguration(ctx, bucket, string(body), transitionDefaultMinObjectSize)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -51,6 +53,11 @@ func (h *S3Handler) getBucketLifecycleConfiguration(
 			`<LifecycleConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`,
 			1,
 		)
+	}
+
+	minSize, minSizeErr := h.Backend.GetBucketLifecycleTransitionDefaultMinObjectSize(ctx, bucket)
+	if minSizeErr == nil && minSize != "" {
+		w.Header().Set("X-Amz-Transition-Default-Minimum-Object-Size", minSize)
 	}
 
 	w.Header().Set("Content-Type", "application/xml")

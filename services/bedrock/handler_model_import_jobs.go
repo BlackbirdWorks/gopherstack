@@ -188,6 +188,21 @@ func importedModelToWire(j *ModelImportJob) map[string]any {
 	return out
 }
 
+// importedModelToSummaryWire builds the real ListImportedModelsOutput
+// element shape (types.ImportedModelSummary, bedrock@v1.66.4 types.go): no
+// jobArn/jobName -- those are GetImportedModelOutput-only (confirmed
+// against awsRestjson1_deserializeDocumentImportedModelSummary, which has no
+// "jobArn"/"jobName" case). instructSupported/modelArchitecture are real
+// members of both shapes that this backend has no source for (not tracked
+// anywhere on import) -- see PARITY.md items_still_open.
+func importedModelToSummaryWire(j *ModelImportJob) map[string]any {
+	return map[string]any{
+		keyModelArn:     j.ImportedModelArn,
+		"modelName":     j.ImportedModelName,
+		keyCreationTime: j.CreationTime.Format(time.RFC3339),
+	}
+}
+
 func (h *Handler) handleGetImportedModel(c *echo.Context, modelARN string) error {
 	job, err := h.Backend.GetImportedModel(modelARN)
 	if err != nil {
@@ -230,7 +245,7 @@ func (h *Handler) handleListImportedModels(c *echo.Context) error {
 
 	summaries := make([]map[string]any, 0, len(models))
 	for _, m := range models {
-		summaries = append(summaries, importedModelToWire(m))
+		summaries = append(summaries, importedModelToSummaryWire(m))
 	}
 
 	resp := map[string]any{"modelSummaries": summaries}

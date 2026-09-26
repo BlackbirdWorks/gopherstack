@@ -53,6 +53,14 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 		out = appendBackupTaggedEntry(out, rav.RestoreAccessBackupVaultArn, rav.Tags)
 	}
 
+	for _, bap := range b.backupAccessPoints.All() {
+		out = appendBackupTaggedEntry(out, bap.AccessPointArn, bap.Tags)
+	}
+
+	for _, rtp := range b.restoreTestingPlans.All() {
+		out = appendBackupTaggedEntry(out, rtp.RestoreTestingPlanArn, rtp.Tags)
+	}
+
 	return out
 }
 
@@ -101,6 +109,29 @@ func (b *InMemoryBackend) TagResource(resourceArn string, kv map[string]string) 
 		return nil
 	}
 
+	if bap, ok := b.backupAccessPoints.Get(resourceArn); ok {
+		if bap.Tags == nil {
+			bap.Tags = tags.New("backup.backup-access-point." + bap.Name + ".tags")
+		}
+		bap.Tags.Merge(kv)
+
+		return nil
+	}
+
+	if name, found := b.restoreTestingPlanNameFromARN(resourceArn); found {
+		rtp, ok := b.restoreTestingPlans.Get(name)
+		if !ok {
+			return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+		}
+
+		if rtp.Tags == nil {
+			rtp.Tags = tags.New("backup.restore-testing-plan." + name + ".tags")
+		}
+		rtp.Tags.Merge(kv)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
 }
 
@@ -141,6 +172,27 @@ func (b *InMemoryBackend) ListTags(resourceArn string) (map[string]string, error
 		}
 
 		return rav.Tags.Clone(), nil
+	}
+
+	if bap, ok := b.backupAccessPoints.Get(resourceArn); ok {
+		if bap.Tags == nil {
+			return map[string]string{}, nil
+		}
+
+		return bap.Tags.Clone(), nil
+	}
+
+	if name, found := b.restoreTestingPlanNameFromARN(resourceArn); found {
+		rtp, ok := b.restoreTestingPlans.Get(name)
+		if !ok {
+			return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+		}
+
+		if rtp.Tags == nil {
+			return map[string]string{}, nil
+		}
+
+		return rtp.Tags.Clone(), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
@@ -184,6 +236,27 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 		rav, _ := b.restoreAccessVaults.Get(name)
 		if rav.Tags != nil {
 			rav.Tags.DeleteKeys(tagKeys)
+		}
+
+		return nil
+	}
+
+	if bap, ok := b.backupAccessPoints.Get(resourceArn); ok {
+		if bap.Tags != nil {
+			bap.Tags.DeleteKeys(tagKeys)
+		}
+
+		return nil
+	}
+
+	if name, found := b.restoreTestingPlanNameFromARN(resourceArn); found {
+		rtp, ok := b.restoreTestingPlans.Get(name)
+		if !ok {
+			return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+		}
+
+		if rtp.Tags != nil {
+			rtp.Tags.DeleteKeys(tagKeys)
 		}
 
 		return nil

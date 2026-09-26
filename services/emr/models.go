@@ -257,14 +257,31 @@ type Step struct {
 	HadoopJarStep    StepHadoopJarStep `json:"Config"`
 	ActionOnFailure  string            `json:"ActionOnFailure"`
 	ExecutionRoleArn string            `json:"ExecutionRoleArn,omitempty"`
+	EncryptionKeyArn string            `json:"EncryptionKeyArn,omitempty"`
+	LogURI           string            `json:"LogUri,omitempty"`
 	Status           StepStatus        `json:"Status"`
 }
 
 // StepSpec is the input for adding a new step.
 type StepSpec struct {
-	Name            string                 `json:"Name"`
-	ActionOnFailure string                 `json:"ActionOnFailure"`
-	HadoopJarStep   StepHadoopJarStepInput `json:"HadoopJarStep"`
+	StepMonitoringConfiguration *StepMonitoringConfigInput `json:"StepMonitoringConfiguration,omitempty"`
+	Name                        string                     `json:"Name"`
+	ActionOnFailure             string                     `json:"ActionOnFailure"`
+	HadoopJarStep               StepHadoopJarStepInput     `json:"HadoopJarStep"`
+}
+
+// StepMonitoringConfigInput mirrors types.StepMonitoringConfiguration
+// (emr@v1.64.4 types.go), the AddJobFlowSteps/RunJobFlow per-step input path
+// for a step's EncryptionKeyArn/LogUri (real response members on
+// types.Step/types.StepSummary).
+type StepMonitoringConfigInput struct {
+	S3MonitoringConfiguration *S3MonitoringConfigInput `json:"S3MonitoringConfiguration,omitempty"`
+}
+
+// S3MonitoringConfigInput mirrors types.S3MonitoringConfiguration.
+type S3MonitoringConfigInput struct {
+	EncryptionKeyArn string `json:"EncryptionKeyArn,omitempty"`
+	LogURI           string `json:"LogUri,omitempty"`
 }
 
 // ComputeLimits defines compute bounds for managed scaling.
@@ -441,16 +458,26 @@ const (
 // newNotebookExecutionDetail builds the correctly-nested Describe wire
 // shape from this field instead.
 type NotebookExecution struct {
-	NotebookExecutionID   string `json:"NotebookExecutionId"`
-	EditorID              string `json:"EditorId,omitempty"`
-	NotebookExecutionName string `json:"NotebookExecutionName,omitempty"`
-	NotebookParams        string `json:"NotebookParams,omitempty"`
-	ExecutionEngineID     string `json:"executionEngineId,omitempty"`
-	Status                string `json:"Status"`
-	region                string
-	Tags                  []Tag   `json:"Tags"`
-	StartTime             float64 `json:"StartTime,omitempty"`
-	EndTime               float64 `json:"EndTime,omitempty"`
+	NotebookExecutionID      string `json:"NotebookExecutionId"`
+	EditorID                 string `json:"EditorId,omitempty"`
+	NotebookExecutionName    string `json:"NotebookExecutionName,omitempty"`
+	NotebookParams           string `json:"NotebookParams,omitempty"`
+	ExecutionEngineID        string `json:"executionEngineId,omitempty"`
+	Status                   string `json:"Status"`
+	region                   string
+	NotebookS3LocationBucket string  `json:"notebookS3LocationBucket,omitempty"`
+	NotebookS3LocationKey    string  `json:"notebookS3LocationKey,omitempty"`
+	Tags                     []Tag   `json:"Tags"`
+	StartTime                float64 `json:"StartTime,omitempty"`
+	EndTime                  float64 `json:"EndTime,omitempty"`
+}
+
+// NotebookS3LocationWire is the real NotebookS3LocationForOutput shape
+// (emr@v1.64.4 types.go), shared by ListNotebookExecutions summaries and
+// DescribeNotebookExecution's detail.
+type NotebookS3LocationWire struct {
+	Bucket string `json:"Bucket,omitempty"`
+	Key    string `json:"Key,omitempty"`
 }
 
 // NotebookExecutionSummary is the wire shape for ListNotebookExecutions
@@ -458,13 +485,14 @@ type NotebookExecution struct {
 // NotebookParams, no Tags -- both present on the full NotebookExecution that
 // DescribeNotebookExecution returns.
 type NotebookExecutionSummary struct {
-	NotebookExecutionID   string  `json:"NotebookExecutionId"`
-	EditorID              string  `json:"EditorId,omitempty"`
-	NotebookExecutionName string  `json:"NotebookExecutionName,omitempty"`
-	ExecutionEngineID     string  `json:"ExecutionEngineId,omitempty"`
-	Status                string  `json:"Status"`
-	StartTime             float64 `json:"StartTime,omitempty"`
-	EndTime               float64 `json:"EndTime,omitempty"`
+	NotebookS3Location    *NotebookS3LocationWire `json:"NotebookS3Location,omitempty"`
+	NotebookExecutionID   string                  `json:"NotebookExecutionId"`
+	EditorID              string                  `json:"EditorId,omitempty"`
+	NotebookExecutionName string                  `json:"NotebookExecutionName,omitempty"`
+	ExecutionEngineID     string                  `json:"ExecutionEngineId,omitempty"`
+	Status                string                  `json:"Status"`
+	StartTime             float64                 `json:"StartTime,omitempty"`
+	EndTime               float64                 `json:"EndTime,omitempty"`
 }
 
 // newNotebookExecutionSummary projects a NotebookExecution into
@@ -478,7 +506,18 @@ func newNotebookExecutionSummary(ne NotebookExecution) NotebookExecutionSummary 
 		Status:                ne.Status,
 		StartTime:             ne.StartTime,
 		EndTime:               ne.EndTime,
+		NotebookS3Location:    notebookS3LocationWireOf(ne),
 	}
+}
+
+// notebookS3LocationWireOf returns ne's NotebookS3Location wire value, or
+// nil if StartNotebookExecution was never given one.
+func notebookS3LocationWireOf(ne NotebookExecution) *NotebookS3LocationWire {
+	if ne.NotebookS3LocationBucket == "" && ne.NotebookS3LocationKey == "" {
+		return nil
+	}
+
+	return &NotebookS3LocationWire{Bucket: ne.NotebookS3LocationBucket, Key: ne.NotebookS3LocationKey}
 }
 
 // InstanceGroupStatus is the status of an EMR instance group.
@@ -666,23 +705,49 @@ type ClusterSummary struct {
 
 // InstanceFleet represents an EMR instance fleet returned by AddInstanceFleet.
 type InstanceFleet struct {
-	Status                      InstanceFleetStatus `json:"Status"`
-	ID                          string              `json:"Id"`
-	Name                        string              `json:"Name"`
-	InstanceFleetType           string              `json:"InstanceFleetType"`
-	TargetOnDemandCapacity      int                 `json:"TargetOnDemandCapacity"`
-	TargetSpotCapacity          int                 `json:"TargetSpotCapacity"`
-	ProvisionedOnDemandCapacity int                 `json:"ProvisionedOnDemandCapacity"`
-	ProvisionedSpotCapacity     int                 `json:"ProvisionedSpotCapacity"`
+	Status                      InstanceFleetStatus         `json:"Status"`
+	ID                          string                      `json:"Id"`
+	Name                        string                      `json:"Name"`
+	InstanceFleetType           string                      `json:"InstanceFleetType"`
+	InstanceTypeSpecifications  []InstanceTypeSpecification `json:"InstanceTypeSpecifications,omitempty"`
+	TargetOnDemandCapacity      int                         `json:"TargetOnDemandCapacity"`
+	TargetSpotCapacity          int                         `json:"TargetSpotCapacity"`
+	ProvisionedOnDemandCapacity int                         `json:"ProvisionedOnDemandCapacity"`
+	ProvisionedSpotCapacity     int                         `json:"ProvisionedSpotCapacity"`
 }
 
 // InstanceFleetSpec is the input specification for an instance fleet.
 type InstanceFleetSpec struct {
-	Name                   string          `json:"Name"`
-	InstanceFleetType      string          `json:"InstanceFleetType"`
-	Configurations         []Configuration `json:"Configurations,omitempty"`
-	TargetOnDemandCapacity int             `json:"TargetOnDemandCapacity"`
-	TargetSpotCapacity     int             `json:"TargetSpotCapacity"`
+	Name                   string                   `json:"Name"`
+	InstanceFleetType      string                   `json:"InstanceFleetType"`
+	Configurations         []Configuration          `json:"Configurations,omitempty"`
+	InstanceTypeConfigs    []InstanceTypeConfigSpec `json:"InstanceTypeConfigs,omitempty"`
+	TargetOnDemandCapacity int                      `json:"TargetOnDemandCapacity"`
+	TargetSpotCapacity     int                      `json:"TargetSpotCapacity"`
+}
+
+// InstanceTypeConfigSpec is the request-side shape of one instance type
+// entry within an instance fleet's InstanceTypeConfigs (RunJobFlow's
+// Instances.InstanceFleets[].InstanceTypeConfigs and AddInstanceFleet's
+// InstanceFleet.InstanceTypeConfigs).
+type InstanceTypeConfigSpec struct {
+	InstanceType                        string  `json:"InstanceType"`
+	BidPrice                            string  `json:"BidPrice,omitempty"`
+	BidPriceAsPercentageOfOnDemandPrice float64 `json:"BidPriceAsPercentageOfOnDemandPrice,omitempty"`
+	WeightedCapacity                    int     `json:"WeightedCapacity,omitempty"`
+}
+
+// InstanceTypeSpecification is the response-side echo of a fleet's
+// configured instance types (types.InstanceTypeSpecification,
+// emr@v1.64.4/types/types.go:1634). Only the fields this emulator's
+// InstanceTypeConfigSpec accepts are modeled -- EbsBlockDevices,
+// Configurations, CustomAmiId and Priority are not (no real EBS/AMI
+// provisioning happens here).
+type InstanceTypeSpecification struct {
+	InstanceType                        string  `json:"InstanceType"`
+	BidPrice                            string  `json:"BidPrice,omitempty"`
+	BidPriceAsPercentageOfOnDemandPrice float64 `json:"BidPriceAsPercentageOfOnDemandPrice,omitempty"`
+	WeightedCapacity                    int     `json:"WeightedCapacity,omitempty"`
 }
 
 // SecurityConfiguration stores an EMR security configuration.

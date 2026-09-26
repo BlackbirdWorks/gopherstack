@@ -153,6 +153,8 @@ func reinitSingleBucket(bucket *StoredBucket) {
 			obj.mu = lockmetrics.New("s3.object")
 		}
 	}
+
+	rebuildKeyIndex(bucket)
 }
 
 // reinitUploadMutexes reinitialises per-upload mutexes after deserialisation.

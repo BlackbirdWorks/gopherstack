@@ -115,19 +115,38 @@ func (b *InMemoryBackend) GetPolicy(functionName, qualifier string) (*GetPolicyO
 		return nil, ErrFunctionNotFound
 	}
 
-	perms := b.permissionsForTarget(permissionMapKey(name, qualifier))
-	if len(perms) == 0 {
+	// GetPolicy (legacy) and GetResourcePolicy (newer) read the same
+	// underlying policy document -- a PutResourcePolicy override must be
+	// visible here too, not just through GetResourcePolicy.
+	policy, rev, ok := b.effectivePolicyLocked(name, qualifier)
+	if !ok {
 		return nil, ErrNoPolicyFound
 	}
 
-	stmts := make([]string, 0, len(perms))
+	return &GetPolicyOutput{Policy: &policy, RevisionID: &rev}, nil
+}
 
+// functionResourceArn builds the ARN a function/qualifier target's policy
+// statements name as their Resource -- the same shape AddPermission uses.
+func functionResourceArn(b *InMemoryBackend, name, qualifier string) string {
 	resource := "function:" + name
 	if qualifier != "" {
 		resource += ":" + qualifier
 	}
 
-	resourceArn := arn.Build("lambda", b.region, b.accountID, resource)
+	return arn.Build("lambda", b.region, b.accountID, resource)
+}
+
+// statementPolicyLocked renders the current statement-based (AddPermission)
+// policy JSON and revision for a function/qualifier target, or ok=false when
+// no statements exist for it. Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) statementPolicyLocked(name, qualifier string) (string, string, bool) {
+	perms := b.permissionsForTarget(permissionMapKey(name, qualifier))
+	if len(perms) == 0 {
+		return "", "", false
+	}
+
+	resourceArn := functionResourceArn(b, name, qualifier)
 
 	// Sort statements for deterministic output.
 	sortedPerms := make([]*FunctionPermission, len(perms))
@@ -136,14 +155,26 @@ func (b *InMemoryBackend) GetPolicy(functionName, qualifier string) (*GetPolicyO
 		return sortedPerms[i].StatementID < sortedPerms[j].StatementID
 	})
 
+	stmts := make([]string, 0, len(sortedPerms))
 	for _, p := range sortedPerms {
 		stmts = append(stmts, buildPermissionStatementJSON(p, resourceArn))
 	}
 
 	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[%s]}`, strings.Join(stmts, ","))
-	rev := policyRevisionID(perms)
 
-	return &GetPolicyOutput{Policy: &policy, RevisionID: &rev}, nil
+	return policy, policyRevisionID(perms), true
+}
+
+// clearPermissionsForTargetLocked removes every statement-based
+// FunctionPermission for a function/qualifier target. Used by
+// PutResourcePolicy/DeleteResourcePolicy, which operate on the whole policy
+// document and must not leave stale statements a subsequent GetPolicy/
+// GetResourcePolicy would otherwise still render. Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) clearPermissionsForTargetLocked(name, qualifier string) {
+	key := permissionMapKey(name, qualifier)
+	for _, p := range b.permissionsForTarget(key) {
+		b.permissions.Delete(key + "|" + p.StatementID)
+	}
 }
 
 // policyRevisionID derives a stable opaque revision identifier for a policy

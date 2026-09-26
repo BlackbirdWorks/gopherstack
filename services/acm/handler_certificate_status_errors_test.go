@@ -349,7 +349,9 @@ func TestACMHandler_RevokeCertificate_PendingValidation_Returns_ConflictExceptio
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newACMHandler()
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			b.SetAutoValidateDelayForTest(time.Hour)
+			h := acm.NewHandler(b)
 			method := methods[tt.name]
 			body, _ := json.Marshal(map[string]string{
 				"DomainName":       "revoke-pending.example.com",
@@ -363,7 +365,6 @@ func TestACMHandler_RevokeCertificate_PendingValidation_Returns_ConflictExceptio
 			}
 			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
 
-			// Describe to check status; skip if auto-validated.
 			descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
 			descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 			require.Equal(t, http.StatusOK, descRec.Code)
@@ -374,10 +375,7 @@ func TestACMHandler_RevokeCertificate_PendingValidation_Returns_ConflictExceptio
 				} `json:"Certificate"`
 			}
 			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
-
-			if descOut.Certificate.Status != "PENDING_VALIDATION" {
-				t.Skip("cert auto-validated before test could run")
-			}
+			require.Equal(t, "PENDING_VALIDATION", descOut.Certificate.Status)
 
 			revokeBody, _ := json.Marshal(map[string]string{
 				"CertificateArn":   reqOut.CertificateArn,

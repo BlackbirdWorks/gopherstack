@@ -63,6 +63,21 @@ func (b *InMemoryBackend) DescribeDBInstanceAutomatedBackups(instanceID string) 
 	return result
 }
 
+// DescribeDBInstanceAutomatedBackupsByArn returns the automated backup record
+// whose DBInstanceAutomatedBackupsArn matches backupsArn, or nil if none does.
+func (b *InMemoryBackend) DescribeDBInstanceAutomatedBackupsByArn(backupsArn string) []DBInstanceAutomatedBackup {
+	b.mu.RLock("DescribeDBInstanceAutomatedBackupsByArn")
+	defer b.mu.RUnlock()
+
+	for _, ab := range b.automatedBackups {
+		if ab.DBInstanceAutomatedBackupsArn == backupsArn {
+			return []DBInstanceAutomatedBackup{*ab}
+		}
+	}
+
+	return nil
+}
+
 // isKnownDBInstanceAutomatedBackupFilterName reports whether name is a
 // Filters.Filter.N.Name value AWS recognizes for
 // DescribeDBInstanceAutomatedBackups (rds@v1.124.1
@@ -310,17 +325,30 @@ func (b *InMemoryBackend) StartDBInstanceAutomatedBackupsReplication(
 		return nil, fmt.Errorf("%w: SourceDBInstanceArn is required", ErrInvalidParameter)
 	}
 
-	// Derive a simple ID from the ARN for keying the backup record.
-	instanceID := sourceInstanceARN
-	key := "repl-" + instanceID
+	// DBInstanceIdentifier must be the bare identifier, not the ARN: real
+	// DescribeDBInstanceAutomatedBackups callers (including the aws_rds_
+	// instance_automated_backups_replication create waiter) filter by the
+	// bare id, and a full ARN there never matches.
+	instanceID := rdsIDFromARN(sourceInstanceARN)
+	key := "repl-" + sourceInstanceARN
+
+	// DbiResourceId must match the source instance's own (CreateDBInstance
+	// sets it equal to the instance identifier, not a synthesized "db-"
+	// prefix), since callers can filter DescribeDBInstanceAutomatedBackups
+	// by either field.
+	dbiResourceID := instanceID
+	if inst, exists := b.instances.Get(normalizeID(instanceID)); exists {
+		dbiResourceID = inst.DbiResourceID
+	}
 
 	backup := &DBInstanceAutomatedBackup{
-		DBInstanceArn:         sourceInstanceARN,
-		DBInstanceIdentifier:  instanceID,
-		DbiResourceID:         fmt.Sprintf("db-%s", instanceID),
-		Region:                b.region,
-		Status:                instanceBackupStatusReplicating,
-		BackupRetentionPeriod: backupRetentionPeriod,
+		DBInstanceArn:                 sourceInstanceARN,
+		DBInstanceAutomatedBackupsArn: b.rdsARN("auto-backup", instanceID),
+		DBInstanceIdentifier:          instanceID,
+		DbiResourceID:                 dbiResourceID,
+		Region:                        b.region,
+		Status:                        instanceBackupStatusReplicating,
+		BackupRetentionPeriod:         backupRetentionPeriod,
 	}
 	b.automatedBackups[key] = backup
 	cp := *backup

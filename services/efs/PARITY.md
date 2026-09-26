@@ -137,7 +137,7 @@ deferred:
   - ThroughputLimitExceeded / NetworkInterfaceLimitExceeded / NoFreeAddressesInSubnet /
     IpAddressInUse / mount-targets-per-VPC (1,400) -- see gaps entry dated 2026-09-11 for why
     each is left unenforced now that FileSystemLimitExceeded/AccessPointLimitExceeded are done.
-leaks: {status: clean, note: "single self-terminating goroutine (fsActivationDelay simulation in CreateFileSystem) guards against concurrent deletion via a Get-under-lock check before mutating state; only active when fsActivationDelay>0, which is zero (disabled) outside parity tests. No new goroutines/tickers added this pass (mount-target IPv6 fields, replication pagination, and LastReplicatedTimestamp are all synchronous state mutations)."}
+leaks: {status: clean, note: "fixed 2026-09-24 (background-timer audit): CreateFileSystem's fsActivationDelay simulation used to spawn an untracked `go func(){ time.Sleep(...); ... }()` per call, unbounded by the backend's lifecycle -- a real (if test-only, since fsActivationDelay is 0 outside tests) pile-up/leak risk. Replaced with effectiveFileSystemState, a pure function computing creating->available lazily from CreationTime+fsActivationDelay: no goroutine or timer exists at all now. DescribeFileSystems and checkFileSystemAvailable (renamed to a *InMemoryBackend method so it can see fsActivationDelay) both resolve through it, so every read/gate sees the promoted state without mutating shared state under RLock. lazy_activation_test.go (testing/synctest) proves creating holds pre-deadline and available appears post-deadline. No new persisted fields."}
 ---
 
 ## Notes

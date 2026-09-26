@@ -21,6 +21,7 @@ func TestPutSecretValue_EmptyValueRejected(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "empty-put", SecretString: "v"},
@@ -38,6 +39,7 @@ func TestPutSecretValue_EmptyValueHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"ev-http","SecretString":"v"}`)
@@ -50,6 +52,7 @@ func TestPutSecretValue_AWSCURRENT_Promoted(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "promote-test",
 		SecretString:       "first",
@@ -76,6 +79,7 @@ func TestPutSecretValue_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "idem-put", SecretString: "v"},
@@ -102,6 +106,7 @@ func TestPutSecretValue_WithAWSPENDING(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "pending-put", SecretString: "v1"},
@@ -123,6 +128,7 @@ func TestPutSecretValue_SecretNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 		SecretID:     "missing",
 		SecretString: "v",
@@ -134,6 +140,7 @@ func TestPutSecretValue_DeletedSecret(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "del-put", SecretString: "v"},
@@ -153,6 +160,7 @@ func TestPutSecretValue_SizeLimit(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "size-put", SecretString: "v"},
@@ -174,6 +182,7 @@ func TestPutSecretValue_VersionStagingFullCycle(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	// v1 → AWSCURRENT
@@ -255,6 +264,7 @@ func TestPutSecretValue_AWSPENDINGDoesNotMoveCurrent(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -298,6 +308,7 @@ func TestPutSecretValue_BinaryValue(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -330,6 +341,7 @@ func TestPutSecretValue_NilVersionStagesAppliesAWSCURRENT(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "empty-stages",
 		SecretString: "v1",
@@ -374,6 +386,7 @@ func TestPutSecretValue_PendingOnlyDoesNotForceAWSCURRENT(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -405,7 +418,7 @@ func TestPutSecretValue_PendingOnlyDoesNotForceAWSCURRENT(t *testing.T) {
 func TestPutSecretValue_BothSecretStringAndBinaryRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	// Create a secret first.
 	rec := doSMRequest(t, h, "secretsmanager.CreateSecret",
@@ -445,7 +458,7 @@ func TestPutSecretValue_RequiresSecretId(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newSMHandler()
+			h := newSMHandler(t)
 			rec := doSMRequest(t, h, "secretsmanager.PutSecretValue", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code,
 				"PutSecretValue status for case %q", tt.name)
@@ -459,6 +472,7 @@ func TestPutSecretValue_Idempotency(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"idempotent","SecretString":"initial"}`)
@@ -497,6 +511,7 @@ func TestPutSecretValue_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         "versioned-secret",
 			SecretString: "v1",
@@ -531,6 +546,7 @@ func TestPutSecretValue_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 
 		_, err := backend.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 			SecretID:     "missing",
@@ -572,6 +588,7 @@ func TestPutSecretValue_VersionStages(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 
 			_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "vs-test",

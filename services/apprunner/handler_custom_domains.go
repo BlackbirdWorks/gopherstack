@@ -11,24 +11,38 @@ type associateCustomDomainInput struct {
 	DomainName         string `json:"DomainName"`
 }
 
+type certificateValidationRecordOutput struct {
+	Name   string `json:"Name"`
+	Type   string `json:"Type"`
+	Value  string `json:"Value"`
+	Status string `json:"Status"`
+}
+
 type customDomainOutput struct {
-	DomainName         string `json:"DomainName"`
-	Status             string `json:"Status"`
-	EnableWWWSubdomain bool   `json:"EnableWWWSubdomain"`
+	DomainName                   string                              `json:"DomainName"`
+	Status                       string                              `json:"Status"`
+	CertificateValidationRecords []certificateValidationRecordOutput `json:"CertificateValidationRecords,omitempty"`
+	EnableWWWSubdomain           bool                                `json:"EnableWWWSubdomain"`
 }
 
 type associateCustomDomainOutput struct {
 	DNSTarget     string             `json:"DNSTarget"`
 	ServiceArn    string             `json:"ServiceArn"`
-	CustomDomain  customDomainOutput `json:"CustomDomain"`
 	VpcDNSTargets []any              `json:"VpcDNSTargets"`
+	CustomDomain  customDomainOutput `json:"CustomDomain"`
 }
 
 func toCustomDomainOutput(cd *CustomDomain) customDomainOutput {
+	records := make([]certificateValidationRecordOutput, len(cd.CertificateValidationRecords))
+	for i, r := range cd.CertificateValidationRecords {
+		records[i] = certificateValidationRecordOutput(r)
+	}
+
 	return customDomainOutput{
-		DomainName:         cd.DomainName,
-		Status:             cd.Status,
-		EnableWWWSubdomain: cd.EnableWWWSubdomain,
+		DomainName:                   cd.DomainName,
+		Status:                       cd.Status,
+		CertificateValidationRecords: records,
+		EnableWWWSubdomain:           cd.EnableWWWSubdomain,
 	}
 }
 
@@ -75,8 +89,8 @@ type disassociateCustomDomainInput struct {
 type disassociateCustomDomainOutput struct {
 	DNSTarget     string             `json:"DNSTarget"`
 	ServiceArn    string             `json:"ServiceArn"`
-	CustomDomain  customDomainOutput `json:"CustomDomain"`
 	VpcDNSTargets []any              `json:"VpcDNSTargets"`
+	CustomDomain  customDomainOutput `json:"CustomDomain"`
 }
 
 func (h *Handler) handleDisassociateCustomDomain(

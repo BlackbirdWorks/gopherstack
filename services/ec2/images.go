@@ -18,25 +18,44 @@ const imageOwnerAliasAmazon = "amazon"
 
 // AMIStub is a static image entry.
 type AMIStub struct {
-	ImageID        string `json:"imageID,omitempty"`
-	Name           string `json:"name,omitempty"`
-	Description    string `json:"description,omitempty"`
-	Architecture   string `json:"architecture,omitempty"`
-	Platform       string `json:"platform,omitempty"`
-	RootDeviceName string `json:"rootDeviceName,omitempty"`
-	State          string `json:"state,omitempty"`
-	// SourceImageID is the parent AMI this image was copied from via
-	// CopyImage, or empty for root images. Used by GetImageAncestry.
-	SourceImageID string `json:"sourceImageID,omitempty"`
-	// OwnerID is the account ID (or "amazon" for the seeded public catalog
-	// entries below) that owns this AMI, used by DescribeImages' Owner.N
-	// filter.
-	OwnerID string `json:"ownerID,omitempty"`
-	// ImdsSupport/VirtualizationType are RegisterImage inputs echoed back
-	// on DescribeImages; this backend has no IMDS or hypervisor simulation
-	// to enforce either against.
-	ImdsSupport        string `json:"imdsSupport,omitempty"`
-	VirtualizationType string `json:"virtualizationType,omitempty"`
+	State               string                    `json:"state,omitempty"`
+	VirtualizationType  string                    `json:"virtualizationType,omitempty"`
+	Description         string                    `json:"description,omitempty"`
+	Architecture        string                    `json:"architecture,omitempty"`
+	Platform            string                    `json:"platform,omitempty"`
+	RootDeviceName      string                    `json:"rootDeviceName,omitempty"`
+	Name                string                    `json:"name,omitempty"`
+	OwnerID             string                    `json:"ownerID,omitempty"`
+	ImageID             string                    `json:"imageID,omitempty"`
+	ImdsSupport         string                    `json:"imdsSupport,omitempty"`
+	SourceImageID       string                    `json:"sourceImageID,omitempty"`
+	SriovNetSupport     string                    `json:"sriovNetSupport,omitempty"`
+	BlockDeviceMappings []ImageBlockDeviceMapping `json:"blockDeviceMappings,omitempty"`
+	EnaSupport          bool                      `json:"enaSupport,omitempty"`
+	EnaSupportSet       bool                      `json:"enaSupportSet,omitempty"`
+}
+
+// ImageBlockDeviceMapping mirrors ec2@v1.329.0 types.BlockDeviceMapping as
+// echoed on an AMI (RegisterImage's request shape, DescribeImages' response
+// shape).
+type ImageBlockDeviceMapping struct {
+	DeviceName          string `json:"deviceName,omitempty"`
+	VirtualName         string `json:"virtualName,omitempty"`
+	SnapshotID          string `json:"snapshotId,omitempty"`
+	VolumeType          string `json:"volumeType,omitempty"`
+	VolumeSize          int32  `json:"volumeSize,omitempty"`
+	Iops                int32  `json:"iops,omitempty"`
+	Throughput          int32  `json:"throughput,omitempty"`
+	DeleteOnTermination bool   `json:"deleteOnTermination,omitempty"`
+	Encrypted           bool   `json:"encrypted,omitempty"`
+	NoDevice            bool   `json:"noDevice,omitempty"`
+}
+
+// InstanceTypeSpecification holds the instance type compatibility rules for an AMI
+// (ec2@v1.329.0 types.InstanceTypeSpecification), set via ReplaceImageInstanceTypeSpecification.
+type InstanceTypeSpecification struct {
+	SupportedInstanceTypes   []string `json:"supportedInstanceTypes,omitempty"`
+	UnsupportedInstanceTypes []string `json:"unsupportedInstanceTypes,omitempty"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
@@ -236,6 +255,126 @@ func (b *InMemoryBackend) ModifyImageAttribute(imageID, attribute, value string)
 	return nil
 }
 
+// ReplaceImageInstanceTypeSpecification replaces (or, when both lists are empty, removes) the
+// instance type compatibility rules for an AMI this account owns. Real AWS restricts this to
+// the AMI owner (api_op_ReplaceImageInstanceTypeSpecification.go); this backend's only
+// non-owned images are the seeded public catalog (stubAMIs, OwnerID "amazon").
+func (b *InMemoryBackend) ReplaceImageInstanceTypeSpecification(
+	imageID string, supported, unsupported []string,
+) error {
+	if imageID == "" {
+		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ReplaceImageInstanceTypeSpecification")
+	defer b.mu.Unlock()
+
+	if _, ok := b.images.Get(imageID); !ok {
+		if b.lookupImageLocked(imageID) != nil {
+			return fmt.Errorf("%w: %s is not owned by this account", ErrImageNotOwner, imageID)
+		}
+
+		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
+	}
+
+	if len(supported) == 0 && len(unsupported) == 0 {
+		delete(b.imageInstanceTypeSpecs, imageID)
+
+		return nil
+	}
+
+	b.imageInstanceTypeSpecs[imageID] = &InstanceTypeSpecification{
+		SupportedInstanceTypes:   append([]string(nil), supported...),
+		UnsupportedInstanceTypes: append([]string(nil), unsupported...),
+	}
+
+	return nil
+}
+
+// GetImageInstanceTypeSpecification returns the instance type compatibility rules previously
+// set by ReplaceImageInstanceTypeSpecification, or nil if none is set. Used by DescribeImages
+// to echo the instanceTypeSpecification wire field.
+func (b *InMemoryBackend) GetImageInstanceTypeSpecification(imageID string) *InstanceTypeSpecification {
+	b.mu.RLock("GetImageInstanceTypeSpecification")
+	defer b.mu.RUnlock()
+
+	spec, ok := b.imageInstanceTypeSpecs[imageID]
+	if !ok {
+		return nil
+	}
+
+	cp := *spec
+	cp.SupportedInstanceTypes = append([]string(nil), spec.SupportedInstanceTypes...)
+	cp.UnsupportedInstanceTypes = append([]string(nil), spec.UnsupportedInstanceTypes...)
+
+	return &cp
+}
+
+// ModifyImageLaunchPermission applies LaunchPermission.Add/Remove account IDs
+// and the "all" (public) group to an AMI, as tracked per-grantee state --
+// real AWS clients (including the Terraform provider's aws_ami_launch_permission
+// resource) read back the exact grantee they added via DescribeImageAttribute,
+// not a fixed stub.
+func (b *InMemoryBackend) ModifyImageLaunchPermission(
+	imageID string, addAccountIDs []string, addPublic bool, removeAccountIDs []string, removePublic bool,
+) error {
+	if imageID == "" {
+		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyImageLaunchPermission")
+	defer b.mu.Unlock()
+
+	if b.imageLaunchPermissions[imageID] == nil {
+		b.imageLaunchPermissions[imageID] = make(map[string]bool)
+	}
+
+	for _, id := range addAccountIDs {
+		b.imageLaunchPermissions[imageID][id] = true
+	}
+
+	for _, id := range removeAccountIDs {
+		delete(b.imageLaunchPermissions[imageID], id)
+	}
+
+	if addPublic {
+		b.imageLaunchPermissionPublic[imageID] = true
+	}
+
+	if removePublic {
+		delete(b.imageLaunchPermissionPublic, imageID)
+	}
+
+	return nil
+}
+
+// GetImageLaunchPermission returns the account IDs an AMI has been shared
+// with and whether it has been made public, as previously set by
+// ModifyImageLaunchPermission.
+func (b *InMemoryBackend) GetImageLaunchPermission(imageID string) ([]string, bool) {
+	b.mu.RLock("GetImageLaunchPermission")
+	defer b.mu.RUnlock()
+
+	ids := make([]string, 0, len(b.imageLaunchPermissions[imageID]))
+	for id := range b.imageLaunchPermissions[imageID] {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	public := b.imageLaunchPermissionPublic[imageID]
+	if !public && len(ids) == 0 {
+		// The seeded public catalog (stubAMIs, owned by "amazon") is public
+		// by definition and was never individually shared -- default to
+		// public rather than reporting a catalog AMI as private.
+		if img := b.lookupImageLocked(imageID); img != nil && knownImageOwnerAliases[img.OwnerID] {
+			public = true
+		}
+	}
+
+	return ids, public
+}
+
 // GetImageAttribute returns a previously-set simple string AMI attribute
 // (as stored by ModifyImageAttribute), or "" if never set.
 func (b *InMemoryBackend) GetImageAttribute(imageID, attribute string) string {
@@ -376,6 +515,67 @@ func (b *InMemoryBackend) SetImageMetadata(imageID, imdsSupport, virtualizationT
 	if virtualizationType != "" {
 		img.VirtualizationType = virtualizationType
 	}
+}
+
+// SetImageEnhancedNetworking applies RegisterImage's EnaSupport/SriovNetSupport
+// to an existing image, so DescribeImages can echo them back (both are
+// ForceNew on aws_ami, so leaving them unset causes permanent apply drift).
+func (b *InMemoryBackend) SetImageEnhancedNetworking(
+	imageID string, enaSupportSet, enaSupport bool, sriovNetSupport string,
+) {
+	b.mu.Lock("SetImageEnhancedNetworking")
+	defer b.mu.Unlock()
+
+	img, ok := b.images.Get(imageID)
+	if !ok {
+		return
+	}
+
+	if enaSupportSet {
+		img.EnaSupportSet = true
+		img.EnaSupport = enaSupport
+	}
+
+	if sriovNetSupport != "" {
+		img.SriovNetSupport = sriovNetSupport
+	}
+}
+
+// SetImageRootDeviceName applies RegisterImage's RootDeviceName -- a
+// declare+echo field this backend does not derive from BlockDeviceMapping
+// when the caller omits it (see PARITY.md).
+func (b *InMemoryBackend) SetImageRootDeviceName(imageID, rootDeviceName string) {
+	if rootDeviceName == "" {
+		return
+	}
+
+	b.mu.Lock("SetImageRootDeviceName")
+	defer b.mu.Unlock()
+
+	img, ok := b.images.Get(imageID)
+	if !ok {
+		return
+	}
+
+	img.RootDeviceName = rootDeviceName
+}
+
+// SetImageBlockDeviceMappings applies RegisterImage's BlockDeviceMapping.N.*
+// entries to an existing image, so DescribeImages can echo them back.
+func (b *InMemoryBackend) SetImageBlockDeviceMappings(imageID string, mappings []ImageBlockDeviceMapping) {
+	if len(mappings) == 0 {
+		return
+	}
+
+	b.mu.Lock("SetImageBlockDeviceMappings")
+	defer b.mu.Unlock()
+
+	img, ok := b.images.Get(imageID)
+	if !ok {
+		return
+	}
+
+	img.BlockDeviceMappings = mappings
 }
 
 // ImportImage creates an import task for importing a VM image.
@@ -692,6 +892,8 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 	delete(b.imageDeregistrationProtection, imageID)
 	delete(b.fastLaunchImages, imageID)
 	delete(b.imageWatermarks, imageID)
+	delete(b.imageLaunchPermissions, imageID)
+	delete(b.imageLaunchPermissionPublic, imageID)
 
 	return nil
 }

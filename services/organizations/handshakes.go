@@ -29,6 +29,12 @@ const (
 
 	// handshakeExpirationDuration is the default lifetime of a handshake (AWS default: 15 days).
 	handshakeExpirationDuration = 15 * 24 * time.Hour
+
+	// handshakeTerminalRetention bounds how long a non-OPEN handshake stays in
+	// b.handshakes after leaving OPEN. AWS docs (API_Handshake.html): "Handshakes
+	// that are CANCELED, ACCEPTED, DECLINED, or EXPIRED show up in lists for only
+	// 30 days after entering that state. After that they are deleted." (sic).
+	handshakeTerminalRetention = 30 * 24 * time.Hour
 )
 
 // ResponsibilityTransferStatus values (types/enums.go:
@@ -66,6 +72,8 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 	b.mu.Lock("AcceptHandshake")
 	defer b.mu.Unlock()
 
+	b.pruneStaleHandshakesLocked()
+
 	h, ok := b.handshakes.Get(handshakeID)
 	if !ok {
 		return nil, ErrHandshakeNotFound
@@ -76,6 +84,7 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 	}
 
 	h.State = handshakeStateAccepted
+	h.StateChangedAt = time.Now()
 	b.syncResponsibilityTransferStatusLocked(h)
 
 	if h.Action == handshakeActionInvite && b.org != nil {
@@ -112,6 +121,8 @@ func (b *InMemoryBackend) CancelHandshake(handshakeID string) (*Handshake, error
 	b.mu.Lock("CancelHandshake")
 	defer b.mu.Unlock()
 
+	b.pruneStaleHandshakesLocked()
+
 	h, ok := b.handshakes.Get(handshakeID)
 	if !ok {
 		return nil, ErrHandshakeNotFound
@@ -122,6 +133,7 @@ func (b *InMemoryBackend) CancelHandshake(handshakeID string) (*Handshake, error
 	}
 
 	h.State = handshakeStateCanceled
+	h.StateChangedAt = time.Now()
 	b.syncResponsibilityTransferStatusLocked(h)
 
 	return copyHandshake(h), nil
@@ -131,6 +143,8 @@ func (b *InMemoryBackend) CancelHandshake(handshakeID string) (*Handshake, error
 func (b *InMemoryBackend) DeclineHandshake(handshakeID string) (*Handshake, error) {
 	b.mu.Lock("DeclineHandshake")
 	defer b.mu.Unlock()
+
+	b.pruneStaleHandshakesLocked()
 
 	h, ok := b.handshakes.Get(handshakeID)
 	if !ok {
@@ -142,6 +156,7 @@ func (b *InMemoryBackend) DeclineHandshake(handshakeID string) (*Handshake, erro
 	}
 
 	h.State = handshakeStateDeclined
+	h.StateChangedAt = time.Now()
 	b.syncResponsibilityTransferStatusLocked(h)
 
 	return copyHandshake(h), nil
@@ -153,6 +168,7 @@ func (b *InMemoryBackend) DescribeHandshake(handshakeID string) (*Handshake, err
 	defer b.mu.Unlock()
 
 	b.expireStaleHandshakesLocked()
+	b.pruneStaleHandshakesLocked()
 
 	h, ok := b.handshakes.Get(handshakeID)
 	if !ok {
@@ -237,7 +253,24 @@ func (b *InMemoryBackend) expireStaleHandshakesLocked() {
 	for _, h := range b.handshakes.All() {
 		if h.State == handshakeStateOpen && !h.ExpirationTimestamp.IsZero() && now.After(h.ExpirationTimestamp) {
 			h.State = handshakeStateExpired
+			h.StateChangedAt = now
 			b.syncResponsibilityTransferStatusLocked(h)
+		}
+	}
+}
+
+// pruneStaleHandshakesLocked evicts non-OPEN handshakes that have sat past
+// handshakeTerminalRetention since StateChangedAt, so terraform-driven
+// invite/cancel/accept/decline churn doesn't grow b.handshakes unbounded in
+// a long-running emulator. Matches AWS's own 30-day list-visibility window
+// (handshakeTerminalRetention's doc comment), so this changes no observable
+// read behavior within the window. Must be called with a write lock held.
+func (b *InMemoryBackend) pruneStaleHandshakesLocked() {
+	now := time.Now()
+	for _, h := range b.handshakes.All() {
+		if h.State != handshakeStateOpen && !h.StateChangedAt.IsZero() &&
+			now.Sub(h.StateChangedAt) >= handshakeTerminalRetention {
+			b.handshakes.Delete(h.ID)
 		}
 	}
 }
@@ -280,6 +313,8 @@ func (b *InMemoryBackend) EnableAllFeatures() (*Handshake, error) {
 	if b.org == nil {
 		return nil, ErrOrgNotFound
 	}
+
+	b.pruneStaleHandshakesLocked()
 
 	now := time.Now()
 	id := newHandshakeID()
@@ -349,6 +384,8 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 		return nil, err
 	}
 
+	b.pruneStaleHandshakesLocked()
+
 	// AWS rejects duplicate open invitations to the same target.
 	for _, existing := range b.handshakes.All() {
 		if existing.State != handshakeStateOpen || existing.Action != handshakeActionInvite {
@@ -417,6 +454,7 @@ func (b *InMemoryBackend) ListHandshakesForAccount(actionTypeFilter string) ([]*
 	}
 
 	b.expireStaleHandshakesLocked()
+	b.pruneStaleHandshakesLocked()
 
 	out := make([]*Handshake, 0, b.handshakes.Len())
 
@@ -442,6 +480,7 @@ func (b *InMemoryBackend) ListHandshakesForOrganization(actionTypeFilter string)
 	}
 
 	b.expireStaleHandshakesLocked()
+	b.pruneStaleHandshakesLocked()
 
 	out := make([]*Handshake, 0, b.handshakes.Len())
 
@@ -570,6 +609,8 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 	if target.ID == "" || params.SourceName == "" || params.Type == "" || params.StartTimestamp.IsZero() {
 		return nil, ErrInvalidInput
 	}
+
+	b.pruneStaleHandshakesLocked()
 
 	now := time.Now()
 	id := newHandshakeID()

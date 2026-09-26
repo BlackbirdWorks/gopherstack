@@ -47,6 +47,16 @@ type TopicRule struct {
 type RuleAction struct {
 	SQS    *SQSAction    `json:"sqs,omitempty"`
 	Lambda *LambdaAction `json:"lambda,omitempty"`
+	SNS    *SNSAction    `json:"sns,omitempty"`
+}
+
+// SNSAction publishes the matched message to an SNS topic
+// (types.SnsAction, aws-sdk-go-v2/service/iot@v1.83.0: RoleArn/TargetArn
+// required, MessageFormat optional).
+type SNSAction struct {
+	RoleARN       string `json:"roleArn"`
+	TargetARN     string `json:"targetArn"`
+	MessageFormat string `json:"messageFormat,omitempty"`
 }
 
 // SQSAction sends the matched message to an SQS queue.
@@ -323,6 +333,7 @@ type TopicRuleDestination struct {
 	CreatedAt         time.Time                     `json:"-"`
 	LastUpdatedAt     time.Time                     `json:"-"`
 	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
+	VPCProperties     *VPCDestinationProperties     `json:"vpcProperties,omitempty"`
 	ARN               string                        `json:"arn"`
 	Status            string                        `json:"status"`
 	// ConfirmationToken is the token that must be presented to
@@ -336,6 +347,15 @@ type TopicRuleDestination struct {
 // HTTPURLDestinationProperties holds properties for an HTTP URL destination.
 type HTTPURLDestinationProperties struct {
 	ConfirmationURL string `json:"confirmationUrl"`
+}
+
+// VPCDestinationProperties holds properties for a VPC destination
+// (types.VpcDestinationProperties, aws-sdk-go-v2/service/iot@v1.83.0).
+type VPCDestinationProperties struct {
+	RoleARN        string   `json:"roleArn,omitempty"`
+	VpcID          string   `json:"vpcId,omitempty"`
+	SecurityGroups []string `json:"securityGroups,omitempty"`
+	SubnetIDs      []string `json:"subnetIds,omitempty"`
 }
 
 // CertificateProvider represents an AWS IoT Certificate Provider.
@@ -431,11 +451,23 @@ type CreateTopicRuleDestinationInput struct {
 // TopicRuleDestinationConfiguration is the configuration for a topic rule destination.
 type TopicRuleDestinationConfiguration struct {
 	HTTPURLConfiguration *HTTPURLDestinationConfiguration `json:"httpUrlConfiguration,omitempty"`
+	VPCConfiguration     *VPCDestinationConfiguration     `json:"vpcConfiguration,omitempty"`
 }
 
 // HTTPURLDestinationConfiguration holds configuration for an HTTP URL destination.
 type HTTPURLDestinationConfiguration struct {
 	ConfirmationURL string `json:"confirmationUrl"`
+}
+
+// VPCDestinationConfiguration holds configuration for a VPC destination
+// (types.VpcDestinationConfiguration, aws-sdk-go-v2/service/iot@v1.83.0:
+// RoleArn and SubnetIds are required, SecurityGroups/VpcId optional on the
+// Go type but VpcId is always sent by the real provider).
+type VPCDestinationConfiguration struct {
+	RoleARN        string   `json:"roleArn"`
+	VpcID          string   `json:"vpcId,omitempty"`
+	SecurityGroups []string `json:"securityGroups,omitempty"`
+	SubnetIDs      []string `json:"subnetIds"`
 }
 
 // UpdateTopicRuleDestinationInput is the input for UpdateTopicRuleDestination.

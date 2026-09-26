@@ -209,18 +209,63 @@ func iamInstanceProfileArg(vals url.Values) string {
 	return vals.Get("IamInstanceProfile.Name")
 }
 
-// activeIamInstanceProfile returns the wire-shaped IAM instance profile for
-// instanceID's current "associated" association, or nil if it has none --
-// mirrors real DescribeInstances/RunInstances rendering types.Instance.
-// IamInstanceProfile (deserializers.go:110585).
-func (h *Handler) activeIamInstanceProfile(instanceID string) *iamProfileSpec {
-	for _, assoc := range h.Backend.DescribeIamInstanceProfileAssociations(nil, instanceID) {
-		if assoc.State == stateAssociated {
-			return &iamProfileSpec{ARN: assoc.IamInstanceProfile, ID: iamProfileName(assoc.IamInstanceProfile)}
+// iamProfilesByInstance returns the wire-shaped IAM instance profile for
+// every instance that has a current "associated" association, mirroring the
+// real DescribeInstances/RunInstances rendering of types.Instance.
+// IamInstanceProfile (deserializers.go:110585). DescribeIamInstanceProfileAssociations
+// already scans every association internally regardless of the instanceID
+// filter passed to it, so one unfiltered call replaces what used to be one
+// full scan per instance.
+func (h *Handler) iamProfilesByInstance() map[string]*iamProfileSpec {
+	out := make(map[string]*iamProfileSpec)
+
+	for _, assoc := range h.Backend.DescribeIamInstanceProfileAssociations(nil, "") {
+		if assoc.State != stateAssociated {
+			continue
+		}
+
+		if _, exists := out[assoc.InstanceID]; exists {
+			continue
+		}
+
+		out[assoc.InstanceID] = &iamProfileSpec{
+			ARN: assoc.IamInstanceProfile,
+			ID:  iamProfileName(assoc.IamInstanceProfile),
 		}
 	}
 
-	return nil
+	return out
+}
+
+// securityGroupNamesFor returns the ID→Name map for every security group
+// referenced by instances, fetched with a single DescribeSecurityGroups call
+// instead of one per instance.
+func securityGroupNamesFor(b Backend, instances []*Instance) map[string]string {
+	var ids []string
+
+	seen := make(map[string]struct{})
+
+	for _, inst := range instances {
+		for _, sgID := range inst.SecurityGroups {
+			if _, ok := seen[sgID]; ok {
+				continue
+			}
+
+			seen[sgID] = struct{}{}
+			ids = append(ids, sgID)
+		}
+	}
+
+	names := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return names
+	}
+
+	for _, sg := range b.DescribeSecurityGroups(ids) {
+		names[sg.ID] = sg.Name
+	}
+
+	return names
 }
 
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
@@ -283,14 +328,20 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		}
 	}
 
+	ids := make([]string, len(instances))
+	for i, inst := range instances {
+		ids[i] = inst.ID
+	}
+
+	tagsByID := h.Backend.TagsForResources(ids)
+	iamProfiles := h.iamProfilesByInstance()
+	sgNames := securityGroupNamesFor(h.Backend, instances)
+
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
 		items = append(
 			items,
-			toInstanceItem(
-				inst, h.Backend.TagsForResource(inst.ID), h.activeIamInstanceProfile(inst.ID),
-				h.Backend.DescribeSecurityGroups(inst.SecurityGroups),
-			),
+			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames),
 		)
 	}
 
@@ -319,8 +370,18 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 	// that multi-value OR semantics work: e.g. state=running OR state=stopped).
 	instances := h.Backend.DescribeInstances(ids, "")
 
+	// Snapshot tags once for every candidate instance: reused below for both
+	// tag: filter evaluation and TagSet rendering, instead of one
+	// TagsForResource backend lock per instance per use.
+	preFilterIDs := make([]string, len(instances))
+	for i, inst := range instances {
+		preFilterIDs[i] = inst.ID
+	}
+
+	tagsByID := h.Backend.TagsForResources(preFilterIDs)
+
 	// Apply all filters post-fetch (AND across filter names, OR within values).
-	instances = applyInstanceFilters(instances, filters, h.Backend)
+	instances = applyInstanceFilters(instances, filters, tagsByID)
 
 	// Pagination: MaxResults / NextToken.
 	maxResults := 0
@@ -362,14 +423,14 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		}
 	}
 
+	iamProfiles := h.iamProfilesByInstance()
+	sgNames := securityGroupNamesFor(h.Backend, instances)
+
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
 		items = append(
 			items,
-			toInstanceItem(
-				inst, h.Backend.TagsForResource(inst.ID), h.activeIamInstanceProfile(inst.ID),
-				h.Backend.DescribeSecurityGroups(inst.SecurityGroups),
-			),
+			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames),
 		)
 	}
 
@@ -514,7 +575,7 @@ func (h *Handler) instanceAttributeValue(inst *Instance, instanceID, attr string
 }
 
 func toInstanceItem(
-	inst *Instance, instanceTags map[string]string, iamProfile *iamProfileSpec, sgs []*SecurityGroup,
+	inst *Instance, instanceTags map[string]string, iamProfile *iamProfileSpec, sgNames map[string]string,
 ) instanceItem {
 	tagItems := make([]instanceTagItem, 0, len(instanceTags))
 	for k, v := range instanceTags {
@@ -522,11 +583,6 @@ func toInstanceItem(
 	}
 
 	sort.Slice(tagItems, func(i, j int) bool { return tagItems[i].Key < tagItems[j].Key })
-
-	sgNames := make(map[string]string, len(sgs))
-	for _, sg := range sgs {
-		sgNames[sg.ID] = sg.Name
-	}
 
 	// GroupIdentifier carries both groupId and groupName (ec2@v1.329.0
 	// deserializers.go:107843 awsEc2query_deserializeDocumentGroupIdentifier);

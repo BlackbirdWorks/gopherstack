@@ -33,6 +33,7 @@ func TestSDK_DescribeDBInstances_NonExistent_TypedError(t *testing.T) {
 	t.Parallel()
 
 	backend := rds.NewInMemoryBackend("000000000000", config.DefaultRegion)
+	t.Cleanup(backend.Close)
 	h := rds.NewHandler(backend)
 	client := newTestRDSClient(t, h)
 

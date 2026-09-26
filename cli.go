@@ -278,6 +278,7 @@ type CLI struct {
 	mgnHandler                    service.Registerable
 	networkmanagerHandler         service.Registerable
 	lightsailHandler              service.Registerable
+	directoryServiceHandler       service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -396,6 +397,10 @@ type CLI struct {
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
+	datasyncHandler               service.Registerable
+	macie2Handler                 service.Registerable
+	accessanalyzerHandler         service.Registerable
+	fsxHandler                    service.Registerable
 	ssmClient                     *ssmsdk.Client
 	ecsClient                     *ecs.Client
 	amplifyClient                 *amplifysdk.Client
@@ -1551,6 +1556,11 @@ func (c *CLI) GetNetworkManagerHandler() service.Registerable { return c.network
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetLightsailHandler() service.Registerable { return c.lightsailHandler }
 
+// GetDirectoryServiceHandler returns the Directory Service handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDirectoryServiceHandler() service.Registerable { return c.directoryServiceHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1745,6 +1755,26 @@ func (c *CLI) GetCognitoIDPHandler() service.Registerable { return c.cognitoIDPH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCognitoIdentityHandler() service.Registerable { return c.cognitoIdentityHandler }
+
+// GetDataSyncHandler returns the DataSync handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDataSyncHandler() service.Registerable { return c.datasyncHandler }
+
+// GetMacie2Handler returns the Macie2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMacie2Handler() service.Registerable { return c.macie2Handler }
+
+// GetAccessAnalyzerHandler returns the AccessAnalyzer handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAccessAnalyzerHandler() service.Registerable { return c.accessanalyzerHandler }
+
+// GetFSxHandler returns the FSx handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetFSxHandler() service.Registerable { return c.fsxHandler }
 
 // GetFaultStore returns the chaos fault store (dashboard.AWSSDKProvider).
 func (c *CLI) GetFaultStore() *chaos.FaultStore { return c.faultStore }
@@ -2833,6 +2863,11 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mgnHandler = byName["MGN"]
 	cli.networkmanagerHandler = byName["NetworkManager"]
 	cli.lightsailHandler = byName["Lightsail"]
+	cli.directoryServiceHandler = byName["DirectoryService"]
+	cli.datasyncHandler = byName["DataSync"]
+	cli.macie2Handler = byName["Macie2"]
+	cli.accessanalyzerHandler = byName["AccessAnalyzer"]
+	cli.fsxHandler = byName["FSx"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -6704,6 +6739,16 @@ func (a *athenaGlueAdapter) GetTables(dbName string) ([]*athenabackend.GlueTable
 	}
 
 	return out, nil
+}
+
+func (a *athenaGlueAdapter) CreateDatabase(name, description string) error {
+	_, err := a.backend.CreateDatabase(gluebackend.DatabaseInput{Name: name, Description: description}, nil)
+
+	return err
+}
+
+func (a *athenaGlueAdapter) DeleteDatabase(name string) error {
+	return a.backend.DeleteDatabase(name)
 }
 
 func athenaGlueDatabase(d *gluebackend.Database) *athenabackend.GlueDatabase {

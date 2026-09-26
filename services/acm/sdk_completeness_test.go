@@ -19,9 +19,5 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := acm.NewInMemoryBackend("000000000000", "us-east-1")
 	h := acm.NewHandler(backend)
 
-	// Added by the aws-sdk-go-v2/service/acm v1.49.0 bump; unimplemented.
-	notImplemented := []string{
-		"ListCertificateDomainValidations",
-	}
-	sdkcheck.CheckCompleteness(t, &acmsdk.Client{}, h.GetSupportedOperations(), notImplemented)
+	sdkcheck.CheckCompleteness(t, &acmsdk.Client{}, h.GetSupportedOperations(), nil)
 }

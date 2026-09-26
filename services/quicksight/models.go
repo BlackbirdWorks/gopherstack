@@ -219,15 +219,20 @@ func (p *storedDataSetRefreshProperties) toDataSetRefreshProperties() *DataSetRe
 }
 
 type storedAnalysis struct {
-	CreatedTime     time.Time            `json:"createdTime"`
-	LastUpdatedTime time.Time            `json:"lastUpdatedTime"`
-	Definition      map[string]any       `json:"definition,omitempty"`
-	AnalysisID      string               `json:"analysisId"`
-	Arn             string               `json:"arn"`
-	Name            string               `json:"name"`
-	ThemeArn        string               `json:"themeArn,omitempty"`
-	Status          string               `json:"status"`
-	Permissions     []ResourcePermission `json:"permissions,omitempty"`
+	CreatedTime     time.Time `json:"createdTime"`
+	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
+	// PermanentDeletionAt is DeleteAnalysis's computed DeletionTime, stored
+	// (not just returned) so pruneDeletedAnalysesLocked can evict the
+	// analysis once real AWS would have permanently deleted it. Zero when
+	// Status is not statusDeleted.
+	PermanentDeletionAt time.Time            `json:"permanentDeletionAt"`
+	Definition          map[string]any       `json:"definition,omitempty"`
+	AnalysisID          string               `json:"analysisId"`
+	Arn                 string               `json:"arn"`
+	Name                string               `json:"name"`
+	ThemeArn            string               `json:"themeArn,omitempty"`
+	Status              string               `json:"status"`
+	Permissions         []ResourcePermission `json:"permissions,omitempty"`
 }
 
 func (a *storedAnalysis) toAnalysis() *Analysis {

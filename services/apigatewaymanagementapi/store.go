@@ -200,6 +200,22 @@ func (b *InMemoryBackend) PingConnection(connectionID string) error {
 	return nil
 }
 
+// TouchConnection refreshes LastActiveAt without recording a lifecycle event.
+// Used for inbound client frames, which count as activity but aren't posts.
+func (b *InMemoryBackend) TouchConnection(connectionID string) error {
+	b.mu.Lock("TouchConnection")
+	defer b.mu.Unlock()
+
+	state, ok := b.connections[connectionID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrConnectionNotFound, connectionID)
+	}
+
+	state.conn.LastActiveAt = time.Now()
+
+	return nil
+}
+
 // Broadcast posts data to every active connection. It returns the number of
 // connections that successfully received the message; oversized payloads return
 // ErrPayloadTooLarge before any send.

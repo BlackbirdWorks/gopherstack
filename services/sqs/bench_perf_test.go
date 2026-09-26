@@ -150,6 +150,54 @@ func BenchmarkDeleteMessage_O1(b *testing.B) {
 	}
 }
 
+// BenchmarkDeleteMessage_LargeInFlight measures deleting a message out of a
+// queue holding depth in-flight entries at once (unlike
+// BenchmarkDeleteMessage_O1, which reuses the same 10 handles and so mostly
+// exercises the not-found fast-return path after its first pass through
+// them). This is the shape that showed the O(n) inFlightMessages
+// swap-delete-by-pointer-scan cost (see removeInFlight): run with
+// -benchtime=<=depth>x so every iteration deletes a distinct, still-present
+// handle instead of hitting the not-found path once the pool is exhausted.
+func BenchmarkDeleteMessage_LargeInFlight(b *testing.B) {
+	const depth = 10000
+
+	backend := newBenchBackend(b)
+	qURL := benchCreateQueue(b, backend, "bench-delete-large-q")
+	benchSendN(b, backend, qURL, depth)
+
+	handles := make([]string, 0, depth)
+	for len(handles) < depth {
+		recv, err := backend.ReceiveMessage(&sqs.ReceiveMessageInput{
+			QueueURL:            qURL,
+			MaxNumberOfMessages: 10,
+			VisibilityTimeout:   3600,
+		})
+		if err != nil || len(recv.Messages) == 0 {
+			b.Fatalf("ReceiveMessage: %v (got %d msgs)", err, len(recv.Messages))
+		}
+		handles = append(handles, receiptHandles(recv.Messages)...)
+	}
+
+	b.ResetTimer()
+	for i := range b.N {
+		if err := backend.DeleteMessage(&sqs.DeleteMessageInput{
+			QueueURL:      qURL,
+			ReceiptHandle: handles[i%len(handles)],
+		}); err != nil && i < len(handles) {
+			b.Fatalf("DeleteMessage: %v", err)
+		}
+	}
+}
+
+func receiptHandles(msgs []*sqs.Message) []string {
+	out := make([]string, len(msgs))
+	for i, m := range msgs {
+		out[i] = m.ReceiptHandle
+	}
+
+	return out
+}
+
 // BenchmarkSendMessageBatch_SingleLock measures #58 — batch resolved under one
 // per-queue lock instead of N separate lock round-trips.
 func BenchmarkSendMessageBatch_SingleLock(b *testing.B) {
@@ -237,5 +285,36 @@ func BenchmarkConcurrentQueues(b *testing.B) {
 
 			wg.Wait()
 		})
+	}
+}
+
+// BenchmarkDeleteMessageBatch_10 measures a 10-entry DeleteMessageBatch call
+// (the AWS max), which internally calls DeleteMessage once per entry (N
+// separate per-queue lock round trips, unlike SendMessageBatch's single
+// lock).
+func BenchmarkDeleteMessageBatch_10(b *testing.B) {
+	backend := newBenchBackend(b)
+	qURL := benchCreateQueue(b, backend, "bench-delete-batch-q")
+
+	b.ResetTimer()
+	for range b.N {
+		b.StopTimer()
+		benchSendN(b, backend, qURL, 10)
+		recv, err := backend.ReceiveMessage(&sqs.ReceiveMessageInput{
+			QueueURL: qURL, MaxNumberOfMessages: 10, VisibilityTimeout: 300,
+		})
+		if err != nil || len(recv.Messages) != 10 {
+			b.Fatalf("ReceiveMessage: %v (got %d)", err, len(recv.Messages))
+		}
+		entries := make([]sqs.DeleteMessageBatchEntry, 10)
+		for i, m := range recv.Messages {
+			entries[i] = sqs.DeleteMessageBatchEntry{ID: strconv.Itoa(i), ReceiptHandle: m.ReceiptHandle}
+		}
+		b.StartTimer()
+
+		_, err = backend.DeleteMessageBatch(&sqs.DeleteMessageBatchInput{QueueURL: qURL, Entries: entries})
+		if err != nil {
+			b.Fatalf("DeleteMessageBatch: %v", err)
+		}
 	}
 }

@@ -1,8 +1,8 @@
 ---
 service: codecommit
 sdk_module: aws-sdk-go-v2/service/codecommit@v1.36.4
-last_audit_commit: 1835ab406
-last_audit_date: 2026-08-13
+last_audit_commit: 6c5c49416
+last_audit_date: 2026-09-19
 overall: A            # this pass (gopherstack-gvkf): the entire Comment family (8 ops — the 7
                       # named in the bug plus DeleteCommentContent, found the same day) was
                       # undecodable by a real typed client: Comment.CreationDate/LastModifiedDate
@@ -119,11 +119,27 @@ items_still_open:
   - "2026-08-23: UpdateApprovalRuleTemplateContent/UpdatePullRequestApprovalRuleContent drop ExistingRuleContentSha256 from their decode structs. This IS a genuine modelling gap, not a false positive: ApprovalRuleTemplate.RuleContentSha256 is a real tracked field (computed and returned correctly elsewhere), so the precondition value exists to compare against — but there is no comparison logic anywhere in this backend, and no InvalidRuleContentSha256Exception equivalent in errors.go (the real SDK has one: deserializers.go:15493, codecommit@v1.36.4), confirming the optimistic-concurrency check itself was never implemented, not merely that the parameter was dropped. A real client relying on this precondition to avoid clobbering a concurrent edit gets no protection. Not synthesized (accepting the field with no check would be worse than dropping it — a false sense of safety). (bd: gopherstack-3bsb follow-up)"
   - "2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t): ConflictDetailLevel/ConflictResolutionStrategy are real, undecoded request members on BatchDescribeMergeConflicts, CreateUnreferencedMergeCommit, DescribeMergeConflicts, GetMergeCommit, GetMergeConflicts, GetMergeOptions, MergeBranchesBySquash, MergeBranchesByThreeWay, MergePullRequestBySquash, and MergePullRequestByThreeWay. Same root cause as the merge-content-modeling gaps above (no per-branch file identity to diff, LINE_LEVEL vs FILE_LEVEL detail and NONE/manual conflict-resolution strategy both presuppose a real diff engine this backend doesn't have) — not synthesized. (bd: gopherstack-3bsb follow-up)"
   - "2026-09-12 (same sweep): KeepEmptyFolders on CreateUnreferencedMergeCommit/MergeBranchesBySquash/MergeBranchesByThreeWay/MergePullRequestBySquash/MergePullRequestByThreeWay is real but inert -- none of these five backend methods ever call applyFileChanges/touch b.files (no merge op in this backend models file-level deletions at all), so there is never a deletion to keep a folder empty for. CreateCommit and DeleteFile, which do model real deletions, now honor KeepEmptyFolders for real (see ops table / dated section below)."
+  - "2026-09-19 (requiredoutputfields census, gopherstack-r80d): GetMergeOptionsOutput.BaseCommitId is a required member never populated -- handleGetMergeOptions (handler_merges.go) only ever returns mergeOptions/sourceCommitId/destinationCommitId. Same root cause as GetMergeCommit's already-documented baseCommitId gap above: no real merge-base algorithm exists over this backend's flat, non-per-branch file/commit model, so there is nothing honest to compute. Not synthesized. (bd: gopherstack-3bsb follow-up)"
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snapshot/Restore cover all state including the 3 dirty tables (comments, files, prApprovalRules). Fixed this pass: DeleteRepository never cleaned up fileHistory[repoName], and never cascade-deleted comments (compared-commit comments by RepoName, PR comments by PRid) or their commentReactions — both are ghost-row leaks now closed (see Notes); locked by TestHandler_DeleteRepository_Cascade_FileHistory and TestHandler_DeleteRepository_Cascade_Comments."}
 ---
 
 ## Notes
+
+### 2026-09-19 (requiredoutputfields census, gopherstack-r80d): 2 missing-key fixes, 1 gap recorded
+
+Checked all 55 required output members across 29 ops. Found and fixed
+`DeleteApprovalRuleTemplate`/`DeletePullRequestApprovalRule` omitting their
+required `approvalRuleTemplateId`/`approvalRuleId` key entirely on the real-AWS
+idempotent-already-deleted path (empty ID) -- a required member must be present
+even when empty, not omitted. `errors_deserializer_test.go`'s existing
+`TestDeleteApprovalRuleTemplate_UnknownNameIsIdempotentSDKRoundTrip`/
+`TestDeletePullRequestApprovalRule_UnknownRuleIsIdempotentSDKRoundTrip` had
+codified the old (wrong) nil-ID expectation; updated both to assert a present,
+empty ID instead, hand-reverted/confirmed-failing/restored against the fix.
+`GetMergeOptions.BaseCommitId` (required, never populated) recorded in
+items_still_open -- same no-merge-base-algorithm root cause as the
+already-documented `GetMergeCommit.BaseCommitId` gap.
 
 ### 2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr): fabricated InvalidParameterException -> real CommitRequiredException
 

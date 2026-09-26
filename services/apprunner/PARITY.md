@@ -1,8 +1,8 @@
 ---
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-09-03
+last_audit_commit: 22b4f068c
+last_audit_date: 2026-09-20
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit,
                        # plus the wrapper-key/nested-shape sweep (2026-08-19, one fabricated-field bug fixed);
                        # 2026-08-23: closed the four member-never-emitted items disclosed 2026-08-19 (see Notes)
@@ -11,24 +11,24 @@ ops:
   DescribeService: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects update unless status RUNNING, matches InvalidStateException; rejects switching between image/code source types (InvalidRequestException, matching the real op's documented restriction); all new CreateService fields are independently patchable (nil/empty = no change)"}
   DeleteService: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "now cascade-cleans the service's customDomains map entry and recomputes the old AutoScalingConfiguration's HasAssociatedService (see leaks). FIXED 2026-08-23: Service.DeletedAt (deserializers.go:6615) was entirely absent from storedService and Service -- added the field, set on DeleteService before the row is evicted from the store, emitted as an omitempty pointer (only DeleteService's own response can ever observe it, since ListServices/DescribeService can no longer see the service after eviction). FIXED 2026-09-03 (gopherstack-9vv): now rejects (InvalidStateException) deleting a service with an active VpcIngressConnection still referencing it, matching the op's own doc sentence -- see Notes."}
-  ListServices: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: ServiceSummary.UpdatedAt (deserializers.go:6939) was omitted from the wire struct even though storedService.UpdatedAt was already tracked and current -- emit-only fix, no backend logic change."}
+  ListServices: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: ServiceSummary.UpdatedAt (deserializers.go:6939) was omitted from the wire struct even though storedService.UpdatedAt was already tracked and current -- emit-only fix, no backend logic change. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set still exact against v1.42.4, see list_summary_shapes_test.go."}
   PauseService: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeService: {wire: ok, errors: ok, state: ok, persist: ok}
   StartDeployment: {wire: ok, errors: fixed, state: ok, persist: ok, note: "records a real operation; completes immediately (SUCCEEDED) rather than modeling OPERATION_IN_PROGRESS. FIXED 2026-08-23 (gopherstack-wlo1): a non-running service reported InvalidStateException, a code StartDeployment's own deserializeOpError switch cannot type (only InternalServiceErrorException/InvalidRequestException/ResourceNotFoundException are modeled for this op, unlike UpdateService/PauseService/ResumeService which do model InvalidStateException) -- now reports InvalidRequestException."}
-  ListOperations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- OperationSummary now includes UpdatedAt (set equal to StartedAt/EndedAt since operations complete immediately in this backend's simplified state machine)"}
+  ListOperations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- OperationSummary now includes UpdatedAt (set equal to StartedAt/EndedAt since operations complete immediately in this backend's simplified state machine). Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set still exact against v1.42.4, see list_summary_shapes_test.go."}
   CreateAutoScalingConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: AutoScalingConfiguration.Latest (deserializers.go:4692) and .DeletedAt (deserializers.go:4660) were both untracked/unemitted. Latest is now computed the same way ObservabilityConfiguration.Latest already was -- b.asgByName[name] tracks revisions in creation order; the new revision flips the prior last entry's Latest to false and sets its own to true. DeletedAt was already tracked on storedAutoScalingConfiguration/AutoScalingConfiguration (DeleteAutoScalingConfiguration already set it) but never surfaced on the wire; emit-only fix, omitempty pointer."}
   DescribeAutoScalingConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Latest/DeletedAt fix as CreateAutoScalingConfiguration."}
   DeleteAutoScalingConfiguration: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same Latest/DeletedAt fix as CreateAutoScalingConfiguration; on delete, the remaining highest-revision sibling (if any) gets Latest promoted to true, mirroring DeleteObservabilityConfiguration's existing convention. FIXED 2026-09-03 (gopherstack-9vv): now rejects (InvalidRequestException) deleting the account default configuration or one still associated with a service, using the cfg.IsDefault/HasAssociatedService fields this backend already tracked but never checked on delete -- see Notes."}
-  ListAutoScalingConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- summary now includes real HasAssociatedService, recomputed from live CreateService/UpdateService/DeleteService association state"}
+  ListAutoScalingConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- summary now includes real HasAssociatedService, recomputed from live CreateService/UpdateService/DeleteService association state. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set still exact against v1.42.4, see list_summary_shapes_test.go."}
   UpdateDefaultAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListServicesForAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- now returns real associated service ARNs; CreateService threads AutoScalingConfigurationArn (explicit, name-only-ARN, or the account's always-present seeded default) into a real association tracked on every service"}
   CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConnection: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-09-03 (gopherstack-9vv): now rejects (InvalidRequestException) deleting a connection still referenced by a service's SourceConfiguration.AuthenticationConfiguration.ConnectionArn, matching the op's own doc sentence -- see Notes."}
-  ListConnections: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): ConnectionSummary member set exact against v1.42.4, see list_summary_shapes_test.go."}
   CreateObservabilityConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; fixed but NOT counted toward the required-field tally -- TraceConfiguration itself is optional per types.go:601, only its nested Vendor is required-when-present): TracingVendor was captured from CreateObservabilityConfigurationInput and stored, but observabilityConfigurationOutput had no TraceConfiguration field at all, so it was silently dropped on every response. Added, present only when TracingVendor != \"\" (real AWS: absent means tracing isn't enabled -- not fabricating a vendor when none was configured)."}
   DescribeObservabilityConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same TraceConfiguration gap and fix as CreateObservabilityConfiguration above."}
   DeleteObservabilityConfiguration: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-09-03 (gopherstack-9vv): now rejects (InvalidRequestException) deleting a configuration still enabled on a service, matching the op's own doc sentence -- see Notes."}
-  ListObservabilityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19 -- summary entries were emitting fabricated Status/Latest/CreatedAt keys that have no case in the real types.ObservabilityConfigurationSummary document deserializer (deserializers.go:6215-6270); a real client would silently drop them. Now emits only ObservabilityConfigurationArn/Name/Revision, matching the narrower summary type exactly (types/types.go:613-628)"}
+  ListObservabilityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19 -- summary entries were emitting fabricated Status/Latest/CreatedAt keys that have no case in the real types.ObservabilityConfigurationSummary document deserializer (deserializers.go:6215-6270); a real client would silently drop them. Now emits only ObservabilityConfigurationArn/Name/Revision, matching the narrower summary type exactly (types/types.go:613-628). Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set still exact against v1.42.4, see list_summary_shapes_test.go."}
   CreateVpcConnector: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: VpcConnector.DeletedAt (deserializers.go:7299) was already tracked on storedVpcConnector/VpcConnector (DeleteVpcConnector already set it) but never surfaced on the wire; emit-only fix, omitempty pointer."}
   DescribeVpcConnector: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as CreateVpcConnector."}
   DeleteVpcConnector: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same DeletedAt fix as CreateVpcConnector. FIXED 2026-09-03 (gopherstack-9vv): now rejects (InvalidRequestException) deleting a connector still referenced by a service's NetworkConfiguration.EgressConfiguration.VpcConnectorArn, matching the op's own doc sentence -- see Notes."}
@@ -36,11 +36,11 @@ ops:
   CreateVpcIngressConnection: {wire: ok, errors: ok, state: partial, persist: ok, note: "doesn't validate ServiceArn refers to an existing service (dangling ref allowed); matches real op's documented error set which has no ResourceNotFoundException, so not a wire bug -- see gaps"}
   DescribeVpcIngressConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: VpcIngressConnection.DeletedAt (deserializers.go:7547) was already tracked on storedVpcIngressConnection/VpcIngressConnection (DeleteVpcIngressConnection already set it) but never surfaced on the wire; emit-only fix, omitempty pointer."}
   DeleteVpcIngressConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as DescribeVpcIngressConnection."}
-  ListVpcIngressConnections: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListVpcIngressConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): VpcIngressConnectionSummary member set exact against v1.42.4, see list_summary_shapes_test.go."}
   UpdateVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): required vpcDNSTargets (api_op_AssociateCustomDomain.go, required; deserializers.go:7705-7763) had no struct field on associateCustomDomainOutput at all -- DescribeCustomDomains (identical required set) already emitted it correctly as []. Added, always []any{} (this backend doesn't model per-domain VPC ingress DNS targets, so empty is the honest value, not fabricated). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u)."}
+  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): required vpcDNSTargets (api_op_AssociateCustomDomain.go, required; deserializers.go:7705-7763) had no struct field on associateCustomDomainOutput at all -- DescribeCustomDomains (identical required set) already emitted it correctly as []. Added, always []any{} (this backend doesn't model per-domain VPC ingress DNS targets, so empty is the honest value, not fabricated). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u). FIXED 2026-09-20 (apigatewayv2-apprunner-and-macie terraform coverage): the new custom domain's Status was hardcoded to ACTIVE -- real App Runner starts it at PENDING_CERTIFICATE_DNS_VALIDATION (DNS/ACM validation is out-of-band and never auto-completes) and returns CertificateValidationRecords (CNAME Name/Type/Value/Status), a required-for-real-usability member this backend never emitted at all. Both fixed; see custom_domains.go's buildCertificateValidationRecords. Not counted toward apigatewayv2-apprunner-and-macie coverage: the pinned hashicorp/aws v5.100.0 provider's own create waiter for aws_apprunner_custom_domain_association still fails ('unexpected state', see Notes) even against the now-correct wire value -- a provider defect, not a gopherstack gap."}
   DisassociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same vpcDNSTargets gap and fix as AssociateCustomDomain above (deserializers.go:8462-8520). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u)."}
-  DescribeCustomDomains: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeCustomDomains: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also returns the CertificateValidationRecords set on each domain (see AssociateCustomDomain)."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -55,6 +55,15 @@ leaks: {status: clean, note: "no goroutines/janitors in this backend; existing l
 ---
 
 ## Notes
+
+### 2026-09-19: required-output-member census
+
+Checked every op with >=1 SDK-required output member (32 ops, 44 members;
+`cmd/requiredoutputfields`) against handler code, focusing on Delete*/Create*
+wrappers and AssociateCustomDomain/DisassociateCustomDomain's VpcDNSTargets.
+All already always-populated (this service's prior sweeps already closed the
+DeletedAt/Latest/UpdatedAt/vpcDNSTargets gaps in this exact class — see
+entries below). No fixes needed.
 
 **Fixed: systemic wrong exception-type names (the real bug this sweep found).** App Runner's
 error model (`aws-sdk-go-v2/service/apprunner/types/errors.go`) has exactly five exception
@@ -676,3 +685,51 @@ ingress connection describe/list/update, auto scaling configuration
 default/list/ListServicesForAutoScalingConfiguration, and
 DeleteObservabilityConfiguration. Zero bugs -- confirms the `ops:` table's
 existing verdicts.
+
+## Notes (2026-09-19 pass — gopherstack-dv4s over-wide-response census)
+
+Re-verified all 6 census-flagged List ops member-by-member against
+cmd/structfielddiff for apprunner@v1.42.4: ListAutoScalingConfigurations,
+ListConnections, ListObservabilityConfigurations, ListOperations,
+ListServices, ListVpcIngressConnections. All 6 were already narrow,
+member-for-member exact (prior 2026-08-19/08-23 passes had already fixed the
+real leaks); no new bug found, false-positive census hits. Locked in via
+list_summary_shapes_test.go (real SDK client + raw-body leak checks). Gates:
+`go build`/`go vet`/`go test -race` clean, `golangci-lint run` 0 issues.
+
+## 2026-09-20 (apigatewayv2-apprunner-and-macie terraform coverage)
+
+New Terraform coverage (test/terraform/fixtures/apigatewayv2-apprunner-and-macie.tf,
+apigatewayv2_apprunner_and_macie_test.go) for aws_apprunner_connection,
+aws_apprunner_deployment, aws_apprunner_observability_configuration,
+aws_apprunner_vpc_connector, aws_apprunner_vpc_ingress_connection. Found and
+fixed a real bug: AssociateCustomDomain hardcoded Status=ACTIVE and never
+emitted CertificateValidationRecords -- see AssociateCustomDomain row.
+
+Two resources left out of the fixture after a real apply attempt, both
+confirmed via `TF_LOG=trace` wire capture to be provider-side, not
+gopherstack gaps:
+
+- `aws_apprunner_auto_scaling_configuration_version`: the pinned
+  hashicorp/aws v5.100.0 provider's create waiter times out after 2m even
+  though every `DescribeAutoScalingConfiguration` poll already returns
+  `Status=ACTIVE` (the real, verified-correct wire value) -- confirmed by a
+  manual `tofu apply` against a bare local server with trace logging: the
+  same "ACTIVE" JSON body came back on every single poll for the full 2
+  minutes.
+- `aws_apprunner_custom_domain_association`: with the Status fix above in
+  place, the provider's create waiter now fails immediately with
+  `unexpected state 'PENDING_CERTIFICATE_DNS_VALIDATION', wanted target
+  'pending_certificate_dns_validation, binding_certificate'` -- our wire
+  value is the real (uppercase) SDK enum member
+  (`types.CustomDomainAssociationStatusPendingCertificateDnsValidation`),
+  but the provider's own waiter target list is lowercase and never matches
+  it. Same defect class as the ASG waiter above.
+- `aws_apprunner_default_auto_scaling_configuration_version` was also
+  dropped since it requires an `aws_apprunner_auto_scaling_configuration_version`
+  to reference, which the above defect blocks from ever being created via
+  Terraform in this provider version.
+
+Gates: `go build ./...`, `go vet`, `gofmt -l`, `go test -race -count=1
+./services/apprunner/...`, `golangci-lint run ./services/apprunner/...` (0
+issues) all clean.

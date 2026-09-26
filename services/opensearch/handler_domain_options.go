@@ -59,14 +59,20 @@ type domainEndpointOptionsJSON struct {
 	CustomEndpointEnabled        bool   `json:"CustomEndpointEnabled"`
 }
 
+// samlIdpJSON is the JSON representation of a SAML identity provider
+// (AWS wire shape: SAMLIdp, nested under SAMLOptions.Idp, not flattened).
+type samlIdpJSON struct {
+	EntityID        string `json:"EntityId"`
+	MetadataContent string `json:"MetadataContent"`
+}
+
 // samlOptionsJSON is the JSON representation of SAML options.
 type samlOptionsJSON struct {
-	IDPEntityID           string `json:"IDPEntityID,omitempty"`
-	IDPMetadataContent    string `json:"IDPMetadataContent,omitempty"`
-	RolesKey              string `json:"RolesKey,omitempty"`
-	SubjectKey            string `json:"SubjectKey,omitempty"`
-	SessionTimeoutMinutes int    `json:"SessionTimeoutMinutes,omitempty"`
-	Enabled               bool   `json:"Enabled"`
+	Idp                   *samlIdpJSON `json:"Idp,omitempty"`
+	RolesKey              string       `json:"RolesKey,omitempty"`
+	SubjectKey            string       `json:"SubjectKey,omitempty"`
+	SessionTimeoutMinutes int          `json:"SessionTimeoutMinutes,omitempty"`
+	Enabled               bool         `json:"Enabled"`
 }
 
 // advancedSecurityOptionsJSON is the JSON representation of advanced security options.
@@ -309,11 +315,13 @@ func parseAdvancedSecurityOptsFromReq(aso *advancedSecurityOptionsJSON) *Advance
 	if aso.SAMLOptions != nil {
 		out.SAMLOptions = &SAMLOptionsInput{
 			Enabled:               aso.SAMLOptions.Enabled,
-			IDPEntityID:           aso.SAMLOptions.IDPEntityID,
-			IDPMetadataContent:    aso.SAMLOptions.IDPMetadataContent,
 			RolesKey:              aso.SAMLOptions.RolesKey,
 			SubjectKey:            aso.SAMLOptions.SubjectKey,
 			SessionTimeoutMinutes: aso.SAMLOptions.SessionTimeoutMinutes,
+		}
+		if aso.SAMLOptions.Idp != nil {
+			out.SAMLOptions.IDPEntityID = aso.SAMLOptions.Idp.EntityID
+			out.SAMLOptions.IDPMetadataContent = aso.SAMLOptions.Idp.MetadataContent
 		}
 	}
 
@@ -516,11 +524,15 @@ func toAdvancedSecurityOptionsJSON(aso *AdvancedSecurityOptions) *advancedSecuri
 	if aso.SAMLOptions != nil {
 		out.SAMLOptions = &samlOptionsJSON{
 			Enabled:               aso.SAMLOptions.Enabled,
-			IDPEntityID:           aso.SAMLOptions.IDPEntityID,
-			IDPMetadataContent:    aso.SAMLOptions.IDPMetadataContent,
 			RolesKey:              aso.SAMLOptions.RolesKey,
 			SubjectKey:            aso.SAMLOptions.SubjectKey,
 			SessionTimeoutMinutes: aso.SAMLOptions.SessionTimeoutMinutes,
+		}
+		if aso.SAMLOptions.IDPEntityID != "" || aso.SAMLOptions.IDPMetadataContent != "" {
+			out.SAMLOptions.Idp = &samlIdpJSON{
+				EntityID:        aso.SAMLOptions.IDPEntityID,
+				MetadataContent: aso.SAMLOptions.IDPMetadataContent,
+			}
 		}
 	}
 

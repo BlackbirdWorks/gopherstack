@@ -43,14 +43,7 @@ func (h *Handler) handleCreateEndpointFSM(ctx context.Context, body []byte) ([]b
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created endpoint (FSM)",
-		"name",
-		ep.EndpointName,
-		"arn",
-		ep.EndpointArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created endpoint (FSM)", "name", ep.EndpointName)
 
 	return json.Marshal(map[string]string{keyEndpointArn: ep.EndpointArn})
 }

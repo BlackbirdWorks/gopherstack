@@ -297,9 +297,19 @@ type VpcIngressConnectionSummary struct {
 
 // CustomDomain represents a custom domain associated with an App Runner service.
 type CustomDomain struct {
-	DomainName         string
-	Status             string
-	EnableWWWSubdomain bool
+	DomainName                   string
+	Status                       string
+	CertificateValidationRecords []CertificateValidationRecord
+	EnableWWWSubdomain           bool
+}
+
+// CertificateValidationRecord is a DNS CNAME record App Runner asks the
+// caller to publish to validate a custom domain's ACM certificate.
+type CertificateValidationRecord struct {
+	Name   string
+	Type   string
+	Value  string
+	Status string
 }
 
 // Service represents an App Runner service with full details.

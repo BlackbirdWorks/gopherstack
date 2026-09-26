@@ -152,7 +152,11 @@ func (h *Handler) handleGetCustomModel(c *echo.Context, id string) error {
 
 // customModelSummaryOutput is ListCustomModels' per-item shape (bedrock@v1.66.4
 // CustomModelSummary via botocore service-2.json): baseModelArn/baseModelName,
-// no jobArn/jobName, distinct from Get's shape.
+// no jobArn/jobName/tags, distinct from Get's shape (confirmed against
+// awsRestjson1_deserializeDocumentCustomModelSummary, which has no "tags"
+// case at all). OwnerAccountId IS a real member -- this backend is a
+// single-account emulator, so it's always the backend's own account (see
+// matchesCustomModelFilter's IsOwned comment).
 type customModelSummaryOutput struct {
 	CreationTime      string `json:"creationTime"`
 	ModelArn          string `json:"modelArn"`
@@ -161,10 +165,10 @@ type customModelSummaryOutput struct {
 	BaseModelArn      string `json:"baseModelArn,omitempty"`
 	BaseModelName     string `json:"baseModelName,omitempty"`
 	CustomizationType string `json:"customizationType,omitempty"`
-	Tags              []Tag  `json:"tags,omitempty"`
+	OwnerAccountID    string `json:"ownerAccountId,omitempty"`
 }
 
-func customModelToSummaryOutput(m *CustomModel) customModelSummaryOutput {
+func (h *Handler) customModelToSummaryOutput(m *CustomModel) customModelSummaryOutput {
 	return customModelSummaryOutput{
 		ModelArn:          m.ModelArn,
 		ModelName:         m.ModelName,
@@ -173,7 +177,7 @@ func customModelToSummaryOutput(m *CustomModel) customModelSummaryOutput {
 		BaseModelName:     m.BaseModelName,
 		CustomizationType: m.CustomizationType,
 		CreationTime:      m.CreationTime.Format(time.RFC3339),
-		Tags:              m.Tags,
+		OwnerAccountID:    h.Backend.accountID,
 	}
 }
 
@@ -229,7 +233,7 @@ func (h *Handler) handleListCustomModels(c *echo.Context) error {
 	summaries := make([]customModelSummaryOutput, 0, len(models))
 
 	for _, m := range models {
-		summaries = append(summaries, customModelToSummaryOutput(m))
+		summaries = append(summaries, h.customModelToSummaryOutput(m))
 	}
 
 	return c.JSON(

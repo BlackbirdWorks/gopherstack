@@ -68,6 +68,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteEventSourceMapping",
 		"DeleteLayerVersion",
 		"DeleteProvisionedConcurrencyConfig",
+		"DeleteResourcePolicy",
 		"GetAccountSettings",
 		"GetAlias",
 		"GetCapacityProvider",
@@ -86,6 +87,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetLayerVersionPolicy",
 		"GetPolicy",
 		"GetProvisionedConcurrencyConfig",
+		"GetResourcePolicy",
 		"GetRuntimeManagementConfig",
 		"ListAliases",
 		"ListCapacityProviders",
@@ -109,6 +111,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutFunctionRecursionConfig",
 		"PutFunctionScalingConfig",
 		"PutProvisionedConcurrencyConfig",
+		"PutResourcePolicy",
 		"PutRuntimeManagementConfig",
 		"RemoveLayerVersionPermission",
 		"RemovePermission",
@@ -230,6 +233,7 @@ func extractSpecialFamilyOperation(path, method string) string {
 	for _, fn := range []func(string, string) string{
 		extractESMOp,
 		extractTagsOp,
+		extractResourcePolicyOp,
 		extractCodeSigningOp,
 		extractCapacityProviderOp,
 		extractFunctionURLOp,
@@ -290,6 +294,26 @@ func extractTagsOp(path, method string) string {
 		return "TagResource"
 	case http.MethodDelete:
 		return "UntagResource"
+	}
+
+	return ""
+}
+
+// extractResourcePolicyOp handles the resource-based-policy family
+// (Get/Put/DeleteResourcePolicy), keyed by ResourceArn in the path -- same
+// shape as extractTagsOp's tags family.
+func extractResourcePolicyOp(path, method string) string {
+	if !strings.HasPrefix(path, lambdaResourcePolicyPathPrefix+"/") {
+		return ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetResourcePolicy"
+	case http.MethodPut:
+		return "PutResourcePolicy"
+	case http.MethodDelete:
+		return "DeleteResourcePolicy"
 	}
 
 	return ""

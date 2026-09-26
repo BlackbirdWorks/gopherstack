@@ -16,12 +16,14 @@ sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.4   # gopherstack-u8my: was re
 # byte-identical; only client middleware plumbing differs. No wire-shape claim in this file rested
 # on the wrong pin. Originally resolved via `go get .../lightsail@latest` in a throwaway scratch
 # module, and the version sdk_completeness_test.go's real *lightsailsdk.Client{} type-checks against.
-last_audit_commit: da97fccdb   # gopherstack-21my per-item field sweep (2026-09-18), see dated Notes
-# entry below. Prior value c397a0243 was the commit that actually implemented all 161 ops, registered the
-# handler, and wired cli.go. A follow-up pass on top of that HEAD (same day) closed the
-# CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go diff, which
-# is the only .go-file change this follow-up pass made (plus errors.go's disclosure comment).
-last_audit_date: 2026-09-18
+last_audit_commit: c02948310   # 2026-09-20 ssoadmin-config-and-lightsail terraform coverage pass, see dated Notes
+# entry at the bottom of this file. Prior value da97fccdb was the gopherstack-21my per-item field
+# sweep (2026-09-18). Prior-prior value c397a0243 was the commit that actually implemented all 161
+# ops, registered the handler, and wired cli.go. A follow-up pass on top of that HEAD (same day)
+# closed the CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go
+# diff, which is the only .go-file change this follow-up pass made (plus errors.go's disclosure
+# comment).
+last_audit_date: 2026-09-20
 overall: A   # raised from A- by a follow-up pass that closed the one load-bearing gap the re-audit
 # above found: cli.go now calls wireLightsailCloudFormation(byName["Lightsail"], cfnSvc) from
 # registerCloudFormationAndDashboard (not from wireStorageAndSecretsIntegrations -- CloudFormation
@@ -1573,3 +1575,12 @@ surface); `Certificate`'s `DomainValidationRecords`/`RenewalSummary`/
 `SerialNumber`/etc. (no real ACM-style validation/renewal state machine
 modeled, consistent with this service's already-disclosed
 non-fabrication stance on telemetry-shaped gaps).
+
+## 2026-09-20 (ssoadmin-config-and-lightsail terraform coverage)
+
+Fixed two real bugs found via the terraform-aws provider: CreateDistribution's
+response omitted the created Distribution (real output always carries it; the
+provider nil-derefs it otherwise, erroring "empty output"), and
+ContainerServiceEndpoint had no HealthCheck field at all, so every
+aws_lightsail_container_service_deployment_version forced a replace on the
+next plan. See certificates_distributions.go/handler_containers.go.

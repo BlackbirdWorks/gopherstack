@@ -266,6 +266,7 @@ func (h *Handler) handleDeleteClientVpnEndpoint(vals url.Values, reqID string) (
 func (h *Handler) handleDescribeClientVpnEndpoints(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ClientVpnEndpointId")
 	eps := h.Backend.DescribeClientVpnEndpoints(ids)
+	eps = applyClientVpnEndpointFilters(eps, parseEC2Filters(vals), h.Backend)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -348,13 +349,10 @@ func (h *Handler) handleDescribeClientVpnTargetNetworks(vals url.Values, reqID s
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	networks, nextToken, err := filterAndPageClientVpnList(vals, networks, applyClientVpnTargetNetworkFilters)
 	if err != nil {
 		return nil, err
 	}
-
-	var nextToken string
-	networks, nextToken = pageSlice(networks, offset, maxResults)
 
 	resp := &describeClientVpnTargetNetworksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, tn := range networks {
@@ -387,8 +385,9 @@ type createClientVpnRouteResponse struct {
 func (h *Handler) handleCreateClientVpnRoute(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	cidr := vals.Get("DestinationCidrBlock")
+	targetSubnet := vals.Get("TargetVpcSubnetId")
 	description := vals.Get("Description")
-	if err := h.Backend.CreateClientVpnRoute(endpointID, cidr, description); err != nil {
+	if err := h.Backend.CreateClientVpnRoute(endpointID, cidr, targetSubnet, description); err != nil {
 		return nil, err
 	}
 
@@ -407,7 +406,8 @@ type deleteClientVpnRouteResponse struct {
 func (h *Handler) handleDeleteClientVpnRoute(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	cidr := vals.Get("DestinationCidrBlock")
-	if err := h.Backend.DeleteClientVpnRoute(endpointID, cidr); err != nil {
+	targetSubnet := vals.Get("TargetVpcSubnetId")
+	if err := h.Backend.DeleteClientVpnRoute(endpointID, cidr, targetSubnet); err != nil {
 		return nil, err
 	}
 
@@ -417,6 +417,24 @@ func (h *Handler) handleDeleteClientVpnRoute(vals url.Values, reqID string) (any
 	}, nil
 }
 
+// filterAndPageClientVpnList applies filter to items (already fetched, err
+// already checked) and pages the result, sharing the filter+paginate steps
+// common to every Client VPN Describe* op.
+func filterAndPageClientVpnList[T any](
+	vals url.Values, items []T, filter func([]T, map[string][]string) []T,
+) ([]T, string, error) {
+	items = filter(items, parseEC2Filters(vals))
+
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, "", err
+	}
+
+	items, nextToken := pageSlice(items, offset, maxResults)
+
+	return items, nextToken, nil
+}
+
 func (h *Handler) handleDescribeClientVpnRoutes(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	routes, err := h.Backend.DescribeClientVpnRoutes(endpointID)
@@ -424,13 +442,10 @@ func (h *Handler) handleDescribeClientVpnRoutes(vals url.Values, reqID string) (
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	routes, nextToken, err := filterAndPageClientVpnList(vals, routes, applyClientVpnRouteFilters)
 	if err != nil {
 		return nil, err
 	}
-
-	var nextToken string
-	routes, nextToken = pageSlice(routes, offset, maxResults)
 
 	resp := &describeClientVpnRoutesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, r := range routes {
@@ -505,13 +520,10 @@ func (h *Handler) handleDescribeClientVpnAuthorizationRules(
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	rules, nextToken, err := filterAndPageClientVpnList(vals, rules, applyClientVpnAuthRuleFilters)
 	if err != nil {
 		return nil, err
 	}
-
-	var nextToken string
-	rules, nextToken = pageSlice(rules, offset, maxResults)
 
 	resp := &describeClientVpnAuthorizationRulesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, r := range rules {

@@ -203,7 +203,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, docVersion.Version, gotDocVersion.Version)
 
-	gotModel, err := fresh.GetModel(api.ID, model.Name)
+	gotModel, err := fresh.GetModel(api.ID, model.Name, false)
 	require.NoError(t, err)
 	assert.Equal(t, model.Schema, gotModel.Schema)
 

@@ -54,15 +54,16 @@ type AllowListStatus struct {
 	Description string `json:"description,omitempty"`
 }
 
-// AllowListSummary is the summary view of an allow list.
+// AllowListSummary is the summary view of an allow list (types.AllowListSummary,
+// 6 of 6 members per its deserializer's case list -- no tags, unlike
+// AllowListDetail/GetAllowListOutput).
 type AllowListSummary struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	Arn         string            `json:"arn"`
-	Description string            `json:"description,omitempty"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	Arn         string    `json:"arn"`
+	Description string    `json:"description,omitempty"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
 }
 
 // AllowListDetail is the full detail view of an allow list.
@@ -126,7 +127,11 @@ type FindingsFilterDetail struct {
 	Position        int32             `json:"position"`
 }
 
-// FindingsFilterSummary is the summary view of a findings filter.
+// FindingsFilterSummary is the internal domain view of a findings filter --
+// carries Description/Position (needed by Create/Update's return value and
+// ListFindingsFilters' Position-based sort) that the real wire type for
+// ListFindingsFilters (types.FindingsFilterListItem) does not have. Never
+// marshaled directly; see FindingsFilterListItem for the wire projection.
 type FindingsFilterSummary struct {
 	Tags        map[string]string `json:"tags,omitempty"`
 	Action      string            `json:"action"`
@@ -135,6 +140,17 @@ type FindingsFilterSummary struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Position    int32             `json:"position"`
+}
+
+// FindingsFilterListItem mirrors types.FindingsFilterListItem (5 of 5 members
+// per its deserializer's case list) -- the real ListFindingsFilters element
+// shape, narrower than FindingsFilterSummary: no description/position.
+type FindingsFilterListItem struct {
+	Tags   map[string]string `json:"tags,omitempty"`
+	Action string            `json:"action"`
+	Arn    string            `json:"arn"`
+	ID     string            `json:"id"`
+	Name   string            `json:"name"`
 }
 
 // FindingType represents the type of a finding.
@@ -288,15 +304,15 @@ type JobUserPausedDetails struct {
 }
 
 // ClassificationJobSummary is the list-view of a classification job.
+// ClassificationJobSummary mirrors types.JobSummary (9 of 9 members per its
+// deserializer's case list) -- no tags/description/lastRunTime, unlike the
+// full ClassificationJob/DescribeClassificationJobOutput shape.
 type ClassificationJobSummary struct {
-	Tags               map[string]string      `json:"tags,omitempty"`
-	LastRunTime        *time.Time             `json:"lastRunTime,omitempty"`
 	BucketCriteria     any                    `json:"bucketCriteria,omitempty"`
 	BucketDefinitions  any                    `json:"bucketDefinitions,omitempty"`
 	LastRunErrorStatus *JobLastRunErrorStatus `json:"lastRunErrorStatus,omitempty"`
 	UserPausedDetails  *JobUserPausedDetails  `json:"userPausedDetails,omitempty"`
 	CreatedAt          time.Time              `json:"createdAt"`
-	Description        string                 `json:"description,omitempty"`
 	JobID              string                 `json:"jobId"`
 	JobStatus          string                 `json:"jobStatus"`
 	JobType            string                 `json:"jobType"`

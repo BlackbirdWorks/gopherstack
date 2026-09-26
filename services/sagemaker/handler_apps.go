@@ -79,7 +79,7 @@ func (h *Handler) handleCreateApp(ctx context.Context, body []byte) ([]byte, err
 		return nil, err
 	}
 
-	logger.Load(ctx).InfoContext(ctx, "sagemaker: created app", "name", a.AppName, "arn", a.AppArn)
+	logger.Load(ctx).InfoContext(ctx, "sagemaker: created app", "name", a.AppName)
 
 	return json.Marshal(map[string]string{keyAppArn: a.AppArn})
 }

@@ -23,7 +23,7 @@ func (b *InMemoryBackend) notebookExecutionsInRegion(region string) []*NotebookE
 // StartNotebookExecution creates a new notebook execution in RUNNING state.
 func (b *InMemoryBackend) StartNotebookExecution(
 	ctx context.Context,
-	editorID, name, params, engineID string,
+	editorID, name, params, engineID, s3Bucket, s3Key string,
 	tags []Tag,
 ) (*NotebookExecution, error) {
 	region := getRegion(ctx, b.region)
@@ -37,15 +37,17 @@ func (b *InMemoryBackend) StartNotebookExecution(
 	copy(tagsCopy, tags)
 
 	ne := &NotebookExecution{
-		NotebookExecutionID:   id,
-		EditorID:              editorID,
-		NotebookExecutionName: name,
-		NotebookParams:        params,
-		ExecutionEngineID:     engineID,
-		Status:                NotebookStatusRunning,
-		StartTime:             awstime.Epoch(time.Now()),
-		Tags:                  tagsCopy,
-		region:                region,
+		NotebookExecutionID:      id,
+		EditorID:                 editorID,
+		NotebookExecutionName:    name,
+		NotebookParams:           params,
+		ExecutionEngineID:        engineID,
+		Status:                   NotebookStatusRunning,
+		StartTime:                awstime.Epoch(time.Now()),
+		Tags:                     tagsCopy,
+		region:                   region,
+		NotebookS3LocationBucket: s3Bucket,
+		NotebookS3LocationKey:    s3Key,
 	}
 
 	b.notebookExecutionPut(ne)

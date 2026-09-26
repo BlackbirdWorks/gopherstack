@@ -232,6 +232,14 @@ func (b *InMemoryBackend) dispatchHTTPDeliveries(deliveries []httpDelivery, clie
 	}
 }
 
+// signedNotification is a precomputed signature/certURL pair for a given
+// canonical notification body, reused across every delivery channel that
+// sends that exact body within one Publish call.
+type signedNotification struct {
+	signature string
+	certURL   string
+}
+
 // buildPublishedEvent constructs the SNSPublishedEvent broadcast to every
 // non-HTTP delivery channel for a single Publish call: the SQS emitter, and
 // the Lambda/Firehose/SMS/Application delivery fan-out below. The timestamp,
@@ -248,7 +256,8 @@ func (b *InMemoryBackend) buildPublishedEvent(
 	topicArn, messageID, message, subject string,
 	attrs map[string]MessageAttribute,
 	subs []events.SNSSubscriptionSnapshot,
-	sigVersion string,
+	sigVersion, ts string,
+	signed map[string]signedNotification,
 ) *events.SNSPublishedEvent {
 	attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
 	for k, v := range attrs {
@@ -260,10 +269,17 @@ func (b *InMemoryBackend) buildPublishedEvent(
 
 	sigVersion = resolveSignatureVersion(sigVersion)
 
-	ts := time.Now().UTC().Format(time.RFC3339)
-	canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
-	sig := b.signer.signWithVersion(canonical, sigVersion)
-	certURL := b.signer.certURL()
+	// message is the same body most HTTP/HTTPS subscribers received (the
+	// default, unresolved MessageStructure=json splits aside), so reuse the
+	// signature already computed for it in Publish instead of signing again.
+	sn, ok := signed[message]
+	if !ok {
+		canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
+		sn = signedNotification{
+			signature: b.signer.signWithVersion(canonical, sigVersion),
+			certURL:   b.signer.certURL(),
+		}
+	}
 
 	return &events.SNSPublishedEvent{
 		TopicARN:         topicArn,
@@ -273,9 +289,9 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		Subscriptions:    subs,
 		Attributes:       attrSnaps,
 		Timestamp:        ts,
-		Signature:        sig,
+		Signature:        sn.signature,
 		SignatureVersion: sigVersion,
-		SigningCertURL:   certURL,
+		SigningCertURL:   sn.certURL,
 	}
 }
 
@@ -308,12 +324,14 @@ func (b *InMemoryBackend) Publish(
 	}
 
 	var (
-		archivePolicy string
-		sigVersion    string
-		messageID     string
-		targets       publishTargets
-		client        *http.Client
-		pubErr        error
+		archivePolicy    string
+		sigVersion       string
+		messageID        string
+		publishTimestamp string
+		targets          publishTargets
+		client           *http.Client
+		pubErr           error
+		signed           map[string]signedNotification
 	)
 
 	func() {
@@ -332,6 +350,10 @@ func (b *InMemoryBackend) Publish(
 		sigVersion = resolveSignatureVersion(topic.Attributes[attrSignatureVersion])
 
 		messageID = uuid.NewString()
+		// A single publish-time timestamp shared by every delivery channel:
+		// real SNS's Timestamp reflects when the message was published, not
+		// when each subscriber happened to receive it.
+		publishTimestamp = time.Now().UTC().Format(time.RFC3339)
 
 		// resolveMsg returns the appropriate message body for a given protocol.
 		resolveMsg := buildMessageResolver(message, parsePerProtocolMessages(message, messageStructure))
@@ -341,10 +363,34 @@ func (b *InMemoryBackend) Publish(
 
 		// Annotate HTTP deliveries with messageID, topicARN, and signer for SNS envelope/headers.
 		signer := b.signer
+		signed = make(map[string]signedNotification, 1)
+
 		for i := range targets.httpDeliveries {
-			targets.httpDeliveries[i].messageID = messageID
-			targets.httpDeliveries[i].topicARN = topicArn
-			targets.httpDeliveries[i].signer = signer
+			d := &targets.httpDeliveries[i]
+			d.messageID = messageID
+			d.topicARN = topicArn
+			d.signer = signer
+			d.timestamp = publishTimestamp
+
+			if d.rawDelivery || signer == nil {
+				continue
+			}
+
+			// Real SNS signs a notification once per publish, not once per
+			// delivery: every HTTP/HTTPS subscriber whose resolved body
+			// matches gets the same Timestamp/Signature, so sign each
+			// distinct body only once instead of once per subscriber.
+			sn, ok := signed[d.body]
+			if !ok {
+				canonical := canonicalNotificationString(messageID, topicArn, subject, d.body, publishTimestamp)
+				sn = signedNotification{
+					signature: signer.signWithVersion(canonical, sigVersion),
+					certURL:   signer.certURL(),
+				}
+				signed[d.body] = sn
+			}
+			d.signature = sn.signature
+			d.certURL = sn.certURL
 		}
 
 		// Capture httpClient under the read lock to avoid data races with
@@ -371,7 +417,9 @@ func (b *InMemoryBackend) Publish(
 
 	// Build the shared event once so every channel below carries the same
 	// verifiable Timestamp/Signature/SigningCertURL (see buildPublishedEvent).
-	ev := b.buildPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs, sigVersion)
+	ev := b.buildPublishedEvent(
+		topicArn, messageID, message, subject, attrs, targets.subs, sigVersion, publishTimestamp, signed,
+	)
 
 	b.emitPublishedEvent(ev)
 	b.deliverToLambdaSubscriptions(ev)

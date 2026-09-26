@@ -1,8 +1,8 @@
 ---
 service: elbv2
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.58.5   # bumped from v1.54.8 this pass (go.mod already pinned v1.58.5; PARITY.md was stale)
-last_audit_commit: 302aa4e3c  # zeroguard: ModifyListener/ModifyTargetGroup omitted-member fix
-last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. All
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
+last_audit_date: 2026-09-19  # prior: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. All
                               # 5 tier-1 findings real, all fixed (CreateLoadBalancer/SetSubnets
                               # .EnablePrefixForIpv6SourceNat, CreateTargetGroup.IpAddressType,
                               # SetSecurityGroups.EnforceSecurityGroupInboundRulesOnPrivateLink
@@ -103,6 +103,13 @@ leaks: {status: clean, note: "runHealthReconciler's ticker-based goroutine is un
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+`go b.runHealthReconciler()` (store.go) is a method-value launch the earlier
+"go func" grep missed. `Close()` already existed but ~36 test call sites never
+called it; retrofitted them with `t.Cleanup(b.Close)` and added
+`leak_main_test.go`. `go test -race -count=1 ./services/elbv2/...` passes clean.
 
 ### 2026-09-18 zeroguard: ModifyListener/ModifyTargetGroup omitted-member fix
 

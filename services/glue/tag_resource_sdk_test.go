@@ -50,3 +50,94 @@ func Test_SDKRoundTrip_Glue_TagResource_UntagResource_GetTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"env": "prod"}, afterUntag.Tags)
 }
+
+// A terraform-provider-aws Read for aws_glue_registry/aws_glue_schema calls
+// GetTags right after Create to populate tags_all; both were previously
+// absent from the tag lookup chain entirely, so a tagged registry or schema
+// could never be read back and TagResource/GetTags against either ARN
+// returned a spurious EntityNotFoundException.
+func Test_SDKRoundTrip_Glue_TagResource_GetTags_RegistryAndSchema(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend(testAccountID, testRegion)
+	client := newTestGlueClient(t, glue.NewHandler(backend))
+	ctx := t.Context()
+
+	createRegOut, err := client.CreateRegistry(ctx, &gluesdk.CreateRegistryInput{
+		RegistryName: aws.String("tag-rt-registry"),
+	})
+	require.NoError(t, err)
+
+	registryARN := aws.ToString(createRegOut.RegistryArn)
+
+	_, err = client.TagResource(ctx, &gluesdk.TagResourceInput{
+		ResourceArn: aws.String(registryARN),
+		TagsToAdd:   map[string]string{"env": "prod"},
+	})
+	require.NoError(t, err)
+
+	gotRegTags, err := client.GetTags(ctx, &gluesdk.GetTagsInput{ResourceArn: aws.String(registryARN)})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"env": "prod"}, gotRegTags.Tags)
+
+	createSchemaOut, err := client.CreateSchema(ctx, &gluesdk.CreateSchemaInput{
+		SchemaName:    aws.String("tag-rt-schema"),
+		RegistryId:    &types.RegistryId{RegistryName: aws.String("tag-rt-registry")},
+		DataFormat:    types.DataFormatJson,
+		Compatibility: types.CompatibilityNone,
+	})
+	require.NoError(t, err)
+
+	schemaARN := aws.ToString(createSchemaOut.SchemaArn)
+
+	_, err = client.TagResource(ctx, &gluesdk.TagResourceInput{
+		ResourceArn: aws.String(schemaARN),
+		TagsToAdd:   map[string]string{"team": "data"},
+	})
+	require.NoError(t, err)
+
+	gotSchemaTags, err := client.GetTags(ctx, &gluesdk.GetTagsInput{ResourceArn: aws.String(schemaARN)})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"team": "data"}, gotSchemaTags.Tags)
+}
+
+// A terraform-provider-aws Read for aws_glue_registry/aws_glue_schema keys
+// GetRegistry/GetSchema by the ARN returned at create time (not by name), so
+// both must resolve identity from RegistryId.RegistryArn / SchemaId.SchemaArn
+// alone -- previously only the *Name fields were consulted.
+func Test_SDKRoundTrip_Glue_GetRegistry_GetSchema_ByARN(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend(testAccountID, testRegion)
+	client := newTestGlueClient(t, glue.NewHandler(backend))
+	ctx := t.Context()
+
+	createRegOut, err := client.CreateRegistry(ctx, &gluesdk.CreateRegistryInput{
+		RegistryName: aws.String("byarn-registry"),
+	})
+	require.NoError(t, err)
+
+	registryARN := aws.ToString(createRegOut.RegistryArn)
+
+	getRegOut, err := client.GetRegistry(ctx, &gluesdk.GetRegistryInput{
+		RegistryId: &types.RegistryId{RegistryArn: aws.String(registryARN)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "byarn-registry", aws.ToString(getRegOut.RegistryName))
+
+	createSchemaOut, err := client.CreateSchema(ctx, &gluesdk.CreateSchemaInput{
+		SchemaName:    aws.String("byarn-schema"),
+		RegistryId:    &types.RegistryId{RegistryName: aws.String("byarn-registry")},
+		DataFormat:    types.DataFormatJson,
+		Compatibility: types.CompatibilityNone,
+	})
+	require.NoError(t, err)
+
+	schemaARN := aws.ToString(createSchemaOut.SchemaArn)
+
+	getSchemaOut, err := client.GetSchema(ctx, &gluesdk.GetSchemaInput{
+		SchemaId: &types.SchemaId{SchemaArn: aws.String(schemaARN)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "byarn-schema", aws.ToString(getSchemaOut.SchemaName))
+}

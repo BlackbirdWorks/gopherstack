@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -102,25 +101,18 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 	// (types/enums.go). A nested {"encryptionConfig": ...} object failed
 	// decoding outright for every real client.
 	return h.withIdempotency(c, opAssociateEncryptionConfig, in.ClientRequestToken, body, func() (int, any, error) {
-		result, err := h.Backend.AssociateEncryptionConfig(clusterName, configs)
-		if err != nil {
-			return 0, nil, err
-		}
-
-		encryptionConfigJSON, err := json.Marshal(result)
+		_, update, err := h.Backend.AssociateEncryptionConfig(clusterName, configs)
 		if err != nil {
 			return 0, nil, err
 		}
 
 		return http.StatusOK, map[string]any{
 			keyUpdate: map[string]any{
-				"id":           uuid.NewString()[:8],
-				keyStatusField: statusInProgress,
+				"id":           update.ID,
+				keyStatusField: update.Status,
 				keyType:        opAssociateEncryptionConfig,
 				keyClusterName: clusterName,
-				"params": []UpdateParam{
-					{Type: "EncryptionConfig", Value: string(encryptionConfigJSON)},
-				},
+				"params":       update.Params,
 			},
 		}, nil
 	})

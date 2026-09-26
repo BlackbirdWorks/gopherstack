@@ -43,8 +43,10 @@ type modifyTransitGatewayResponse struct {
 func (h *Handler) handleModifyTransitGateway(vals url.Values, reqID string) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
 	description := vals.Get("Description")
+	associationDefaultRTID := vals.Get("Options.AssociationDefaultRouteTableId")
+	propagationDefaultRTID := vals.Get("Options.PropagationDefaultRouteTableId")
 
-	tgw, err := h.Backend.ModifyTransitGateway(tgwID, description)
+	tgw, err := h.Backend.ModifyTransitGateway(tgwID, description, associationDefaultRTID, propagationDefaultRTID)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +239,8 @@ func (h *Handler) handleDescribeTransitGatewayAttachments(vals url.Values, reqID
 	); err != nil {
 		return nil, err
 	}
+
+	atts = applyTGWAttachmentFilters(atts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeTransitGatewayAttachmentsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, att := range atts {

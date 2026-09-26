@@ -60,13 +60,15 @@ func (b *InMemoryBackend) AddMedicalVocabularyInternal(v *MedicalVocabulary) {
 }
 
 // GetMedicalVocabulary returns a medical vocabulary by name.
+// A missing vocabulary reports ErrVocabularyNotFound (400), not NotFoundException (404): the
+// provider's delete waiter only treats BadRequestException as "gone" (gopherstack-h8cej).
 func (b *InMemoryBackend) GetMedicalVocabulary(vocabularyName string) (*MedicalVocabulary, error) {
 	b.mu.RLock("GetMedicalVocabulary")
 	defer b.mu.RUnlock()
 
 	v, ok := b.medicalVocabularies.Get(vocabularyName)
 	if !ok {
-		return nil, fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
+		return nil, fmt.Errorf("%w: medical vocabulary %s not found", ErrVocabularyNotFound, vocabularyName)
 	}
 
 	cp := *v

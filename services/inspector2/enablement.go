@@ -2,10 +2,11 @@ package inspector2
 
 // Resource types and scan-mode defaults for Enable/Disable and Configuration.
 const (
-	resourceTypeEC2        = "EC2"
-	resourceTypeECR        = "ECR"
-	resourceTypeLambda     = "LAMBDA"
-	resourceTypeLambdaCode = "LAMBDA_CODE"
+	resourceTypeEC2            = "EC2"
+	resourceTypeECR            = "ECR"
+	resourceTypeLambda         = "LAMBDA"
+	resourceTypeLambdaCode     = "LAMBDA_CODE"
+	resourceTypeCodeRepository = "CODE_REPOSITORY"
 
 	ec2ScanModeEC2SSMAgentBased = "EC2_SSM_AGENT_BASED"
 	ecrRescanDurationLifetime   = "LIFETIME"
@@ -23,7 +24,10 @@ func defaultConfiguration() Configuration {
 // knownResourceTypes returns the full set of Inspector2 resource types, used
 // when Enable/Disable is called with an empty list.
 func knownResourceTypes() []string {
-	return []string{resourceTypeEC2, resourceTypeECR, resourceTypeLambda, resourceTypeLambdaCode}
+	return []string{
+		resourceTypeEC2, resourceTypeECR, resourceTypeLambda,
+		resourceTypeLambdaCode, resourceTypeCodeRepository,
+	}
 }
 
 // Enable enables Inspector2 scanning for the given resource types.
@@ -98,11 +102,13 @@ func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 	}
 
 	return &AccountStatusResponse{
-		AccountID:    b.accountID,
-		Status:       overall,
-		Ec2Status:    typeStatus(resourceTypeEC2),
-		EcrStatus:    typeStatus(resourceTypeECR),
-		LambdaStatus: typeStatus(resourceTypeLambda),
+		AccountID:            b.accountID,
+		Status:               overall,
+		Ec2Status:            typeStatus(resourceTypeEC2),
+		EcrStatus:            typeStatus(resourceTypeECR),
+		LambdaStatus:         typeStatus(resourceTypeLambda),
+		LambdaCodeStatus:     typeStatus(resourceTypeLambdaCode),
+		CodeRepositoryStatus: typeStatus(resourceTypeCodeRepository),
 	}
 }
 

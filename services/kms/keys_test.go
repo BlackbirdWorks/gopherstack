@@ -215,7 +215,11 @@ func TestCancelKeyDeletion_RestoresToDisabled(t *testing.T) {
 
 	cancelOut, err := b.CancelKeyDeletion(context.Background(), &kms.CancelKeyDeletionInput{KeyID: keyID})
 	require.NoError(t, err)
-	assert.Equal(t, kms.KeyStateDisabled, cancelOut.KeyState)
+	assert.Equal(t, keyID, cancelOut.KeyID)
+
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStateDisabled, desc.KeyMetadata.KeyState)
 }
 
 func TestScheduleKeyDeletion_DefaultWindow_30Days(t *testing.T) {
@@ -499,7 +503,7 @@ func TestKMSScheduleAndCancelKeyDeletion(t *testing.T) {
 	// Cancel deletion — key should become Disabled
 	cancelOut, cancelErr := backend.CancelKeyDeletion(context.Background(), &kms.CancelKeyDeletionInput{KeyID: keyID})
 	require.NoError(t, cancelErr)
-	assert.Equal(t, kms.KeyStateDisabled, cancelOut.KeyState)
+	assert.Equal(t, keyID, cancelOut.KeyID)
 
 	desc, err := backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
@@ -901,5 +905,8 @@ func TestCancelKeyDeletionOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Equal(t, keyID, out.KeyID)
-	assert.Equal(t, kms.KeyStateDisabled, out.KeyState)
+
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStateDisabled, desc.KeyMetadata.KeyState)
 }

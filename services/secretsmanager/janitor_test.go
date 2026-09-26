@@ -34,6 +34,7 @@ func TestJanitor_RecoveryWindowRespected(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		b.SetNowForTest(func() time.Time { return pastTime })
 
 		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
@@ -59,6 +60,7 @@ func TestJanitor_RecoveryWindowRespected(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		b.SetNowForTest(func() time.Time { return pastTime })
 
 		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
@@ -85,6 +87,7 @@ func TestJanitor_ForceDeletePurgesImmediately(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "force-delete-test",
 		SecretString: "value",
@@ -104,6 +107,7 @@ func TestJanitor_ActiveSecretNotPurged(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "active-secret",
 		SecretString: "value",
@@ -133,6 +137,7 @@ func TestJanitor_DeletionDateReturnedMatchesRecoveryWindow(t *testing.T) {
 
 			epoch := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			b.SetNowForTest(func() time.Time { return epoch })
 
 			_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{

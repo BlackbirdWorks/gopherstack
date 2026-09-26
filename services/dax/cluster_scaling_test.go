@@ -2,6 +2,7 @@ package dax_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,7 @@ func TestIncreaseReplicationFactor(t *testing.T) {
 			name: "increase from 1 to 3",
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateCluster(validCreateInput("grow"))
+				dax.SetClusterAvailableForTest(b, "grow")
 			},
 			input: dax.IncreaseReplicationFactorInput{
 				ClusterName:          "grow",
@@ -47,6 +49,7 @@ func TestIncreaseReplicationFactor(t *testing.T) {
 			name: "factor exceeds max",
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateCluster(validCreateInput("x"))
+				dax.SetClusterAvailableForTest(b, "x")
 			},
 			input:   dax.IncreaseReplicationFactorInput{ClusterName: "x", NewReplicationFactor: 11},
 			wantErr: true,
@@ -57,6 +60,7 @@ func TestIncreaseReplicationFactor(t *testing.T) {
 				in := validCreateInput("x")
 				in.ReplicationFactor = 3
 				_, _ = b.CreateCluster(in)
+				dax.SetClusterAvailableForTest(b, "x")
 			},
 			input:   dax.IncreaseReplicationFactorInput{ClusterName: "x", NewReplicationFactor: 3},
 			wantErr: true,
@@ -133,6 +137,7 @@ func TestIncreaseReplicationFactorAZAssignment(t *testing.T) {
 				ReplicationFactor: tt.initialFactor,
 			})
 			require.NoError(t, err)
+			dax.SetClusterAvailableForTest(b, "az-test")
 
 			out, err := b.IncreaseReplicationFactor(dax.IncreaseReplicationFactorInput{
 				ClusterName:          "az-test",
@@ -169,6 +174,7 @@ func TestDecreaseReplicationFactor(t *testing.T) {
 				in := validCreateInput("shrink")
 				in.ReplicationFactor = 3
 				_, _ = b.CreateCluster(in)
+				dax.SetClusterAvailableForTest(b, "shrink")
 			},
 			input: dax.DecreaseReplicationFactorInput{
 				ClusterName:          "shrink",
@@ -189,6 +195,7 @@ func TestDecreaseReplicationFactor(t *testing.T) {
 				in := validCreateInput("specific")
 				in.ReplicationFactor = 3
 				_, _ = b.CreateCluster(in)
+				dax.SetClusterAvailableForTest(b, "specific")
 			},
 			input: dax.DecreaseReplicationFactorInput{
 				ClusterName:          "specific",
@@ -212,6 +219,7 @@ func TestDecreaseReplicationFactor(t *testing.T) {
 			name: "factor not less than current",
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateCluster(validCreateInput("x"))
+				dax.SetClusterAvailableForTest(b, "x")
 			},
 			input:   dax.DecreaseReplicationFactorInput{ClusterName: "x", NewReplicationFactor: 1},
 			wantErr: true,
@@ -292,6 +300,7 @@ func TestDecreaseReplicationFactorNodeIDsCount(t *testing.T) {
 				ReplicationFactor: 3,
 			})
 			require.NoError(t, err)
+			dax.SetClusterAvailableForTest(b, "valid-name")
 
 			_, err = b.DecreaseReplicationFactor(dax.DecreaseReplicationFactorInput{
 				ClusterName:          "valid-name",
@@ -328,6 +337,7 @@ func TestRebootNode(t *testing.T) {
 			name: "success",
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateCluster(validCreateInput("reboot-me"))
+				dax.SetClusterAvailableForTest(b, "reboot-me")
 			},
 			clusterName: "reboot-me",
 			nodeID:      "reboot-me-0000",
@@ -348,6 +358,7 @@ func TestRebootNode(t *testing.T) {
 			name: "node not found",
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateCluster(validCreateInput("exist"))
+				dax.SetClusterAvailableForTest(b, "exist")
 			},
 			clusterName: "exist",
 			nodeID:      "no-such-node",
@@ -398,6 +409,7 @@ func TestRebootNodeEmptyNodeID(t *testing.T) {
 			b := newTestBackend()
 			_, err := b.CreateCluster(validCreateInput("reboot-test"))
 			require.NoError(t, err)
+			dax.SetClusterAvailableForTest(b, "reboot-test")
 
 			_, err = b.RebootNode("reboot-test", tt.nodeID)
 			require.Error(t, err)
@@ -410,66 +422,78 @@ func TestRebootNodeEmptyNodeID(t *testing.T) {
 
 func TestRebootNodeRecovery(t *testing.T) {
 	t.Parallel()
-	b := newTestBackend()
 
-	_, err := b.CreateCluster(dax.CreateClusterInput{
-		ClusterName:       "recovery-test",
-		NodeType:          "dax.r5.large",
-		IamRoleArn:        "arn:aws:iam::123456789012:role/DAXRole",
-		ReplicationFactor: 1,
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
+
+		_, err := b.CreateCluster(dax.CreateClusterInput{
+			ClusterName:       "recovery-test",
+			NodeType:          "dax.r5.large",
+			IamRoleArn:        "arn:aws:iam::123456789012:role/DAXRole",
+			ReplicationFactor: 1,
+		})
+		require.NoError(t, err)
+
+		// Wait out CreateCluster's own transient "creating" window.
+		time.Sleep(2 * time.Second)
+
+		// Fetch the node ID.
+		clusters, _, err := b.DescribeClusters([]string{"recovery-test"}, 0, "")
+		require.NoError(t, err)
+		require.Len(t, clusters, 1)
+		require.Len(t, clusters[0].Nodes, 1)
+		nodeID := clusters[0].Nodes[0].NodeID
+
+		// Initiate reboot.
+		out, err := b.RebootNode("recovery-test", nodeID)
+		require.NoError(t, err)
+		require.Len(t, out.Nodes, 1)
+		assert.Equal(t, "rebooting", out.Nodes[0].NodeStatus)
+
+		// Wait past the reboot's transition deadline.
+		time.Sleep(2 * time.Second)
+
+		// Node should be back to available.
+		clusters, _, err = b.DescribeClusters([]string{"recovery-test"}, 0, "")
+		require.NoError(t, err)
+		require.Len(t, clusters, 1)
+		require.Len(t, clusters[0].Nodes, 1)
+		assert.Equal(t, "available", clusters[0].Nodes[0].NodeStatus)
 	})
-	require.NoError(t, err)
-
-	// Fetch the node ID.
-	clusters, _, err := b.DescribeClusters([]string{"recovery-test"}, 0, "")
-	require.NoError(t, err)
-	require.Len(t, clusters, 1)
-	require.Len(t, clusters[0].Nodes, 1)
-	nodeID := clusters[0].Nodes[0].NodeID
-
-	// Initiate reboot.
-	out, err := b.RebootNode("recovery-test", nodeID)
-	require.NoError(t, err)
-	require.Len(t, out.Nodes, 1)
-	assert.Equal(t, "rebooting", out.Nodes[0].NodeStatus)
-
-	// Wait for recovery goroutine (sleeps 1s).
-	time.Sleep(2 * time.Second)
-
-	// Node should be back to available.
-	clusters, _, err = b.DescribeClusters([]string{"recovery-test"}, 0, "")
-	require.NoError(t, err)
-	require.Len(t, clusters, 1)
-	require.Len(t, clusters[0].Nodes, 1)
-	assert.Equal(t, "available", clusters[0].Nodes[0].NodeStatus)
 }
 
 // ---- DecreaseReplicationFactor: NodeIDsToRemove is transient ----
 
 func TestDecreaseReplicationFactorNodeIDsToRemoveClearsOnRecovery(t *testing.T) {
 	t.Parallel()
-	b := newTestBackend()
 
-	in := validCreateInput("shrink-transient")
-	in.ReplicationFactor = 3
-	_, err := b.CreateCluster(in)
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
 
-	out, err := b.DecreaseReplicationFactor(dax.DecreaseReplicationFactorInput{
-		ClusterName:          "shrink-transient",
-		NewReplicationFactor: 1,
+		in := validCreateInput("shrink-transient")
+		in.ReplicationFactor = 3
+		_, err := b.CreateCluster(in)
+		require.NoError(t, err)
+
+		// Wait out CreateCluster's own transient "creating" window.
+		time.Sleep(2 * time.Second)
+
+		out, err := b.DecreaseReplicationFactor(dax.DecreaseReplicationFactorInput{
+			ClusterName:          "shrink-transient",
+			NewReplicationFactor: 1,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "modifying", out.Status)
+		assert.NotEmpty(t, out.NodeIDsToRemove, "NodeIDsToRemove should be populated while the decrease is in flight")
+
+		// Wait past the decrease's transition deadline, which brings the
+		// cluster back to "available" and clears the transient removal list.
+		time.Sleep(2 * time.Second)
+
+		clusters, _, err := b.DescribeClusters([]string{"shrink-transient"}, 0, "")
+		require.NoError(t, err)
+		require.Len(t, clusters, 1)
+		assert.Equal(t, "available", clusters[0].Status)
+		assert.Empty(t, clusters[0].NodeIDsToRemove)
 	})
-	require.NoError(t, err)
-	assert.Equal(t, "modifying", out.Status)
-	assert.NotEmpty(t, out.NodeIDsToRemove, "NodeIDsToRemove should be populated while the decrease is in flight")
-
-	// Wait for the async recovery goroutine (sleeps 1s) to bring the cluster
-	// back to "available" and clear the transient removal list.
-	time.Sleep(2 * time.Second)
-
-	clusters, _, err := b.DescribeClusters([]string{"shrink-transient"}, 0, "")
-	require.NoError(t, err)
-	require.Len(t, clusters, 1)
-	assert.Equal(t, "available", clusters[0].Status)
-	assert.Empty(t, clusters[0].NodeIDsToRemove)
 }

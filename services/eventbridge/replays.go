@@ -6,6 +6,20 @@ import (
 	"time"
 )
 
+// pruneStaleReplaysLocked evicts COMPLETED/CANCELLED replays in region that
+// have sat past replayTerminalTTL since ReplayEndTime, so terraform-driven
+// start/cancel churn doesn't grow b.replays unbounded in a long-running
+// emulator. Caller must hold the write lock.
+func (b *InMemoryBackend) pruneStaleReplaysLocked(region string, now time.Time) {
+	replays := b.replaysTable(region)
+	for _, r := range replays.All() {
+		if (r.State == replayStateCompleted || r.State == replayStateCancelled) &&
+			!r.ReplayEndTime.IsZero() && now.Sub(r.ReplayEndTime) >= replayTerminalTTL {
+			replays.Delete(r.ReplayName)
+		}
+	}
+}
+
 // CancelReplay cancels a running or starting replay.
 func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (*Replay, error) {
 	if replayName == "" {
@@ -16,6 +30,8 @@ func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (
 
 	b.mu.Lock("CancelReplay")
 	defer b.mu.Unlock()
+
+	b.pruneStaleReplaysLocked(region, time.Now())
 
 	replay, exists := b.replaysTable(region).Get(replayName)
 	if !exists {
@@ -142,6 +158,8 @@ func (b *InMemoryBackend) startReplayLocked(
 ) (replayDeliveryPlan, error) {
 	b.mu.Lock("StartReplay")
 	defer b.mu.Unlock()
+
+	b.pruneStaleReplaysLocked(region, time.Now())
 
 	replays := b.replaysTable(region)
 	if replays.Has(input.ReplayName) {
@@ -287,6 +305,8 @@ func (b *InMemoryBackend) scheduleReplayWorker(plan replayDeliveryPlan, region, 
 
 		b.mu.Lock("StartReplay-complete")
 		defer b.mu.Unlock()
+
+		b.pruneStaleReplaysLocked(region, time.Now())
 
 		r, ok := b.replaysTable(region).Get(replayName)
 		if !ok {

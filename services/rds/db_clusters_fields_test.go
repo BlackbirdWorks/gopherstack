@@ -15,7 +15,7 @@ import (
 func TestEnabledCloudwatchLogsExportsInClusterXML(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                               {"CreateDBCluster"},
@@ -45,7 +45,7 @@ func TestEnabledCloudwatchLogsExportsInClusterXML(t *testing.T) {
 func TestDBClusterIdentifierPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	// Create the cluster first.
 	doAccuracyRDS(t, h, url.Values{
@@ -83,7 +83,7 @@ func TestDBClusterIdentifierPersisted(t *testing.T) {
 func TestDBClusterDeletionProtection(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -110,7 +110,7 @@ func TestDBClusterDeletionProtection(t *testing.T) {
 func TestDBClusterAvailabilityZones(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                               {"CreateDBCluster"},
@@ -145,7 +145,7 @@ func TestDBClusterAvailabilityZones(t *testing.T) {
 func TestModifyDBClusterStorageEncryptedChanged(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	doAccuracyRDS(t, h, url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -179,7 +179,7 @@ func TestModifyDBClusterStorageEncryptedChanged(t *testing.T) {
 func TestDBInstanceJoinsClusterMemberList(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	doAccuracyRDS(t, h, url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -232,7 +232,7 @@ func TestDBInstanceJoinsClusterMemberList(t *testing.T) {
 func TestModifyDBClusterDeletionProtection(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	doAccuracyRDS(t, h, url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -264,7 +264,7 @@ func TestModifyDBClusterDeletionProtection(t *testing.T) {
 func TestDBCluster_ReaderEndpointGenerated(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	c, err := b.CreateDBCluster("my-cluster", "aurora-mysql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
@@ -277,7 +277,7 @@ func TestDBCluster_ReaderEndpointGenerated(t *testing.T) {
 func TestDBCluster_NetworkTypeIPV4Default(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	c, err := b.CreateDBCluster("net-cluster", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestDBCluster_NetworkTypeIPV4Default(t *testing.T) {
 func TestDBCluster_NetworkTypeDual(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	c, err := b.CreateDBCluster("dual-cluster", "aurora-postgresql", "admin", "", "", 0, nil,
 		rds.DBClusterOptions{NetworkType: "DUAL"})
@@ -300,7 +300,7 @@ func TestDBCluster_NetworkTypeDual(t *testing.T) {
 func TestDBCluster_StorageTypeAuroraIOOptimized(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	c, err := b.CreateDBCluster("iopt-cluster", "aurora-postgresql", "admin", "", "", 0, nil,
 		rds.DBClusterOptions{StorageType: "aurora-iopt1"})
@@ -312,7 +312,7 @@ func TestDBCluster_StorageTypeAuroraIOOptimized(t *testing.T) {
 func TestDBCluster_EngineLifecycleSupport(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	c, err := b.CreateDBCluster("els-cluster", "aurora-postgresql", "admin", "", "", 0, nil,
 		rds.DBClusterOptions{
@@ -326,7 +326,7 @@ func TestDBCluster_EngineLifecycleSupport(t *testing.T) {
 func TestDBCluster_OptimizedWritesEnabled(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	c, err := b.CreateDBCluster("ow-cluster", "aurora-mysql", "admin", "", "", 0, nil,
 		rds.DBClusterOptions{OptimizedWrites: true})
@@ -338,7 +338,7 @@ func TestDBCluster_OptimizedWritesEnabled(t *testing.T) {
 func TestDBCluster_ModifyStorageTypeAndNetworkType(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateDBCluster("mod-cluster", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
@@ -356,7 +356,7 @@ func TestDBCluster_ModifyStorageTypeAndNetworkType(t *testing.T) {
 func TestDBCluster_NewFieldsViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateDBCluster&Version=2014-10-31"+
@@ -403,7 +403,7 @@ func TestValidateStorageTypeForCluster(t *testing.T) {
 func TestDescribeDBClusters_ReaderEndpointInResponse(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	h := rds.NewHandler(b)
 
 	_, err := b.CreateDBCluster("re-cluster", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
@@ -422,7 +422,7 @@ func TestDescribeDBClusters_ReaderEndpointInResponse(t *testing.T) {
 func TestDBCluster_ReaderEndpointPersistedAndDescribed(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	created, err := b.CreateDBCluster("persist-re", "aurora-postgresql", "admin", "", "", 0, nil,
 		rds.DBClusterOptions{})
@@ -439,7 +439,7 @@ func TestDBCluster_ReaderEndpointPersistedAndDescribed(t *testing.T) {
 func TestPersistence_ClusterNewFields(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateDBCluster("cls-snap", "aurora-mysql", "admin", "", "", 0, nil,
 		rds.DBClusterOptions{
@@ -454,6 +454,7 @@ func TestPersistence_ClusterNewFields(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	clusters, err := b2.DescribeDBClusters("cls-snap")
@@ -471,7 +472,7 @@ func TestPersistence_ClusterNewFields(t *testing.T) {
 func TestDBCluster_MultiAZEndpoints(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	c, err := b.CreateDBCluster("rwg-cluster", "aurora-postgresql", "admin", "prod", "", 0, nil,
 		rds.DBClusterOptions{MultiAZ: true})
@@ -488,7 +489,7 @@ func TestDBCluster_MultiAZEndpoints(t *testing.T) {
 func TestDBCluster_ServerlessV2WithIOOptimized(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	serverlessCfg := &rds.ServerlessV2ScalingConfiguration{
 		MinCapacity: 0.5,
@@ -510,7 +511,7 @@ func TestDBCluster_ServerlessV2WithIOOptimized(t *testing.T) {
 func TestDBCluster_ModifyEngineLifecycleSupportViaHandler(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	h := rds.NewHandler(b)
 
 	_, err := b.CreateDBCluster("els-mod", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
@@ -530,7 +531,7 @@ func TestDBCluster_ModifyEngineLifecycleSupportViaHandler(t *testing.T) {
 func TestDBCluster_ModifyOptimizedWritesViaBackend(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateDBCluster("ow-mod", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)

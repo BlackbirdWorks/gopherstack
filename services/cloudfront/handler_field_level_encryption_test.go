@@ -807,6 +807,7 @@ func TestInMemoryBackend_FieldLevelEncryption(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}

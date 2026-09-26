@@ -19,7 +19,7 @@ func TestEKS_IdentityProviderConfig_Lifecycle(t *testing.T) {
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "idp-cluster"})
 
 	// Associate IDP config via backend
-	_, err := h.Backend.AssociateIdentityProviderConfig(
+	_, _, err := h.Backend.AssociateIdentityProviderConfig(
 		"idp-cluster",
 		"oidc",
 		"my-oidc",
@@ -200,7 +200,7 @@ func TestOIDC_AssociateAndDescribe(t *testing.T) {
 		"clientId":      "my-client-id",
 		"usernameClaim": "email",
 	}
-	cfg, err := b.AssociateIdentityProviderConfig("oidc-cluster", "oidc", "my-client-id", params, nil, nil)
+	cfg, _, err := b.AssociateIdentityProviderConfig("oidc-cluster", "oidc", "my-client-id", params, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "oidc", cfg.Type)
 	assert.Equal(t, "my-client-id", cfg.Name)
@@ -210,13 +210,69 @@ func TestOIDC_AssociateAndDescribe(t *testing.T) {
 	assert.Equal(t, cfg.Name, described.Name)
 }
 
+// TestOIDC_AssociateAndDisassociateStoreDescribableUpdate covers
+// gopherstack-mb53: Associate/DisassociateIdentityProviderConfig used to
+// fabricate an Update ID that was never stored, so a client polling
+// DescribeUpdate on the returned ID (as terraform-provider-aws's
+// aws_eks_identity_provider_config create/delete waiter does) always got
+// ResourceNotFoundException and never converged.
+func TestOIDC_AssociateAndDisassociateStoreDescribableUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		perform func(b *eks.InMemoryBackend) (*eks.Update, error)
+		name    string
+		wantOp  string
+	}{
+		{
+			name:   "associate",
+			wantOp: "AssociateIdentityProviderConfig",
+			perform: func(b *eks.InMemoryBackend) (*eks.Update, error) {
+				_, u, err := b.AssociateIdentityProviderConfig(
+					"idp-update-cluster", "oidc", "my-idp",
+					map[string]string{"issuerUrl": "https://example.com", "clientId": "client1"}, nil, nil,
+				)
+
+				return u, err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			mustCreateClusterNoVpc(t, b, "idp-update-cluster")
+
+			u, err := tc.perform(b)
+			require.NoError(t, err)
+			require.NotEmpty(t, u.ID)
+			assert.Equal(t, tc.wantOp, u.Type)
+
+			described, err := b.DescribeUpdate("idp-update-cluster", u.ID)
+			require.NoError(t, err, "DescribeUpdate must find the update the Associate call reported")
+			assert.Equal(t, u.ID, described.ID)
+
+			du, err := b.DisassociateIdentityProviderConfig("idp-update-cluster", "my-idp")
+			require.NoError(t, err)
+			require.NotEmpty(t, du.ID)
+			assert.Equal(t, "DisassociateIdentityProviderConfig", du.Type)
+
+			describedDelete, err := b.DescribeUpdate("idp-update-cluster", du.ID)
+			require.NoError(t, err, "DescribeUpdate must find the update the Disassociate call reported")
+			assert.Equal(t, du.ID, describedDelete.ID)
+		})
+	}
+}
+
 func TestOIDC_List(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
 	mustCreateClusterNoVpc(t, b, "oidc-list-cluster")
 
-	_, _ = b.AssociateIdentityProviderConfig("oidc-list-cluster", "oidc", "client-a",
+	_, _, _ = b.AssociateIdentityProviderConfig("oidc-list-cluster", "oidc", "client-a",
 		map[string]string{"clientId": "client-a"}, nil, nil)
 
 	configs, err := b.ListIdentityProviderConfigs("oidc-list-cluster")
@@ -231,10 +287,10 @@ func TestOIDC_Disassociate(t *testing.T) {
 	b := newBackend(t)
 	mustCreateClusterNoVpc(t, b, "oidc-del-cluster")
 
-	_, _ = b.AssociateIdentityProviderConfig("oidc-del-cluster", "oidc", "client-b",
+	_, _, _ = b.AssociateIdentityProviderConfig("oidc-del-cluster", "oidc", "client-b",
 		map[string]string{"clientId": "client-b"}, nil, nil)
 
-	err := b.DisassociateIdentityProviderConfig("oidc-del-cluster", "client-b")
+	_, err := b.DisassociateIdentityProviderConfig("oidc-del-cluster", "client-b")
 	require.NoError(t, err)
 
 	configs, err := b.ListIdentityProviderConfigs("oidc-del-cluster")
@@ -261,7 +317,7 @@ func TestIDPConfigCreatesAsCreating(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			cfg, err := b.AssociateIdentityProviderConfig(
+			cfg, _, err := b.AssociateIdentityProviderConfig(
 				"cl", "oidc", "my-idp",
 				map[string]string{"issuerUrl": "https://example.com", "clientId": "client1"},
 				nil,

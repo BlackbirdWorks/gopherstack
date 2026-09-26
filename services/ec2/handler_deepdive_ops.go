@@ -211,6 +211,7 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 	// verified, not the silent-omission bug for this particular op).
 	ids := parseMemberList(vals, "VpcEndpointId")
 	endpoints := h.Backend.DescribeVpcEndpoints(ids)
+	endpoints = applyVpcEndpointFilters(endpoints, parseEC2Filters(vals), h.Backend)
 
 	items := make([]vpcEndpointItem, 0, len(endpoints))
 	for _, endpoint := range endpoints {
@@ -334,6 +335,10 @@ func toNetworkACLItem(acl *NetworkACL, tags map[string]string) networkACLItem {
 		assocs = append(assocs, networkACLAssocItem{
 			NetworkACLAssociationID: aid,
 			NetworkACLID:            acl.ID,
+			// AssociationIDs stores the raw subnet ID (this backend's
+			// documented association-ID simplification -- see
+			// DescribeNetworkAcls' doc comment), so it doubles as SubnetID.
+			SubnetID: aid,
 		})
 	}
 

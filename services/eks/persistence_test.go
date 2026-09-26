@@ -44,7 +44,7 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
+	_, _, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
 		{
 			Provider:  map[string]string{"keyArn": "arn:aws:kms:us-east-1:123456789012:key/abc"},
 			Resources: []string{"secrets"},
@@ -52,7 +52,7 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.AssociateIdentityProviderConfig(
+	_, _, err = b.AssociateIdentityProviderConfig(
 		"c1", "oidc", "idp1", map[string]string{"issuerUrl": "https://x"}, nil, nil,
 	)
 	require.NoError(t, err)
@@ -138,13 +138,23 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	require.Len(t, subs, 1)
 	assert.Equal(t, "sub1", subs[0].Name)
 
+	// Three updates now persist: UpdateClusterVersion's VersionUpdate,
+	// AssociateIdentityProviderConfig's update (gopherstack-mb53), and
+	// AssociateEncryptionConfig's own real (no longer fabricated,
+	// gopherstack-yiy60) update.
 	updateIDs, err := b2.ListUpdates("c1")
 	require.NoError(t, err)
-	require.Len(t, updateIDs, 1)
+	require.Len(t, updateIDs, 3)
 
-	upd, err := b2.DescribeUpdate("c1", updateIDs[0])
-	require.NoError(t, err)
-	assert.Equal(t, "VersionUpdate", upd.Type)
+	gotTypes := make([]string, len(updateIDs))
+	for i, id := range updateIDs {
+		upd, describeErr := b2.DescribeUpdate("c1", id)
+		require.NoError(t, describeErr)
+		gotTypes[i] = upd.Type
+	}
+	assert.ElementsMatch(
+		t, []string{"VersionUpdate", "AssociateIdentityProviderConfig", "AssociateEncryptionConfig"}, gotTypes,
+	)
 
 	assert.Equal(t, 1, b2.ClusterCount())
 	assert.Equal(t, 1, b2.NodegroupCount())
@@ -266,7 +276,7 @@ func TestPersistenceRoundTrip_AddonCapabilityEncryptionConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Associate encryption config.
-	_, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
+	_, _, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
 		{Provider: map[string]string{"keyArn": "arn:aws:kms:us-east-1:123:key/abc"}, Resources: []string{"secrets"}},
 	})
 	require.NoError(t, err)

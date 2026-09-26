@@ -80,6 +80,40 @@ func requeueMessage(q *Queue, msg *Message) {
 	q.messages[idx] = msg
 }
 
+// removeInFlight swap-deletes inf from q.inFlightMessages in O(1) using its
+// tracked sliceIdx, instead of scanning the slice for its pointer. The
+// element moved into inf's old slot has its sliceIdx updated to match.
+// Caller must hold q.mu and have already removed inf from inFlightByHandle.
+func removeInFlight(q *Queue, inf *InFlightMessage) {
+	idx := inf.sliceIdx
+	last := len(q.inFlightMessages) - 1
+
+	if idx < 0 || idx > last || q.inFlightMessages[idx] != inf {
+		// sliceIdx should always be accurate; fall back to a scan rather than
+		// silently leaving inf in the slice if it somehow drifted.
+		for i, existing := range q.inFlightMessages {
+			if existing == inf {
+				idx = i
+
+				break
+			}
+		}
+	}
+
+	if idx < 0 || idx > last || q.inFlightMessages[idx] != inf {
+		return
+	}
+
+	if idx != last {
+		moved := q.inFlightMessages[last]
+		q.inFlightMessages[idx] = moved
+		moved.sliceIdx = idx
+	}
+
+	q.inFlightMessages[last] = nil
+	q.inFlightMessages = q.inFlightMessages[:last]
+}
+
 // sweepInFlight processes q.inFlightMessages: discards retention-expired entries and
 // re-queues visibility-expired entries back onto q.messages. Caller must hold q.mu.
 func sweepInFlight(q *Queue, cutoff, now time.Time) {
@@ -104,6 +138,7 @@ func sweepInFlight(q *Queue, cutoff, now time.Time) {
 			continue
 		}
 
+		inf.sliceIdx = len(newInFlight)
 		newInFlight = append(newInFlight, inf)
 	}
 
@@ -193,6 +228,7 @@ func enqueueReceivedMessage(
 		ReceiptHandle: receipt,
 		Generation:    q.receiveGeneration,
 		Msg:           msg,
+		sliceIdx:      len(q.inFlightMessages),
 	}
 	q.inFlightMessages = append(q.inFlightMessages, inf)
 	q.inFlightByHandle[receipt] = inf
@@ -343,17 +379,7 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 		}
 		delete(q.inFlightByHandle, receiptHandle)
 
-		// Remove from inFlightMessages slice.
-		for i, existing := range q.inFlightMessages {
-			if existing == inf {
-				last := len(q.inFlightMessages) - 1
-				q.inFlightMessages[i] = q.inFlightMessages[last]
-				q.inFlightMessages[last] = nil
-				q.inFlightMessages = q.inFlightMessages[:last]
-
-				break
-			}
-		}
+		removeInFlight(q, inf)
 
 		// Wake long-poll receivers that may be waiting for a message.
 		old := q.notify

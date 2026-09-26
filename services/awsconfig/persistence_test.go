@@ -358,7 +358,7 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil, nil))
 	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", "", nil))
-	_, err := b.PutOrganizationConfigRule("org-rule-1")
+	_, err := b.PutOrganizationConfigRule("org-rule-1", nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 
@@ -409,7 +409,7 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil, nil))
 	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", "", nil))
-	_, err := b.PutOrganizationConfigRule("org-rule-1")
+	_, err := b.PutOrganizationConfigRule("org-rule-1", nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 	_, err = b.PutStoredQuery("query-1", "", "", nil)
@@ -471,8 +471,8 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 
 	assert.Len(t, fresh.DescribeConfigurationAggregators(), 1)
 	assert.Len(t, fresh.DescribeConformancePacks(), 1)
-	assert.Len(t, fresh.DescribeOrganizationConfigRules(), 1)
-	assert.Len(t, fresh.DescribeOrganizationConformancePacks(), 1)
+	assert.Len(t, fresh.DescribeOrganizationConfigRules(nil), 1)
+	assert.Len(t, fresh.DescribeOrganizationConformancePacks(nil), 1)
 	require.NotNil(t, fresh.GetStoredQuery("query-1"))
 	assert.Len(t, fresh.DescribeRetentionConfigurations(), 1)
 	assert.Len(t, fresh.DescribeRemediationConfigurations(nil), 1)

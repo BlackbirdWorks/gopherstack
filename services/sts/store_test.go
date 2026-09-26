@@ -58,17 +58,20 @@ func TestMockAccountID_IsZeroesNotAmazonAccount(t *testing.T) {
 		"MockAccountID should be all-zeros to match other services")
 }
 
-// TestAssumeRole_EvictsExpiredSessionsWithoutJanitor verifies that creating a
-// new session opportunistically sweeps expired sessions once the store grows
+// TestAssumeRole_EvictsExpiredSessionsWithoutJanitor verifies that creating
+// new sessions opportunistically sweeps expired sessions once the store grows
 // past the eviction threshold, so b.sessions stays bounded even when the
-// background janitor is disabled.
+// background janitor is disabled. The sweep itself only runs every
+// SessionEvictSweepInterval armed inserts (not every single one -- see
+// store.go's sessionEvictSweepInterval doc comment), so this drives that many
+// inserts before asserting.
 func TestAssumeRole_EvictsExpiredSessionsWithoutJanitor(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
 
-	// Seed more expired sessions than the eviction threshold so the next insert
-	// triggers the inline sweep.
+	// Seed more expired sessions than the eviction threshold so inserts above
+	// arm the sweep.
 	expired := sts.SessionEvictThreshold + 16
 	past := time.Now().UTC().Add(-time.Hour)
 
@@ -82,18 +85,20 @@ func TestAssumeRole_EvictsExpiredSessionsWithoutJanitor(t *testing.T) {
 
 	require.Equal(t, expired, b.SessionCount(), "all seeded expired sessions present before insert")
 
-	// A single real AssumeRole insert should evict every expired session and add
-	// exactly one live session.
-	resp, err := b.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/Role1",
-		RoleSessionName: "live",
-		DurationSeconds: 900,
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, resp.AssumeRoleResult.Credentials.AccessKeyID)
+	// SessionEvictSweepInterval real AssumeRole inserts should evict every
+	// expired session by the last one, leaving only the live sessions just added.
+	for i := range sts.SessionEvictSweepInterval {
+		resp, err := b.AssumeRole(&sts.AssumeRoleInput{
+			RoleArn:         "arn:aws:iam::123456789012:role/Role1",
+			RoleSessionName: fmt.Sprintf("live%d", i),
+			DurationSeconds: 900,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.AssumeRoleResult.Credentials.AccessKeyID)
+	}
 
-	require.Equal(t, 1, b.SessionCount(),
-		"expired sessions must be evicted on insert, leaving only the live one")
+	require.Equal(t, sts.SessionEvictSweepInterval, b.SessionCount(),
+		"expired sessions must be evicted by the sweep interval, leaving only the live ones")
 }
 
 // TestAssumeRole_BelowThresholdKeepsExpired confirms the sweep is a no-op below
@@ -119,13 +124,14 @@ func TestAssumeRole_BelowThresholdKeepsExpired(t *testing.T) {
 
 // TestStoreSessionEvictionSeparateFromStore verifies that storeSession does not
 // hold the write-lock during eviction: seeding sessions beyond the evict
-// threshold and then storing a new one via AssumeRole must trigger the sweep.
+// threshold and then storing SessionEvictSweepInterval new ones via AssumeRole
+// must trigger the debounced sweep (see store.go's sessionEvictSweepInterval
+// doc comment) without blocking other stores.
 func TestStoreSessionEvictionSeparateFromStore(t *testing.T) {
 	t.Parallel()
 
-	// Seed sessions beyond the evict threshold, then verify a new storeSession
-	// call (via AssumeRole) evicts expired ones without blocking other stores.
-	// The test exercises the threshold crossing to confirm eviction triggers.
+	// Seed sessions beyond the evict threshold, then verify enough storeSession
+	// calls (via AssumeRole) to arm the debounced sweep evict expired ones.
 	b := sts.NewInMemoryBackend()
 
 	const aboveThreshold = sts.SessionEvictThreshold + 10
@@ -145,17 +151,21 @@ func TestStoreSessionEvictionSeparateFromStore(t *testing.T) {
 		"all seeded expired sessions present before trigger",
 	)
 
-	// AssumeRole stores a new live session, triggering maybeEvictExpiredSessions.
-	resp, err := b.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/R",
-		RoleSessionName: "live",
-		DurationSeconds: 900,
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, resp.AssumeRoleResult.Credentials.AccessKeyID)
+	// SessionEvictSweepInterval AssumeRole calls store SessionEvictSweepInterval
+	// new live sessions, arming and then firing maybeEvictExpiredSessions.
+	for i := range sts.SessionEvictSweepInterval {
+		resp, err := b.AssumeRole(&sts.AssumeRoleInput{
+			RoleArn:         "arn:aws:iam::123456789012:role/R",
+			RoleSessionName: fmt.Sprintf("live%d", i),
+			DurationSeconds: 900,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.AssumeRoleResult.Credentials.AccessKeyID)
+	}
 
-	// After eviction, only the one live session should remain.
-	assert.Equal(t, 1, b.SessionCount(), "expired sessions evicted, only live session remains")
+	// After eviction, only the live sessions just added should remain.
+	assert.Equal(t, sts.SessionEvictSweepInterval, b.SessionCount(),
+		"expired sessions evicted, only live sessions remain")
 }
 
 // TestSessionExpiryConsistent verifies the isSessionExpired helper is applied

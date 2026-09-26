@@ -46,8 +46,12 @@ func newTestRDSClient(t *testing.T, h *rds.Handler) *rdssdk.Client {
 	})
 }
 
-func newTestRDSHandler() *rds.Handler {
-	return rds.NewHandler(rds.NewInMemoryBackend("123456789012", config.DefaultRegion))
+func newTestRDSHandler(t *testing.T) *rds.Handler {
+	t.Helper()
+	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
+
+	return rds.NewHandler(b)
 }
 
 // TestCreateOps_TagsRoundTrip drives every RDS Create op whose real Input
@@ -80,7 +84,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbinstance", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
 			DBInstanceIdentifier: aws.String("tagged-db"),
@@ -95,7 +99,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbinstancereadreplica", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
@@ -117,7 +121,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbsnapshot", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
@@ -139,7 +143,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbsubnetgroup", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateDBSubnetGroup(t.Context(), &rdssdk.CreateDBSubnetGroupInput{
 			DBSubnetGroupName:        aws.String("tagged-subgrp"),
@@ -154,7 +158,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbparametergroup", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateDBParameterGroup(t.Context(), &rdssdk.CreateDBParameterGroupInput{
 			DBParameterGroupName:   aws.String("tagged-pg"),
@@ -169,7 +173,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createoptiongroup", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateOptionGroup(t.Context(), &rdssdk.CreateOptionGroupInput{
 			OptionGroupName:        aws.String("tagged-og"),
@@ -185,7 +189,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbcluster", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
 			DBClusterIdentifier: aws.String("tagged-cluster"),
@@ -199,7 +203,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbclusterparametergroup", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateDBClusterParameterGroup(t.Context(), &rdssdk.CreateDBClusterParameterGroupInput{
 			DBClusterParameterGroupName: aws.String("tagged-cluster-pg"),
@@ -214,7 +218,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbclustersnapshot", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
@@ -235,7 +239,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbclusterendpoint", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
@@ -257,7 +261,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createglobalcluster", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateGlobalCluster(t.Context(), &rdssdk.CreateGlobalClusterInput{
 			GlobalClusterIdentifier: aws.String("tagged-global-cluster"),
@@ -271,7 +275,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbsecuritygroup", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateDBSecurityGroup(t.Context(), &rdssdk.CreateDBSecurityGroupInput{
 			DBSecurityGroupName:        aws.String("tagged-secgrp"),
@@ -285,7 +289,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createeventsubscription", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateEventSubscription(t.Context(), &rdssdk.CreateEventSubscriptionInput{
 			SubscriptionName: aws.String("tagged-sub"),
@@ -299,7 +303,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbproxy", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateDBProxy(t.Context(), &rdssdk.CreateDBProxyInput{
 			DBProxyName:  aws.String("tagged-proxy"),
@@ -315,7 +319,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbproxyendpoint", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBProxy(t.Context(), &rdssdk.CreateDBProxyInput{
@@ -339,7 +343,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createdbshardgroup", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
@@ -361,7 +365,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createcustomdbengineversion", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateCustomDBEngineVersion(t.Context(), &rdssdk.CreateCustomDBEngineVersionInput{
 			Engine:        aws.String("custom-oracle-ee"),
@@ -375,7 +379,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createbluegreendeployment", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
@@ -397,7 +401,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createintegration", func(t *testing.T) {
 		t.Parallel()
 
-		client := newTestRDSClient(t, newTestRDSHandler())
+		client := newTestRDSClient(t, newTestRDSHandler(t))
 
 		out, err := client.CreateIntegration(t.Context(), &rdssdk.CreateIntegrationInput{
 			IntegrationName: aws.String("tagged-integration"),
@@ -412,7 +416,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 	t.Run("createtenantdatabase", func(t *testing.T) {
 		t.Parallel()
 
-		h := newTestRDSHandler()
+		h := newTestRDSHandler(t)
 		client := newTestRDSClient(t, h)
 
 		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{

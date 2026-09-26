@@ -16,7 +16,7 @@ import (
 func TestDescribeBlueGreenDeployments_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateBlueGreenDeployment(t.Context(), &rdssdk.CreateBlueGreenDeploymentInput{
@@ -94,7 +94,7 @@ func TestDescribeBlueGreenDeployments_Filters(t *testing.T) {
 func TestDescribeDBClusterAutomatedBackups_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
@@ -180,7 +180,7 @@ func TestDescribeDBClusterAutomatedBackups_Filters(t *testing.T) {
 func TestDescribeDBInstanceAutomatedBackups_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
@@ -268,7 +268,7 @@ func TestDescribeDBInstanceAutomatedBackups_Filters(t *testing.T) {
 func TestDescribeDBClusterBacktracks_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
@@ -360,7 +360,7 @@ func TestDescribeDBClusterBacktracks_Filters(t *testing.T) {
 func TestDescribeDBRecommendations_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	h.Backend.AddDBRecommendation(rds.DBRecommendation{
@@ -443,7 +443,7 @@ func TestDescribeDBRecommendations_Filters(t *testing.T) {
 func TestDescribeDBSnapshotTenantDatabases_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	for _, tc := range []struct{ inst, snap, tdb string }{
@@ -560,7 +560,7 @@ func TestDescribeDBSnapshotTenantDatabases_Filters(t *testing.T) {
 func TestDescribeEngineDefaultParameters_UnknownFilterErrors(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.DescribeEngineDefaultParameters(
@@ -578,7 +578,7 @@ func TestDescribeEngineDefaultParameters_UnknownFilterErrors(t *testing.T) {
 func TestDescribeTenantDatabases_Filters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestRDSHandler()
+	h := newTestRDSHandler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateTenantDatabase(t.Context(), &rdssdk.CreateTenantDatabaseInput{

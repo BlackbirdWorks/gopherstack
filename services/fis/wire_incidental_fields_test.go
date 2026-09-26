@@ -21,6 +21,7 @@ func TestExperimentTemplate_TargetAccountConfigurationsCount(t *testing.T) {
 	t.Parallel()
 
 	backend := fis.NewInMemoryBackend(fisTestRegion, "000000000000")
+	t.Cleanup(backend.Close)
 	client, _ := newTestFISClient(t, fis.NewHandler(backend))
 	ctx := t.Context()
 
@@ -64,6 +65,7 @@ func TestExperimentAction_StartAfter(t *testing.T) {
 	t.Parallel()
 
 	backend := fis.NewInMemoryBackend(fisTestRegion, "000000000000")
+	t.Cleanup(backend.Close)
 	client, _ := newTestFISClient(t, fis.NewHandler(backend))
 	ctx := t.Context()
 

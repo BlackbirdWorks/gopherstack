@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -124,12 +126,24 @@ type InMemoryBackend struct {
 	updateInfoEntries map[string]map[string][]*storedUpdateInfo
 
 	mu        *lockmetrics.RWMutex
+	work      *worker.Group
 	region    string
 	accountID string
 }
 
-// NewInMemoryBackend constructs a new InMemoryBackend.
+// NewInMemoryBackend constructs a new InMemoryBackend whose background
+// directory/restore lifecycle transitions are rooted at context.Background()
+// (see NewInMemoryBackendWithContext for a backend tied to a real service
+// lifecycle).
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext constructs a new InMemoryBackend whose
+// delayed directory-creation and snapshot-restore transitions run on a
+// worker.Group rooted at ctx, so Close stops them and they never outlive the
+// backend (see PARITY.md's leaks note).
+func NewInMemoryBackendWithContext(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:          store.NewRegistry(),
 		aliases:           make(map[string]map[string]string),
@@ -139,6 +153,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		dirSettings:       make(map[string]map[string][]*storedDirectorySetting),
 		updateInfoEntries: make(map[string]map[string][]*storedUpdateInfo),
 		mu:                lockmetrics.New("directoryservice"),
+		work:              worker.NewGroup(ctx, "directoryservice"),
 		accountID:         accountID,
 		region:            region,
 	}
@@ -146,6 +161,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 	return b
 }
+
+// Close stops all scheduled directory-lifecycle timers so none outlives the
+// backend. Safe to call multiple times.
+func (b *InMemoryBackend) Close() { b.work.Stop() }
 
 // The following accessor helpers replace the old lazy per-region map
 // accessors (b.state(region).directories etc.) with store.Table / store.Index
@@ -295,12 +314,23 @@ func (b *InMemoryBackend) updateInfoEntriesStoreRO(region string) map[string][]*
 	return map[string][]*storedUpdateInfo{}
 }
 
+// newHexID returns prefix + 10 lowercase hex characters, matching the real
+// Directory Service ID formats ("d-XXXXXXXXXX", "s-XXXXXXXXXX", ...:
+// terraform-provider-aws validates directory_id client-side against
+// ^d-[0-9a-f]{10}$ and rejects anything else ("Invalid Attribute Value
+// Match"). Taking the first 10 characters of a raw UUID string (as this used
+// to do) lands on that UUID's own "-" separator (positions 8/13/18/23), so
+// the ID always failed that check.
+func newHexID(prefix string) string {
+	return prefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:10]
+}
+
 func (b *InMemoryBackend) newDirectoryID() string {
-	return fmt.Sprintf("d-%s", uuid.NewString()[:10])
+	return newHexID("d-")
 }
 
 func (b *InMemoryBackend) newSnapshotID() string {
-	return fmt.Sprintf("s-%s", uuid.NewString()[:10])
+	return newHexID("s-")
 }
 
 func (b *InMemoryBackend) defaultAlias(directoryID string) string {

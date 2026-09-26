@@ -23,7 +23,9 @@ func TestRealClient_TargetGroupAndListenerConfiguration(t *testing.T) {
 		{name: "account limits and ssl policies", run: func(t *testing.T) {
 			t.Helper()
 
-			client := newTestELBv2Client(t, elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1")))
+			b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(b.Close)
+			client := newTestELBv2Client(t, elbv2.NewHandler(b))
 			ctx := t.Context()
 
 			limitsOut, err := client.DescribeAccountLimits(ctx, &elbv2sdk.DescribeAccountLimitsInput{})
@@ -37,7 +39,9 @@ func TestRealClient_TargetGroupAndListenerConfiguration(t *testing.T) {
 		{name: "target group attributes and modify", run: func(t *testing.T) {
 			t.Helper()
 
-			client := newTestELBv2Client(t, elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1")))
+			b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(b.Close)
+			client := newTestELBv2Client(t, elbv2.NewHandler(b))
 			ctx := t.Context()
 
 			tgOut, err := client.CreateTargetGroup(ctx, &elbv2sdk.CreateTargetGroupInput{
@@ -80,7 +84,9 @@ func TestRealClient_TargetGroupAndListenerConfiguration(t *testing.T) {
 		{name: "listener attributes", run: func(t *testing.T) {
 			t.Helper()
 
-			client := newTestELBv2Client(t, elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1")))
+			b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(b.Close)
+			client := newTestELBv2Client(t, elbv2.NewHandler(b))
 			ctx := t.Context()
 
 			lbOut, err := client.CreateLoadBalancer(ctx, &elbv2sdk.CreateLoadBalancerInput{
@@ -134,7 +140,9 @@ func TestRealClient_TargetGroupAndListenerConfiguration(t *testing.T) {
 		{name: "modify rule and set rule priorities", run: func(t *testing.T) {
 			t.Helper()
 
-			client := newTestELBv2Client(t, elbv2.NewHandler(elbv2.NewInMemoryBackend("123456789012", "us-east-1")))
+			b := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(b.Close)
+			client := newTestELBv2Client(t, elbv2.NewHandler(b))
 			ctx := t.Context()
 
 			lbOut, err := client.CreateLoadBalancer(ctx, &elbv2sdk.CreateLoadBalancerInput{
@@ -222,6 +230,7 @@ func TestRealClient_TargetGroupAndListenerConfiguration(t *testing.T) {
 			t.Helper()
 
 			backend := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(backend.Close)
 			client := newTestELBv2Client(t, elbv2.NewHandler(backend))
 			ctx := t.Context()
 
@@ -329,6 +338,7 @@ func TestRealClient_TargetGroupAndListenerConfiguration(t *testing.T) {
 			t.Helper()
 
 			backend := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(backend.Close)
 			client := newTestELBv2Client(t, elbv2.NewHandler(backend))
 			ctx := t.Context()
 

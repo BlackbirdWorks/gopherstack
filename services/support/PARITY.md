@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: support
 sdk_module: aws-sdk-go-v2/service/support@v1.34.4   # version audited against
-last_audit_commit: 5400868b3                         # HEAD when this manifest was written
-last_audit_date: 2026-07-24
+last_audit_commit: 49cff86c4  # HEAD when this manifest was written
+last_audit_date: 2026-09-19
 overall: A                # 1 severe wire bug (missing __type on every error) + several missing modeled exceptions fixed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -243,3 +243,7 @@ Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
 -race -count=1 ./services/support/...` clean. `golangci-lint run
 --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
 throughout. No `snapshot_inventory.json` changes. No version bump.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---- VPC Block Public Access (BPA) constants ----
@@ -363,11 +365,23 @@ func (b *InMemoryBackend) CreateVpcBlockPublicAccessExclusion(
 
 	id := newVPCBPAExclusionID()
 	now := time.Now().UTC()
-	arn := "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":vpc-block-public-access-exclusion/" + id
+
+	// ResourceArn is the ARN of the excluded VPC or subnet itself -- the real
+	// CreateVpcBlockPublicAccessExclusionOutput has no separate ARN for the
+	// exclusion object (types.VpcBlockPublicAccessExclusion has ExclusionId
+	// and ResourceArn, but no VpcId/SubnetId). A fabricated
+	// "vpc-block-public-access-exclusion/<id>" ARN made
+	// terraform-provider-aws's own ARN-based resource-type lookup fail on
+	// refresh ("unknown resource type") since it expects a real vpc/subnet
+	// ARN there.
+	resourceArn := arn.Build("ec2", b.Region, b.AccountID, "vpc/"+vpcID)
+	if subnetID != "" {
+		resourceArn = arn.Build("ec2", b.Region, b.AccountID, "subnet/"+subnetID)
+	}
 
 	excl := &VpcBlockPublicAccessExclusion{
 		ExclusionID:                  id,
-		ResourceArn:                  arn,
+		ResourceArn:                  resourceArn,
 		VpcID:                        vpcID,
 		SubnetID:                     subnetID,
 		InternetGatewayExclusionMode: mode,

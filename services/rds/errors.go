@@ -122,8 +122,18 @@ var (
 
 var (
 	// ErrDBProxyAlreadyExists is returned when a DB proxy with the same name already exists.
-	ErrDBProxyAlreadyExists             = awserr.New("DBProxyAlreadyExists", awserr.ErrAlreadyExists)
-	ErrDBProxyEndpointAlreadyExists     = awserr.New("DBProxyEndpointAlreadyExists", awserr.ErrAlreadyExists)
+	ErrDBProxyAlreadyExists         = awserr.New("DBProxyAlreadyExists", awserr.ErrAlreadyExists)
+	ErrDBProxyEndpointAlreadyExists = awserr.New("DBProxyEndpointAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrDBProxyNotFound is returned for an unknown DBProxyName (confirmed against
+	// DescribeDBProxies/DeleteDBProxy's declared error sets in rds@v1.124.1
+	// deserializers.go, both DBProxyNotFoundFault -- not the generic
+	// InvalidParameterValue this backend previously returned, which left the real
+	// AWS provider's delete waiter unable to recognize "already gone" as success).
+	ErrDBProxyNotFound = awserr.New("DBProxyNotFoundFault", awserr.ErrNotFound)
+	// ErrDBProxyEndpointNotFound is returned for an unknown DBProxyEndpointName
+	// (confirmed against DescribeDBProxyEndpoints/DeleteDBProxyEndpoint's declared
+	// error sets, both DBProxyEndpointNotFoundFault).
+	ErrDBProxyEndpointNotFound          = awserr.New("DBProxyEndpointNotFoundFault", awserr.ErrNotFound)
 	ErrCannotDeleteDefaultProxyEndpoint = awserr.New("InvalidDBProxyEndpointStateFault", awserr.ErrConflict)
 	ErrActivityStreamAlreadyStarted     = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)
 	ErrActivityStreamNotStarted         = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)

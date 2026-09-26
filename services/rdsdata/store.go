@@ -136,6 +136,16 @@ func (b *InMemoryBackend) statementsStore(region string) []ExecutedStatement {
 	return b.executedStatements[region]
 }
 
+// Close permanently shuts down the backend's SQL engine, closing every
+// resource database's *sql.DB so database/sql's connectionOpener goroutine
+// does not outlive the backend. Idempotent; safe to call more than once.
+func (b *InMemoryBackend) Close() {
+	b.mu.Lock("Close")
+	defer b.mu.Unlock()
+
+	b.engine.close()
+}
+
 // Reset clears all backend state. Useful for test isolation.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")

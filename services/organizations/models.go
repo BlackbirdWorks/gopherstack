@@ -149,14 +149,19 @@ type CreateAccountStatus struct {
 
 // Handshake represents an AWS Organizations handshake invitation or transfer.
 type Handshake struct {
-	RequestedTimestamp  time.Time           `json:"requestedTimestamp"`
-	ExpirationTimestamp time.Time           `json:"expirationTimestamp"`
-	ID                  string              `json:"id"`
-	ARN                 string              `json:"arn"`
-	Action              string              `json:"action"`
-	State               string              `json:"state"`
-	Parties             []HandshakeParty    `json:"parties"`
-	Resources           []HandshakeResource `json:"resources"`
+	RequestedTimestamp  time.Time `json:"requestedTimestamp"`
+	ExpirationTimestamp time.Time `json:"expirationTimestamp"`
+	// StateChangedAt is when State last left OPEN (or the zero value while
+	// still OPEN). Internal bookkeeping for pruneStaleHandshakesLocked --
+	// AWS's Handshake response object has no matching field, so this is
+	// never serialized on the wire (see handshakeObject).
+	StateChangedAt time.Time           `json:"stateChangedAt"`
+	ID             string              `json:"id"`
+	ARN            string              `json:"arn"`
+	Action         string              `json:"action"`
+	State          string              `json:"state"`
+	Parties        []HandshakeParty    `json:"parties"`
+	Resources      []HandshakeResource `json:"resources"`
 	// PendingTags holds InviteAccountToOrganizationInput.Tags until the
 	// handshake is accepted, at which point they're applied to the newly
 	// created Account. AWS's Handshake response object has no Tags field, so

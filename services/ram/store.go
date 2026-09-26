@@ -28,6 +28,16 @@ const (
 	invitationStatusRejected = "REJECTED"
 	// invitationStatusExpired is the expired status for an invitation.
 	invitationStatusExpired = "EXPIRED"
+	// ramDeletedShareTTL bounds how long a DELETED resource share stays in
+	// b.resourceShares before pruneDeletedResourceSharesLocked evicts it.
+	// GetResourceShare/ListResourceShares already exclude Status==statusDeleted
+	// unconditionally, so nothing depends on the tombstone remaining visible --
+	// kept only so a share deleted moments ago isn't already gone before this
+	// TTL, avoiding surprising churn under concurrent callers. AWS documents no
+	// specific duration; this reuses the 1h window established for this
+	// backend's other delete-waiter tombstones (ec2 c254cd795, ecs 3fa9337a8,
+	// medialive gopherstack-f9w3k).
+	ramDeletedShareTTL = time.Hour
 	// invitationExpiryWindow is how long a PENDING invitation stays acceptable before
 	// it lazily transitions to EXPIRED. AWS RAM user guide: "For shared resource types
 	// not on the [7-day] list... After 12 hours, the invitation expires and the end
@@ -35,6 +45,14 @@ const (
 	// this 12h default; the 7-day carve-out for a specific resource-type allowlist
 	// (EC2 capacity reservations, VPC subnets, etc.) is not modeled.
 	invitationExpiryWindow = 12 * time.Hour
+	// ramInvitationTerminalTTL bounds how long a terminal (ACCEPTED/REJECTED/
+	// EXPIRED) invitation stays in b.invitations before pruneTerminalInvitationsLocked
+	// evicts it. AWS documents no specific duration for ResourceShareInvitation
+	// history and has no DeleteInvitation op, but a long-running emulator still
+	// needs a bound on terraform-driven invite/accept/reject churn; reuses the
+	// 1h window established for this backend's other delete-waiter tombstones
+	// (ramDeletedShareTTL, ec2 c254cd795, ecs 3fa9337a8, medialive gopherstack-f9w3k).
+	ramInvitationTerminalTTL = time.Hour
 	// permissionTypeCustomer is the customer managed permission type.
 	permissionTypeCustomer = "CUSTOMER_MANAGED"
 	// permissionTypeAWSManaged is the AWS-managed permission type.
@@ -150,6 +168,9 @@ func awsManagedPermARN(name string) string {
 
 // InMemoryBackend is an in-memory store for AWS RAM resources.
 type InMemoryBackend struct {
+	// appConfig is the service.AppContext.Config value from Provider.Init,
+	// resolved lazily to reach the IAM backend -- see cross_service.go.
+	appConfig        any
 	resourceShares   *store.Table[ResourceShare]
 	permissions      *store.Table[Permission]
 	sharePermissions map[string]map[string]int32 // shareARN -> permissionARN -> version

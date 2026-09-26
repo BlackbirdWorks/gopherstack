@@ -2563,6 +2563,7 @@ type Channel struct {
 // returns the (potentially huge) encoder configuration, verified against
 // types.ChannelSummary.
 type ChannelSummary struct {
+	Tags                  map[string]string
 	ARN                   string
 	ID                    string
 	Name                  string
@@ -2691,10 +2692,12 @@ type ServiceDescriptor struct {
 
 // MultiplexProgramSettings holds the settings for a MultiplexProgram.
 type MultiplexProgramSettings struct {
+	VideoConstantBitrate     *int32
 	ServiceDescriptor        ServiceDescriptor
 	ProgramName              string
 	PreferredChannelPipeline string
 	ProgramNumber            int
+	HasServiceDescriptor     bool
 }
 
 // MultiplexProgram represents a program within a Multiplex.

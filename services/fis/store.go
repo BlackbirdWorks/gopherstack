@@ -203,6 +203,20 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	return b
 }
 
+// Close cancels every running experiment's background goroutine
+// (runExperiment/waitForCompletionOrStop), without otherwise touching state.
+// Safe to call more than once.
+func (b *InMemoryBackend) Close() {
+	b.mu.Lock("Close")
+	defer b.mu.Unlock()
+
+	for _, exp := range b.experiments.All() {
+		if exp.cancel != nil {
+			exp.cancel()
+		}
+	}
+}
+
 // Reset clears all in-memory state, cancelling any running experiments.
 // The safety lever is re-initialised to its default disengaged state.
 func (b *InMemoryBackend) Reset() {

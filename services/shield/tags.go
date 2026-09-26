@@ -37,6 +37,20 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		}
 	}
 
+	if pg := b.resolveProtectionGroupARN(resourceARN); pg != nil {
+		if pg.Tags == nil {
+			pg.Tags = make(map[string]string)
+		}
+
+		if len(pg.Tags)+len(tags) > maxTagsPerResource {
+			return fmt.Errorf("%w: resource would exceed the 50-tag limit", ErrValidation)
+		}
+
+		maps.Copy(pg.Tags, tags)
+
+		return nil
+	}
+
 	p, err := b.resolveTaggableProtection(resourceARN)
 	if err != nil {
 		return err
@@ -55,10 +69,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	return nil
 }
 
-// ListTagsForResource returns the tags for a protection.
+// ListTagsForResource returns the tags for a protection or protection group.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
+
+	if pg := b.resolveProtectionGroupARN(resourceARN); pg != nil {
+		return maps.Clone(pg.Tags), nil
+	}
 
 	p, err := b.resolveTaggableProtection(resourceARN)
 	if err != nil {
@@ -68,10 +86,18 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return maps.Clone(p.Tags), nil
 }
 
-// UntagResource removes tags from a protection.
+// UntagResource removes tags from a protection or protection group.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
+
+	if pg := b.resolveProtectionGroupARN(resourceARN); pg != nil {
+		for _, k := range tagKeys {
+			delete(pg.Tags, k)
+		}
+
+		return nil
+	}
 
 	p, err := b.resolveTaggableProtection(resourceARN)
 	if err != nil {
@@ -127,6 +153,26 @@ func (b *InMemoryBackend) resolveShieldProtectionARN(resourceARN string) *Protec
 	p, _ := b.protections.Get(parts[1])
 
 	return p
+}
+
+// resolveProtectionGroupARN resolves a Shield protection group ARN
+// (arn:{partition}:shield::*:protection-group/<id>) to a ProtectionGroup, or
+// returns nil if the ARN is not a protection group ARN or not found.
+func (b *InMemoryBackend) resolveProtectionGroupARN(resourceARN string) *ProtectionGroup {
+	prefix := fmt.Sprintf("arn:%s:shield::", arn.PartitionForRegion(b.region))
+
+	if !strings.HasPrefix(resourceARN, prefix) || !strings.Contains(resourceARN, ":protection-group/") {
+		return nil
+	}
+
+	parts := strings.SplitN(resourceARN, ":protection-group/", 2) //nolint:mnd // split into prefix and ID
+	if len(parts) < 2 {                                           //nolint:mnd // require 2 parts
+		return nil
+	}
+
+	pg, _ := b.protectionGroups.Get(parts[1])
+
+	return pg
 }
 
 // TaggedEntry pairs a resource ARN with its tags.

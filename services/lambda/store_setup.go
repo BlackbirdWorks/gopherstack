@@ -111,6 +111,8 @@ package lambda
 //     so they can never flow through Table/Registry's JSON-oriented
 //     Snapshot/Restore path. Neither was persisted before; both remain raw.
 import (
+	"strings"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -274,6 +276,21 @@ func (b *InMemoryBackend) deletePermissionsForFunctionLocked(functionName string
 
 	for _, k := range keys {
 		b.permissions.Delete(k)
+	}
+
+	b.deleteResourcePolicyOverridesForFunctionLocked(functionName)
+}
+
+// deleteResourcePolicyOverridesForFunctionLocked removes every
+// PutResourcePolicy override (every qualifier) belonging to functionName --
+// same "name" or "name:"-prefixed scan as deletePermissionsForFunctionLocked,
+// since resourcePolicyOverrides shares that function's key scheme
+// (permissionMapKey). Caller must hold b.mu.
+func (b *InMemoryBackend) deleteResourcePolicyOverridesForFunctionLocked(functionName string) {
+	for key := range b.resourcePolicyOverrides {
+		if key == functionName || strings.HasPrefix(key, functionName+":") {
+			delete(b.resourcePolicyOverrides, key)
+		}
 	}
 }
 

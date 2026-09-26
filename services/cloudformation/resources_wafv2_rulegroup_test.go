@@ -32,7 +32,7 @@ func TestDeleteWAFv2RuleGroup_RemovesRuleGroup(t *testing.T) {
 	_, err = backends.WAFv2.Backend.GetRuleGroup(t.Context(), physID)
 	require.NoError(t, err, "precondition: rule group must exist after create")
 
-	err = rc.Delete(t.Context(), "AWS::WAFv2::RuleGroup", physID, props)
+	err = rc.Delete(t.Context(), "AWS::WAFv2::RuleGroup", physID, props, nil)
 	require.NoError(t, err)
 
 	_, err = backends.WAFv2.Backend.GetRuleGroup(t.Context(), physID)

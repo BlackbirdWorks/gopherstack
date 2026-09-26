@@ -128,7 +128,7 @@ func TestArchive_CRUD(t *testing.T) {
 	updated, err := b.UpdateArchive(context.Background(), eventbridge.UpdateArchiveInput{
 		ArchiveName:   "my-archive",
 		Description:   aws.String("important events"),
-		RetentionDays: 14,
+		RetentionDays: aws.Int(14),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 14, updated.RetentionDays)

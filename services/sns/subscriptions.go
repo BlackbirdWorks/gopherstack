@@ -318,9 +318,14 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(
 		return err
 	}
 
-	// Trigger asynchronous replay when ReplayPolicy is set to a non-empty value.
-	if attrName == attrReplayPolicy && attrValue != "" && !replayFromTime.IsZero() {
-		go b.replayMessagesToSubscription(subSnap, topicArn, replayFromTime)
+	// Trigger asynchronous replay when ReplayPolicy is set to a non-empty
+	// value, tracked by deliveryWg (like every other async delivery
+	// goroutine, dispatchHTTPDeliveries in publish.go) so Shutdown/
+	// WaitDeliveries actually wait for it instead of racing it (bd 1x2u0).
+	if attrName == attrReplayPolicy && attrValue != "" && !replayFromTime.IsZero() && !b.closing.Load() {
+		b.deliveryWg.Go(func() {
+			b.replayMessagesToSubscription(subSnap, topicArn, replayFromTime)
+		})
 	}
 
 	return nil

@@ -2,11 +2,8 @@ package directoryservice
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // StartSchemaExtension starts a schema extension. When
@@ -32,7 +29,7 @@ func (b *InMemoryBackend) StartSchemaExtension(
 		b.newAutoSnapshot(region, directoryID, "Schema extension snapshot")
 	}
 
-	id := fmt.Sprintf("e-%s", uuid.NewString()[:10])
+	id := newHexID("e-")
 	now := time.Now().UTC()
 	b.schemaExtensionPut(&storedSchemaExtension{
 		region:      region,

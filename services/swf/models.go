@@ -228,31 +228,32 @@ type WorkflowType struct {
 
 // WorkflowExecution represents an SWF workflow execution.
 type WorkflowExecution struct {
-	TimerStartedEventIDs         map[string]int64 `json:"-"`
-	ParentRunID                  string           `json:"parentRunID,omitempty"`
-	WorkflowTypeName             string           `json:"workflowTypeName,omitempty"`
-	TaskList                     string           `json:"taskList,omitempty"`
-	CloseStatus                  string           `json:"closeStatus,omitempty"`
-	LatestExecutionContext       string           `json:"latestExecutionContext,omitempty"`
-	TaskStartToCloseTimeout      string           `json:"taskStartToCloseTimeout,omitempty"`
-	ChildPolicy                  string           `json:"childPolicy,omitempty"`
-	WorkflowID                   string           `json:"workflowID"`
-	Input                        string           `json:"input,omitempty"`
-	LambdaRole                   string           `json:"lambdaRole,omitempty"`
-	RunID                        string           `json:"runID"`
-	Status                       string           `json:"status"`
-	TaskPriority                 string           `json:"taskPriority,omitempty"`
-	ExecutionStartToCloseTimeout string           `json:"executionStartToCloseTimeout,omitempty"`
-	ParentWorkflowID             string           `json:"parentWorkflowID,omitempty"`
-	WorkflowTypeVersion          string           `json:"workflowTypeVersion,omitempty"`
-	Domain                       string           `json:"domain"`
-	OpenTimerIDs                 []string         `json:"openTimerIDs,omitempty"`
-	TagList                      []string         `json:"tagList,omitempty"`
-	StartTimestamp               float64          `json:"startTimestamp"`
-	CloseTimestamp               float64          `json:"closeTimestamp,omitempty"`
-	ParentInitiatedEventID       int64            `json:"parentInitiatedEventID,omitempty"`
-	ParentStartedEventID         int64            `json:"parentStartedEventID,omitempty"`
-	CancelRequested              bool             `json:"cancelRequested,omitempty"`
+	TimerStartedEventIDs         map[string]int64   `json:"-"`
+	OpenTimerDeadlines           map[string]float64 `json:"-"`
+	ParentRunID                  string             `json:"parentRunID,omitempty"`
+	WorkflowTypeName             string             `json:"workflowTypeName,omitempty"`
+	TaskList                     string             `json:"taskList,omitempty"`
+	CloseStatus                  string             `json:"closeStatus,omitempty"`
+	LatestExecutionContext       string             `json:"latestExecutionContext,omitempty"`
+	TaskStartToCloseTimeout      string             `json:"taskStartToCloseTimeout,omitempty"`
+	ChildPolicy                  string             `json:"childPolicy,omitempty"`
+	WorkflowID                   string             `json:"workflowID"`
+	Input                        string             `json:"input,omitempty"`
+	LambdaRole                   string             `json:"lambdaRole,omitempty"`
+	RunID                        string             `json:"runID"`
+	Status                       string             `json:"status"`
+	TaskPriority                 string             `json:"taskPriority,omitempty"`
+	ExecutionStartToCloseTimeout string             `json:"executionStartToCloseTimeout,omitempty"`
+	ParentWorkflowID             string             `json:"parentWorkflowID,omitempty"`
+	WorkflowTypeVersion          string             `json:"workflowTypeVersion,omitempty"`
+	Domain                       string             `json:"domain"`
+	OpenTimerIDs                 []string           `json:"openTimerIDs,omitempty"`
+	TagList                      []string           `json:"tagList,omitempty"`
+	StartTimestamp               float64            `json:"startTimestamp"`
+	CloseTimestamp               float64            `json:"closeTimestamp,omitempty"`
+	ParentInitiatedEventID       int64              `json:"parentInitiatedEventID,omitempty"`
+	ParentStartedEventID         int64              `json:"parentStartedEventID,omitempty"`
+	CancelRequested              bool               `json:"cancelRequested,omitempty"`
 }
 
 // StartWorkflowExecutionInput holds all parameters for starting a workflow execution.

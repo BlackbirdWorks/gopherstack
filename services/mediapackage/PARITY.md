@@ -2,8 +2,8 @@
 items_still_open: []
 service: mediapackage
 sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
-last_audit_commit: cb5dac6ff
-last_audit_date: 2026-08-29
+last_audit_commit: ed6ef1a53
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-29: independent re-sweep, deliberately NOT using this campaign's
                       # known bug-class list (see comprehend's PARITY.md same-date entry for the
                       # sibling audit that found real bugs there via this method). Re-derived
@@ -48,6 +48,13 @@ leaks: {status: clean, note: "no goroutines/timers introduced; all ops are synch
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/tags" prefix shadow (accessanalyzer/dlm/amplify/eks) -- false positive
+
+Same census finding: all four winners' "/tags" claims are gated by an
+ARN-service-segment check. Confirmed with a real mediapackage SDK client
+through a shared registry (tags_routing_cross_service_test.go): still
+succeeds via mediapackage's own handler. No code change.
 
 ### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw, same day as the audit above)
 

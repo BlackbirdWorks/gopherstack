@@ -15,7 +15,7 @@ func TestReset_InvalidationReadyAt(t *testing.T) {
 	t.Parallel()
 
 	b := NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
-
+	t.Cleanup(b.Close)
 	dist, err := b.CreateDistribution("cr-1", "test dist", true, nil)
 	require.NoError(t, err)
 

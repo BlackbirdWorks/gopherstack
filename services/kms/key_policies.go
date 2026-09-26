@@ -40,6 +40,10 @@ func (b *InMemoryBackend) PutKeyPolicy(ctx context.Context, input *PutKeyPolicyI
 		return err
 	}
 
+	if isAWSManagedKey(key) {
+		return errAWSManagedKeyUnsupported(key.Arn)
+	}
+
 	if !validKeyPolicyDoc(input.Policy) {
 		return ErrMalformedPolicyDocument
 	}
@@ -69,6 +73,10 @@ func (b *InMemoryBackend) GetKeyPolicy(
 	ctx context.Context,
 	input *GetKeyPolicyInput,
 ) (*GetKeyPolicyOutput, error) {
+	if err := b.ensureAWSManagedKey(ctx, input.KeyID); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("GetKeyPolicy")
 	defer b.mu.RUnlock()
 

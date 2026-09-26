@@ -537,18 +537,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 	}
 
 	delete(q.inFlightByHandle, input.ReceiptHandle)
-
-	// Swap-delete from the slice: find the entry by pointer and swap with last.
-	for i, existing := range q.inFlightMessages {
-		if existing == inf {
-			last := len(q.inFlightMessages) - 1
-			q.inFlightMessages[i] = q.inFlightMessages[last]
-			q.inFlightMessages[last] = nil
-			q.inFlightMessages = q.inFlightMessages[:last]
-
-			break
-		}
-	}
+	removeInFlight(q, inf)
 
 	b.emitMetric("NumberOfMessagesDeleted", 1)
 

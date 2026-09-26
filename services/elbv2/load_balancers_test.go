@@ -72,7 +72,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -136,7 +136,7 @@ func TestDeleteLoadBalancer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -151,7 +151,7 @@ func TestDeleteLoadBalancer(t *testing.T) {
 func TestDeleteLoadBalancerByARN(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "to-delete")
 
 	rec := doELBv2(t, h, url.Values{
@@ -225,7 +225,7 @@ func TestDescribeLoadBalancers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -253,7 +253,7 @@ func TestDescribeLoadBalancers(t *testing.T) {
 func TestDeleteLoadBalancerNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":          {"DeleteLoadBalancer"},
@@ -267,7 +267,7 @@ func TestDeleteLoadBalancerNotFound(t *testing.T) {
 func TestDescribeLoadBalancersNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	fakeArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/fake/0000000000000000"
 
 	rec := doELBv2(t, h, url.Values{
@@ -282,7 +282,7 @@ func TestDescribeLoadBalancersNotFound(t *testing.T) {
 func TestDescribeLoadBalancersPagination(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	// Create 5 LBs sorted alphabetically: alb-a, alb-b, alb-c, alb-d, alb-e
 	for _, name := range []string{"alb-a", "alb-b", "alb-c", "alb-d", "alb-e"} {
 		mustCreateLB(t, h, name)
@@ -398,7 +398,7 @@ func TestDescribeLoadBalancersByNameNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			if tc.name == "one_valid_one_missing_name" {
 				mustCreateLB(t, h, "desc-lb-name-exists")
 			}
@@ -412,7 +412,7 @@ func TestDescribeLoadBalancersByNameNotFound(t *testing.T) {
 func TestCreateLB_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":                           {"CreateLoadBalancer"},
 		"Version":                          {"2015-12-01"},
@@ -450,7 +450,7 @@ func TestCreateLB_SubnetMappings_ReturnsSubnetId(t *testing.T) {
 func TestCreateLB_Subnets_ReturnsSubnetId(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":           {"CreateLoadBalancer"},
 		"Version":          {"2015-12-01"},
@@ -484,7 +484,7 @@ func TestCreateLB_Subnets_ReturnsSubnetId(t *testing.T) {
 func TestCreateLB_NoSubnets_EmptyAZs(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
@@ -497,7 +497,7 @@ func TestCreateLB_NoSubnets_EmptyAZs(t *testing.T) {
 func TestCreateLB_ALB_StateActive(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
@@ -527,7 +527,7 @@ func TestCreateLB_ALB_StateActive(t *testing.T) {
 func TestCreateLB_NLB(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":           {"CreateLoadBalancer"},
 		"Version":          {"2015-12-01"},
@@ -556,7 +556,7 @@ func TestCreateLB_NLB(t *testing.T) {
 func TestCreateLB_GWLB(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
@@ -581,7 +581,7 @@ func TestCreateLB_GWLB(t *testing.T) {
 func TestDescribeLBs_FilterByArn(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	arn1 := b1CreateLB(t, h, "filter-arn-lb1")
 	b1CreateLB(t, h, "filter-arn-lb2")
 
@@ -609,7 +609,7 @@ func TestDescribeLBs_FilterByArn(t *testing.T) {
 func TestDescribeLBs_FilterByName(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	b1CreateLB(t, h, "name-filter-lb-a")
 	b1CreateLB(t, h, "name-filter-lb-b")
 
@@ -637,7 +637,7 @@ func TestDescribeLBs_FilterByName(t *testing.T) {
 func TestDescribeLBs_ArnNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeLoadBalancers"},
 		"Version": {"2015-12-01"},
@@ -651,7 +651,7 @@ func TestDescribeLBs_ArnNotFound(t *testing.T) {
 func TestDeleteLB_Success(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "delete-lb-batch1")
 
 	rec := doELBv2(t, h, url.Values{
@@ -673,7 +673,7 @@ func TestDeleteLB_Success(t *testing.T) {
 func TestDeleteLB_NotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":          {"DeleteLoadBalancer"},
 		"Version":         {"2015-12-01"},
@@ -685,7 +685,7 @@ func TestDeleteLB_NotFound(t *testing.T) {
 func TestModifyLBAttrs_ALBIdleTimeout(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "alb-idle-timeout")
 
 	rec := doELBv2(t, h, url.Values{
@@ -709,7 +709,7 @@ func TestModifyLBAttrs_ALBIdleTimeout(t *testing.T) {
 func TestModifyLBAttrs_DeletionProtection(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "alb-deletion-protect")
 
 	rec := doELBv2(t, h, url.Values{
@@ -733,7 +733,7 @@ func TestModifyLBAttrs_DeletionProtection(t *testing.T) {
 func TestDescribeLBAttrs_DefaultsALB(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "alb-default-attrs")
 
 	rec := doELBv2(t, h, url.Values{
@@ -751,7 +751,7 @@ func TestDescribeLBAttrs_DefaultsALB(t *testing.T) {
 func TestDescribeLBAttrs_DefaultsNLB(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "nlb-default-attrs", url.Values{"Type": {"network"}})
 
 	rec := doELBv2(t, h, url.Values{
@@ -768,7 +768,7 @@ func TestDescribeLBAttrs_DefaultsNLB(t *testing.T) {
 func TestNLB_DefaultCrossZone_False(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "nlb-cross-zone", url.Values{"Type": {"network"}})
 
 	rec := doELBv2(t, h, url.Values{
@@ -784,7 +784,7 @@ func TestNLB_DefaultCrossZone_False(t *testing.T) {
 func TestDescribeLBs_Pagination(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	for i := range 5 {
 		b1CreateLB(t, h, "pag-lb-"+string(rune('a'+i)))
 	}

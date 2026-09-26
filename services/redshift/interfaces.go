@@ -156,6 +156,7 @@ type StorageBackend interface {
 	CreateSnapshotCopyGrant(name, kmsKeyID string, tags map[string]string) (*SnapshotCopyGrant, error)
 	DeleteSnapshotCopyGrant(name string) error
 	DescribeSnapshotCopyGrants(name string) ([]SnapshotCopyGrant, error)
+	SnapshotCopyConfigFor(clusterID string) *SnapshotCopyConfig
 
 	// Snapshot copy operations
 	EnableSnapshotCopy(clusterID, destinationRegion, grantName string, retentionPeriod int) (*Cluster, error)

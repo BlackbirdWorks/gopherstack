@@ -293,13 +293,14 @@ func (h *Handler) handleDescribeResourceScan(form url.Values, c *echo.Context) e
 func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) error {
 	p, _ := h.Backend.ListResourceScans(parseFormMaxResults(form), form.Get("NextToken"), form.Get("ScanTypeFilter"))
 	type scanXML struct {
-		ResourceScanID string `xml:"ResourceScanId"`
-		Status         string `xml:"Status"`
-		ScanType       string `xml:"ScanType,omitempty"`
+		ResourceScanID      string  `xml:"ResourceScanId"`
+		Status              string  `xml:"Status"`
+		ScanType            string  `xml:"ScanType,omitempty"`
+		PercentageCompleted float64 `xml:"PercentageCompleted,omitempty"`
 	}
 	members := make([]scanXML, 0, len(p.Data))
 	for _, s := range p.Data {
-		members = append(members, scanXML{ResourceScanID: s.ResourceScanID, Status: s.Status, ScanType: s.ScanType})
+		members = append(members, scanXML(s))
 	}
 	type result struct {
 		NextToken             string    `xml:"NextToken,omitempty"`

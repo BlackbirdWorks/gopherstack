@@ -113,7 +113,7 @@ func TestCreateSubnet_CIDRConflict(t *testing.T) {
 	// Same CIDR in same VPC should conflict.
 	_, err = b.CreateSubnet(vpc.ID, "10.3.1.0/24", "us-east-1b")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ec2.ErrCIDRConflict)
+	assert.ErrorIs(t, err, ec2.ErrSubnetCIDRConflict)
 }
 
 func TestCreateSubnet_NotInVPC(t *testing.T) {

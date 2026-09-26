@@ -52,14 +52,43 @@ type describeVpcEndpointAssociationsResponse struct {
 	} `xml:"vpcEndpointAssociationSet"`
 }
 
+type allowedPrincipalItem struct {
+	Principal           string `xml:"principal,omitempty"`
+	PrincipalType       string `xml:"principalType,omitempty"`
+	ServiceID           string `xml:"serviceId,omitempty"`
+	ServicePermissionID string `xml:"servicePermissionId,omitempty"`
+}
+
 type describeVpcEndpointServicePermissionsResponse struct {
 	XMLName           xml.Name `xml:"DescribeVpcEndpointServicePermissionsResponse"`
 	RequestID         string   `xml:"requestId"`
 	AllowedPrincipals struct {
-		Items []struct {
-			Principal string `xml:"principal"`
-		} `xml:"item"`
+		Items []allowedPrincipalItem `xml:"item"`
 	} `xml:"allowedPrincipals"`
+}
+
+// principalTypeFor classifies a VPC endpoint service allowed-principal ARN
+// into the PrincipalType this backend can determine from the ARN alone
+// (ec2@v1.329.0 types.PrincipalType: All | Service | OrganizationUnit |
+// Account | User | Role). Anything not "*" is treated as an account
+// principal, the overwhelmingly common case for this resource.
+func principalTypeFor(principal string) string {
+	if principal == "*" {
+		return "All"
+	}
+
+	return "Account"
+}
+
+// servicePermissionIDFor derives a stable, deterministic
+// servicePermissionId for a (service, principal) pair. This backend does
+// not durably track a separate ID per allowed principal (permissions are
+// stored as a plain set), so the ID is recomputed on every response rather
+// than persisted.
+func servicePermissionIDFor(serviceID, principal string) string {
+	sum := sha256.Sum256([]byte(serviceID + ":" + principal))
+
+	return "vpce-perm-" + hex.EncodeToString(sum[:])[:17]
 }
 
 func toConnectionNotifItem(n *VpcEndpointConnectionNotification) connectionNotifItem {
@@ -114,6 +143,7 @@ func (h *Handler) handleDescribeVpcEndpointConnectionNotifications(
 	}
 
 	notifs := h.Backend.DescribeVpcEndpointConnectionNotifications(ids)
+	notifs = applyVpcEndpointConnNotifFilters(notifs, parseEC2Filters(vals))
 
 	resp := &describeVpcEndpointConnectionNotificationsResponse{RequestID: reqID}
 	for _, n := range notifs {
@@ -163,8 +193,9 @@ func (h *Handler) handleModifyVpcEndpointConnectionNotification(
 }
 
 func (h *Handler) handleDescribeVpcEndpointConnections(vals url.Values, reqID string) (any, error) {
-	serviceIDs := parseEC2Filters(vals)["service-id"]
-	conns := h.Backend.DescribeVpcEndpointConnections(serviceIDs)
+	filters := parseEC2Filters(vals)
+	conns := h.Backend.DescribeVpcEndpointConnections(filters[filterKeyServiceID])
+	conns = applyVpcEndpointConnectionFilters(conns, filters)
 
 	resp := &describeVpcEndpointConnectionsResponse{RequestID: reqID}
 	for _, c := range conns {
@@ -187,6 +218,7 @@ func (h *Handler) handleDescribeVpcEndpointAssociations(
 ) (any, error) {
 	ids := parseMemberList(vals, "VpcEndpointId")
 	eps := h.Backend.DescribeVpcEndpointAssociations(ids)
+	eps = applyVpcEndpointAssociationFilters(eps, parseEC2Filters(vals))
 
 	resp := &describeVpcEndpointAssociationsResponse{RequestID: reqID}
 	for _, ep := range eps {
@@ -268,12 +300,16 @@ func (h *Handler) handleDescribeVpcEndpointServicePermissions(
 ) (any, error) {
 	serviceID := vals.Get("ServiceId")
 	principals := h.Backend.DescribeVpcEndpointServicePermissions(serviceID)
+	principals = applyVpcEndpointServicePermissionFilters(principals, parseEC2Filters(vals))
 
 	resp := &describeVpcEndpointServicePermissionsResponse{RequestID: reqID}
 	for _, p := range principals {
-		resp.AllowedPrincipals.Items = append(resp.AllowedPrincipals.Items, struct {
-			Principal string `xml:"principal"`
-		}{Principal: p})
+		resp.AllowedPrincipals.Items = append(resp.AllowedPrincipals.Items, allowedPrincipalItem{
+			Principal:           p,
+			PrincipalType:       principalTypeFor(p),
+			ServiceID:           serviceID,
+			ServicePermissionID: servicePermissionIDFor(serviceID, p),
+		})
 	}
 
 	return resp, nil
@@ -295,8 +331,9 @@ func (h *Handler) handleModifyVpcEndpointServicePermissions(
 	resp := &modifyVpcEndpointServicePermissionsResponse{RequestID: reqID, ReturnValue: true}
 	for _, p := range added {
 		resp.AddedPrincipalSet.Items = append(resp.AddedPrincipalSet.Items, addedPrincipalItem{
-			Principal: p,
-			ServiceID: serviceID,
+			Principal:     p,
+			PrincipalType: principalTypeFor(p),
+			ServiceID:     serviceID,
 		})
 	}
 
@@ -323,7 +360,25 @@ func (h *Handler) handleModifyVpcEndpoint(vals url.Values, reqID string) (any, e
 	addSubnets := parseMemberList(vals, "AddSubnetId")
 	removeSubnets := parseMemberList(vals, "RemoveSubnetId")
 	resetPolicy, _ := strconv.ParseBool(vals.Get("ResetPolicy"))
-	if err := h.Backend.ModifyVpcEndpoint(endpointID, addSubnets, removeSubnets, resetPolicy); err != nil {
+
+	opts := ModifyVpcEndpointOptions{
+		AddRouteTableIDs:       parseMemberList(vals, "AddRouteTableId"),
+		RemoveRouteTableIDs:    parseMemberList(vals, "RemoveRouteTableId"),
+		AddSecurityGroupIDs:    parseMemberList(vals, "AddSecurityGroupId"),
+		RemoveSecurityGroupIDs: parseMemberList(vals, "RemoveSecurityGroupId"),
+		ResetPolicy:            resetPolicy,
+	}
+
+	if v, ok := vals["PolicyDocument"]; ok && len(v) > 0 {
+		opts.PolicyDocument = &v[0]
+	}
+
+	if v := vals.Get("PrivateDnsEnabled"); v != "" {
+		enabled := v == ec2BooleanTrue
+		opts.PrivateDNSEnabled = &enabled
+	}
+
+	if err := h.Backend.ModifyVpcEndpoint(endpointID, addSubnets, removeSubnets, opts); err != nil {
 		return nil, err
 	}
 
@@ -420,13 +475,34 @@ func gatewayEndpointServiceType(name string) string {
 	return vpcEndpointTypeInterface
 }
 
+// filterVpcEndpointServiceNames applies DescribeVpcEndpointServices'
+// "service-type" filter, the only documented filter this backend's static
+// service catalogue has data for.
+func filterVpcEndpointServiceNames(names []string, filters map[string][]string) []string {
+	values, ok := filters["service-type"]
+	if !ok {
+		return names
+	}
+
+	out := names[:0:0]
+	for _, n := range names {
+		if anyEqual(gatewayEndpointServiceType(n), values) {
+			out = append(out, n)
+		}
+	}
+
+	return out
+}
+
 // handleDescribeVpcEndpointServices previously ignored ServiceName.N
 // entirely (awsEc2query_serializeOpDocumentDescribeVpcEndpointServicesInput
 // declares it as a FlatKey list), so requesting specific service names
-// always returned the full catalogue. ServiceRegion.N and Filters are not
-// applied: this backend synthesizes one static service catalogue for
-// h.Region with no per-service attribute data (owner, tags, etc.) to filter
-// against, so those remain a documented gap rather than a misread key.
+// always returned the full catalogue. It now also applies the "service-type"
+// Filter, derived from gatewayEndpointServiceType. ServiceRegion.N and the
+// other documented Filters (owner, tag:<key>, etc.) are not applied: this
+// backend synthesizes one static service catalogue for h.Region with no
+// per-service attribute data to filter against, so those remain a
+// documented gap rather than a misread key.
 func (h *Handler) handleDescribeVpcEndpointServices(vals url.Values, reqID string) (any, error) {
 	names := h.Backend.DescribeVpcEndpointServices()
 
@@ -444,6 +520,8 @@ func (h *Handler) handleDescribeVpcEndpointServices(vals url.Values, reqID strin
 		}
 		names = filtered
 	}
+
+	names = filterVpcEndpointServiceNames(names, parseEC2Filters(vals))
 
 	azs := h.Backend.DescribeAvailabilityZones(h.Region)
 	resp := &describeVpcEndpointServicesResponse{RequestID: reqID}

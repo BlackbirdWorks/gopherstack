@@ -13,7 +13,7 @@ import (
 func TestRDSHandler_AddTagsToResource(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	arn := "arn:aws:rds:us-east-1:000000000000:db:test-db"
 
 	// Add two tags (SDK encodes as Tags.Tag.N.Key).
@@ -40,7 +40,7 @@ func TestRDSHandler_AddTagsToResource(t *testing.T) {
 func TestRDSHandler_RemoveTagsFromResource(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	arn := "arn:aws:rds:us-east-1:000000000000:db:rm-db"
 
 	// Add two tags.
@@ -251,7 +251,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			tt.setup(t, h)
 
 			// Confirm tag was stored.
@@ -276,6 +276,7 @@ func TestRDSBackend_RemoveTagsNoAliasing(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.CreateDBInstance("db", "postgres", "", "", "", "", 0, rds.DBInstanceOptions{})
 	require.NoError(t, err)
 

@@ -84,7 +84,8 @@ type domainStatusJSON struct {
 	ARN                         string                              `json:"ARN"`
 	DomainID                    string                              `json:"DomainId"`
 	EngineVersion               string                              `json:"EngineVersion"`
-	Endpoint                    string                              `json:"Endpoint"`
+	Endpoint                    string                              `json:"Endpoint,omitempty"`
+	Endpoints                   map[string]string                   `json:"Endpoints,omitempty"`
 	DomainProcessingStatus      string                              `json:"DomainProcessingStatus"`
 	AccessPolicies              string                              `json:"AccessPolicies,omitempty"`
 	ClusterConfig               clusterConfigJSON                   `json:"ClusterConfig"`
@@ -337,6 +338,11 @@ func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
 			SubnetIDs:        d.VPCOptions.SubnetIDs,
 			SecurityGroupIDs: d.VPCOptions.SecurityGroupIDs,
 		}
+		// A VPC domain has no public Endpoint; AWS returns it under
+		// Endpoints["vpc"] instead (the provider rejects a non-null
+		// Endpoint alongside VPCOptions).
+		out.Endpoint = ""
+		out.Endpoints = map[string]string{"vpc": d.Endpoint}
 	}
 	if d.CognitoOptions != nil {
 		out.CognitoOptions = &cognitoOptionsJSON{

@@ -74,6 +74,12 @@ type KinesisDestinationEntry struct {
 	StreamARN string `json:"StreamARN"`
 	// Precision is "MICROSECOND" or "MILLISECOND"; empty means MILLISECOND (AWS default).
 	Precision string `json:"Precision,omitempty"`
+	// Status is the DestinationStatus ("ACTIVE" or "DISABLED"); empty means
+	// ACTIVE. A disabled destination stays in the list with status DISABLED
+	// rather than being removed -- the Terraform provider's delete waiter
+	// polls DescribeKinesisStreamingDestination for this entry to reach
+	// DISABLED and errors if it instead disappears from the list.
+	Status string `json:"Status,omitempty"`
 }
 
 // storedExport holds the fields needed to satisfy DescribeExport and ListExports.

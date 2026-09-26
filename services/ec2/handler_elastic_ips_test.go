@@ -26,10 +26,66 @@ func TestAddressAttribute(t *testing.T) { //nolint:paralleltest // existing issu
 	t.Run("reset clears domain name", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.ResetAddressAttribute(addr.AllocationID)
 		require.NoError(t, err)
+		// Real AWS's DescribeAddressesAttribute(Attribute=domain-name) returns
+		// no entry for an allocation with no domain name set -- matching
+		// aws_eip_domain_name's delete waiter, which needs this lookup to
+		// come back NotFound (see DescribeAddressesAttribute's doc comment).
 		attrs := b.DescribeAddressesAttribute([]string{addr.AllocationID})
-		require.Len(t, attrs, 1)
-		assert.Empty(t, attrs[0].DomainName)
+		assert.Empty(t, attrs)
 	})
+}
+
+// TestResetAddressAttribute_HTTP_DomainNameLifecycle verifies the wire
+// shape at each stage of aws_eip_domain_name's lifecycle. After
+// ModifyAddressAttribute, DescribeAddressesAttribute includes a
+// ptrRecordUpdate element with no status -- terraform-provider-aws's create
+// waiter (waitEIPDomainNameAttributeUpdated) polls for exactly that empty
+// status. After ResetAddressAttribute, DescribeAddressesAttribute must
+// return NO item for the allocation at all: its delete waiter
+// (waitEIPDomainNameAttributeDeleted, internal/service/ec2/wait.go) has an
+// empty Target, which terraform-plugin-sdk's retry.StateChangeConf only
+// satisfies on a NotFound refresh result -- an item with an empty
+// PtrRecordUpdate.Status previously produced "unexpected state ”, wanted
+// target ”" instead of completing.
+func TestResetAddressAttribute_HTTP_DomainNameLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	addr, err := h.Backend.AllocateAddress()
+	require.NoError(t, err)
+
+	modifyResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":       {"ModifyAddressAttribute"},
+		"AllocationId": {addr.AllocationID},
+		"DomainName":   {"ec2.example.com"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, modifyResp, "<ptrRecordUpdate>")
+	assert.NotContains(t, modifyResp, "<status>")
+
+	descAfterModify, err := ec2.ExportDispatch(h, url.Values{
+		"Action":         {"DescribeAddressesAttribute"},
+		"AllocationId.1": {addr.AllocationID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, descAfterModify, "<ptrRecordUpdate>")
+	assert.NotContains(t, descAfterModify, "<status>")
+
+	resetResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":       {"ResetAddressAttribute"},
+		"AllocationId": {addr.AllocationID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resetResp, addr.AllocationID)
+
+	descAfterReset, err := ec2.ExportDispatch(h, url.Values{
+		"Action":         {"DescribeAddressesAttribute"},
+		"AllocationId.1": {addr.AllocationID},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, descAfterReset, addr.AllocationID,
+		"a reset allocation must be absent from the response, not present with an empty status")
 }
 
 // ---- Instance ---- //nolint:godot // existing issue.
@@ -88,6 +144,34 @@ func TestMoveAddressToVpcAndDescribeMovingAddressesHTTP(t *testing.T) {
 	assert.Contains(t, resp, "<DescribeMovingAddressesResponse>")
 	assert.Contains(t, resp, "<publicIp>"+addr.PublicIP+"</publicIp>")
 	assert.Contains(t, resp, "<moveStatus>movingToVpc</moveStatus>")
+}
+
+// TestAllocateAddress_TagSpecification verifies that AllocateAddress applies
+// TagSpecifications (previously dropped entirely -- the handler discarded
+// its url.Values parameter), so a tag:Name filter on DescribeAddresses can
+// find the allocated EIP, matching aws_eip's tags argument.
+func TestAllocateAddress_TagSpecification(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                          {"AllocateAddress"},
+		"TagSpecification.1.ResourceType": {"elastic-ip"},
+		"TagSpecification.1.Tag.1.Key":    {"Name"},
+		"TagSpecification.1.Tag.1.Value":  {"my-eip"},
+	})
+	require.NoError(t, err)
+	allocationID := extractXMLTag(resp, "allocationId")
+	require.NotEmpty(t, allocationID)
+
+	descResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":           {"DescribeAddresses"},
+		"Filter.1.Name":    {"tag:Name"},
+		"Filter.1.Value.1": {"my-eip"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, descResp, allocationID)
 }
 
 func TestAssociateAddress_NetworkInterfaceId_Accepted(t *testing.T) {

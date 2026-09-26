@@ -2,9 +2,16 @@
 package cloudcontrol
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
+
+// clientTokenTTL bounds how long a ClientToken is remembered for idempotent replay /
+// conflict detection. Cloud Control API's docs don't state an explicit retention
+// window, so this uses the repo's default for undocumented idempotency windows.
+const clientTokenTTL = 24 * time.Hour
 
 // clientTokenEntry records the fingerprint of the request that first used a
 // given ClientToken, plus the RequestToken of the ProgressEvent it produced.
@@ -14,8 +21,9 @@ import (
 // a genuinely different request, which real CloudControl rejects with
 // ClientTokenConflictException.
 type clientTokenEntry struct {
-	RequestToken string `json:"requestToken"`
-	Fingerprint  string `json:"fingerprint"`
+	CreatedAt    time.Time `json:"createdAt,omitzero"`
+	RequestToken string    `json:"requestToken"`
+	Fingerprint  string    `json:"fingerprint"`
 }
 
 // InMemoryBackend is a thread-safe in-memory store for CloudControl resources.

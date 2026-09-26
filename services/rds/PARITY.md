@@ -5,8 +5,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
 sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
-last_audit_commit:                                # unknown: pass ran without git access at write time (git use was out of scope), never backfilled -- gopherstack-33in
-last_audit_date: 2026-07-25
+last_audit_commit: 68761ba3a
+last_audit_date: 2026-09-19
 overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):
                        # both defects behind the 2026-07-31 A->A- downgrade (recorded verbatim
                        # below) are resolved, and nothing new was found in their place.
@@ -377,10 +377,28 @@ items_still_open:
     Inventing specific version strings would fabricate data with nothing in this SDK
     module to verify them against. See the ops: entry for full reasoning; re-review if a
     future SDK/API model version publishes an authoritative version list.
+  - "2026-09-19 (terraform rds-resources coverage pass): aws_rds_custom_db_engine_version
+    and aws_rds_reserved_instance were left out of terraform coverage without attempting
+    them -- the first needs real S3-hosted engine installation media, the second is a
+    reserved-capacity purchase, both explicitly out of scope for this pass rather than
+    emulator gaps."
 deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 
 ## Notes
+
+- **2026-09-19 (terraform rds-resources coverage pass)**: fixed 6 real bugs found via
+  the real hashicorp/aws provider: AssociatedRoles never serialized on DBInstance;
+  DescribeDBClusters/DescribeDBInstances rejected ARN-form identifiers; DBProxy(Endpoint)
+  not-found errors surfaced as 500 instead of the declared fault code; ExportTask.Status
+  was lowercase; automated-backups-replication used the source ARN as DBInstanceIdentifier;
+  DBShardGroup's ComputeRedundancy/MinACU omitted zero values on the wire.
+
+- **2026-09-19 (gopherstack-1x2u0 leak-audit follow-up)**: retrofitted all ~110 test
+  call sites that constructed `InMemoryBackend` directly to register
+  `t.Cleanup(b.Close)` (via the existing `newTestBackend(t)` helper or a per-file
+  cleanup line), and added `leak_main_test.go` (`testleak.VerifyTestMain`). No real
+  reconciler leaks found; `go test -race -count=1 ./services/rds/...` passes clean.
 
 - **2026-08-13 pass (gopherstack-afi1): RestoreDBInstanceFromS3/RestoreDBClusterFromS3
   dropped 3 of 7 required members each.** From the "five ops drop the fields that define
@@ -1772,3 +1790,64 @@ an additive change -- `pkgs/persistence/testdata/snapshot_inventory.json`
 hand-updated with 27 new rds field rows (sorted, matching the file's
 existing convention), no version bump. `go run ./cmd/reqfielddiff -dir rds`:
 125 -> 25 tier-1, all 25 disclosed in `items_still_open`.
+
+## 2026-09-19: goroutine-leak fix, Close() was a no-op (gopherstack parity-sweep)
+
+`InMemoryBackend.Close()` had been reduced to a no-op comment ("reconciler
+is now ephemeral") but the reconciler ticker does not self-terminate within
+a test's lifetime, so tests leaked it. Close() now closes a `stopCh` and
+joins the reconciler goroutine via a WaitGroup. `~100 test call sites still
+construct backends without calling Close`, so a package-wide goleak
+TestMain is not yet safe to add — queued.
+
+## 2026-09-24: ec2-transit-gateway-multicast-route-server fixture fixes -- CopyDBClusterSnapshot ARN source + missing SourceDBClusterSnapshotArn crashed terraform-provider-aws (gopherstack-mb53)
+
+Two compounding gaps in `aws_rds_cluster_snapshot_copy`, found via a real
+provider crash (SIGSEGV, nil pointer dereference in
+`resourceClusterSnapshotCopy.Read`, `cluster_snapshot_copy.go:300`) that
+made every `tofu plan`/`apply`/`destroy` on the resource fail with
+"Plugin did not respond":
+
+1. `CopyDBClusterSnapshot` only resolved `SourceDBClusterSnapshotIdentifier`
+   as a bare identifier via `normalizeID`; real AWS documents ARN as a valid
+   (and, for encrypted snapshots, required) form. Now resolves through the
+   existing `rdsIDFromARN` helper first, matching the pattern already used by
+   `db_clusters.go`/`db_instances.go`/`automated_backups.go`.
+2. `DBClusterSnapshot` had no `SourceDBClusterSnapshotArn` field at all, so a
+   copy's wire response always omitted it -- real AWS never leaves it null on
+   a copy ("otherwise, a null value" per the SDK doc, i.e. only non-copies
+   omit it). Added the field, wired through `CopyDBClusterSnapshot` and the
+   `xmlDBClusterSnapshot` wire struct.
+3. Separately, `DescribeDBClusterSnapshotAttributes` returned a fully empty
+   `DBClusterSnapshotAttributes` list for a snapshot that had never had
+   `ModifyDBClusterSnapshotAttribute` called; real AWS always includes a
+   `restore` entry (empty `AttributeValues`) for a *manual* snapshot from
+   creation. The same provider Read call also calls this op, and it likewise
+   panicked on the empty list. Automated snapshots (which can't be shared)
+   still get no entry.
+
+Verified via `TestTerraform_TransitGatewayMulticastAndRouteServer` (test/terraform/ec2_transit_gateway_multicast_route_server_test.go,
+run manually against a local server with `TF_LOG=TRACE`): the panic
+disappeared, apply/destroy round-trips cleanly.
+
+## appmesh-shield-and-workspaces terraform coverage (2026-09-24)
+
+Two real bugs found wiring up `aws_rds_custom_db_engine_version`:
+
+- `DBEngineVersion` (the merged custom-engine-version entries returned by
+  `DescribeDBEngineVersions`) had no `Status` field at all -- real
+  `types.DBEngineVersion.Status` (rds@v1.124.1) is what
+  terraform-provider-aws's `waitCustomDBEngineVersionCreated` polls; an
+  always-empty Status read as "not found" and the create waiter failed
+  immediately.
+- `CreateCustomDBEngineVersion` never auto-generated an `ImageID` when the
+  caller didn't supply one (the media-import path, not `source_image_id`).
+  Real RDS Custom always builds its own AMI from imported media, so a
+  completed CEV always has a non-nil `Image`; terraform-provider-aws's
+  `resourceCustomDBEngineVersionRead` dereferences `out.Image.ImageId`
+  unconditionally and segfaults the whole provider process when `Image` is
+  nil.
+
+Gates: `go build ./...`, `go vet ./services/rds/...`, `go test -race
+-count=1 ./services/rds/...`, `golangci-lint run ./services/rds/...` --
+all clean. No persisted-struct fields changed; no version bump.

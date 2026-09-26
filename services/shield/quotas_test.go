@@ -70,11 +70,13 @@ func TestInMemoryBackend_CreateProtectionGroupQuota(t *testing.T) {
 	require.NoError(t, b.CreateSubscription())
 
 	for i := range maxGroups {
-		_, err := b.CreateProtectionGroup(fmt.Sprintf("grp-%d", i), shield.AggregationSum, shield.PatternAll, "", nil)
+		_, err := b.CreateProtectionGroup(
+			fmt.Sprintf("grp-%d", i), shield.AggregationSum, shield.PatternAll, "", nil, nil,
+		)
 		require.NoError(t, err)
 	}
 
-	_, err := b.CreateProtectionGroup("grp-over", shield.AggregationSum, shield.PatternAll, "", nil)
+	_, err := b.CreateProtectionGroup("grp-over", shield.AggregationSum, shield.PatternAll, "", nil, nil)
 	require.ErrorIs(t, err, shield.ErrLimitExceeded)
 	assert.Equal(t, maxGroups, shield.ProtectionGroupCount(b))
 }
@@ -95,7 +97,7 @@ func TestInMemoryBackend_CreateProtectionGroupArbitraryMembersQuota(t *testing.T
 		members[i] = fmt.Sprintf("arn:aws:ec2:us-east-1:000000000000:eip-allocation/eipalloc-%d", i)
 	}
 
-	_, err := b.CreateProtectionGroup("grp-1", shield.AggregationSum, shield.PatternArbitrary, "", members)
+	_, err := b.CreateProtectionGroup("grp-1", shield.AggregationSum, shield.PatternArbitrary, "", members, nil)
 	require.ErrorIs(t, err, shield.ErrLimitExceeded)
 }
 
@@ -116,7 +118,7 @@ func TestInMemoryBackend_UpdateProtectionGroupArbitraryMembersQuota(t *testing.T
 
 	original := []string{"arn:aws:ec2:us-east-1:000000000000:eip-allocation/eipalloc-1"}
 
-	_, err := b.CreateProtectionGroup("grp-1", shield.AggregationSum, shield.PatternArbitrary, "", original)
+	_, err := b.CreateProtectionGroup("grp-1", shield.AggregationSum, shield.PatternArbitrary, "", original, nil)
 	require.NoError(t, err)
 
 	members := make([]string, maxMembers+1)

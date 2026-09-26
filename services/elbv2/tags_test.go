@@ -17,7 +17,7 @@ import (
 func TestAddAndDescribeTags(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "tagged-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -68,7 +68,7 @@ func TestAddAndDescribeTags(t *testing.T) {
 func TestRemoveTags(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "untag-lb")
 
 	doELBv2(t, h, url.Values{
@@ -92,7 +92,7 @@ func TestRemoveTags(t *testing.T) {
 func TestAddTagsMissingResourceArns(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"AddTags"},
@@ -105,7 +105,7 @@ func TestAddTagsMissingResourceArns(t *testing.T) {
 func TestRemoveTagsMissingResourceArns(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"RemoveTags"},
@@ -118,7 +118,7 @@ func TestRemoveTagsMissingResourceArns(t *testing.T) {
 func TestDescribeTagsMissingResourceArns(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"DescribeTags"},
@@ -131,7 +131,7 @@ func TestDescribeTagsMissingResourceArns(t *testing.T) {
 func TestDescribeTagsForTargetGroupAndListener(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "tag-tg")
 
 	doELBv2(t, h, url.Values{
@@ -174,7 +174,7 @@ func TestDescribeTagsForTargetGroupAndListener(t *testing.T) {
 func TestDescribeTags_UnknownResourceArn_Errors(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "tag-tg-unknown-sibling")
 
 	rec := doELBv2(t, h, url.Values{
@@ -190,7 +190,7 @@ func TestDescribeTags_UnknownResourceArn_Errors(t *testing.T) {
 func TestRemoveTagsFromTG(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "rm-tag-tg")
 
 	doELBv2(t, h, url.Values{
@@ -214,7 +214,7 @@ func TestRemoveTagsFromTG(t *testing.T) {
 func TestRemoveTagsFromListener(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "rm-tag-listener-lb")
 	tgArn := mustCreateTG(t, h, "rm-tag-listener-tg")
 
@@ -385,7 +385,7 @@ func TestELBv2_StubOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 
 			rec := doELBv2(t, h, vals)
@@ -397,7 +397,7 @@ func TestELBv2_StubOperations(t *testing.T) {
 func TestAddTags_LB(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "tag-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -427,7 +427,7 @@ func TestAddTags_LB(t *testing.T) {
 func TestRemoveTags_LB(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "remove-tag-lb")
 
 	doELBv2(t, h, url.Values{
@@ -460,7 +460,7 @@ func TestRemoveTags_LB(t *testing.T) {
 func TestTags_TG(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "tg-tag-test")
 
 	doELBv2(t, h, url.Values{
@@ -483,7 +483,7 @@ func TestTags_TG(t *testing.T) {
 func TestTags_Listener(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "listener-tag-lb")
 	tgArn := b1CreateTG(t, h, "listener-tag-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -507,7 +507,7 @@ func TestTags_Listener(t *testing.T) {
 func TestAddTags_MissingResourceArns(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":            {"AddTags"},
 		"Version":           {"2015-12-01"},
@@ -519,7 +519,7 @@ func TestAddTags_MissingResourceArns(t *testing.T) {
 func TestGetResourcePolicy(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "grp-lb")
 
 	// No resource policy is set, so AWS returns ResourceNotFound (HTTP 400, AWS query-protocol status).
@@ -554,7 +554,7 @@ func TestGetResourcePolicy(t *testing.T) {
 func TestDeleteLoadBalancer_ClearsResourcePolicy(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "policy-lb")
 	otherArn := b1CreateLB(t, h, "policy-lb-sibling")
 
@@ -590,7 +590,7 @@ func TestDeleteLoadBalancer_ClearsResourcePolicy(t *testing.T) {
 func TestGetResourcePolicy_MissingArn(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"GetResourcePolicy"},
 		"Version": {"2015-12-01"},
@@ -603,7 +603,7 @@ func TestGetResourcePolicy_MissingArn(t *testing.T) {
 func TestAddTags_KeyValueValidation(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 	lbArn := mustCreateLB(t, h, "tag-val-lb")
 
 	tests := []struct {
@@ -671,7 +671,7 @@ func TestAddTags_KeyValueValidation(t *testing.T) {
 func TestAddTags_MaxTagsPerResource(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 	lbArn := mustCreateLB(t, h, "max-tags-lb")
 
 	// Add 50 tags one at a time.
@@ -702,7 +702,7 @@ func TestAddTags_MaxTagsPerResource(t *testing.T) {
 func TestAddTags_UpdateExistingKeyDoesNotCount(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 	lbArn := mustCreateLB(t, h, "tag-update-lb")
 
 	// Add exactly 50 tags.

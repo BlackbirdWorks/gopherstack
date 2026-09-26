@@ -44,6 +44,7 @@ func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) 
 		State:                  cr.State,
 		InstanceMatchCriteria:  cr.InstanceMatchCriteria,
 		Tenancy:                cr.Tenancy,
+		InstancePlatform:       cr.InstancePlatform,
 		TotalInstanceCount:     cr.TotalInstanceCount,
 		AvailableInstanceCount: cr.AvailableInstanceCount,
 		TagSet:                 tagItemsFromMap(tags),
@@ -74,6 +75,8 @@ func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string)
 	if err != nil {
 		return nil, err
 	}
+
+	h.Backend.SetCapacityReservationInstancePlatform(cr.CapacityReservationID, vals.Get("InstancePlatform"))
 
 	return &createCapacityReservationResponse{
 		RequestID:           reqID,

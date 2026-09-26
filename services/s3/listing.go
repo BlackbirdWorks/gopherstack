@@ -1,9 +1,7 @@
 package s3
 
 import (
-	"cmp"
 	"context"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -88,49 +86,79 @@ func applyDelimiterToVersions(
 	return entries
 }
 
+// seekPrefixMatchesLocked returns the objects whose key has prefix and comes
+// at or after the marker/start-after/continuation-token cursor (afterMarker),
+// in ascending key order. It binary-searches bucket.keyIndex straight to the
+// first candidate instead of scanning every key in the bucket, then walks
+// forward only while keys still have the prefix (a contiguous range in
+// sorted order). limit caps the number of objects returned (-1 for
+// unbounded); a delimited listing must pass -1 since CommonPrefix grouping
+// needs every candidate up front. Caller must hold bucket.mu.
+func seekPrefixMatchesLocked(
+	bucket *StoredBucket,
+	prefix string,
+	afterMarker func(string) bool,
+	limit int,
+) []*StoredObject {
+	keys := bucket.keyIndex
+	start := sort.Search(len(keys), func(i int) bool {
+		return keys[i] >= prefix && afterMarker(keys[i])
+	})
+
+	var matched []*StoredObject
+
+	for i := start; i < len(keys); i++ {
+		key := keys[i]
+		if !strings.HasPrefix(key, prefix) {
+			break
+		}
+
+		if obj, ok := bucket.Objects[key]; ok {
+			matched = append(matched, obj)
+		}
+
+		if limit >= 0 && len(matched) >= limit {
+			break
+		}
+	}
+
+	return matched
+}
+
 func (b *InMemoryBackend) processListObjects(
 	bucket *StoredBucket,
 	input *s3.ListObjectsInput,
 ) ([]types.Object, []types.CommonPrefix, bool, string, int32) {
-	// Snapshot object pointers under lock
 	prefix := aws.ToString(input.Prefix)
-	var objectSnapshots []*StoredObject
-	func() {
-		bucket.mu.RLock("ListObjects")
-		defer bucket.mu.RUnlock()
-
-		objectSnapshots = make([]*StoredObject, 0, len(bucket.Objects))
-		for _, obj := range bucket.Objects {
-			if strings.HasPrefix(obj.Key, prefix) {
-				objectSnapshots = append(objectSnapshots, obj)
-			}
-		}
-	}()
-
-	slices.SortFunc(objectSnapshots, func(a, b *StoredObject) int {
-		return cmp.Compare(a.Key, b.Key)
-	})
-
 	delimiter := aws.ToString(input.Delimiter)
-
-	// Apply Marker using binary search for O(log n) seek instead of O(n) linear scan.
 	marker := aws.ToString(input.Marker)
-	if marker != "" {
-		afterMarker := afterMarkerPredicate(marker, delimiter)
-		startIndex := sort.Search(len(objectSnapshots), func(i int) bool {
-			return afterMarker(objectSnapshots[i].Key)
-		})
-		if startIndex >= len(objectSnapshots) {
-			objectSnapshots = nil
-		} else {
-			objectSnapshots = objectSnapshots[startIndex:]
-		}
-	}
 
 	maxKeys := int32(defaultMaxKeys)
 	if input.MaxKeys != nil {
 		maxKeys = *input.MaxKeys
 	}
+
+	// A non-delimited listing only ever needs maxKeys+1 objects (one extra to
+	// detect truncation), so the walk can stop there. A delimited listing
+	// needs every candidate to group CommonPrefixes correctly.
+	limit := -1
+	if delimiter == "" {
+		if maxKeys <= 0 {
+			limit = 1
+		} else {
+			limit = int(maxKeys) + 1
+		}
+	}
+
+	afterMarker := afterMarkerPredicate(marker, delimiter)
+
+	var objectSnapshots []*StoredObject
+	func() {
+		bucket.mu.RLock("ListObjects")
+		defer bucket.mu.RUnlock()
+
+		objectSnapshots = seekPrefixMatchesLocked(bucket, prefix, afterMarker, limit)
+	}()
 
 	// No delimiter: CommonPrefixes is always empty, so truncation is a plain
 	// slice cut on the already-sorted, marker-seeked object list. Truncate
@@ -402,16 +430,28 @@ func (b *InMemoryBackend) ListObjectVersions(
 	}, nil
 }
 
-// snapshotVersions captures all versions from bucket.Objects that match prefix,
-// under the bucket read lock.
+// snapshotVersions captures all versions from bucket.Objects that match
+// prefix, under the bucket read lock. It binary-searches bucket.keyIndex to
+// the first candidate key instead of scanning every key in the bucket.
 func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) []versionSnapshot {
 	bucket.mu.RLock("ListObjectVersions")
 	defer bucket.mu.RUnlock()
 
-	snapshots := make([]versionSnapshot, 0, len(bucket.Objects))
+	keys := bucket.keyIndex
+	start := sort.Search(len(keys), func(i int) bool {
+		return keys[i] >= prefix
+	})
 
-	for _, obj := range bucket.Objects {
-		if !strings.HasPrefix(obj.Key, prefix) {
+	snapshots := make([]versionSnapshot, 0, len(keys)-start)
+
+	for i := start; i < len(keys); i++ {
+		key := keys[i]
+		if !strings.HasPrefix(key, prefix) {
+			break
+		}
+
+		obj, ok := bucket.Objects[key]
+		if !ok {
 			continue
 		}
 

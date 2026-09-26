@@ -206,6 +206,7 @@ func (h *Handler) handleDeleteTrafficMirrorFilter(vals url.Values, reqID string)
 func (h *Handler) handleDescribeTrafficMirrorFilters(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "TrafficMirrorFilterId")
 	filters := h.Backend.DescribeTrafficMirrorFilters(ids)
+	filters = applyTrafficMirrorFilterFilters(filters, parseEC2Filters(vals))
 
 	resp := &describeTrafficMirrorFiltersResponse{RequestID: reqID}
 	for _, f := range filters {
@@ -459,6 +460,7 @@ func (h *Handler) handleDeleteTrafficMirrorSession(vals url.Values, reqID string
 func (h *Handler) handleDescribeTrafficMirrorSessions(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "TrafficMirrorSessionId")
 	sessions := h.Backend.DescribeTrafficMirrorSessions(ids)
+	sessions = applyTrafficMirrorSessionFilters(sessions, parseEC2Filters(vals))
 
 	resp := &describeTrafficMirrorSessionsResponse{RequestID: reqID}
 	for _, s := range sessions {
@@ -549,6 +551,7 @@ func (h *Handler) handleDeleteTrafficMirrorTarget(vals url.Values, reqID string)
 func (h *Handler) handleDescribeTrafficMirrorTargets(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "TrafficMirrorTargetId")
 	targets := h.Backend.DescribeTrafficMirrorTargets(ids)
+	targets = applyTrafficMirrorTargetFilters(targets, parseEC2Filters(vals))
 
 	resp := &describeTrafficMirrorTargetsResponse{RequestID: reqID}
 	for _, t := range targets {

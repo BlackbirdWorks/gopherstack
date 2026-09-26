@@ -48,6 +48,10 @@ func (rc *ResourceCreator) createExtraLogsResource(
 		id, err := rc.createLogsQueryDefinition(logicalID, props, params, physicalIDs)
 
 		return id, true, err
+	case resTypeLogsDestination:
+		id, err := rc.createLogsDestination(logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	default:
 
 		return "", false, nil
@@ -74,6 +78,9 @@ func (rc *ResourceCreator) deleteExtraLogsResource(
 	case "AWS::Logs::QueryDefinition":
 
 		return true, rc.deleteLogsQueryDefinition(physicalID)
+	case resTypeLogsDestination:
+
+		return true, rc.deleteLogsDestination(physicalID)
 	default:
 
 		return false, nil

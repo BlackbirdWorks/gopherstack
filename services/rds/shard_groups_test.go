@@ -23,7 +23,7 @@ import (
 func TestCreateDBShardGroup_WireShapeIsFlat(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                 {"CreateDBShardGroup"},
@@ -240,7 +240,7 @@ func TestRebootDBShardGroup(t *testing.T) {
 
 func TestHandler_DBShardGroupCRUD(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// Create
 	rec := postRDSForm(t, h,
@@ -298,7 +298,7 @@ func TestHandler_DBShardGroupCRUD(t *testing.T) {
 
 func TestHandler_DBShardGroup_DuplicateError(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateDBShardGroup&Version=2014-10-31"+
@@ -352,7 +352,7 @@ func TestDBShardGroup_ConcurrentReadWrite(t *testing.T) {
 
 func TestHandler_DescribeDBShardGroups_Pagination(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// Create 5 shard groups
 	for i := range 5 {
@@ -388,7 +388,7 @@ func TestCreateDBShardGroup_Fields(t *testing.T) {
 func TestPersistence_ShardGroupsAndIntegrations(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	_, err := b.CreateDBShardGroup("shard-1", "cluster-1", 64.0, 2.0, 1, false)
 	require.NoError(t, err)
@@ -409,6 +409,7 @@ func TestPersistence_ShardGroupsAndIntegrations(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	shards, err := b2.DescribeDBShardGroups("")
@@ -424,7 +425,7 @@ func TestPersistence_ShardGroupsAndIntegrations(t *testing.T) {
 func TestDBShardGroup_EndpointGenerated(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	sg, err := b.CreateDBShardGroup("my-sg", "my-cluster", 128, 0.5, 1, false)
 	require.NoError(t, err)
@@ -437,7 +438,7 @@ func TestDBShardGroup_EndpointGenerated(t *testing.T) {
 func TestDBShardGroup_EndpointViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateDBShardGroup&Version=2014-10-31"+
@@ -453,7 +454,7 @@ func TestDBShardGroup_EndpointViaHandler(t *testing.T) {
 func TestDBShardGroup_DescribeIncludesAllFields(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateDBShardGroup("sg-desc", "cl-desc", 100, 1.0, 2, true)
 	require.NoError(t, err)
@@ -511,7 +512,7 @@ func TestDBShardGroup_WireFieldsPresentOnAllOps(t *testing.T) {
 		},
 	}
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	// Seed the shard group once, outside the table loop, then exercise every
 	// remaining op against the SAME resource in sequence -- Modify/Reboot/
 	// Delete all need it to already exist, so this family can't run each
@@ -543,7 +544,7 @@ func assertShardGroupWireFieldsPresent(t *testing.T, action, respBody string) {
 func TestPersistence_ShardGroupEndpoint(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateDBShardGroup("sg-snap", "cl-snap", 64, 1, 1, false)
 	require.NoError(t, err)
@@ -552,6 +553,7 @@ func TestPersistence_ShardGroupEndpoint(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	groups, err := b2.DescribeDBShardGroups("")
@@ -564,7 +566,7 @@ func TestPersistence_ShardGroupEndpoint(t *testing.T) {
 func TestDBShardGroup_FullLifecycleViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateDBShardGroup&Version=2014-10-31"+
@@ -593,5 +595,5 @@ func TestDBShardGroup_FullLifecycleViaHandler(t *testing.T) {
 	rec = postRDSForm(t, h,
 		"Action=DeleteDBShardGroup&Version=2014-10-31&DBShardGroupIdentifier=lifecycle-sg")
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, rds.ShardGroupCount(newBatch3Backend()))
+	assert.Equal(t, 0, rds.ShardGroupCount(newBatch3Backend(t)))
 }

@@ -174,15 +174,25 @@ type putConfigurationAggregatorInput struct {
 	Tags                          []Tag                          `json:"Tags,omitempty"`
 }
 
+type putConfigurationAggregatorOutput struct {
+	ConfigurationAggregator *ConfigurationAggregator `json:"ConfigurationAggregator,omitempty"`
+}
+
 func (h *Handler) handlePutConfigurationAggregator(
 	_ context.Context, in *putConfigurationAggregatorInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutConfigurationAggregator(
+) (*putConfigurationAggregatorOutput, error) {
+	if err := h.Backend.PutConfigurationAggregator(
 		in.ConfigurationAggregatorName,
 		in.AccountAggregationSources,
 		in.OrganizationAggregationSource,
 		in.Tags,
-	)
+	); err != nil {
+		return nil, err
+	}
+
+	agg, _ := h.Backend.GetConfigurationAggregator(in.ConfigurationAggregatorName)
+
+	return &putConfigurationAggregatorOutput{ConfigurationAggregator: agg}, nil
 }
 
 // DeletePendingAggregationRequest request/response types and handler.

@@ -14,9 +14,10 @@ const (
 	defaultTerminatedTTL    = time.Hour
 	defaultCancelledSpotTTL = 6 * time.Hour // AWS shows cancelled spot requests for ~6 hours
 
-	instanceSweeperComponent = "TerminatedInstanceCleaner"
-	spotSweeperComponent     = "CancelledSpotRequestCleaner"
-	janitorWorkerServiceName = "ec2"
+	instanceSweeperComponent  = "TerminatedInstanceCleaner"
+	spotSweeperComponent      = "CancelledSpotRequestCleaner"
+	tombstoneSweeperComponent = "TombstoneCleaner"
+	janitorWorkerServiceName  = "ec2"
 )
 
 // Janitor is the EC2 background worker that sweeps terminated instances after
@@ -70,6 +71,7 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepTerminatedInstances(ctx)
 	j.sweepCancelledSpotRequests(ctx)
+	j.sweepExpiredTombstones(ctx)
 }
 
 // sweepTerminatedInstances removes instances that have been in the terminated
@@ -160,4 +162,44 @@ func (j *Janitor) sweepCancelledSpotRequests(ctx context.Context) {
 		logger.Load(ctx).
 			InfoContext(ctx, "EC2 janitor: cancelled spot request swept", "spotRequestID", id)
 	}
+}
+
+// sweepExpiredTombstones prunes every EC2 tombstone map (TGW route tables,
+// TGW VPC attachments, TGW peering attachments, NAT gateways, Fleets, VPN
+// connections) of entries older than ec2TombstoneTTL. Without this, a
+// long-running emulator whose terraform suites create and delete thousands
+// of these resources would grow the tombstone maps without bound.
+func (j *Janitor) sweepExpiredTombstones(ctx context.Context) {
+	now := time.Now()
+
+	j.Backend.mu.Lock("sweepExpiredTombstones")
+
+	before := len(j.Backend.tgwRouteTableTombstones) + len(j.Backend.tgwVpcAttachmentTombstones) +
+		len(j.Backend.tgwPeeringAttachmentTombstones) + len(j.Backend.natGatewayTombstones) +
+		len(j.Backend.fleetTombstones) + len(j.Backend.vpnConnectionTombstones)
+
+	pruneExpiredTombstones(j.Backend.tgwRouteTableTombstones, now)
+	pruneExpiredTombstones(j.Backend.tgwVpcAttachmentTombstones, now)
+	pruneExpiredTombstones(j.Backend.tgwPeeringAttachmentTombstones, now)
+	pruneExpiredTombstones(j.Backend.natGatewayTombstones, now)
+	pruneExpiredTombstones(j.Backend.fleetTombstones, now)
+	pruneExpiredTombstones(j.Backend.vpnConnectionTombstones, now)
+
+	after := len(j.Backend.tgwRouteTableTombstones) + len(j.Backend.tgwVpcAttachmentTombstones) +
+		len(j.Backend.tgwPeeringAttachmentTombstones) + len(j.Backend.natGatewayTombstones) +
+		len(j.Backend.fleetTombstones) + len(j.Backend.vpnConnectionTombstones)
+
+	j.Backend.mu.Unlock()
+
+	count := before - after
+
+	telemetry.RecordWorkerTask(janitorWorkerServiceName, tombstoneSweeperComponent, "success")
+
+	if count == 0 {
+		return
+	}
+
+	telemetry.RecordWorkerItems(janitorWorkerServiceName, tombstoneSweeperComponent, count)
+
+	logger.Load(ctx).InfoContext(ctx, "EC2 janitor: expired tombstones swept", "count", count)
 }

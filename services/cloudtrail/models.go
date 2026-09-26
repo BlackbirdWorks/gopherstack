@@ -48,15 +48,11 @@ type Event struct {
 	// "Management" -- this backend never synthesizes Insight events. Used to
 	// filter LookupEvents by the LookupEventsInput.EventCategory input field
 	// (real AWS: omit it and only Management events are returned; pass
-	// "insight" and only Insight events are returned). The real
-	// LookupEventsOutput Event shape has no top-level EventCategory field (it
-	// is only present nested in the CloudTrailEvent JSON string), but this
-	// backend's Event type is shared between the wire response and the
-	// internal/persisted record, so this extra key rides along on the wire.
-	// Not yet re-verified against the pinned SDK deserializer; see PARITY.md
-	// for the dashboard shared-helper leak this pass fixed instead (a
-	// different bug -- Status/Name leaking across Create/Get/Update, not
-	// this Event/EventCategory field).
+	// "insight" and only Insight events are returned). Persisted (part of
+	// backendSnapshot.Events) but intentionally excluded from the LookupEvents
+	// wire response -- the real Event shape has no top-level EventCategory
+	// field (cloudtrail@v1.58.4 types.go:283); see
+	// handler_events.go:lookupEventsEventWire.
 	EventCategory string `json:"EventCategory,omitempty"`
 	// CloudTrailEvent is the full JSON-encoded event record (eventVersion,
 	// userIdentity, eventTime, eventSource, eventName, awsRegion, requestID,
@@ -169,19 +165,20 @@ type Widget struct {
 
 // EventDataStore represents a CloudTrail event data store resource.
 type EventDataStore struct {
-	Tags                   *tags.Tags              `json:"tags,omitempty"`
 	CreatedTimestamp       time.Time               `json:"createdTimestamp"`
 	UpdatedTimestamp       time.Time               `json:"updatedTimestamp"`
-	EventDataStoreID       string                  `json:"eventDataStoreId"`
-	EventDataStoreARN      string                  `json:"eventDataStoreArn"`
+	Tags                   *tags.Tags              `json:"tags,omitempty"`
+	FederationRoleArn      string                  `json:"federationRoleArn,omitempty"`
+	KMSKeyID               string                  `json:"kmsKeyId,omitempty"`
 	Name                   string                  `json:"name"`
 	Status                 string                  `json:"status"`
 	FederationStatus       string                  `json:"federationStatus,omitempty"`
-	FederationRoleArn      string                  `json:"federationRoleArn,omitempty"`
+	EventDataStoreID       string                  `json:"eventDataStoreId"`
 	BillingMode            string                  `json:"billingMode,omitempty"`
-	KMSKeyID               string                  `json:"kmsKeyId,omitempty"`
-	AdvancedEventSelectors []AdvancedEventSelector `json:"advancedEventSelectors,omitempty"`
+	EventDataStoreARN      string                  `json:"eventDataStoreArn"`
+	InsightsDestination    string                  `json:"insightsDestination,omitempty"`
 	InsightSelectors       []InsightSelector       `json:"insightSelectors,omitempty"`
+	AdvancedEventSelectors []AdvancedEventSelector `json:"advancedEventSelectors,omitempty"`
 	RetentionPeriod        int32                   `json:"retentionPeriod"`
 	MultiRegionEnabled     bool                    `json:"multiRegionEnabled"`
 	OrganizationEnabled    bool                    `json:"organizationEnabled"`

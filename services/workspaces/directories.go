@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
 // directoriesPageSize is the AWS default page size for DescribeWorkspaceDirectories.
@@ -19,17 +21,18 @@ const stateRegistered = "REGISTERED"
 // Results are sorted by DirectoryID and paginated (max 50 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 	_ context.Context,
-	directoryIDs []string, nextToken string,
+	directoryIDs []string, directoryNames []string, limit int32, nextToken string,
 ) ([]*WorkspaceDirectory, string, error) {
 	b.mu.RLock("DescribeWorkspaceDirectories")
 	defer b.mu.RUnlock()
 
-	filter := buildFilter(directoryIDs)
+	idFilter := buildFilter(directoryIDs)
+	nameFilter := buildFilter(directoryNames)
 	var result []*WorkspaceDirectory
 
 	for _, ds := range b.dirSettings.All() {
 		id := ds.DirectoryID
-		if !matchesFilter(filter, id) {
+		if !matchesFilter(idFilter, id) || !matchesFilter(nameFilter, ds.Properties["DirectoryName"]) {
 			continue
 		}
 
@@ -45,13 +48,20 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 			subnetIDs = strings.Split(subnetRaw, ",")
 		}
 
+		var dnsIPs []string
+		if dnsRaw := ds.Properties["DnsIpAddresses"]; dnsRaw != "" {
+			dnsIPs = strings.Split(dnsRaw, ",")
+		}
+
 		result = append(result, &WorkspaceDirectory{
 			DirectoryID:                    id,
 			DirectoryName:                  ds.Properties["DirectoryName"],
 			DirectoryType:                  ds.Properties["DirectoryType"],
 			Alias:                          ds.Properties["Alias"],
+			CustomerUserName:               ds.Properties["CustomerUserName"],
 			State:                          state,
 			SubnetIDs:                      subnetIDs,
+			DNSIPAddresses:                 dnsIPs,
 			IPGroupIDs:                     b.directoryIPGroupIDsLocked(id),
 			EndpointEncryptionMode:         ds.Properties["EndpointEncryptionMode"],
 			CertificateBasedAuthProperties: certBasedAuthPropertiesFromDS(ds),
@@ -72,13 +82,18 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 
 	result = advanceDirCursor(result, nextToken)
 
+	pageSize := directoriesPageSize
+	if limit > 0 && int(limit) < pageSize {
+		pageSize = int(limit)
+	}
+
 	var newToken string
 
-	if len(result) > directoriesPageSize {
+	if len(result) > pageSize {
 		newToken = base64.StdEncoding.EncodeToString(
-			[]byte(result[directoriesPageSize].DirectoryID),
+			[]byte(result[pageSize].DirectoryID),
 		)
-		result = result[:directoriesPageSize]
+		result = result[:pageSize]
 	}
 
 	return result, newToken, nil
@@ -254,10 +269,16 @@ func advanceDirCursor(dirs []*WorkspaceDirectory, nextToken string) []*Workspace
 // Returns ResourceAlreadyExistsException when the directory is already
 // registered, matching real AWS: you cannot re-register an already-registered
 // directory.
+//
+// requestedName is the RegisterWorkspaceDirectoryInput.WorkspaceDirectoryName
+// the caller supplied, if any. It is only used as a DirectoryName fallback
+// when the Directory Service backend isn't wired or the directory can't be
+// found there -- see resolveDirectoryInfo.
 func (b *InMemoryBackend) RegisterWorkspaceDirectory(
 	directoryID string,
 	subnetIDs []string,
 	tags map[string]string,
+	requestedName string,
 ) error {
 	b.mu.Lock("RegisterWorkspaceDirectory")
 	defer b.mu.Unlock()
@@ -279,7 +300,59 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(
 		b.tags[directoryID] = cloneTags(tags)
 	}
 
+	b.populateDirectoryInfoLocked(ds, directoryID, requestedName)
+
 	return nil
+}
+
+// populateDirectoryInfoLocked fills in DirectoryName and the other
+// directory-derived properties from the Directory Service backend, if it's
+// reachable and knows about directoryID. Falls back to requestedName for
+// DirectoryName alone when it isn't -- real AWS's DirectoryName always comes
+// from the AD directory itself, but this backend has no such directory to
+// read when Directory Service isn't wired (e.g. a unit test constructing
+// InMemoryBackend directly), so a caller-supplied name is the next best
+// honest source. Caller must hold b.mu.
+func (b *InMemoryBackend) populateDirectoryInfoLocked(ds *storedDirSettings, directoryID, requestedName string) {
+	dir, ok := b.resolveDirectoryInfo(directoryID)
+	if !ok {
+		if requestedName != "" {
+			ds.Properties["DirectoryName"] = requestedName
+		}
+
+		return
+	}
+
+	ds.Properties["DirectoryName"] = dir.Name
+	ds.Properties["Alias"] = dir.Alias
+
+	if dirType := workspaceDirectoryType(dir.Type); dirType != "" {
+		ds.Properties["DirectoryType"] = dirType
+	}
+
+	if len(dir.DNSIPAddrs) > 0 {
+		ds.Properties["DnsIpAddresses"] = strings.Join(dir.DNSIPAddrs, ",")
+	}
+
+	if dir.ConnectSettings != nil && dir.ConnectSettings.CustomerUserName != "" {
+		ds.Properties["CustomerUserName"] = dir.ConnectSettings.CustomerUserName
+	}
+}
+
+// workspaceDirectoryType maps a Directory Service DirectoryType to the
+// WorkspaceDirectoryType wire value. SimpleAD and ADConnector map 1:1 by
+// name; MicrosoftAD/SharedMicrosoftAD have no documented, unambiguous
+// WorkspaceDirectoryType equivalent (CUSTOMER_MANAGED is undocumented by
+// AWS -- see PARITY.md), so this returns "" rather than guess.
+func workspaceDirectoryType(t directoryservicebackend.DirectoryType) string {
+	switch t {
+	case directoryservicebackend.DirectoryTypeSimpleAD:
+		return "SIMPLE_AD"
+	case directoryservicebackend.DirectoryTypeADConnector:
+		return "AD_CONNECTOR"
+	default:
+		return ""
+	}
 }
 
 // DeregisterWorkspaceDirectory deregisters a directory. Returns

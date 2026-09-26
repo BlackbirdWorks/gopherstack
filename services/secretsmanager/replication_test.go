@@ -25,6 +25,7 @@ func TestReplication_AddThenRemove(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rep-add-rm", SecretString: "v"},
@@ -56,6 +57,7 @@ func TestReplication_InSyncWithValue(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "rep-insync",
 		SecretString: "v",
@@ -75,6 +77,7 @@ func TestReplication_FailedWithoutValue(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name: "rep-failed",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{
@@ -93,6 +96,7 @@ func TestReplication_StopReplication(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:              "rep-stop",
 		SecretString:      "v",
@@ -115,6 +119,7 @@ func TestReplication_UpdatedAfterPutSecretValue(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	// Create without value but with replica
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:              "rep-update",
@@ -144,6 +149,7 @@ func TestReplication_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 		SecretID:          "missing",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "eu-west-1"}},
@@ -158,7 +164,7 @@ func TestReplication_NotFound(t *testing.T) {
 func TestReplication_ReplicaSecretReadableInReplicaRegion(t *testing.T) {
 	t.Parallel()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	createRec := doSMRequestInRegion(t, h, secretsmanager.MockRegion, "secretsmanager.CreateSecret",
 		`{"Name":"rep-readable","SecretString":"replicated-value"}`)
@@ -193,7 +199,7 @@ func TestReplication_ReplicaSecretReadableInReplicaRegion(t *testing.T) {
 func TestReplication_RemoveRegionsDeletesReplicaSecret(t *testing.T) {
 	t.Parallel()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	require.Equal(t, http.StatusOK, doSMRequestInRegion(t, h, secretsmanager.MockRegion,
 		"secretsmanager.CreateSecret", `{"Name":"rep-removed","SecretString":"v"}`).Code)
@@ -346,6 +352,7 @@ func TestReplication_Operations(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			if tt.setup != nil {
 				tt.setup(t, backend)
 			}
@@ -372,6 +379,7 @@ func TestReplication_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "rep-idem", SecretString: "v"},
@@ -416,6 +424,7 @@ func TestReplicateSecretToRegions_ExistingRegionRejectedWithoutForce(t *testing.
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -447,7 +456,7 @@ func TestReplicateSecretToRegions_ExistingRegionRejectedWithoutForce(t *testing.
 func TestReplicateSecretToRegions_ExistingRegionErrorType_WireCode(t *testing.T) {
 	t.Parallel()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	create := doSMRequest(t, h, "secretsmanager.CreateSecret",
 		`{"Name":"wire-replicated-secret","SecretString":"v"}`)
@@ -476,6 +485,7 @@ func TestReplicateSecretToRegions_ForceOverwriteAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -531,6 +541,7 @@ func TestReplication_StatusSync(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "replication-secret",
 				SecretString: tt.initialSecretString,

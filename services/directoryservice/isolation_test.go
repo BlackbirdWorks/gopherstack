@@ -239,7 +239,9 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 
 	eastFwds, err := backend.DescribeConditionalForwarders(ctxEast, eastDir.DirectoryID, nil)
 	require.NoError(t, err)
-	assert.Len(t, eastFwds, 1)
+	// 2, not 1: CreateTrust auto-creates a conditional forwarder for
+	// "remote.example.com", plus the "fwd.example.com" one created directly above.
+	assert.Len(t, eastFwds, 2)
 
 	// IP route isolation.
 	require.NoError(

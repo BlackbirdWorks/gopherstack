@@ -56,16 +56,31 @@ package lakeformation
 // ([]*PermissionEntry) and lakeFormationOptIns ([]*LFOptIn) are already
 // plain slices, not maps, so neither fits store.Table's keyed-collection
 // shape; both are untouched.
-import "github.com/blackbirdworks/gopherstack/pkgs/store"
+import (
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+)
 
 func resourceInfoKeyFn(v *ResourceInfo) string { return v.ResourceArn }
 
 func identityCenterConfigKeyFn(v *IdentityCenterConfiguration) string { return v.CatalogID }
 
+// normalizeLFTagCatalogID defaults an omitted CatalogID to the account ID
+// ("By default, the account ID.", api_op_CreateLFTag.go).
+func normalizeLFTagCatalogID(catalogID string) string {
+	if catalogID == "" {
+		return awsmeta.DefaultAccount
+	}
+
+	return catalogID
+}
+
 // lfTagKeyStr builds the composite "<catalogID>|<tagKey>" key shared by
 // every LF tag. Access sites use this directly so the exact same key is used
 // for Put/Get/Has/Delete.
-func lfTagKeyStr(catalogID, tagKey string) string { return catalogID + "|" + tagKey }
+func lfTagKeyStr(catalogID, tagKey string) string {
+	return normalizeLFTagCatalogID(catalogID) + "|" + tagKey
+}
 
 func lfTagKeyFn(v *LFTag) string { return lfTagKeyStr(v.CatalogID, v.TagKey) }
 

@@ -62,6 +62,7 @@ func setupCLOUDFRONTEnforcementServer(t *testing.T, iamBackend *mockCLOUDFRONTIA
 	t.Helper()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	handler := cloudfront.NewHandler(backend)
 
 	e := echo.New()

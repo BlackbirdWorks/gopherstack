@@ -70,6 +70,7 @@ func Test_ConcurrentRegionReads_NoDataRace(t *testing.T) {
 
 			// Fresh, isolated backend per subtest.
 			b := NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			t.Cleanup(b.StopRotationScheduler)
 
 			var wg sync.WaitGroup
 

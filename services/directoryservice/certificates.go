@@ -4,11 +4,8 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // RegisterCertificate registers a certificate. certData must be a PEM-encoded
@@ -33,7 +30,7 @@ func (b *InMemoryBackend) RegisterCertificate(
 		return "", ErrInvalidCertificate
 	}
 
-	id := fmt.Sprintf("c-%s", uuid.NewString()[:10])
+	id := newHexID("c-")
 	now := time.Now().UTC()
 	b.certificatePut(&storedCertificate{
 		region:             region,

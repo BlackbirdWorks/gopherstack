@@ -1,7 +1,17 @@
 service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
-last_audit_commit: b09a30f43                            # HEAD when this manifest was written
-last_audit_date: 2026-09-18
+last_audit_commit: 4ad783e5c  # HEAD when this manifest was written
+last_audit_date: 2026-09-20
+                       # 2026-09-20 (sagemaker-resources terraform coverage): CreateProject never
+                       # populated ServiceCatalogProvisionedProductDetails -- real AWS always
+                       # provisions a product on project creation, and the terraform-provider-aws
+                       # sagemaker waiter (wait.go waitProjectCreated/waitProjectDeleted/
+                       # waitProjectUpdated) unconditionally dereferences
+                       # output.ServiceCatalogProvisionedProductDetails.ProvisionedProductStatusMessage
+                       # regardless of status, panicking (nil pointer) against any backend that
+                       # leaves it nil. Fixed: Project gained a ProvisionedProductID field, set at
+                       # Create and echoed on Describe as ServiceCatalogProvisionedProductDetails
+                       # {ProvisionedProductId, ProvisionedProductStatusMessage: "AVAILABLE"}.
                        # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, EC2/SageMaker
                        # output-side batch): EC2 (ec2query) fully scanned per-op (flat + nested
                        # required-member candidates against api_op_*.go/types.go,
@@ -299,7 +309,8 @@ items_still_open:
   - "parity-4: AIBenchmarkJob's BenchmarkTarget/OutputConfig/NetworkConfig and AIRecommendationJob's ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification are opaque json.RawMessage passthrough (same convention as algorithm's specs) — every client-sent field round-trips exactly; only AWS server-synthesized sub-fields that don't exist in the Create input (e.g. CloudWatchLogs) are absent. (no bd issue filed yet)"
   - "parity-4: AIRecommendationJob.Recommendations is a real, deliberately always-empty slice — this backend does not run real benchmark/recommendation compute, so fabricating optimization recommendations or performance numbers would violate the no-fabricated-metrics rule; a real functional gap for any client polling for actual content. (no bd issue filed yet)"
   - "parity-4: DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema — AWS does not publish real per-category schema content anywhere in the SDK, so there is no ground truth to model against; internally consistent with CreateJob's own validation. (no bd issue filed yet)"
-  - "TrialComponent/Experiment/Trial's CreatedBy/LastModifiedBy/Source (types.UserContext/*Source ARN+type pairs) and Pipeline's CreatedBy/LastModifiedBy (DescribePipelineOutput) are not modeled — this backend has no IAM-identity or resource-provenance model to honestly derive them from (class d, not fabricated). (no bd issue filed yet)"
+  - "TrialComponent/Experiment/Trial's CreatedBy/LastModifiedBy/Source (types.UserContext/*Source ARN+type pairs), Association's CreatedBy, and Pipeline's CreatedBy/LastModifiedBy (DescribePipelineOutput) are not modeled — this backend has no IAM-identity or resource-provenance model to honestly derive them from (class d, not fabricated). (no bd issue filed yet)"
+  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): several List summaries are missing optional members the real SDK type declares, with no source on the corresponding domain model to derive them from (not fabricated) — AutoMLJobSummary.EndTime/FailureReason/PartialFailureReasons; ClusterSummary.TrainingPlanArns/ImageVersionStatus; ClusterNodeSummary.CurrentImageReleaseVersion/ImageVersionStatus/LastSoftwareUpdateTime/NodeLogicalId/PrivateDnsHostname/UltraServerInfo; CompilationJobSummary.CompilationTargetPlatformAccelerator/Arch/Os (only TargetDevice is tracked); DeviceSummary.AgentVersion/LatestHeartbeat/Models; FlowDefinitionSummary.FailureReason; HubContentInfo.OriginalCreationTime; HyperParameterTuningJobSummary.HyperParameterTuningEndTime; InferenceExperimentSummary.CompletionTime; LineageGroupSummary.DisplayName; HyperParameterTrainingJobSummary (ListTrainingJobsForHyperParameterTuningJob).FinalHyperParameterTuningJobObjectiveMetric/ObjectiveStatus/TrainingJobDefinitionName; TrainingJobSummary.TrainingPlanArn/WarmPoolStatus; ProcessingJobSummary.ExitMessage; OptimizationJobSummary/DescribeOptimizationJobOutput's OptimizationStartTime/OptimizationEndTime (jobs complete synchronously with no async run to time). (no bd issue filed yet)"
   - "feature_store's DescribeFeatureGroupOutput.OnlineStoreTotalSizeBytes is not modeled — this backend does not track real online-store data volume, so there is no true byte count to report (OnlineStoreConfigUpdate/ThroughputConfigUpdate/LastUpdateStatus/OfflineStoreStatus are all real and already fixed). (no bd issue filed yet)"
   - "parity-5: InferenceRecommendationsJob.InputConfig is opaque json.RawMessage passthrough rather than the fully-typed RecommendationJobInputConfig union (ContainerConfig/Endpoints/ModelPackageVersionArn/...) — same convention as the parity-4 AI-job families; every client-sent field round-trips exactly. (no bd issue filed yet)"
   - "parity-6: CreateAutoMLJobV2/DescribeAutoMLJobV2's AutoMLProblemTypeConfig (5-member tagged union, each member itself a large nested struct) is opaque json.RawMessage passthrough, same convention as this file's other deeply-nested unions — every client-sent field round-trips exactly; only AutoMLProblemTypeConfigName (which member is present) is derived. (no bd issue filed yet)"
@@ -324,6 +335,16 @@ leaks: {status: clean, note: "Re-verified this pass: grepped every 'go func()'/r
 ---
 
 ## Notes
+
+**2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s):** hand-verified
+all 70 census-flagged List ops against the pinned SDK's real Summary types.
+2 leaks removed (`ListInferenceExperiments` phantom `Arn`;
+`ListTransformJobs` phantom `ModelName`). 8 ops gained real, sourced members
+(Action.Source; TrainingJob.SecondaryStatus/TrainingEndTime;
+CodeRepository.GitConfig; Device.Description/IotThingName;
+OptimizationJob.MaxInstanceCount; ProcessingJob.FailureReason/EndTime;
+Project.Description; InferenceExperiment.RoleArn/Description/StatusReason/Schedule).
+~62 ops already correctly narrow. Unsourced optional members -> `items_still_open`.
 
 **2026-09-18 (enumcheck census):** 33 findings, 33 -> 32. Fixed: AutoML
 candidate's fabricated `MetricName: "validation:accuracy"` -> `"Accuracy"`
@@ -6831,3 +6852,7 @@ No code changes this pass (all four real fields already correct or already
 consciously out of scope). Gates unaffected: `go build ./...` clean; `go
 vet ./services/sagemaker/...` clean; `go test -race -count=1 -p 2
 ./services/sagemaker/...` `ok`; `go run ./cmd/paritylint` 0 FAIL.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found.

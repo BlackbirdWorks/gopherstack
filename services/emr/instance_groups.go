@@ -94,6 +94,12 @@ func (b *InMemoryBackend) AddInstanceGroups(
 }
 
 // ModifyInstanceGroups updates instance counts for the specified groups.
+// clusterID is optional on the real API (ModifyInstanceGroupsInput.ClusterId
+// is *string, emr@v1.64.4/api_op_ModifyInstanceGroups.go:35) since instance
+// group IDs are unique on their own -- terraform-provider-aws's
+// aws_emr_instance_group Delete (there is no real DeleteInstanceGroup
+// operation; EMR instance groups can only be resized, never removed) omits
+// it, so it must not be required here either.
 func (b *InMemoryBackend) ModifyInstanceGroups(
 	ctx context.Context,
 	clusterID string,
@@ -104,13 +110,23 @@ func (b *InMemoryBackend) ModifyInstanceGroups(
 	b.mu.Lock("ModifyInstanceGroups")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusterGet(region, clusterID)
-	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	if clusterID != "" {
+		cluster, ok := b.clusterGet(region, clusterID)
+		if !ok {
+			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		}
+
+		for _, mod := range mods {
+			applyInstanceGroupMod(cluster, mod)
+		}
+
+		return nil
 	}
 
 	for _, mod := range mods {
-		applyInstanceGroupMod(cluster, mod)
+		for _, cluster := range b.clustersInRegion(region) {
+			applyInstanceGroupMod(cluster, mod)
+		}
 	}
 
 	return nil

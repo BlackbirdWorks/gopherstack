@@ -60,12 +60,17 @@ type assocSet struct {
 	Items []assocItem `xml:"item"`
 }
 
+type propagatingVgwItem struct {
+	GatewayID string `xml:"gatewayId"`
+}
+
 type routeTableItem struct {
-	RouteTableID   string          `xml:"routeTableId"`
-	VPCID          string          `xml:"vpcId"`
-	RouteSet       routeSet        `xml:"routeSet"`
-	AssociationSet assocSet        `xml:"associationSet"`
-	TagSet         []simpleTagItem `xml:"tagSet>item"`
+	RouteTableID      string               `xml:"routeTableId"`
+	VPCID             string               `xml:"vpcId"`
+	RouteSet          routeSet             `xml:"routeSet"`
+	AssociationSet    assocSet             `xml:"associationSet"`
+	PropagatingVgwSet []propagatingVgwItem `xml:"propagatingVgwSet>item"`
+	TagSet            []simpleTagItem      `xml:"tagSet>item"`
 }
 
 type routeTableItemSet struct {
@@ -121,7 +126,7 @@ type disassociateRouteTableResponse struct {
 	Return    bool     `xml:"return"`
 }
 
-func toRouteTableItem(rt *RouteTable, tags map[string]string) routeTableItem {
+func toRouteTableItem(rt *RouteTable, tags map[string]string, propagatingVgws []string) routeTableItem {
 	routes := make([]routeItem, 0, len(rt.Routes))
 	for _, r := range rt.Routes {
 		routes = append(routes, routeItem(r))
@@ -137,12 +142,18 @@ func toRouteTableItem(rt *RouteTable, tags map[string]string) routeTableItem {
 		})
 	}
 
+	vgws := make([]propagatingVgwItem, 0, len(propagatingVgws))
+	for _, gw := range propagatingVgws {
+		vgws = append(vgws, propagatingVgwItem{GatewayID: gw})
+	}
+
 	return routeTableItem{
-		RouteTableID:   rt.ID,
-		VPCID:          rt.VPCID,
-		RouteSet:       routeSet{Items: routes},
-		AssociationSet: assocSet{Items: assocs},
-		TagSet:         tagItemsFromMap(tags),
+		RouteTableID:      rt.ID,
+		VPCID:             rt.VPCID,
+		RouteSet:          routeSet{Items: routes},
+		AssociationSet:    assocSet{Items: assocs},
+		PropagatingVgwSet: vgws,
+		TagSet:            tagItemsFromMap(tags),
 	}
 }
 
@@ -167,7 +178,7 @@ func (h *Handler) handleCreateRouteTable(vals url.Values, reqID string) (any, er
 	return &createRouteTableResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		RouteTable: toRouteTableItem(rt, tags),
+		RouteTable: toRouteTableItem(rt, tags, h.Backend.GetPropagatingVgws(rt.ID)),
 	}, nil
 }
 
@@ -201,7 +212,10 @@ func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any,
 
 	items := make([]routeTableItem, 0, len(rts))
 	for _, rt := range rts {
-		items = append(items, toRouteTableItem(rt, h.Backend.TagsForResource(rt.ID)))
+		items = append(
+			items,
+			toRouteTableItem(rt, h.Backend.TagsForResource(rt.ID), h.Backend.GetPropagatingVgws(rt.ID)),
+		)
 	}
 
 	return &describeRouteTablesResponse{

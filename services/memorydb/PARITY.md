@@ -1,7 +1,7 @@
 ---
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
-last_audit_commit: d4dc4a723
+last_audit_commit: b4c2391e7
 last_audit_date: 2026-09-18
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops
                        # (scripted key extraction against deserializers.go/serializers.go for all 18
@@ -91,7 +91,7 @@ ops:
   DeleteSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: userObject dropped a fabricated \"Engine\" field -- confirmed absent from types.User's 7-key deserializer case list (AccessString, ACLNames, ARN, Authentication, MinimumEngineVersion, Name, Status)"}
-  DescribeUsers: {wire: partial, errors: ok, state: ok, persist: ok, note: "2026-08-15 (gopherstack-6flj): DescribeUsersInput.Filters ([]types.Filter, a generic Name/Values matcher) is a real, never-modeled request member (confirmed via api_op_DescribeUsers.go) -- disclosed, not implemented: the SDK's own doc comment gives no enumerated set of valid Filter.Name values to implement against honestly, so a generic matcher risks fabricating semantics AWS never documented for this op."}
+  DescribeUsers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (2026-09-24, filters-silently-ignored sweep): DescribeUsersInput.Filters ([]types.Filter) was parsed nowhere -- describeUserRequest had no Filters field at all, so every DescribeUsers call returned every user regardless of the filter. types.Filter's doc comment names \"UserName\" as the property being filtered (same documentation pattern elasticache's DescribeUsers Filters['UserId'] relies on, previously fixed there) -- implemented UserName as the sole documented filter key, matched against the stored User.Name, multiple Filters entries AND together and each entry's Values OR-match."}
   DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateUser: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "fixed (2026-09-12, typed-client slice 31, gopherstack-n3zi): handleUpdateUser hardcoded the response User.ACLNames to []string{} regardless of the user's real ACL membership -- types.User.ACLNames (memorydb@v1.36.4 types/types.go:910) is real and DescribeUsers already computed it correctly via aclNamesForUser; UpdateUser never did. A real client calling UpdateUser (e.g. to change AccessString) on a user already in an ACL always saw an empty ACLNames regardless of actual membership. Caught only by a typed-client round trip asserting the decoded field -- no raw-body test exercised this. Now computes aclNamesForUser the same way DescribeUsers does."}
   CreateParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified: parameterGroupObject (ARN, Description, Family, Name) matches types.ParameterGroup's 4-key deserializer case list exactly"}
@@ -151,7 +151,6 @@ items_still_open:
   - "ServiceUpdate.NodesUpdated is not modeled: real AWS's field lists which nodes a per-cluster service update instance has updated. This backend has no per-node update tracking (buildShards' node identities are synthesized per-request, not persisted per-node state), so there is nothing honest to report; the wire field exists (added 2026-08-10) but is always empty rather than fabricated. ClusterName/per-cluster fanout and the ClusterNames filter ARE now modeled -- see DescribeServiceUpdates/BatchUpdateCluster fixed in this pass."
   - "DescribeSnapshotsInput.ShowDetail (real field; per AWS's doc comment it gates whether the per-shard configuration -- ClusterConfiguration.Shards -- is included in the response, NOT ClusterConfiguration itself, which is always present) is not implemented. Tied to the Shards gap above: since Shards can't be honestly populated (Size/Slots not derivable without fabrication), wiring a ShowDetail flag that gates an always-empty Shards list would just be a second parsed-and-ignored request field: not implemented, rather than added as a no-op."
   - "2026-08-15 (gopherstack-6flj): ClusterPendingUpdates.Resharding (real member, types.ReshardingStatus{SlotMigration{ProgressPercentage}}, confirmed via deserializers.go's 3-key ClusterPendingUpdates case list -- ACLs/Resharding/ServiceUpdates) is not modeled on pendingUpdatesObject at all. Same root cause as the UpdateMultiRegionCluster ShardConfiguration gap above: UpdateCluster/UpdateMultiRegionCluster apply a shard-count change synchronously with no in-progress-resharding state (grep for \"reshard\" in this service: zero hits outside this note), so there is nothing to honestly report -- the field would always be absent/nil either way, identical to a real AWS response at rest with no resharding in flight. Not added as a dead always-nil field; disclosed instead."
-  - "2026-08-15 (gopherstack-6flj): DescribeUsersInput.Filters -- see DescribeUsers op note above."
 deferred:                 # consciously not audited this pass (scope) -- next pass targets
   - "Byte-for-byte audit of nested shardObject/nodeObject beyond the fields already spot-checked (Name, Status, Slots, Nodes, NumberOfNodes on Shard; AvailabilityZone, CreateTime, Endpoint, Name, Status on Node) -- these matched exactly against types.Shard/types.Node's deserializer case lists when checked this pass, but the full request-shape interaction with real Slots math (16384 keyspace distribution) was not independently verified against live AWS."
   - "MultiRegionCluster.Clusters' RegionalCluster.Status semantics beyond \"reflects the underlying Cluster.Status\" -- real AWS may report a distinct Region-membership status (e.g. \"active\"/\"creating\"/\"deleting\" scoped to the multi-Region relationship itself) rather than just mirroring the Regional cluster's own Status; not independently confirmable without live AWS."
@@ -594,3 +593,16 @@ Gates: `go build ./...` clean (whole module). `go vet ./services/memorydb/...` c
 `golangci-lint run --new-from-rev=HEAD ./services/memorydb/...` 0 issues (after `golines`
 formatting). No persisted struct fields added -- no `snapshot_inventory.json` change, no
 version bump.
+
+## 2026-09-18 ledger burn-down (gopherstack-yusn re-verified)
+
+Re-read all 6 items_still_open + 3 deferred entries against current HEAD
+(no drift affecting audited surface since d4dc4a723; f66686eee only
+removed an unread request member, unrelated to this ledger). All 3
+gopherstack-yusn items already resolved: ClusterName/ClusterNames
+scoping fixed (service_updates.go), Shards.Size/Slots and
+ServiceUpdate.NodesUpdated correctly kept (no honest per-shard/per-node
+state exists to report without fabrication, confirmed by grep: no
+`ShardDetail` type anywhere in the package). `staleclaims` flagged 0
+candidates for memorydb. Removed: 0. Fixed: 0. Kept: 6 + 3 deferred, all
+re-verified accurate. yusn is fully adjudicated.

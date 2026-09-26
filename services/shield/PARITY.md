@@ -1,8 +1,8 @@
 ---
 service: shield
 sdk_module: aws-sdk-go-v2/service/shield@v1.37.4
-last_audit_commit: 2d47b51d4
-last_audit_date: 2026-07-29
+last_audit_commit: 0c1472972  # terraform-coverage pass: ProtectionGroup tagging; prior: 2d47b51d4
+last_audit_date: 2026-09-23  # prior: 2026-07-29
 overall: A            # all documented gaps from the prior sweep closed; one invented op deleted
 ops:
   CreateSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -16,8 +16,8 @@ ops:
   ListProtections: {wire: ok, errors: ok, state: ok, persist: ok, note: "InclusionFilters + offset pagination verified against InclusionProtectionFilters"}
   AssociateHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resolves both Shield protection ARN and resource ARN; resolveShieldProtectionARN partition prefix fixed this sweep, see below"}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resolves Shield protection ARN, protection group ARN, and resource ARN; resolveShieldProtectionARN partition prefix fixed this sweep, see below. FIXED 2026-09-23 -- protection group ARNs (protection-group/<id>) were never resolved at all (ProtectionGroup had no Tags field), 404ing any tag call on a group; see resolveProtectionGroupARN."}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-23 -- see TagResource note; same protection-group-ARN gap applied here too."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateDRTLogBucket: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep -- now requires AssociateDRTRole to have been called first (NoAssociatedRoleException/ErrNoAssociatedRole) and enforces the documented 10-bucket cap (LimitsExceededException/ErrLimitExceeded), matching real AWS SRT-authorization prerequisite behavior"}
   DisassociateDRTLogBucket: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -61,6 +61,8 @@ families:
   quotas: {status: ok, note: "fixed this sweep -- CreateProtection/CreateProtectionGroup/UpdateProtectionGroup/AssociateDRTLogBucket now enforce every quota they themselves report via DescribeSubscription or that real AWS documents (subscriptionMaxProtections, subscriptionMaxProtectionsPerType, subscriptionMaxProtectionGroups, subscriptionMaxMembersPerGroup, 10-bucket DRT log bucket cap), returning LimitsExceededException (new ErrLimitExceeded sentinel) via handler.go's classifyShieldError"}
 gaps: []
 items_still_open:
+  - "CLIENT-SIDE PROVIDER BUG (found 2026-09-23, terraform coverage sweep): aws_shield_protection_health_check_association's Create is followed by an immediate Read that finds the association (DescribeProtection's HealthCheckIds correctly contains the health check ARN, verified via raw HTTP capture) yet terraform-provider-aws still reports \"Provider produced inconsistent result after apply / root object was present, but now absent\". Not reproducible as an emulator wire-shape bug -- the response is AWS-shape-correct at every step. Left out of terraform fixture coverage; DescribeProtection.HealthCheckIds itself is unaffected."
+  - "PROVIDER WAITER NEVER CONVERGES (found 2026-09-23, terraform coverage sweep): aws_shield_drt_access_role_arn_association's Delete polls DescribeDRTAccess waiting for it to report \"not found\", but DescribeDRTAccess is a per-account describe that always returns 200 (RoleArn correctly omitted once DisassociateDRTRole clears it, verified via raw HTTP capture) -- there is no error shape for the waiter to treat as absence, so it polls until timeout against real AWS too, not just this emulator. Fixture works around it with a short `timeouts { delete = \"20s\" }` (opensearch-and-shield.tf), same pattern as fsx-file-systems's FSx override."
   - "IMPOSSIBLE (re-confirmed gopherstack-kp7b): DescribeAttack/ListAttacks never populate AttackDetail.AttackProperties or AttackDetail.SubResources (both optional AWS fields); simulated/internal attacks only carry AttackVectors/AttackCounters/Mitigations. This is NOT a chaos-coverable gap (chaos only injects error responses, not fabricated success-payload data) and was re-examined against types.AttackProperty/types.Contributor/types.SubResourceSummary in the vendored SDK this pass: AttackProperty.TopContributors is a list of Contributor{Name, Value int64} -- e.g. a source-country name with a traffic-volume count -- and SubResourceSummary.Counters is a list of SummarizedCounter (Average/Max/Median/Sum/N, real statistical aggregates). gopherstack has no real network traffic for a simulated attack to report on, so populating either field would mean inventing plausible-looking contributor names and traffic counts with zero grounding -- exactly the 'invented metrics/counts' this project's honesty rules forbid, not a smaller version of a real feature. Left honestly absent (the real field is optional and simply omitted when Shield has nothing to report, which is what a synthetic attack's true state is). DescribeAttack/ListAttacks remain fully AWS-shape-correct for every field they DO populate."
   - "IMPOSSIBLE (re-confirmed gopherstack-kp7b): LockedSubscriptionException (subscription's first-year AutoRenew lock, changeable only in the last 30 days of the commitment) is not modeled -- UpdateSubscription always allows changing AutoRenew. Deliberately NOT implemented: gopherstack subscriptions are always \"fresh\" (no historical passage of time), so enforcing the real 335-day lock would make UpdateSubscription permanently fail for every subscription in the emulator, which is worse for testability than the current permissive behavior. Documented gap, not a wire bug. (Not chaos-relevant either way: a caller that specifically wants to exercise this __type can already do so via chaos fault injection on UpdateSubscription, same as the three items below.)"
 deferred:
@@ -71,6 +73,9 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+- 2026-09-23, terraform coverage sweep: ProtectionGroup now supports tagging
+  (was entirely untagged; ListTagsForResource 404'd on any protection-group ARN).
 
 - 2026-08-22, gopherstack-r80d batch 30 (required-output-member audit):
   shield (6 required output fields / 36 ops, 5 ops-with-required per a fresh
@@ -471,3 +476,18 @@ Gates: `go build ./...`, `go vet`, `go test -race -count=1`
 --new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
 missing-items-still-open FAIL. No persisted-struct fields changed; no
 version bump.
+
+## appmesh-shield-and-workspaces terraform coverage (2026-09-24)
+
+`AssociateHealthCheck`/`DisassociateHealthCheck` stored the full Route 53
+health check ARN in `Protection.HealthCheckIds`, but real Shield
+(shield@v1.37.4 types.Protection) stores the bare health check ID there --
+terraform-provider-aws's `aws_shield_protection_health_check_association`
+read path splits its own ARN and looks for the bare ID in
+`DescribeProtection`'s `HealthCheckIds`, so the full-ARN entry was invisible
+to it ("root object was present, but now absent" after apply). Fixed:
+`healthCheckIDFromARN` extracts the ID before storing/comparing.
+
+Gates: `go build ./...`, `go vet ./services/shield/...`, `go test -race
+-count=1 ./services/shield/...`, `golangci-lint run ./services/shield/...`
+-- all clean. No persisted-struct fields changed; no version bump.

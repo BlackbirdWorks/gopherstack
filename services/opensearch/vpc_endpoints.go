@@ -271,6 +271,70 @@ func (b *InMemoryBackend) RevokeVpcEndpointAccess(domainName, account string) er
 	return nil
 }
 
+// ServerlessVpcEndpointError is a not-found entry for AOSS's
+// BatchGetVpcEndpoint (VpcEndpointErrorDetail, opensearchserverless@v1.34.4
+// types/types.go:1072-1085).
+type ServerlessVpcEndpointError struct {
+	ID, ErrorCode, ErrorMessage string
+}
+
+// ServerlessVpcEndpointResult wraps whichever store resolved one
+// BatchGetVpcEndpoint ID: the AOSS-native store (serverless_vpc_endpoints.go,
+// added for the Create/List/Update/DeleteVpcEndpoint family) or, when the ID
+// doesn't resolve there, the classic-domain VpcEndpoint store below. Exactly
+// one of the two is set. The two stores use disjoint ID prefixes
+// ("vpce-aoss-N" vs "vpce-N"), so this is precedence by construction, not
+// just by intent.
+type ServerlessVpcEndpointResult struct {
+	Native  *ServerlessVpcEndpoint
+	Classic *VpcEndpoint
+}
+
+// BatchGetServerlessVpcEndpoints resolves AOSS's BatchGetVpcEndpoint,
+// preferring the AOSS-native VPC endpoint store and falling back to the
+// classic-domain one this package already maintained before AOSS had its
+// own Create/List/Update/DeleteVpcEndpoint family. Status values line up
+// exactly (ACTIVE/DELETING are spelled identically in both opensearch@v1.75.4
+// types.VpcEndpointStatus and opensearchserverless@v1.34.4
+// types.VpcEndpointStatus).
+func (b *InMemoryBackend) BatchGetServerlessVpcEndpoints(
+	ids []string,
+) ([]ServerlessVpcEndpointResult, []ServerlessVpcEndpointError) {
+	b.mu.RLock("BatchGetServerlessVpcEndpoints")
+	defer b.mu.RUnlock()
+
+	now := b.clock()
+
+	var found []ServerlessVpcEndpointResult
+
+	var errs []ServerlessVpcEndpointError
+
+	for _, id := range ids {
+		if native, exists := b.slVpcEndpoints.Get(id); exists {
+			cp := *native
+			found = append(found, ServerlessVpcEndpointResult{Native: &cp})
+
+			continue
+		}
+
+		if classic, exists := b.vpcEndpoints.Get(id); exists &&
+			!statusWindowElapsed(classic.Status, classic.StatusUntil, now) {
+			cp := *classic
+			found = append(found, ServerlessVpcEndpointResult{Classic: &cp})
+
+			continue
+		}
+
+		errs = append(errs, ServerlessVpcEndpointError{
+			ID:           id,
+			ErrorCode:    slErrorCodeNotFound,
+			ErrorMessage: fmt.Sprintf("VPC endpoint %s not found", id),
+		})
+	}
+
+	return found, errs
+}
+
 // ListVpcEndpointAccess returns authorized principals for a domain.
 func (b *InMemoryBackend) ListVpcEndpointAccess(domainName string) ([]AuthorizedPrincipal, error) {
 	b.mu.RLock("ListVpcEndpointAccess")

@@ -164,20 +164,29 @@ func synthesizeGroupInstance(clusterID string, grp InstanceGroup, idx int) Clust
 }
 
 // synthesizeFleetInstance builds a ClusterInstance for an instance fleet
-// member. InstanceType is left blank: unlike InstanceGroup, InstanceFleet
-// only tracks aggregate target/provisioned capacity, not a per-instance-type
-// breakdown (InstanceTypeConfigs is accepted on AddInstanceFleet's wire
-// input but not modeled), so there is no real per-instance type to report.
+// member. InstanceType is sourced from the fleet's first configured
+// InstanceTypeSpecifications entry (gopherstack-dqd8): a real fleet can mix
+// several candidate types across its members, but this backend has no
+// per-instance placement decision to report which candidate a given
+// synthesized instance actually landed on, so the first configured type is
+// the best available answer, not fabricated -- left blank only when the
+// fleet has no InstanceTypeConfigs at all (matches AddInstanceFleet input).
 func synthesizeFleetInstance(clusterID string, fleet InstanceFleet, idx int, market string) ClusterInstance {
 	id := fmt.Sprintf("ci-%s-%d", clusterID, idx)
 	ec2ID := fmt.Sprintf("i-%016x", idx+1)
 	privateDNS := fmt.Sprintf("ip-10-0-0-%d.ec2.internal", idx+1)
+
+	var instanceType string
+	if len(fleet.InstanceTypeSpecifications) > 0 {
+		instanceType = fleet.InstanceTypeSpecifications[0].InstanceType
+	}
 
 	return ClusterInstance{
 		ID:              id,
 		Ec2InstanceID:   ec2ID,
 		PrivateDNSName:  privateDNS,
 		Market:          market,
+		InstanceType:    instanceType,
 		InstanceFleetID: fleet.ID,
 		Status:          ClusterInstanceStatus{State: fleet.Status.State},
 	}

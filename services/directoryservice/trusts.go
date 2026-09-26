@@ -2,11 +2,8 @@ package directoryservice
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // CreateTrust creates a trust relationship.
@@ -27,7 +24,14 @@ func (b *InMemoryBackend) CreateTrust(
 		selectiveAuth = string(SelectiveAuthDisabled)
 	}
 
-	id := fmt.Sprintf("t-%s", uuid.NewString()[:10])
+	// Real AWS auto-verifies every direction except "One-Way: Incoming" (nothing to verify
+	// against locally); terraform's resourceTrustCreate waits on waitTrustVerified for the rest.
+	trustState := "Created"
+	if trustDirection != "One-Way: Incoming" {
+		trustState = "Verified"
+	}
+
+	id := newHexID("t-")
 	now := time.Now().UTC()
 	b.trustPut(&storedTrust{
 		region:               region,
@@ -36,12 +40,23 @@ func (b *InMemoryBackend) CreateTrust(
 		RemoteDomainName:     remoteDomainName,
 		TrustDirection:       trustDirection,
 		TrustType:            trustType,
-		TrustState:           "Created",
+		TrustState:           trustState,
 		SelectiveAuth:        selectiveAuth,
 		CreatedDateTime:      now,
 		LastUpdatedDateTime:  now,
 		StateLastUpdatedTime: now,
 	})
+
+	// Real AWS sets up DNS conditional forwarding for a trust; terraform's trust Read looks one up.
+	// Stored directly here (not via CreateConditionalForwarder) to avoid deadlocking on b.mu.
+	if _, exists := b.conditionalForwarderGet(region, directoryID, remoteDomainName); !exists {
+		b.conditionalForwarderPut(&storedConditionalForwarder{
+			region:           region,
+			DirectoryID:      directoryID,
+			RemoteDomainName: remoteDomainName,
+			ReplicationScope: "Domain",
+		})
+	}
 
 	return id, nil
 }
@@ -53,11 +68,13 @@ func (b *InMemoryBackend) DeleteTrust(ctx context.Context, trustID string) (stri
 	b.mu.Lock("DeleteTrust")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trustGet(region, trustID); !ok {
+	trust, ok := b.trustGet(region, trustID)
+	if !ok {
 		return "", ErrTrustNotFound
 	}
 
 	b.trustDelete(region, trustID)
+	b.conditionalForwarderDelete(region, trust.DirectoryID, trust.RemoteDomainName)
 
 	return trustID, nil
 }

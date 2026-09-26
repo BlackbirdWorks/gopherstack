@@ -111,7 +111,7 @@ func TestCreateRule_Transforms(t *testing.T) {
 			t.Parallel()
 
 			slug := strings.ReplaceAll(tt.name, "_", "-")
-			h := newTestHandler()
+			h := newTestHandler(t)
 			lbArn := mustCreateLB(t, h, "transform-lb-"+slug)
 			tgArn := mustCreateTG(t, h, "transform-tg-"+slug)
 			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -188,7 +188,7 @@ func TestCreateRule_Transforms_Validation(t *testing.T) {
 			t.Parallel()
 
 			slug := strings.ReplaceAll(tt.name, "_", "-")
-			h := newTestHandler()
+			h := newTestHandler(t)
 			lbArn := mustCreateLB(t, h, "inv-lb-"+slug)
 			tgArn := mustCreateTG(t, h, "inv-tg-"+slug)
 			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -208,7 +208,7 @@ func TestCreateRule_Transforms_Validation(t *testing.T) {
 func TestModifyRule_Transforms_ResetAndReplace(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "modify-transform-lb")
 	tgArn := mustCreateTG(t, h, "modify-transform-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)

@@ -146,12 +146,17 @@ func (h *Handler) handleListCodeRepositories(ctx context.Context, body []byte) (
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, r := range items {
-		summaries = append(summaries, map[string]any{
+		entry := map[string]any{
 			"CodeRepositoryName": r.CodeRepositoryName,
 			keyCodeRepositoryArn: r.CodeRepositoryArn,
 			keyCreationTime:      epochSeconds(r.CreationTime),
 			keyLastModifiedTime:  epochSeconds(r.LastModifiedTime),
-		})
+		}
+		if len(r.GitConfig) > 0 {
+			entry["GitConfig"] = r.GitConfig
+		}
+
+		summaries = append(summaries, entry)
 	}
 
 	return json.Marshal(map[string]any{

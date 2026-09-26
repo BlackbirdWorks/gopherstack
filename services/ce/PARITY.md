@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ce
 sdk_module: aws-sdk-go-v2/service/costexplorer@v1.67.4   # version actually pinned in go.mod; corrected stale v1.63.8 reference
-last_audit_commit: 021efa0d5 # HEAD as of the 2026-08-30 pagination/filter retrofit pass; this pass's own changes are uncommitted on top of it
-last_audit_date: 2026-08-30
+last_audit_commit: 24813b443 # HEAD as of the 2026-09-19 required-output-member sweep (this pass)
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-30 pagination/filter retrofit pass (gopherstack, following gopherstack-43o8's deferred 68-field backlog): regenerated the reqfieldscan count independently (68 fields across 24 ops, confirmed identical to the carried-forward figure) and closed all but 8, each of the remaining 8 a hand-verified honest gap (documented below in gaps), not a defect. Wired real NextPageToken/MaxResults/PageSize pagination via the existing paginateList[T] helper (plus a new paginateOrdered[T] sibling for ops with an independent SortBy/display order paginateList's own re-sort would have discarded) across GetCostAndUsage/GetCostAndUsageComparisons/GetCostAndUsageWithResources(shape-only)/GetCostComparisonDrivers(shape-only)/GetDimensionValues/GetTags/GetCostCategories/GetReservationCoverage/GetReservationUtilization/GetReservationPurchaseRecommendation/GetRightsizingRecommendation/GetSavingsPlansCoverage/GetSavingsPlansPurchaseRecommendation/GetSavingsPlansUtilizationDetails/ListSavingsPlansPurchaseRecommendationGeneration/ListCommitmentPurchaseAnalyses/ListCostAllocationTagBackfillHistory/ListCostAllocationTags/ListCostCategoryResourceAssociations. Implemented Filter/GroupBy/SortBy/SearchString/Context/AccountScope/DataType/RecommendationIds/AnalysisStatus/EffectiveOn with real backing state per op (never fabricated); found and fixed 5 real bugs along the way (see the dated Notes section below) including a cursor-pagination off-by-one in the new paginateOrdered helper itself, caught by this pass's own completeness tests before being carried forward. 68→8 unread-field count verified via `go run ./cmd/reqfieldscan -dir ce`.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -76,6 +76,29 @@ leaks: {status: clean, note: "StartJanitor's anomaly-eviction goroutine (evictEx
 ---
 
 ## Notes
+
+### 2026-09-19 required-output-member sweep (gopherstack-r80d follow-up)
+
+Cross-checked all 30 required output members across the 18 census ops
+(`cmd/requiredoutputfields`) by direct code reading against
+`costexplorer@v1.67.4`: anomaly/subscription ARNs and `AnomalyId` (plain
+`string`, no `omitempty`, generated via `arn.Build`/uuid); `AnomalyMonitors`/
+`AnomalySubscriptions`/`Anomalies`/`DimensionValues`/`Tags` (plain slices, no
+`omitempty`); `ReturnSize`/`TotalSize` (`int`, never a pointer); the
+commitment-purchase-analysis family's `AnalysisId`/`AnalysisStatus`/
+`AnalysisStartedTime`/`EstimatedCompletionTime` (all `omitempty` but always
+non-zero — `CreateCommitmentAnalysis` unconditionally sets a uuid,
+`statusProcessing`, and two RFC3339 timestamps) and its
+`CommitmentPurchaseAnalysisConfiguration` (echoed `any`, unreachable-empty in
+practice since a real client's own `validateCommitmentPurchaseAnalysisConfiguration`
+requires a populated `SavingsPlansPurchaseAnalysisConfiguration` before the
+request is ever sent); `CoveragesByTime`/`UtilizationsByTime`/
+`SavingsPlansCoverages` (plain slices, explicit `[]T{}` on early-return
+branches); `Total` (`*SavingsPlansUtilizationResult`, always a non-nil
+pointer even on the filtered-out branch); `SavingsPlansUtilizationDetails`/
+`TimePeriod` (the latter `omitempty` but always a 2-key map, never empty).
+0 fixed, 0 false positives — every row already correctly populated. No code
+changed; gates all clean (gofmt/build/vet/race-test/golangci-lint).
 
 Protocol: AWS JSON 1.1 (`application/x-amz-json-1.1`), single POST endpoint, dispatch via
 `X-Amz-Target: AWSInsightsIndexService.<Op>` header (verified against every

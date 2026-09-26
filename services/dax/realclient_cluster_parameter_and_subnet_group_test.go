@@ -2,6 +2,7 @@ package dax_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	daxsdk "github.com/aws/aws-sdk-go-v2/service/dax"
@@ -49,6 +50,8 @@ func TestRealClient_ClusterParameterAndSubnetGroup(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "s15 updated", aws.ToString(updOut.Cluster.Description))
 
+			waitForClusterAvailable(t, client, "s15-cluster")
+
 			incOut, err := client.IncreaseReplicationFactor(ctx, &daxsdk.IncreaseReplicationFactorInput{
 				ClusterName:          aws.String("s15-cluster"),
 				NewReplicationFactor: 3,
@@ -60,10 +63,23 @@ func TestRealClient_ClusterParameterAndSubnetGroup(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "deleting", aws.ToString(delOut.Cluster.Status))
 
-			_, err = client.DescribeClusters(ctx, &daxsdk.DescribeClustersInput{
+			// The cluster stays visible with status "deleting" until the
+			// transition deadline passes -- matching real AWS, which does not
+			// vanish a cluster the instant DeleteCluster is called.
+			descAfterDelete, err := client.DescribeClusters(ctx, &daxsdk.DescribeClustersInput{
 				ClusterNames: []string{"s15-cluster"},
 			})
-			require.Error(t, err)
+			require.NoError(t, err)
+			require.Len(t, descAfterDelete.Clusters, 1)
+			assert.Equal(t, "deleting", aws.ToString(descAfterDelete.Clusters[0].Status))
+
+			require.Eventually(t, func() bool {
+				_, describeErr := client.DescribeClusters(ctx, &daxsdk.DescribeClustersInput{
+					ClusterNames: []string{"s15-cluster"},
+				})
+
+				return describeErr != nil
+			}, 3*time.Second, 20*time.Millisecond, "cluster must eventually be removed after deletion completes")
 		}},
 		{name: "parameter group lifecycle", run: func(t *testing.T) {
 			t.Helper()

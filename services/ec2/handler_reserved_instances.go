@@ -333,6 +333,8 @@ func (h *Handler) handleDescribeReservedInstances(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	ris = applyReservedInstanceFilters(ris, parseEC2Filters(vals), h.Backend)
+
 	resp := &describeReservedInstancesResponse{RequestID: reqID}
 	for _, ri := range ris {
 		resp.ReservedInstancesSet.Items = append(

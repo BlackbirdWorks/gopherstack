@@ -58,12 +58,14 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			t.Parallel()
 
 			original := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			t.Cleanup(original.StopRotationScheduler)
 			id := tt.setup(original)
 
 			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			t.Cleanup(fresh.StopRotationScheduler)
 			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
@@ -75,6 +77,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(b.StopRotationScheduler)
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
@@ -86,6 +89,7 @@ func TestSnapshotRestore_ExtendedFields(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "snap-test",
 		SecretString: "v",
@@ -103,6 +107,7 @@ func TestSnapshotRestore_ExtendedFields(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b2.StopRotationScheduler)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-test"})
@@ -120,6 +125,7 @@ func TestSnapshotRestore_ManagedExternalSecretFields(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "snap-mes",
 		SecretString: "v",
@@ -141,6 +147,7 @@ func TestSnapshotRestore_ManagedExternalSecretFields(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b2.StopRotationScheduler)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-mes"})
@@ -156,6 +163,7 @@ func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(
@@ -168,6 +176,7 @@ func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(fresh.StopRotationScheduler)
 	freshH := secretsmanager.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(t.Context(), snap))
 

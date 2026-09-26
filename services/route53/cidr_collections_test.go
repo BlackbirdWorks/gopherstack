@@ -307,7 +307,7 @@ func TestChangeCidrCollection_StoresLocations(t *testing.T) {
 	// ListCidrBlocks.
 	blocks, err := b.ListCidrBlocks(col.ID, "office", "", 0)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"192.168.1.0/24", "10.0.0.0/8"}, blocks.Data)
+	assert.ElementsMatch(t, []string{"192.168.1.0/24", "10.0.0.0/8"}, cidrValues(blocks.Data))
 
 	// DELETE_IF_EXISTS.
 	_, err = b.ChangeCidrCollection(col.ID, []route53.CidrCollectionChange{
@@ -321,7 +321,18 @@ func TestChangeCidrCollection_StoresLocations(t *testing.T) {
 
 	blocks, err = b.ListCidrBlocks(col.ID, "office", "", 0)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"192.168.1.0/24"}, blocks.Data)
+	assert.Equal(t, []string{"192.168.1.0/24"}, cidrValues(blocks.Data))
+}
+
+// cidrValues extracts the bare CIDR strings from a ListCidrBlocks result,
+// discarding LocationName, for tests that only care about the CIDR set.
+func cidrValues(entries []route53.CidrBlockEntry) []string {
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.CIDR
+	}
+
+	return out
 }
 
 func TestListCidrBlocks_Handler(t *testing.T) {

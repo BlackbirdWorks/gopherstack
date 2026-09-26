@@ -47,7 +47,7 @@ func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec, executionRoleArn s
 			actionOnFailure = "TERMINATE_CLUSTER"
 		}
 
-		steps = append(steps, Step{
+		step := Step{
 			ID:               b.nextStepID(),
 			Name:             spec.Name,
 			HadoopJarStep:    toStepHadoopJarStep(spec.HadoopJarStep),
@@ -57,7 +57,14 @@ func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec, executionRoleArn s
 				State:    StepStatePending,
 				Timeline: StepTimeline{CreationDateTime: now},
 			},
-		})
+		}
+
+		if mc := spec.StepMonitoringConfiguration; mc != nil && mc.S3MonitoringConfiguration != nil {
+			step.EncryptionKeyArn = mc.S3MonitoringConfiguration.EncryptionKeyArn
+			step.LogURI = mc.S3MonitoringConfiguration.LogURI
+		}
+
+		steps = append(steps, step)
 	}
 
 	return steps
@@ -106,6 +113,11 @@ func (b *InMemoryBackend) AddJobFlowSteps(
 				State:    StepStatePending,
 				Timeline: StepTimeline{CreationDateTime: now},
 			},
+		}
+
+		if mc := spec.StepMonitoringConfiguration; mc != nil && mc.S3MonitoringConfiguration != nil {
+			step.EncryptionKeyArn = mc.S3MonitoringConfiguration.EncryptionKeyArn
+			step.LogURI = mc.S3MonitoringConfiguration.LogURI
 		}
 
 		cluster.steps = append(cluster.steps, step)

@@ -166,3 +166,43 @@ func TestRoundTrip_Connection(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestDescribeGlobalNetworks_UnmatchedIDOmittedNotError covers
+// gopherstack-fndhb-style regression: real DescribeGlobalNetworks omits a
+// filter ID with no match rather than erroring, since
+// terraform-provider-aws's findGlobalNetworks never checks for
+// ResourceNotFoundException and instead treats an empty result as "not
+// found" -- an error here breaks every `tofu destroy` delete-wait and
+// post-apply `tofu plan` refresh once the ID no longer exists.
+func TestDescribeGlobalNetworks_UnmatchedIDOmittedNotError(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	gn, err := client.CreateGlobalNetwork(ctx, &networkmanagersdk.CreateGlobalNetworkInput{})
+	require.NoError(t, err)
+
+	gnID := aws.ToString(gn.GlobalNetwork.GlobalNetworkId)
+
+	tests := []struct {
+		name    string
+		ids     []string
+		wantLen int
+	}{
+		{name: "matching and unmatched mixed", ids: []string{gnID, "nonexistent"}, wantLen: 1},
+		{name: "only unmatched", ids: []string{"nonexistent"}, wantLen: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, describeErr := client.DescribeGlobalNetworks(ctx, &networkmanagersdk.DescribeGlobalNetworksInput{
+				GlobalNetworkIds: tc.ids,
+			})
+			require.NoError(t, describeErr)
+			require.Len(t, out.GlobalNetworks, tc.wantLen)
+		})
+	}
+}

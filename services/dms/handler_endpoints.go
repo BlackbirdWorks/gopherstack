@@ -94,6 +94,15 @@ func (f engineSettingsFields) entries() []struct {
 // field set on the request, or "" if none were sent.
 func (f engineSettingsFields) unsupportedFieldName() string {
 	for _, e := range f.entries() {
+		// S3Settings is modeled (stored and echoed back verbatim -- see
+		// EndpointConnectionSettings.S3Settings) rather than rejected: unlike
+		// the other engines here, aws_dms_s3_endpoint always sends its full,
+		// provider-defaulted field set through this key, so rejecting it
+		// would make that resource type unusable.
+		if e.name == "S3Settings" {
+			continue
+		}
+
 		if rawIsSet(e.raw) {
 			return e.name
 		}
@@ -242,6 +251,7 @@ func (h *Handler) handleCreateEndpoint(
 			SslMode:                   sslMode,
 			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
 			ResourceIdentifier:        ptrconv.String(in.ResourceIdentifier),
+			S3Settings:                string(in.S3Settings),
 		},
 	)
 	if err != nil {
@@ -306,25 +316,26 @@ func (h *Handler) handleDeleteEndpoint(
 }
 
 type endpointJSON struct {
-	EndpointIdentifier        string `json:"EndpointIdentifier"`
-	EndpointArn               string `json:"EndpointArn"`
-	EndpointType              string `json:"EndpointType"`
-	EngineName                string `json:"EngineName"`
-	ServerName                string `json:"ServerName,omitempty"`
-	DatabaseName              string `json:"DatabaseName,omitempty"`
-	Username                  string `json:"Username,omitempty"`
-	Status                    string `json:"Status"`
-	CertificateArn            string `json:"CertificateArn,omitempty"`
-	ExtraConnectionAttributes string `json:"ExtraConnectionAttributes,omitempty"`
-	KmsKeyID                  string `json:"KmsKeyId,omitempty"`
-	ServiceAccessRoleArn      string `json:"ServiceAccessRoleArn,omitempty"`
-	SslMode                   string `json:"SslMode"`
-	ExternalTableDefinition   string `json:"ExternalTableDefinition,omitempty"`
-	Port                      int32  `json:"Port,omitempty"`
+	EndpointIdentifier        string          `json:"EndpointIdentifier"`
+	EndpointArn               string          `json:"EndpointArn"`
+	EndpointType              string          `json:"EndpointType"`
+	EngineName                string          `json:"EngineName"`
+	ServerName                string          `json:"ServerName,omitempty"`
+	DatabaseName              string          `json:"DatabaseName,omitempty"`
+	Username                  string          `json:"Username,omitempty"`
+	Status                    string          `json:"Status"`
+	CertificateArn            string          `json:"CertificateArn,omitempty"`
+	ExtraConnectionAttributes string          `json:"ExtraConnectionAttributes,omitempty"`
+	KmsKeyID                  string          `json:"KmsKeyId,omitempty"`
+	ServiceAccessRoleArn      string          `json:"ServiceAccessRoleArn,omitempty"`
+	SslMode                   string          `json:"SslMode"`
+	ExternalTableDefinition   string          `json:"ExternalTableDefinition,omitempty"`
+	S3Settings                json.RawMessage `json:"S3Settings,omitempty"`
+	Port                      int32           `json:"Port,omitempty"`
 }
 
 func epToJSON(ep *Endpoint) endpointJSON {
-	return endpointJSON{
+	out := endpointJSON{
 		EndpointIdentifier:        ep.EndpointIdentifier,
 		EndpointArn:               ep.EndpointArn,
 		EndpointType:              ep.EndpointType,
@@ -341,6 +352,12 @@ func epToJSON(ep *Endpoint) endpointJSON {
 		ExternalTableDefinition:   ep.ExternalTableDefinition,
 		Port:                      ep.Port,
 	}
+
+	if ep.S3Settings != "" {
+		out.S3Settings = json.RawMessage(ep.S3Settings)
+	}
+
+	return out
 }
 
 type describeEndpointSettingsInput struct {
@@ -610,6 +627,7 @@ func (h *Handler) handleModifyEndpoint(
 			ServiceAccessRoleArn:      ptrconv.String(in.ServiceAccessRoleArn),
 			SslMode:                   sslMode,
 			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
+			S3Settings:                string(in.S3Settings),
 		},
 	)
 	if err != nil {

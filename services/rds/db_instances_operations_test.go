@@ -18,6 +18,7 @@ func TestRDSBackend_ModifyDBInstance_NewFields(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.CreateDBInstance("mod-db", "postgres", "db.t3.micro", "", "", "", 20, rds.DBInstanceOptions{})
 	require.NoError(t, err)
 
@@ -51,6 +52,7 @@ func TestRDSBackend_InstanceModifyTransitionAndDeletePublishesEvents(t *testing.
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			const instanceID = "transition-db"
 
 			created, err := b.CreateDBInstance(instanceID, "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
@@ -143,7 +145,7 @@ func TestCreateDBInstance_IdentifierValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			rec := doAccuracyRDS(t, h, url.Values{
 				"Action":               {"CreateDBInstance"},
 				"Version":              {"2014-10-31"},
@@ -188,7 +190,7 @@ func TestCreateDBInstance_EngineValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			rec := doAccuracyRDS(t, h, url.Values{
 				"Action":               {"CreateDBInstance"},
 				"Version":              {"2014-10-31"},
@@ -227,7 +229,7 @@ func TestCreateDBInstance_AllocatedStorageBound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			rec := doAccuracyRDS(t, h, url.Values{
 				"Action":               {"CreateDBInstance"},
 				"Version":              {"2014-10-31"},
@@ -275,7 +277,7 @@ func TestRDS_CreateDBInstance_IdentifierValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			body := "Action=CreateDBInstance" +
 				"&DBInstanceIdentifier=" + tt.dbInstanceID +
 				"&DBInstanceClass=" + tt.dbInstanceClass +
@@ -616,7 +618,7 @@ func TestDescribeDBInstancesSorted(t *testing.T) {
 func TestIopsAndStorageThroughputPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -649,7 +651,7 @@ func TestIopsAndStorageThroughputPersisted(t *testing.T) {
 func TestVpcSecurityGroupsPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -690,7 +692,7 @@ func TestVpcSecurityGroupsPersisted(t *testing.T) {
 func TestDBSecurityGroupsPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                     {"CreateDBSecurityGroup"},
@@ -749,7 +751,7 @@ func TestDBSecurityGroupsPersisted(t *testing.T) {
 func TestLicenseModelPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -778,7 +780,7 @@ func TestLicenseModelPersisted(t *testing.T) {
 func TestMonitoringFieldsPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -810,7 +812,7 @@ func TestMonitoringFieldsPersisted(t *testing.T) {
 func TestPreferredWindowsPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                     {"CreateDBInstance"},

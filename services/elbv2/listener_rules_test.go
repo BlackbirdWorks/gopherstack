@@ -14,7 +14,7 @@ import (
 func TestCreateRule(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "rule-lb")
 	tgArn := mustCreateTG(t, h, "rule-tg")
 
@@ -70,7 +70,7 @@ func TestCreateRule(t *testing.T) {
 func TestDeleteRule(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "del-rule-lb")
 	tgArn := mustCreateTG(t, h, "del-rule-tg")
 
@@ -147,7 +147,7 @@ func TestDeleteRule(t *testing.T) {
 func TestDescribeRules(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "desc-rule-lb")
 	tgArn := mustCreateTG(t, h, "desc-rule-tg")
 
@@ -216,7 +216,7 @@ func TestDescribeRules(t *testing.T) {
 func TestModifyRule(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "mod-rule-lb")
 	tgArn := mustCreateTG(t, h, "mod-rule-tg")
 
@@ -292,7 +292,7 @@ func TestModifyRule(t *testing.T) {
 func TestCreateRuleMissingListenerARN(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateRule"},
@@ -305,7 +305,7 @@ func TestCreateRuleMissingListenerARN(t *testing.T) {
 func TestCreateRuleListenerNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":                {"CreateRule"},
@@ -322,7 +322,7 @@ func TestCreateRuleListenerNotFound(t *testing.T) {
 func TestRuleTagOperations(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "rule-tag-lb")
 	tgArn := mustCreateTG(t, h, "rule-tag-tg")
 
@@ -437,7 +437,7 @@ func TestRuleTagOperations(t *testing.T) {
 func TestDescribeRulesSortedByPriority(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "sort-rules-lb")
 	tgArn := mustCreateTG(t, h, "sort-rules-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -490,7 +490,7 @@ func TestDescribeRulesSortedByPriority(t *testing.T) {
 func TestCreateRuleNoActions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "no-rule-actions-lb")
 	tgArn := mustCreateTG(t, h, "no-rule-actions-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -508,7 +508,7 @@ func TestCreateRuleNoActions(t *testing.T) {
 func TestDeleteTGReferencedByRule(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "rule-ref-lb")
 	tgArn1 := mustCreateTG(t, h, "rule-ref-tg1")
 	tgArn2 := mustCreateTG(t, h, "rule-ref-tg2")
@@ -539,7 +539,7 @@ func TestDeleteTGReferencedByRule(t *testing.T) {
 func TestDescribeRules_SortedByPriority(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "sort-rules-lb")
 	tgArn := b1CreateTG(t, h, "sort-rules-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -589,7 +589,7 @@ func TestDescribeRules_SortedByPriority(t *testing.T) {
 func TestDeleteRule_Success(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "del-rule-lb")
 	tgArn := b1CreateTG(t, h, "del-rule-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -642,7 +642,7 @@ func TestDescribeRules_UnknownArnReturnsNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newBatch2Handler()
+			h := newBatch2Handler(t)
 			ghostArn := "arn:aws:elasticloadbalancing:us-east-1:000000000000:" +
 				"listener-rule/app/lb/0123456789abcdef/0000000000000000/ghost"
 
@@ -673,7 +673,7 @@ func TestDescribeRules_UnknownArnReturnsNotFound(t *testing.T) {
 func TestDescribeRules_AllKnownArnsSucceeds(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 	lbArn := mustCreateLB(t, h, "rule-lb-known")
 	tgArn := mustCreateTG(t, h, "rule-tg-known")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)

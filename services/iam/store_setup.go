@@ -48,6 +48,9 @@ func serverCertificatesKeyFn(v *ServerCertificate) string {
 	return v.ServerCertificateName
 }
 func delegationRequestsKeyFn(v *DelegationRequest) string { return v.DelegationID }
+func roleTemplateVersionsKeyFn(v *RoleTemplateVersion) string {
+	return roleTemplateVersionKey(v.TemplateArn, v.MinorVersion)
+}
 
 // registerAllTables registers every converted resource map on b.registry
 // exactly once. It must be called during construction only (immediately after
@@ -114,6 +117,11 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.delegationRequests = store.Register(b.registry, "delegationRequests", store.New(delegationRequestsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.roleTemplateVersions = store.Register(
+			b.registry, "roleTemplateVersions", store.New(roleTemplateVersionsKeyFn),
+		)
 	},
 }
 

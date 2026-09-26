@@ -1,7 +1,7 @@
 service: vpclattice
 sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
-last_audit_commit: 198990e82
-last_audit_date: 2026-08-07
+last_audit_commit: 2bc650bf9
+last_audit_date: 2026-09-19
 # 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
 # left unchanged per this campaign's convention (the orchestrator, not this
 # pass, creates the commit; see gopherstack-z31a). 1 bug found and fixed,
@@ -128,7 +128,69 @@ items_still_open:
   - "ResourceEndpointAssociation and ServiceNetworkVpcEndpointAssociation lists are always empty (bd: gopherstack-lx2k). Both are populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoints of type Resource/ServiceNetwork referencing a ResourceConfiguration/ServiceNetwork ARN) — vpc-lattice itself exposes no Create operation for either, and this backend has no EC2 VPC-endpoint cross-service integration to source one from. Buildable with enough cross-service work (not structural), just out of scope this pass; the wire shape and empty-vs-error behavior is honest (List returns real empty, Delete honestly 404s) rather than fabricated."
   - "DomainVerification.Status can never advance past PENDING to VERIFIED (bd: gopherstack-lx2k). Real AWS polls public DNS for a caller-provisioned TXT record; this backend has no DNS to observe. Deliberately left PENDING rather than fabricating VERIFIED — a caller relying on verification completing will need to poll forever, which is the honest reflection of what this mock can and can't do."
   - "GetResourceGateway's ManagedBy field (set when a resource gateway is provisioned by another AWS service, not directly by the caller) stays unset -- this backend has no cross-service provisioning path that would ever set it, so every resource gateway here is caller-managed and real AWS would omit it too. serviceManaged was FIXED 2026-08-28: previously omitted entirely (a silent drop of a real, always-present field), now always emitted as false, its correct value for every gateway this backend can create."
+  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): 14
+    census-flagged List ops verified member by member. 9 already exactly
+    matched their Summary type. 5 were dropping sourced-but-unwired
+    members: DomainVerificationSummary.Tags (StartDomainVerificationInput
+    accepts tags, storedDomainVerification already stored them, just never
+    surfaced -- fixed for both Get and List); ServiceNetworkResourceAssoc-
+    iationSummary.CreatedBy/PrivateDnsEnabled; ServiceNetworkServiceAssoc-
+    iationSummary.CreatedBy; ServiceNetworkVpcAssociationSummary.CreatedBy/
+    LastUpdatedAt; ServiceNetworkSummary.LastUpdatedAt. All five are
+    genuinely stored on the corresponding storedX type already, just never
+    copied onto the X...Summary struct that feeds List. Members with no
+    backing source, recorded rather than fabricated: DomainVerification-
+    Summary.TxtMethodConfig (a synthesized DNS TXT verification token --
+    no known algorithm to reproduce it against); ServiceNetworkResource-
+    AssociationSummary.DnsEntry/FailureCode/IsManagedAssociation/
+    PrivateDnsEntry (no DNS-entry/managed-association modeling for this
+    resource, same class as the pre-existing ResourceEndpointAssociation
+    gap above)."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
+
+### 2026-09-19: terraform s3control-and-vpclattice coverage (13 previously-uncovered resources)
+
+Real terraform apply/verify/destroy of all 13 previously-uncovered vpclattice
+resource types (access_log_subscription, auth_policy, listener(+rule),
+resource_configuration, resource_gateway, resource_policy, service,
+service_network_resource_association, service_network_service_association,
+service_network_vpc_association, target_group(+attachment)) against real
+aws-sdk-go-v2 Get/List calls end to end -- 0 emulator bugs found, every
+resource applied and read back correctly on the first real attempt.
+
+### 2026-09-19 (required-output-members reverification)
+
+Re-read all 37 required output fields across the 16 census ops
+(`cmd/requiredoutputfields`) end to end against the current handlers:
+CreateAccessLogSubscription/GetAccessLogSubscription/UpdateAccessLogSubscription
+(`alsToJSON`), StartDomainVerification/GetDomainVerification
+(`domainVerificationToJSON`), and all 9 `List*` ops' top-level `Items`. All
+37 already correctly populated on every path -- no regressions since the
+r80d batch-13 fix (ListAccessLogSubscriptions' `lastUpdatedAt`) or the
+2026-08-28 wrapper-key sweep. 0 fixed, 0 false positives this pass. No code
+changed.
+
+### 2026-09-19 (gopherstack-op3e census): "/tags" prefix shadow (accessanalyzer) -- false positive
+
+cmd/routecollisions flags accessanalyzer as an unguarded winner over
+vpc-lattice's "/tags" claim; accessanalyzer actually scopes by ARN
+service segment. Confirmed with a real vpclattice SDK client through a
+shared registry (tags_routing_cross_service_test.go): still succeeds via
+vpc-lattice's own handler. No code change.
+
+### 2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s)
+
+All 14 census-flagged List ops verified member by member against their
+real Summary type. 9 already matched exactly. 5 were dropping members
+that were already sitting on the storedX type, just never copied onto the
+List-facing Summary struct: DomainVerificationSummary.Tags,
+ServiceNetworkResourceAssociationSummary.CreatedBy/PrivateDnsEnabled,
+ServiceNetworkServiceAssociationSummary.CreatedBy,
+ServiceNetworkVpcAssociationSummary.CreatedBy/LastUpdatedAt,
+ServiceNetworkSummary.LastUpdatedAt -- all fixed, each proven via a real
+aws-sdk-go-v2 client round trip (`list_summary_shapes_test.go`). Unsourced
+members (TxtMethodConfig, DnsEntry/FailureCode/IsManagedAssociation/
+PrivateDnsEntry) recorded in items_still_open rather than fabricated.
 
 ### 2026-09-12 (reqfielddiff, gopherstack-xhu2t)
 

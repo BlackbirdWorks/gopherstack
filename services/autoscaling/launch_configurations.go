@@ -65,10 +65,12 @@ func (b *InMemoryBackend) DescribeLaunchConfigurations(names []string) ([]Launch
 	b.mu.RLock("DescribeLaunchConfigurations")
 	defer b.mu.RUnlock()
 
-	return describeByNames(b.launchConfigurations, names, ErrLaunchConfigurationNotFound,
+	result := describeByNames(b.launchConfigurations, names,
 		func(a, c *LaunchConfiguration) bool {
 			return a.LaunchConfigurationName < c.LaunchConfigurationName
 		})
+
+	return result, nil
 }
 
 // DeleteLaunchConfiguration removes a launch configuration by name.

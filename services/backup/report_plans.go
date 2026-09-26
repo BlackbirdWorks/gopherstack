@@ -35,6 +35,7 @@ func (b *InMemoryBackend) CreateReportPlan(
 		ReportSetting:         setting,
 		CreationTime:          time.Now().UTC(),
 		Tags:                  t,
+		DeploymentStatus:      "COMPLETED",
 	}
 	b.reportPlans.Put(rp)
 	b.reportPlanARNIndex[planARN] = name

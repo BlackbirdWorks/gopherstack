@@ -295,6 +295,34 @@ func runSnapshotLifecycleExtras(t *testing.T, client *ec2sdk.Client) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, disableOut.State)
 
+	// aws_snapshot_create_volume_permission sends the structured
+	// CreateVolumePermission.Add.N.UserId form (ec2@v1.329.0 serializers.go
+	// awsEc2query_serializeOpDocumentModifySnapshotAttributeInput), not the
+	// flat OperationType/UserIds fields the same input type also supports.
+	_, err = client.ModifySnapshotAttribute(t.Context(), &ec2sdk.ModifySnapshotAttributeInput{
+		SnapshotId: aws.String(snapshotID),
+		Attribute:  types.SnapshotAttributeNameCreateVolumePermission,
+		CreateVolumePermission: &types.CreateVolumePermissionModifications{
+			Add: []types.CreateVolumePermission{{UserId: aws.String("123456789012")}},
+		},
+	})
+	require.NoError(t, err)
+
+	permOut, err := client.DescribeSnapshotAttribute(t.Context(), &ec2sdk.DescribeSnapshotAttributeInput{
+		SnapshotId: aws.String(snapshotID), Attribute: types.SnapshotAttributeNameCreateVolumePermission,
+	})
+	require.NoError(t, err)
+
+	var foundPermission bool
+
+	for _, p := range permOut.CreateVolumePermissions {
+		if aws.ToString(p.UserId) == "123456789012" {
+			foundPermission = true
+		}
+	}
+
+	assert.True(t, foundPermission, "ModifySnapshotAttribute's CreateVolumePermission.Add must round-trip")
+
 	_, err = client.ResetSnapshotAttribute(t.Context(), &ec2sdk.ResetSnapshotAttributeInput{
 		SnapshotId: aws.String(snapshotID), Attribute: types.SnapshotAttributeNameCreateVolumePermission,
 	})
@@ -546,10 +574,16 @@ func runNatGatewayAddressLifecycle(t *testing.T, client *ec2sdk.Client) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.DescribeNatGateways(t.Context(), &ec2sdk.DescribeNatGatewaysInput{
+	// Real AWS keeps a deleted NAT gateway describable by ID for a period in
+	// "deleted" state rather than NotFound immediately -- some
+	// terraform-provider-aws delete waiters poll by ID and treat NotFound as
+	// a fatal error instead of "done".
+	descOut, err := client.DescribeNatGateways(t.Context(), &ec2sdk.DescribeNatGatewaysInput{
 		NatGatewayIds: []string{natGatewayID},
 	})
-	require.Error(t, err, "deleted NAT gateway must NotFound when named explicitly, not silently vanish")
+	require.NoError(t, err, "a deleted NAT gateway should still be describable by ID as a tombstone")
+	require.Len(t, descOut.NatGateways, 1)
+	assert.Equal(t, types.NatGatewayStateDeleted, descOut.NatGateways[0].State)
 }
 
 // runNetworkInterfaceExtras covers DetachNetworkInterface,

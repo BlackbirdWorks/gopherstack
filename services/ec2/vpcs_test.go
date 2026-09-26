@@ -142,23 +142,26 @@ func TestDeleteVpcPeeringConnection(t *testing.T) {
 
 // TestTransitGateway tests transit gateway CRUD.
 
-func TestCreateVpc_CIDRConflict(t *testing.T) {
+// TestCreateVpc_OverlappingCIDRAllowed verifies real AWS behaviour: CreateVpc
+// does not reject a CIDR that overlaps an existing VPC's CIDR -- overlap is
+// only rejected within a single VPC (subnets, AssociateVpcCidrBlock).
+func TestCreateVpc_OverlappingCIDRAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateVpc("192.168.0.0/16", "default")
+	first, err := b.CreateVpc("192.168.0.0/16", "default")
 	require.NoError(t, err)
 
-	// Exact same CIDR should conflict.
-	_, err = b.CreateVpc("192.168.0.0/16", "default")
-	require.Error(t, err)
-	require.ErrorIs(t, err, ec2.ErrCIDRConflict)
+	// Exact same CIDR on a different VPC must succeed.
+	second, err := b.CreateVpc("192.168.0.0/16", "default")
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, second.ID)
 
-	// Overlapping CIDR should also conflict.
-	_, err = b.CreateVpc("192.168.1.0/24", "default")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ec2.ErrCIDRConflict)
+	// Overlapping (not identical) CIDR must also succeed.
+	third, err := b.CreateVpc("192.168.1.0/24", "default")
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, third.ID)
 }
 
 // TestHTTP_ModifyVpcAttribute verifies the HTTP handler for ModifyVpcAttribute.

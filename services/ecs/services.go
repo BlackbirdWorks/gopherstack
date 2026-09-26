@@ -136,28 +136,85 @@ func createServiceDefaults(input CreateServiceInput) (string, string, string, st
 	return launchType, schedulingStrategy, propagateTags, azRebalancing
 }
 
+// resolveServiceTaskDefinitionArnLocked resolves taskDefinition to its ARN,
+// or returns "" when taskDefinition is empty (an EXTERNAL-controller
+// service, already validated as allowed to omit it -- see CreateService's
+// isExternal check). Must be called with the backend lock held.
+func (b *InMemoryBackend) resolveServiceTaskDefinitionArnLocked(taskDefinition string) (string, error) {
+	if taskDefinition == "" {
+		return "", nil
+	}
+
+	td, err := b.findTaskDefinitionLocked(taskDefinition)
+	if err != nil {
+		return "", err
+	}
+
+	return td.TaskDefinitionArn, nil
+}
+
+// sweepServiceTransitionsLocked advances services past their modeled DRAINING
+// deadline to INACTIVE, then evicts services that have sat INACTIVE past
+// inactiveServiceTTL. This backend has no background goroutine for service
+// deletion lifecycle, so both transitions are lazily evaluated here at the
+// top of every op that reads or gates on service status -- the same pattern
+// services/dax/clusters.go's sweepClusterTransitionsLocked uses. Caller must
+// hold the write lock.
+func (b *InMemoryBackend) sweepServiceTransitionsLocked(now time.Time) {
+	var evict []*Service
+
+	for _, svc := range b.services.All() {
+		if svc.Status == statusDraining && !svc.DrainDeadline.IsZero() && !now.Before(svc.DrainDeadline) {
+			svc.Status = statusInactive
+			svc.DrainDeadline = time.Time{}
+			svc.InactiveAt = now
+		}
+
+		if svc.Status == statusInactive && !svc.InactiveAt.IsZero() && now.Sub(svc.InactiveAt) >= inactiveServiceTTL {
+			evict = append(evict, svc)
+		}
+	}
+
+	for _, svc := range evict {
+		b.services.Delete(servicesKeyFn(svc))
+		delete(b.serviceIndex, svcRef{cluster: clusterKey(svc.ClusterArn), name: svc.ServiceName})
+	}
+}
+
 // CreateService creates a new ECS service.
 func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, error) {
 	if input.ServiceName == "" {
 		return nil, fmt.Errorf("%w: serviceName is required", ErrInvalidParameter)
 	}
 
-	if input.TaskDefinition == "" {
+	if err := validateDeploymentController(input.DeploymentController); err != nil {
+		return nil, err
+	}
+
+	// CreateServiceInput.TaskDefinition doc comment (ecs@v1.96.0
+	// api_op_CreateService.go): "A task definition must be specified if the
+	// service uses either the ECS or CODE_DEPLOY deployment controllers" --
+	// EXTERNAL services manage their task definition per task set instead.
+	isExternal := input.DeploymentController != nil &&
+		strings.EqualFold(input.DeploymentController.Type, deploymentControllerExternal)
+	if input.TaskDefinition == "" && !isExternal {
 		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
-	if err := validateDeploymentController(input.DeploymentController); err != nil {
-		return nil, err
-	}
-
 	b.mu.Lock("CreateService")
 	defer b.mu.Unlock()
 
+	b.sweepServiceTransitionsLocked(time.Now())
 	b.ensureClusterLocked(clusterName)
 
-	if b.services.Has(scopedKey(clusterName, input.ServiceName)) {
+	// api_op_DeleteService.go: "If you attempt to create a new service with
+	// the same name as an existing service in either ACTIVE or DRAINING
+	// status, you receive an error" -- an INACTIVE existing service does not
+	// block re-creation under the same name.
+	if existing, ok := b.services.Get(scopedKey(clusterName, input.ServiceName)); ok &&
+		existing.Status != statusInactive {
 		return nil, fmt.Errorf("%w: service %s already exists", ErrInvalidParameter, input.ServiceName)
 	}
 
@@ -165,7 +222,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, err
 	}
 
-	td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
+	taskDefinitionArn, err := b.resolveServiceTaskDefinitionArnLocked(input.TaskDefinition)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +245,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 			b.accountID,
 			fmt.Sprintf("cluster/%s", clusterName),
 		),
-		TaskDefinition:                td.TaskDefinitionArn,
+		TaskDefinition:                taskDefinitionArn,
 		Status:                        statusActive,
 		LaunchType:                    launchType,
 		SchedulingStrategy:            schedulingStrategy,
@@ -241,8 +298,10 @@ func (b *InMemoryBackend) DescribeServices(
 ) ([]Service, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
-	b.mu.RLock("DescribeServices")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeServices")
+	defer b.mu.Unlock()
+
+	b.sweepServiceTransitionsLocked(time.Now())
 
 	if !b.clusters.Has(clusterName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
@@ -547,6 +606,8 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string, force ...bo
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
 
+	b.sweepServiceTransitionsLocked(time.Now())
+
 	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
@@ -554,6 +615,16 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string, force ...bo
 	svc, ok := b.services.Get(scopedKey(clusterName, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, serviceName)
+	}
+
+	// Already draining/inactive from a prior DeleteService call -- idempotent
+	// no-op, matching CloudFormation DeleteStack's treatment of an
+	// already-deleted resource rather than re-arming the drain deadline.
+	if svc.Status == statusDraining || svc.Status == statusInactive {
+		cp := *svc
+		cp.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
+
+		return &cp, nil
 	}
 
 	if !forced && (svc.DesiredCount != 0 || svc.RunningCount != 0) {
@@ -571,9 +642,18 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string, force ...bo
 	// DeleteService, not an empty set).
 	tags := copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
-	b.services.Delete(scopedKey(clusterName, key))
+	// api_op_DeleteService.go: "the service status moves from ACTIVE to
+	// DRAINING, and the service is no longer visible in ... ListServices...
+	// After all tasks have transitioned to either STOPPING or STOPPED
+	// status, the service status moves from DRAINING to INACTIVE." This
+	// backend already requires RunningCount==0 to reach here unforced, so it
+	// models the DRAINING window as a fixed lazy delay (serviceDrainDelay)
+	// rather than gating on task convergence. The service record itself is
+	// kept (not removed from b.services) so DescribeServices keeps reporting
+	// it, matching real AWS's "still viewable" DRAINING/INACTIVE behavior.
+	svc.Status = statusDraining
+	svc.DrainDeadline = time.Now().Add(serviceDrainDelay)
 	b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
-	delete(b.serviceIndex, svcRef{cluster: clusterName, name: key})
 	b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
 	b.deleteResourceTagsLocked(svc.ServiceArn)
 
@@ -593,7 +673,11 @@ func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 	out := make([]serviceSnapshot, 0, len(b.serviceIndex))
 
 	for ref := range b.serviceIndex {
-		svc, _ := b.services.Get(scopedKey(ref.cluster, ref.name))
+		svc, ok := b.services.Get(scopedKey(ref.cluster, ref.name))
+		if !ok {
+			continue
+		}
+
 		out = append(out, serviceSnapshot{
 			clusterName: ref.cluster,
 			service:     cloneServiceForSnapshot(svc),
@@ -799,8 +883,10 @@ func (b *InMemoryBackend) ListServices(
 ) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
-	b.mu.RLock("ListServices")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListServices")
+	defer b.mu.Unlock()
+
+	b.sweepServiceTransitionsLocked(time.Now())
 
 	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
@@ -810,6 +896,12 @@ func (b *InMemoryBackend) ListServices(
 	arns := make([]string, 0, len(svcs))
 
 	for _, svc := range svcs {
+		// api_op_DeleteService.go: a DRAINING or INACTIVE service "is no
+		// longer visible in ... the ListServices API operation".
+		if svc.Status != statusActive {
+			continue
+		}
+
 		if launchType != "" && svc.LaunchType != launchType {
 			continue
 		}

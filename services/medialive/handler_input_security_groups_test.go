@@ -65,14 +65,20 @@ func TestInputSecurityGroup_CRUD(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Len(t, listResp["inputSecurityGroups"], 1)
 
-	// Delete
+	// Delete: real AWS's DeleteInputSecurityGroup marks the group DELETED
+	// rather than removing it outright -- terraform-provider-aws's delete
+	// waiter (waitInputSecurityGroupDeleted) polls DescribeInputSecurityGroup
+	// for State=="DELETED", not for NotFound.
 	rec = doRequest(t, h, http.MethodDelete, "/prod/inputSecurityGroups/"+groupID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, medialive.InputSecurityGroupCount(h.Backend.(*medialive.InMemoryBackend)))
+	assert.Equal(t, 1, medialive.InputSecurityGroupCount(h.Backend.(*medialive.InMemoryBackend)))
 
-	// Describe deleted returns 404
+	// Describe still finds it, now DELETED.
 	rec = doRequest(t, h, http.MethodGet, "/prod/inputSecurityGroups/"+groupID, nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var describeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+	assert.Equal(t, "DELETED", describeResp["state"])
 }
 
 func TestListInputSecurityGroups_Empty(t *testing.T) {

@@ -303,6 +303,65 @@ func (b *InMemoryBackend) ResetSnapshotAttribute(snapshotID string) error {
 	return nil
 }
 
+// ModifySnapshotCreateVolumePermission applies CreateVolumePermission.Add/Remove
+// account IDs and the "all" (public) group to a snapshot, as tracked
+// per-grantee state -- real AWS clients (including the Terraform provider's
+// aws_snapshot_create_volume_permission resource) read back the exact
+// grantee they added via DescribeSnapshotAttribute, not a fixed stub.
+func (b *InMemoryBackend) ModifySnapshotCreateVolumePermission(
+	snapshotID string, addAccountIDs []string, addPublic bool, removeAccountIDs []string, removePublic bool,
+) error {
+	if snapshotID == "" {
+		return fmt.Errorf("%w: SnapshotId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifySnapshotCreateVolumePermission")
+	defer b.mu.Unlock()
+
+	if _, ok := b.snapshots.Get(snapshotID); !ok {
+		return fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
+	}
+
+	if b.snapshotCreateVolumePerms[snapshotID] == nil {
+		b.snapshotCreateVolumePerms[snapshotID] = make(map[string]bool)
+	}
+
+	for _, id := range addAccountIDs {
+		b.snapshotCreateVolumePerms[snapshotID][id] = true
+	}
+
+	for _, id := range removeAccountIDs {
+		delete(b.snapshotCreateVolumePerms[snapshotID], id)
+	}
+
+	if addPublic {
+		b.snapshotCreateVolumePubGroup[snapshotID] = true
+	}
+
+	if removePublic {
+		delete(b.snapshotCreateVolumePubGroup, snapshotID)
+	}
+
+	return nil
+}
+
+// GetSnapshotCreateVolumePermission returns the account IDs a snapshot's
+// create-volume permission has been granted to and whether it has been made
+// public, as previously set by ModifySnapshotCreateVolumePermission.
+func (b *InMemoryBackend) GetSnapshotCreateVolumePermission(snapshotID string) ([]string, bool) {
+	b.mu.RLock("GetSnapshotCreateVolumePermission")
+	defer b.mu.RUnlock()
+
+	ids := make([]string, 0, len(b.snapshotCreateVolumePerms[snapshotID]))
+	for id := range b.snapshotCreateVolumePerms[snapshotID] {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	return ids, b.snapshotCreateVolumePubGroup[snapshotID]
+}
+
 // ---- CreateDefaultVpc ----
 
 // LockSnapshot locks a snapshot to prevent deletion.
@@ -454,12 +513,31 @@ func (b *InMemoryBackend) ImportSnapshot(
 		kmsKeyID = defaultEBSKmsKeyAlias
 	}
 
+	// Real AWS backs a completed import task with an actual EBS snapshot
+	// (DescribeImportSnapshotTasks.SnapshotTaskDetail.SnapshotId); previously
+	// this task completed with no SnapshotID and no matching Snapshot record,
+	// so aws_ebs_snapshot_import's post-create DescribeSnapshots read always
+	// found nothing.
+	snap := &Snapshot{
+		SnapshotID:  newSnapshotID(),
+		Description: description,
+		State:       stateCompleted,
+		Progress:    "100%",
+		StartTime:   time.Now().UTC(),
+		VolumeSize:  defaultImportedSnapshotSizeGiB,
+		Encrypted:   encrypted,
+		KmsKeyID:    kmsKeyID,
+		OwnerID:     b.AccountID,
+	}
+	b.snapshots.Put(snap)
+
 	task := &SnapshotImportTask{
 		ImportTaskID: "import-snap-" + uuid.New().String()[:8],
 		Description:  description,
 		Status:       stateTaskCompleted,
 		Encrypted:    encrypted,
 		KmsKeyID:     kmsKeyID,
+		SnapshotID:   snap.SnapshotID,
 	}
 	b.snapshotImportTasks.Put(task)
 
@@ -661,6 +739,8 @@ func (b *InMemoryBackend) DeleteSnapshot(id string) error {
 	delete(b.tags, id)
 	delete(b.snapshotAttributes, id)
 	delete(b.snapshotTiers, id)
+	delete(b.snapshotCreateVolumePerms, id)
+	delete(b.snapshotCreateVolumePubGroup, id)
 
 	prefix := id + ":"
 	for key := range b.fastSnapshotRestores {

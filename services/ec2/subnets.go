@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
 )
 
@@ -323,7 +324,7 @@ func (b *InMemoryBackend) CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn st
 	for _, existing := range b.subnets.All() {
 		if existing.VPCID == vpcID && cidrsOverlap(cidr, existing.CIDRBlock) {
 			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing subnet %s (%s)",
-				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
+				ErrSubnetCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
 		}
 	}
 
@@ -334,6 +335,7 @@ func (b *InMemoryBackend) CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn st
 		CIDRBlock:        cidr,
 		AvailabilityZone: az,
 		OutpostArn:       outpostArn,
+		Arn:              arn.Build("ec2", b.Region, b.AccountID, "subnet/"+id),
 	}
 	b.subnets.Put(s)
 	b.indexSubnetLocked(id, vpcID)

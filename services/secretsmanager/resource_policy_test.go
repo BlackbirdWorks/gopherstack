@@ -31,6 +31,7 @@ func TestResourcePolicy_PutGetDelete(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "policy-secret", SecretString: "v"},
@@ -72,6 +73,7 @@ func TestResourcePolicy_EmptyPolicyRejected(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "policy-empty", SecretString: "v"},
@@ -89,6 +91,7 @@ func TestResourcePolicy_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.GetResourcePolicy(context.Background(), &secretsmanager.GetResourcePolicyInput{SecretID: "missing"})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 
@@ -109,6 +112,7 @@ func TestResourcePolicy_DeletedSecretRejected(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "policy-del", SecretString: "v"},
@@ -188,6 +192,7 @@ func TestValidateResourcePolicy(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 
 			if tt.createSecret {
 				_, err := b.CreateSecret(
@@ -282,6 +287,7 @@ func TestGetResourcePolicy_DeletedSecret(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			tt.setup(t, b)
 
 			secretID := map[string]string{
@@ -343,6 +349,7 @@ func TestGetResourcePolicy_DeletedSecret_HTTP(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			if tt.setup != nil {
 				tt.setup(t, b)
 			}
@@ -490,6 +497,7 @@ func TestResourcePolicy_Cycle(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			if tt.setup != nil {
 				tt.setup(t, backend)
 			}
@@ -516,6 +524,7 @@ func TestResourcePolicy_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "no-policy", SecretString: "v"},
@@ -535,6 +544,7 @@ func TestResourcePolicy_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "put-del-policy", SecretString: "v"},
@@ -554,6 +564,7 @@ func TestResourcePolicy_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "del-del-policy", SecretString: "v"},
@@ -579,6 +590,7 @@ func TestPutResourcePolicy_EmptyRejects(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "ep-secret", SecretString: "v"},
@@ -597,6 +609,7 @@ func TestPutResourcePolicy_EmptyHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "ep-http", SecretString: "v"},
@@ -669,6 +682,7 @@ func TestValidateResourcePolicy_HTTP(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			h := secretsmanager.NewHandler(b)
 			rec := doR1Request(t, h, "secretsmanager.ValidateResourcePolicy", tt.body)
 
@@ -692,6 +706,7 @@ func TestValidateResourcePolicy_HTTP_SecretExists(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	// Create a secret first.

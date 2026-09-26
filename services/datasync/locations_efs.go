@@ -21,14 +21,20 @@ func (b *InMemoryBackend) CreateLocationEfs(
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()
 
-	// EFS URI: efs://<filesystem-id>/<subdirectory>
+	// EFS URI (AWS-documented format, e.g.
+	// "efs://af-south-1a.fs-1234567890abcdef0.efs.af-south-1.amazonaws.com/"):
+	// the AWS provider's resourceLocationEFSRead splits the host on "."
+	// expecting an AZ-qualifier segment before the file system ID -- a bare
+	// "efs://<fs-id>/" (no dot) panics it with "index out of range [1] with
+	// length 1". region+"a" matches this package's established synthetic-AZ
+	// convention (see services/efs/mount_targets.go).
 	fsID := efsFilesystemArn
 	if idx := strings.LastIndex(efsFilesystemArn, "/"); idx >= 0 {
 		fsID = efsFilesystemArn[idx+1:]
 	}
 
 	sub := strings.TrimPrefix(subdirectory, "/")
-	locationURI := fmt.Sprintf("efs://%s/%s", fsID, sub)
+	locationURI := fmt.Sprintf("efs://%sa.%s.efs.%s.amazonaws.com/%s", b.region, fsID, b.region, sub)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -120,7 +126,7 @@ func (b *InMemoryBackend) UpdateLocationEfs(
 		}
 
 		sub := strings.TrimPrefix(subdirectory, "/")
-		l.LocationURI = fmt.Sprintf("efs://%s/%s", fsID, sub)
+		l.LocationURI = fmt.Sprintf("efs://%sa.%s.efs.%s.amazonaws.com/%s", b.region, fsID, b.region, sub)
 	}
 
 	if l.Efs == nil {

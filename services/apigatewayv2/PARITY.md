@@ -1,8 +1,8 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
-last_audit_commit: f66686eee
-last_audit_date: 2026-09-18
+last_audit_commit: 22b4f068c
+last_audit_date: 2026-09-20
 overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
                        # nested-candidate batch): hand-verified the 31 apigatewayv2 candidates
                        # from zero_nested_candidates.json (RoutingRule/List*/Portal family).
@@ -387,6 +387,23 @@ deferred:
   - apigateway (v1)'s identical live-routing-vs-deployment-snapshot bug (bd gopherstack-fum) -- deliberately not fixed alongside v2's; v1's resource-tree/routingTrie data plane and lack of an autoDeploy model make it a distinctly larger effort, not a copy of this fix
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
+
+## Notes (2026-09-24 inbound-activity fix)
+
+wsReadLoop never refreshed the connection's LastActiveAt in
+apigatewaymanagementapi, so a client sending frames but never receiving a
+PostToConnection was wrongly evicted by that service's idle janitor after 10
+minutes. Now calls the new TouchConnection per inbound frame.
+
+## Notes (2026-09-19 gopherstack-op3e census)
+
+cmd/routecollisions flags ecr (Docker Registry v2, registry enabled) and
+appsync (User-Agent-gated /v2/apis) as unguarded winners over
+apigatewayv2's "/v2/..." endpoints -- false positive. Both guards are
+real; confirmed with real apigatewayv2 SDK calls (apis/domainnames/
+vpclinks/portals/portalproducts) through a shared registry with ecr's
+local registry enabled (v2_routing_cross_service_test.go). No code
+change.
 
 ## Notes (2026-09-18 pass — zeroguard omitted-vs-zero sweep)
 
@@ -1099,3 +1116,11 @@ Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1
 ./services/apigatewayv2/... ./pkgs/persistence/...`, `golangci-lint run
 --new-from-rev=HEAD ./services/apigatewayv2/...` all clean. No persisted
 field changed; no version bump.
+
+## 2026-09-20 (apigatewayv2-apprunner-and-macie terraform coverage)
+
+New Terraform coverage (test/terraform/fixtures/apigatewayv2-apprunner-and-macie.tf,
+apigatewayv2_apprunner_and_macie_test.go) for api_mapping, authorizer, deployment, domain_name,
+integration_response, model, route_response, vpc_link -- all 8 resources
+the census flagged as uncovered. Zero bugs found; confirms the existing
+`ops:` table verdicts.

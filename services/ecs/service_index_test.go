@@ -64,7 +64,11 @@ func TestECSServiceIndexConsistency(t *testing.T) {
 			},
 		},
 		{
-			name: "deleted_service_excluded_from_reconciler_snapshot",
+			// A deleted service moves to DRAINING (api_op_DeleteService.go),
+			// not out of existence, so it stays in the reconciler's index
+			// snapshot; reconcileService's own Status!=ACTIVE guard is what
+			// keeps the reconciler from managing it further.
+			name: "deleted_service_excluded_from_active_reconciliation",
 			run: func(t *testing.T) {
 				t.Helper()
 
@@ -83,8 +87,14 @@ func TestECSServiceIndexConsistency(t *testing.T) {
 
 				snaps := b.GetServicesForReconcilerForTest()
 				for _, s := range snaps {
-					require.NotEqual(t, "svc-b", s.ServiceName)
+					if s.ServiceName == "svc-b" {
+						require.NotEqual(t, "ACTIVE", s.Status)
+
+						return
+					}
 				}
+
+				t.Fatal("svc-b missing from reconciler snapshot")
 			},
 		},
 		{

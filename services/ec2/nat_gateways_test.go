@@ -103,7 +103,12 @@ func TestNatGatewayOperations(t *testing.T) {
 				err = b.DeleteNatGateway(ngw.ID)
 				require.NoError(t, err)
 				ngws := b.DescribeNatGateways([]string{ngw.ID})
-				assert.Empty(t, ngws)
+				require.Len(t, ngws, 1, "a by-ID describe should still find the deleted gateway as a tombstone")
+				assert.Equal(t, "deleted", ngws[0].State)
+
+				for _, live := range b.DescribeNatGateways(nil) {
+					assert.NotEqual(t, ngw.ID, live.ID, "an unfiltered describe must not surface tombstones")
+				}
 
 			case "delete_nonexistent":
 				err := b.DeleteNatGateway("nat-nonexistent")

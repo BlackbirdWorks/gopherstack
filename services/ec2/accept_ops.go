@@ -101,14 +101,16 @@ type TransitGatewayPeeringAttachment struct {
 
 // TransitGatewayVpcAttachment represents a TGW VPC attachment.
 type TransitGatewayVpcAttachment struct {
-	CreationTime               time.Time `json:"creationTime"`
-	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID,omitempty"`
-	TransitGatewayID           string    `json:"transitGatewayID,omitempty"`
-	VpcID                      string    `json:"vpcID,omitempty"`
-	State                      string    `json:"state,omitempty"`
-	// SubnetIDs is the set of subnet IDs the attachment uses, managed via
-	// ModifyTransitGatewayVpcAttachment's AddSubnetIds/RemoveSubnetIds.
-	SubnetIDs []string `json:"subnetIDs,omitempty"`
+	CreationTime                    time.Time `json:"creationTime"`
+	TransitGatewayAttachmentID      string    `json:"transitGatewayAttachmentID,omitempty"`
+	TransitGatewayID                string    `json:"transitGatewayID,omitempty"`
+	VpcID                           string    `json:"vpcID,omitempty"`
+	State                           string    `json:"state,omitempty"`
+	ApplianceModeSupport            string    `json:"applianceModeSupport,omitempty"`
+	DNSSupport                      string    `json:"dnsSupport,omitempty"`
+	Ipv6Support                     string    `json:"ipv6Support,omitempty"`
+	SecurityGroupReferencingSupport string    `json:"securityGroupReferencingSupport,omitempty"`
+	SubnetIDs                       []string  `json:"subnetIDs,omitempty"`
 }
 
 // VpcEndpointConnection represents a VPC endpoint connection to a service.
@@ -472,8 +474,13 @@ func (b *InMemoryBackend) AddTGWVpcAttachmentInternal(att *TransitGatewayVpcAtta
 
 // ---- AcceptVpcEndpointConnections ----
 
+// vpcEndpointConnectionStateAvailable matches types.StateAvailable
+// (ec2@v1.329.0 types/enums.go) -- see vpcEndpointConnectionStateRejected's
+// comment for why this is title-case, unlike most other EC2 state fields.
+const vpcEndpointConnectionStateAvailable = "Available"
+
 // AcceptVpcEndpointConnections accepts VPC endpoint connections to the given service,
-// transitioning each endpoint's state to "available".
+// transitioning each endpoint's state to "Available".
 // Returns a non-nil (possibly empty) slice of accepted connections.
 func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 	serviceID string,
@@ -506,7 +513,7 @@ func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 			b.vpcEndpointConnections.Put(conn)
 		}
 
-		conn.State = stateAvailable
+		conn.State = vpcEndpointConnectionStateAvailable
 		cp := *conn
 		accepted = append(accepted, &cp)
 	}

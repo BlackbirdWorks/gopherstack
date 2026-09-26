@@ -268,7 +268,7 @@ func TestHandler_GetDecryptedAPIKey(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp, "Scope")
+				assert.NotContains(t, resp, "Scope", "GetDecryptedAPIKeyOutput has no Scope member")
 				assert.Contains(t, resp, "TokenDomains")
 			}
 		})

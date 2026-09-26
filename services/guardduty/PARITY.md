@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
-last_audit_commit: ca2732322
-last_audit_date: 2026-08-29
+last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: b7c35baea (guardduty-and-securityhub)
+last_audit_date: 2026-09-20
 overall: A            # 2026-09-08 (gopherstack-uu0n): DeleteMembers/DisassociateMembers/
                        # StopMonitoringMembers's autoEnableOrganizationMembers=ALL guard
                        # (gopherstack-krb1) rejected the whole call whenever the detector's org config was
@@ -264,21 +264,46 @@ families:
   investigations: {status: partial, note: "NEW family (this pass, GuardDuty Extended Threat Detection): CreateInvestigation/GetInvestigation/ListInvestigations are all real -- detector-scoped state, real detector+AI_ANALYST validation, cascade-deleted with their detector (DeleteDetectorCleansUpSubResources), Snapshot/Restore round-trips (detectorDTO[Investigation], the same pattern as filters/ipSets/publishingDestinations). status: partial (not ok) because this backend has NO threat-analysis engine: every investigation is permanently RUNNING and cloud/confidence/endTime/error/metadata/risk/riskLevel/summary/title never populate -- not a wire bug, an honest structural limitation (see the sibling wafv2 service's same treatment of honestly-empty analytics). See TestWireShape_Investigation_NoFabricatedAnalysis, which asserts none of these are ever present on the wire."}
 gaps: []
 items_still_open:
-  - "GetMalwareScan still doesn't emit scanConfiguration/scanResultDetails/scannedResources[] (the per-resource detail list, not just its count) -- this backend has no state model for individual scanned files/objects/volumes within a scan, so these three remain absent. All three are optional on the real output so a real client won't error, just gets nil/absent fields. scanStatusReason/scanCompletedAt are correctly absent for a RUNNING scan (this backend's scans never transition to SKIPPED/COMPLETED/FAILED, so those states -- and the fields real AWS would populate for them -- are unreachable)."
-  - "GetOrganizationStatistics.organizationDetails.organizationStatistics.countByFeature is always [] -- this backend has no per-feature member-account enrollment tracking (which member accounts have S3_DATA_EVENTS vs EKS_AUDIT_LOGS etc. enabled), only OrgConfig.Features at the requesting-account level. Real types.OrganizationFeatureStatistics needs a name+enabledAccountsCount(+additionalConfiguration) per feature across the whole org, which would require a materially larger state model."
-  - "GetRemainingFreeTrialDays' per-account features[] only ever reports the three always-on base sources (FLOW_LOGS/CLOUD_TRAIL/DNS_LOGS); it never reports an account's actually-enabled optional features (S3_DATA_EVENTS, EKS_AUDIT_LOGS, EBS_MALWARE_PROTECTION, etc.) because this backend tracks no per-member feature-enablement state, only Features on that member's own Detector. freeTrialDaysRemaining is a real computed value (30 minus days since the member was added, floored at 0), not a placeholder, but is necessarily an approximation since this backend has no true per-feature trial-start timestamp."
-  - "ListCoverage's FilterCriteria is not parsed or applied (handleListCoverage ignores the request body entirely) -- deliberately, not an oversight: this backend holds no coverage-resource state at all (see GetCoverageStatistics/ListCoverage ops above, always {}/[]), so a filter would only ever operate over a permanently-empty list. Implementing filter parsing/matching today would read as working filtering while actually being dead plumbing that can never filter anything real -- worse than the honest gap of not implementing it. Do not build this until coverage-resource state exists to filter over."
-structural_gaps:
-  - "Investigation.status is always RUNNING; endTime/error never populate because no investigation this backend creates ever transitions to COMPLETED or FAILED -- those transitions require account-level finding correlation and Bedrock-backed analysis this emulator does not implement. This mirrors MalwareScan's identical, pre-existing RUNNING-forever limitation (see GetMalwareScan's gap above) rather than being a new bug class. Confidence/Risk/RiskLevel/Summary/Cloud/Metadata (Investigation) and Confidence/RiskLevel/Title (InvestigationSummary) are real optional members that only the (unimplemented) analysis engine would ever populate on AWS itself; they are correctly and permanently absent here, never fabricated. No AI/ML threat-analysis engine exists anywhere in this backend, so this data source cannot exist in an emulator, ever -- not a buildable state model. See TestWireShape_Investigation_NoFabricatedAnalysis."
-deferred:
-  - "GetOrganizationStatistics.countByFeature per-feature org-wide enrollment tracking (would need a new state model, not just a wire-shape fix)"
-  - "GetRemainingFreeTrialDays per-account optional-feature tracking (which member accounts have S3_DATA_EVENTS/EKS_AUDIT_LOGS/etc. enabled and when, vs. only the always-on base sources this backend currently reports)"
-  - "ListCoverage FilterCriteria/SortCriteria -- blocked on a coverage-resource state model existing first (see gaps above); implementing the filter before that state model exists would be worse than not implementing it"
-  - "A real threat-analysis engine for investigations (finding correlation, Bedrock-backed risk/confidence scoring, natural-language summary) -- would require a materially larger feature (this emulator has no equivalent of any AI-scored analysis anywhere else in the service either), not a wire-shape fix"
+  - "GetMalwareScan: no per-object scan model exists, so scanConfiguration/scanResultDetails/scannedResources[] (all optional) stay absent -- would need file/object/volume-level state this backend doesn't track."
+  - "GetOrganizationStatistics.countByFeature is always [] -- needs per-feature, per-member-account org-wide enrollment tracking that doesn't exist (only OrgConfig.Features at the requesting account exists)."
+  - "GetRemainingFreeTrialDays' features[] only reports the three always-on base sources -- no per-member optional-feature (S3_DATA_EVENTS/EKS_AUDIT_LOGS/etc.) enablement state exists to report from."
+  - "ListCoverage's FilterCriteria/SortCriteria are not parsed -- this backend holds no coverage-resource state at all (always {}/[]), so a filter would only ever operate over a permanently-empty list; do not build until coverage-resource state exists."
+  - "Investigation.status is always RUNNING (endTime/error/Confidence/Risk/Summary never populate) -- no AI/ML threat-analysis engine exists anywhere in this backend to drive those transitions; mirrors MalwareScan's identical RUNNING-forever limitation. See TestWireShape_Investigation_NoFabricatedAnalysis."
+deferred: []
 leaks: {status: clean, note: "no goroutines, timers, or background janitors introduced this pass or present previously; all state lives in InMemoryBackend's store.Table fields guarded by the single lockmetrics.RWMutex, reset via Reset()/Restore(). New finding_criteria.go/finding_statistics.go/usage.go/pagination.go code is pure computation over existing locked state, no new locking or background work. investigations.go/handler_investigations.go (this pass) follow the same pattern: the investigations store.Table is guarded by the same lockmetrics.RWMutex, no new locks or goroutines."}
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform-coverage sweep, guardduty-and-securityhub)
+
+RouteMatcher's blanket `/organization` prefix swallowed SecurityHub's `/organization/admin/enable`
+and `/organization/configuration`; narrowed to the real `/organization/statistics` path only.
+
+### 2026-09-19 (required-output-members census, gopherstack-r80d)
+
+Checked all 44 ops the census flags with >=1 SDK-required output member
+(65 fields total) against their handler success paths. All 65 are already
+always populated (empty slices/maps via `orEmpty`/`orEmptyAny`/`tagsOrEmpty`
+where AWS allows empty, never a conditional/omitted required scalar). No
+fixes needed; no new gaps found. No code changes to services/guardduty/.
+
+### 2026-09-18 (ledger burn-down)
+
+Adjudicated all 4 `items_still_open` + 1 `structural_gaps` + 4 `deferred`
+entries (13 total, heavily duplicated across the three lists). Verified each
+against code (GetMalwareScan, GetOrganizationStatistics.countByFeature,
+GetRemainingFreeTrialDays.features[], ListCoverage FilterCriteria,
+Investigation.status) -- all 5 confirmed still genuinely open: real,
+unmodeled subsystems (per-object scan detail, per-feature org/member
+enrollment tracking, coverage-resource state, an AI threat-analysis engine),
+none fixable in-process without a materially larger state model. Removed 0
+stale entries (no staleclaims hits for guardduty; none were already fixed).
+Kept all 5, each tightened to one line and consolidated into
+`items_still_open` (the authoritative list per gopherstack-anjf); the
+`structural_gaps` field and its duplicate restatement in `deferred` are
+folded in and both now empty/removed. Fixed 0 (no in-process-fixable gap
+found this pass). No code changes to services/guardduty/.
 
 Protocol: restjson1 (REST paths like `/detector`, `/detector/{id}/filter/{name}`).
 
@@ -905,3 +930,26 @@ Gates: `go build ./...` clean; `go vet ./services/guardduty/...` clean; `go test
 --concurrency 2 --new-from-rev=HEAD ./services/guardduty/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL. No persisted-field changes, no inventory rows, no
 snapshot version bump (ListDetectors was never persisted state, just an accessor).
+
+## 2026-09-20 (RouteMatcher prefix collision, found while covering macie2's terraform gaps)
+
+RouteMatcher's `strings.HasPrefix(path, "/admin")` swallowed Macie2's POST
+`/admin` (EnableOrganizationAdminAccount), DELETE `/admin`
+(DisableOrganizationAdminAccount), and POST `/admin/configuration`
+(UpdateOrganizationConfiguration) -- none of which GuardDuty's own real API
+uses (GuardDuty's admin routes are GET `/admin`, POST `/admin/enable`, POST
+`/admin/disable`). GET `/admin` (ListOrganizationAdminAccounts) is the same
+shape in both services, so that one case is now also scoped by the SigV4
+signing service (see isGuardDutyAdminPath). Found via a real `tofu apply`
+of a combined macie2+guardduty-adjacent fixture (apigatewayv2-apprunner-and-macie), not a
+GuardDuty-specific test. See
+.claude/memories/route-matcher-prefix-collision.md.
+
+Regression: TestRouteMatcher_RecognizesServicePaths (admin/admin_enable/
+admin_disable + the two new "not claimed" cases) and
+TestRouteMatcher_AdminListDisambiguatesBySigV4Service.
+
+Gates: `go build ./...`, `go vet ./services/guardduty/...`, `go test -race
+-count=1 ./services/guardduty/...` (pass), `golangci-lint run
+./services/guardduty/...` (0 issues). No persisted field changed, no
+snapshot version bump.

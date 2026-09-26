@@ -715,12 +715,13 @@ func (h *Handler) handleDeleteAction(ctx context.Context, body []byte) ([]byte, 
 }
 
 type actionSummary struct {
-	ActionName       string  `json:"ActionName"`
-	ActionArn        string  `json:"ActionArn"`
-	ActionType       string  `json:"ActionType"`
-	Status           string  `json:"Status,omitempty"`
-	CreationTime     float64 `json:"CreationTime"`
-	LastModifiedTime float64 `json:"LastModifiedTime"`
+	Source           ActionSource `json:"Source"`
+	ActionName       string       `json:"ActionName"`
+	ActionArn        string       `json:"ActionArn"`
+	ActionType       string       `json:"ActionType"`
+	Status           string       `json:"Status,omitempty"`
+	CreationTime     float64      `json:"CreationTime"`
+	LastModifiedTime float64      `json:"LastModifiedTime"`
 }
 
 // listActionsInput is the ListActions request shape (named, not inline —
@@ -765,6 +766,7 @@ func actionToSummary(a *Action) actionSummary {
 		Status:           a.Status,
 		CreationTime:     epochSeconds(a.CreationTime),
 		LastModifiedTime: epochSeconds(a.LastModifiedTime),
+		Source:           a.Source,
 	}
 }
 
@@ -804,6 +806,10 @@ func (h *Handler) handleDeleteAssociation(ctx context.Context, body []byte) ([]b
 	return json.Marshal(map[string]string{"SourceArn": req.SourceArn, "DestinationArn": req.DestinationArn})
 }
 
+// associationSummary mirrors types.AssociationSummary (types.go:157-188).
+// CreatedBy (types.UserContext) is not emitted: same class of gap as every
+// other CreatedBy/LastModifiedBy field in this service (no user-identity
+// concept modeled), and Association has no CreatedBy field to source it from.
 type associationSummary struct {
 	SourceArn       string  `json:"SourceArn"`
 	SourceType      string  `json:"SourceType,omitempty"`
@@ -1102,19 +1108,19 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: DestinationArn is required", errInvalidRequest)
 	}
 
-	assoc, err := h.Backend.AddAssociation(
+	if _, err := h.Backend.AddAssociation(
 		ctx,
 		req.SourceArn,
 		req.DestinationArn,
 		req.AssociationType,
 		nil,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, err
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: added association", "arn", assoc.AssociationArn)
+	log.InfoContext(ctx, "sagemaker: added association",
+		"source", req.SourceArn, "destination", req.DestinationArn)
 
 	// AddAssociationOutput has no AssociationArn member at all -- it echoes
 	// back SourceArn and DestinationArn (api_op_AddAssociation.go).
@@ -1151,7 +1157,7 @@ func (h *Handler) handleAssociateTrialComponent(ctx context.Context, body []byte
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: associated trial component",
-		"trial", assoc.TrialArn, "component", assoc.TrialComponentArn)
+		"trial", req.TrialName, "component", req.TrialComponentName)
 
 	return json.Marshal(map[string]string{
 		"TrialArn":          assoc.TrialArn,
@@ -1213,7 +1219,7 @@ func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: created action", "name", a.ActionName, "arn", a.ActionArn)
+	log.InfoContext(ctx, "sagemaker: created action", "name", a.ActionName)
 
 	return json.Marshal(map[string]string{"ActionArn": a.ActionArn})
 }

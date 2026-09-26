@@ -332,10 +332,15 @@ func TestDescribeDataRepositoryTasks_Filters(t *testing.T) {
 	t.Run("task-lifecycle", func(t *testing.T) {
 		t.Parallel()
 
+		// task2's CancelDataRepositoryTask call above only sets CANCELING;
+		// it settles at the terminal CANCELED on the very next sweep, which
+		// this Describe call itself triggers (see
+		// sweepDataRepositoryTasksLocked) -- so CANCELED, not the
+		// transient CANCELING, is the value guaranteed observable here.
 		out, err := client.DescribeDataRepositoryTasks(t.Context(), &fsxsdk.DescribeDataRepositoryTasksInput{
 			Filters: []types.DataRepositoryTaskFilter{{
 				Name:   types.DataRepositoryTaskFilterNameTaskLifecycle,
-				Values: []string{"CANCELING"},
+				Values: []string{"CANCELED"},
 			}},
 		})
 		require.NoError(t, err)

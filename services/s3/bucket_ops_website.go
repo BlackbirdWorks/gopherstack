@@ -1,8 +1,4 @@
-package s3 //nolint:dupl // put/get/delete HTTP handlers are structurally identical
-// thin wrappers around distinct XML sub-resources (website here, encryption in the
-// sibling file); each family lives in its own file per project convention, which
-// makes the whole-file clone visible to dupl even though the code always looked
-// like this.
+package s3
 
 import (
 	"context"

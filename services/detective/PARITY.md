@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: detective
 sdk_module: aws-sdk-go-v2/service/detective@v1.41.4   # version audited against
-last_audit_commit: c9523cebb
-last_audit_date: 2026-09-18
+last_audit_commit: ed6ef1a53
+last_audit_date: 2026-09-19
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -79,6 +79,14 @@ StartMonitoringMember's ACCEPTED_BUT_DISABLED precondition. detective: 29/29
 typed-client covered (was 10/29).
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (amplify/eks/accessanalyzer) -- false positive
+
+Same census finding as dlm's: each winner's bare "/tags/" claim is gated by
+an ARN-service-segment check the tool's literal extraction misses.
+Confirmed with a real detective SDK client through a shared registry
+(tags_routing_cross_service_test.go): still gets detective's own
+ResourceNotFoundException. No code change.
 
 ### 2026-09-18 (reqfielddiff tier-1): CreateMembers.DisableEmailNotification -- missing feature
 

@@ -86,7 +86,7 @@ func TestDescribeDBClusters_Filters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			postRDSForm(t, h,
 				"Action=CreateDBCluster&Version=2014-10-31"+
 					"&DBClusterIdentifier=filt-mysql-clu&Engine=aurora-mysql"+
@@ -191,7 +191,7 @@ func TestDescribeDBSnapshots_Filters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			postRDSForm(t, h,
 				"Action=CreateDBInstance&Version=2014-10-31"+
 					"&DBInstanceIdentifier=filt-snap-db-1&Engine=postgres")
@@ -253,7 +253,7 @@ func TestDescribeDBClusterSnapshots_Filters(t *testing.T) {
 		} `xml:"DescribeDBClusterSnapshotsResult"`
 	}
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	postRDSForm(t, h,
 		"Action=CreateDBCluster&Version=2014-10-31"+
 			"&DBClusterIdentifier=filt-csnap-clu&Engine=aurora-mysql"+

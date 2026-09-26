@@ -192,6 +192,84 @@ func validateCodeSecurityRuleSetCategories(categories []string) error {
 	return nil
 }
 
+// validCodeSecurityProjectSelectionScope is the sole real ProjectSelectionScope
+// enum value (types.ProjectSelectionScopeAll, inspector2 SDK enums.go) -- the
+// real type has exactly one legal value, not the ALL/SPECIFIC pair a prior
+// audit guessed at.
+const validCodeSecurityProjectSelectionScope = "ALL"
+
+// validateCodeSecurityScopeSettings enforces ScopeSettings.projectSelectionScope's
+// real enum constraint when the field is present. Real AWS returns
+// ValidationException for a violation; this backend previously accepted any value.
+func validateCodeSecurityScopeSettings(scopeSettings map[string]any) error {
+	raw, ok := scopeSettings["projectSelectionScope"]
+	if !ok {
+		return nil
+	}
+
+	scope, isStr := raw.(string)
+	if !isStr || scope != validCodeSecurityProjectSelectionScope {
+		return fmt.Errorf("%w: scopeSettings.projectSelectionScope: invalid value %v", ErrValidation, raw)
+	}
+
+	return nil
+}
+
+// validateCodeSecurityPeriodicScanConfig enforces PeriodicScanConfiguration.frequency's
+// real enum constraint when the field is present (frequency itself is optional).
+func validateCodeSecurityPeriodicScanConfig(cfg map[string]any) error {
+	raw, ok := cfg["frequency"]
+	if !ok {
+		return nil
+	}
+
+	validFrequencies := [...]string{"WEEKLY", "MONTHLY", "NEVER"}
+
+	freq, isStr := raw.(string)
+	if !isStr || !slices.Contains(validFrequencies[:], freq) {
+		return fmt.Errorf(
+			"%w: configuration.periodicScanConfiguration.frequency: invalid value %v", ErrValidation, raw,
+		)
+	}
+
+	return nil
+}
+
+// validateCodeSecurityContinuousIntegrationScanConfig enforces
+// ContinuousIntegrationScanConfiguration.supportedEvents' real required,
+// enum-constrained shape (confirmed via types.ContinuousIntegrationScanConfiguration's
+// "This member is required" doc comment) when the config itself is present --
+// the config as a whole remains optional at the CodeSecurityScanConfiguration level.
+func validateCodeSecurityContinuousIntegrationScanConfig(cfg map[string]any) error {
+	raw, ok := cfg["supportedEvents"]
+	if !ok {
+		return fmt.Errorf(
+			"%w: configuration.continuousIntegrationScanConfiguration.supportedEvents is required", ErrValidation,
+		)
+	}
+
+	events, isSlice := raw.([]any)
+	if !isSlice || len(events) == 0 {
+		return fmt.Errorf(
+			"%w: configuration.continuousIntegrationScanConfiguration.supportedEvents is required", ErrValidation,
+		)
+	}
+
+	validEvents := [...]string{"PULL_REQUEST", "PUSH"}
+
+	for _, e := range events {
+		event, isStr := e.(string)
+		if !isStr || !slices.Contains(validEvents[:], event) {
+			return fmt.Errorf(
+				"%w: configuration.continuousIntegrationScanConfiguration.supportedEvents: invalid value %v",
+				ErrValidation, e,
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateCodeSecurityScanConfiguration creates a code security scan configuration.
 func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
 	name, level string,
@@ -218,6 +296,24 @@ func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
 
 	if err := validateCodeSecurityRuleSetCategories(ruleSetCategories); err != nil {
 		return nil, err
+	}
+
+	if scopeSettings != nil {
+		if err := validateCodeSecurityScopeSettings(scopeSettings); err != nil {
+			return nil, err
+		}
+	}
+
+	if periodicConfig != nil {
+		if err := validateCodeSecurityPeriodicScanConfig(periodicConfig); err != nil {
+			return nil, err
+		}
+	}
+
+	if continuousIntegrationScanConfig != nil {
+		if err := validateCodeSecurityContinuousIntegrationScanConfig(continuousIntegrationScanConfig); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := validateTags(tags); err != nil {
@@ -299,6 +395,18 @@ func (b *InMemoryBackend) UpdateCodeSecurityScanConfiguration(
 
 	if err := validateCodeSecurityRuleSetCategories(ruleSetCategories); err != nil {
 		return nil, err
+	}
+
+	if periodicConfig != nil {
+		if err := validateCodeSecurityPeriodicScanConfig(periodicConfig); err != nil {
+			return nil, err
+		}
+	}
+
+	if continuousIntegrationScanConfig != nil {
+		if err := validateCodeSecurityContinuousIntegrationScanConfig(continuousIntegrationScanConfig); err != nil {
+			return nil, err
+		}
 	}
 
 	cfg.RuleSetCategories = ruleSetCategories

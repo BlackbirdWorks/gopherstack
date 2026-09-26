@@ -3,6 +3,7 @@ package eventbridge_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -136,13 +137,40 @@ func TestPutEventBusPolicy_ReplacePolicy(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	policyJSON := `[{"Sid":"s1","Effect":"Allow","Action":"events:PutEvents","Principal":"123"}]`
+	policyJSON := `{"Version":"2012-10-17","Statement":[` +
+		`{"Sid":"s1","Effect":"Allow","Action":"events:PutEvents","Principal":"123"}]}`
 	err := b.PutEventBusPolicy(context.Background(), eventbridge.PutEventBusPolicyInput{Policy: policyJSON})
 	require.NoError(t, err)
 
 	policy, err := b.GetEventBusPolicy(context.Background(), "")
 	require.NoError(t, err)
 	assert.Contains(t, policy, "s1")
+}
+
+func TestGetEventBusPolicy_IsPolicyDocumentNotBareArray(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	require.NoError(t, b.PutPermission(context.Background(), eventbridge.PutPermissionInput{
+		StatementID: "s1",
+		Action:      "events:PutEvents",
+		Principal:   "123456789012",
+	}))
+
+	policy, err := b.GetEventBusPolicy(context.Background(), "")
+	require.NoError(t, err)
+
+	var doc struct {
+		Version   string `json:"Version"`
+		Statement []struct {
+			Sid string `json:"Sid"`
+		} `json:"Statement"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(policy), &doc),
+		"Policy must be an IAM-style document (an object with a Statement array), not a bare array")
+	assert.Equal(t, "2012-10-17", doc.Version)
+	require.Len(t, doc.Statement, 1)
+	assert.Equal(t, "s1", doc.Statement[0].Sid)
 }
 
 func TestPutPermission_BusNotFound(t *testing.T) {

@@ -1,6 +1,9 @@
 package ecs
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // ----- Task handlers -----
 
@@ -145,7 +148,19 @@ type listTasksOutput struct {
 	TaskArns  []string `json:"taskArns"`
 }
 
+// errStartedByExclusive is returned when startedBy is combined with another
+// ListTasks filter, per ecs@v1.96.0 api_op_ListTasks.go's StartedBy doc:
+// when you specify startedBy as the filter, it must be the only filter used.
+var errStartedByExclusive = fmt.Errorf(
+	"%w: startedBy must be the only filter used", ErrInvalidParameter,
+)
+
 func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listTasksOutput, error) {
+	if in.StartedBy != "" && (in.ContainerInstance != "" || in.Family != "" ||
+		in.ServiceName != "" || in.DesiredStatus != "" || in.LaunchType != "") {
+		return nil, errStartedByExclusive
+	}
+
 	arns, err := h.Backend.ListTasksFiltered(ListTasksInput{
 		Cluster:           in.Cluster,
 		ContainerInstance: in.ContainerInstance,

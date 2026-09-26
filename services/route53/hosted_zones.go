@@ -101,13 +101,30 @@ func (b *InMemoryBackend) CreateHostedZone(
 	syntheticChangeID := "C" + id
 	b.changes.Put(&ChangeInfo{
 		ID:          "/change/" + syntheticChangeID,
-		Status:      "INSYNC",
+		Status:      statusInsync,
 		SubmittedAt: time.Now(),
 	})
 
 	cp := hz
 
 	return &cp, nil
+}
+
+// registerChange creates and stores a new synthetic INSYNC change record,
+// returning its wire ID ("/change/C..."). Callers must already hold b.mu.
+// Real Route53 mutating ops each generate a distinct change GetChange can
+// poll -- callers that instead fabricate an ad hoc, never-registered ID
+// (rather than calling this) permanently 404 any real client's waiter
+// (gopherstack-101r: EnableHostedZoneDNSSEC/DisableHostedZoneDNSSEC did this).
+func (b *InMemoryBackend) registerChange() string {
+	id := "/change/C" + randomID(zoneIDChars, zoneIDLength)
+	b.changes.Put(&ChangeInfo{
+		ID:          id,
+		Status:      "INSYNC",
+		SubmittedAt: time.Now(),
+	})
+
+	return id
 }
 
 // matchExistingHostedZone implements CreateHostedZone's CallerReference

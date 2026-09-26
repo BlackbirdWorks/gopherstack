@@ -463,8 +463,8 @@ func TestListResources_Pagination(t *testing.T) {
 			wantPages:  1,
 		},
 		{
-			name:       "maxResults=101 returns error",
-			maxResults: ptr32(101),
+			name:       "maxResults=501 returns error",
+			maxResults: ptr32(501),
 			wantError:  true,
 		},
 	}
@@ -613,8 +613,8 @@ func TestGetResourcePolicies_Pagination(t *testing.T) {
 			maxResults: ptr32(10),
 		},
 		{
-			name:       "maxResults=101 returns error",
-			maxResults: ptr32(101),
+			name:       "maxResults=501 returns error",
+			maxResults: ptr32(501),
 			wantError:  true,
 		},
 		{

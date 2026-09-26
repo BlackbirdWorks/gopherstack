@@ -689,7 +689,16 @@ type httpDelivery struct {
 	// owning topic, selecting SHA1withRSA vs SHA256withRSA. Defaults to "1"
 	// (the real AWS default) when left zero-valued.
 	signatureVersion string
-	rawDelivery      bool
+	// timestamp, signature, and certURL are precomputed once per publish (see
+	// Publish) rather than per delivery: real SNS's Timestamp reflects publish
+	// time, not delivery time, and the signature is a function of the publish's
+	// MessageId/TopicArn/Subject/Timestamp plus this delivery's body, so every
+	// HTTP/HTTPS subscriber sharing the same body also shares the same
+	// signature. Left empty when signer is nil (signing disabled).
+	timestamp   string
+	signature   string
+	certURL     string
+	rawDelivery bool
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.

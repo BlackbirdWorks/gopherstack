@@ -14,7 +14,7 @@ import (
 func TestSubnetGroup_Modify(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBSubnetGroup("sg1", "original", "vpc-1", []string{"subnet-a", "subnet-b"})
 	require.NoError(t, err)
 
@@ -32,7 +32,7 @@ func TestSubnetGroup_Modify(t *testing.T) {
 func TestSubnetGroup_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	err := b.DeleteDBSubnetGroup("noexist")
 	require.ErrorIs(t, err, rds.ErrSubnetGroupNotFound)
@@ -44,7 +44,7 @@ func TestSubnetGroup_NotFound(t *testing.T) {
 func TestSubnetGroup_DeleteInUse(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBSubnetGroup("sg-inuse", "desc", "vpc-1", []string{"subnet-a"})
 	require.NoError(t, err)
 
@@ -65,7 +65,7 @@ func TestSubnetGroup_DeleteInUse(t *testing.T) {
 func TestSubnetGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBSubnetGroup("dup-sg", "first", "vpc-1", []string{"subnet-a"})
 	require.NoError(t, err)
 
@@ -77,7 +77,7 @@ func TestSubnetGroup_Duplicate(t *testing.T) {
 func TestSubnetGroup_HTTP_Modify(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                       {"CreateDBSubnetGroup"},
@@ -103,7 +103,7 @@ func TestSubnetGroup_HTTP_Modify(t *testing.T) {
 func TestCreateDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                       {"CreateDBSubnetGroup"},
@@ -123,7 +123,7 @@ func TestCreateDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
 func TestModifyDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 
 	postRDSForm(t, h, url.Values{
 		"Action":                       {"CreateDBSubnetGroup"},
@@ -162,7 +162,7 @@ func TestSubnetGroup_MultipleSubnets_RoundTrip(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+			h := newBatch2Handler(t)
 
 			vals := url.Values{
 				"Action":                   {"CreateDBSubnetGroup"},

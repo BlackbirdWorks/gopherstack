@@ -1,7 +1,7 @@
 service: bedrock
 sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.4
-last_audit_commit: 603121b11
-last_audit_date: 2026-09-17
+last_audit_commit: d9715a7fd
+last_audit_date: 2026-09-19
 overall: A            # RESTORED A-->A (parity-5, 2026-07-31, follow-up pass): the
                       # dispatchDocumentOps routing bug that caused the prior A->A- downgrade
                       # is fixed and proven. Re-verified both real wire shapes against the
@@ -183,6 +183,7 @@ items_still_open:
   - "RegisterMarketplaceModelEndpoint: real RegisterMarketplaceModelEndpointInput requires both endpointIdentifier and modelSourceIdentifier in the body; gopherstack's handler takes only the path-param ID and never reads/validates a request body. Not touched this pass — spotted while field-diffing the surrounding marketplace-endpoint family but out of this pass's named scope. (bd: file follow-up)"
   - "ListAdvancedPromptOptimizationJobs (parity-4): does not validate sortBy against the real single allowed value (CreationTime) — an unrecognized value is silently ignored rather than raising ValidationException. Same low-risk shape as this service's other List ops' unvalidated sort/filter params (see ListCustomModels/ListModelCustomizationJobs gap above). (bd: file follow-up)"
   - "2026-09-13 (gopherstack-xhu2t): CreatePromptRouter.ClientRequestToken is not decoded at all -- unlike CreateModelInvocationJob's ClientToken (handler_model_invocation_jobs.go), which IS decoded and stored, but is itself never echoed on any response and never used for real create-dedup (a genuine retry with the same token still hits the sibling-name uniqueness check like any other call, not a token-keyed idempotency cache). Since the already-established sibling pattern in this same service has zero observable effect, decoding CreatePromptRouter's token the same way would be dead plumbing with nothing to prove via a real-client test -- not fixed, recorded instead."
+  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): several List summaries are missing optional members the real SDK type declares, with no source on the corresponding domain model to derive them from (not fabricated) -- GuardrailSummary.CrossRegionDetails (no cross-region replication modeled); EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary (JobType/EvaluationTaskTypes and EvaluatorModelIdentifiers ARE now derived and fixed, see ListEvaluationJobs); ImportedModelSummary.InstructSupported/ModelArchitecture (no per-model capability detection); ModelCopyJobSummary.SourceModelName/TargetModelKmsKeyArn (no cross-account naming or KMS-key modeling); ModelCustomizationJobSummary.StatusDetails (this backend models job status as one flat field, not per-phase data-processing/training/validation); ModelInvocationJobSummary.ErrorRecordCount/JobExpirationTime/ModelInvocationType/ProcessedRecordCount/SuccessRecordCount/TimeoutDurationInHours/TotalRecordCount/VpcConfig (no real batch-inference record processing). CustomModelDeploymentSummary.FailureMessage similarly has no source (deployments transition status synchronously with no failure state). (no bd issue filed yet)"
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
 # PromptRouter, ImportedModel, FoundationModelAgreement / FoundationModelAvailability) was
@@ -1162,3 +1163,54 @@ GetAgentMemory/DeleteAgentMemory, belong to bedrock-agent-runtime, a module
 this repo doesn't vendor -- not a bedrock or bedrockagent gap, dropped with
 the rest. bedrockSnapshotVersion bumped 3->4. `go build ./...`/`go vet ./...`
 clean; `go test -race -count=1 ./services/bedrock/` `ok`.
+
+## 2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s)
+
+All 17 census-flagged List ops verified member by member against the
+pinned SDK. 9 needed a fix: ListAdvancedPromptOptimizationJobs leaked
+jobDescription/encryptionKeyArn/failureMessage/inputConfig/outputConfig/
+modelConfigurations (narrowed to `advancedPromptOptimizationJobSummaryOutput`);
+ListAutomatedReasoningPolicies leaked a phantom `status` and lacked
+required `policyId`/`version`; ListCustomModels leaked `tags` and lacked
+`ownerAccountId` (this is a single-account emulator, so always the
+backend's own account -- not fabricated); ListEvaluationJobs lacked the
+two required members `jobType`/`evaluationTaskTypes` (both derived from
+the stored EvaluationConfig, same pattern as the pre-existing JobType
+derivation) plus the optional `evaluatorModelIdentifiers`;
+ListImportedModels leaked `jobArn`/`jobName` (Get-only; a new
+`importedModelToSummaryWire` replaces the shared Get/List function for
+List); ListMarketplaceModelEndpoints leaked `endpointConfig`/
+`endpointName`/`endpointStatus` (`endpointName` isn't a real member of
+either shape at all -- narrowed to `marketplaceEndpointSummaryOutput`,
+existing tests asserting its presence fixed to match real AWS);
+ListModelCopyJobs leaked a phantom `lastModifiedTime`, used the wrong key
+`tags` instead of `targetModelTags`, and lacked `targetModelName` (a new
+`modelCopyJobToSummaryOutput` replaces the shared Get/List function for
+List, leaving Get's own pre-existing gaps untouched -- out of this pass's
+scope); ListModelCustomizationJobs lacked `endTime` (already tracked on
+the domain model, just never surfaced); ListModelInvocationJobs lacked
+`clientRequestToken`/`message` (both already tracked). 8 ops
+(ListAutomatedReasoningPolicyBuildWorkflows, ListCustomModelDeployments,
+ListFoundationModels, ListGuardrails, ListInferenceProfiles,
+ListModelImportJobs, ListPromptRouters, ListProvisionedModelThroughputs)
+were already exactly the real Summary shape and needed no change.
+Unsourced Summary members recorded in `items_still_open`, not fabricated.
+Proof: `list_summary_shapes_test.go`. `go build ./...`/`go vet
+./services/bedrock/...` clean; `go test -race -count=1
+./services/bedrock/...` `ok`; `golangci-lint run ./services/bedrock/...`
+0 issues; no `backendSnapshot` field changed (persistence guard
+unaffected).
+
+## 2026-09-19 (enumcheck sweep): MarketplaceModelEndpoint status/endpointStatus conflation
+
+MarketplaceModelEndpoint's wire "status" was set from the endpoint's
+lifecycle (Creating/Active/Deregistered) -- that's the real, distinct
+`endpointStatus` free-string member (required, previously duplicated onto
+both keys); the real `status` is `types.Status`
+(REGISTERED/INCOMPATIBLE_ENDPOINT). Fixed `marketplaceEndpointToOutput`/
+`marketplaceEndpointToSummaryOutput` to emit `status: "REGISTERED"`
+(constant -- no path here ever produces INCOMPATIBLE_ENDPOINT) and keep
+`endpointStatus` on the lifecycle value. Proof: typed assertion on
+`types.StatusRegistered` added to
+`TestRealClient_GuardrailsEvaluationAndModelGovernance`; existing wire
+tests updated to match.

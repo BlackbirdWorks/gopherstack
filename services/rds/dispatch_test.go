@@ -19,7 +19,7 @@ import (
 func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 	assert.Equal(t, 165, rds.HandlerOpsLen(h))
 }
 
@@ -27,6 +27,7 @@ func TestSupportedOperations_ContainsExtendedOps(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rds.NewHandler(b)
 
 	ops := h.GetSupportedOperations()
@@ -42,6 +43,7 @@ func TestAccountIDAndRegion(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", "eu-west-1")
+	t.Cleanup(b.Close)
 
 	assert.Equal(t, "123456789012", b.AccountID())
 	assert.Equal(t, "eu-west-1", b.Region())
@@ -52,6 +54,7 @@ func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rds.NewHandler(b)
 	_, err := b.CreateDBInstance("inst-1", "mysql", "", "", "", "", 0, rds.DBInstanceOptions{})
 	require.NoError(t, err)
@@ -68,6 +71,7 @@ func TestHandlerOpsLen_FreshBackend(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rds.NewHandler(b)
 
 	assert.Equal(t, 165, rds.HandlerOpsLen(h))
@@ -78,6 +82,7 @@ func TestGetSupportedOperationsSorted(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	h := rds.NewHandler(b)
 	ops := h.GetSupportedOperations()
 
@@ -107,14 +112,14 @@ func TestProviderNilAppContext(t *testing.T) {
 func TestRDSHandler_Name(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	assert.Equal(t, "RDS", h.Name())
 }
 
 func TestRDSHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	ops := h.GetSupportedOperations()
 	assert.Contains(t, ops, "CreateDBInstance")
 	assert.Contains(t, ops, "DeleteDBInstance")
@@ -137,14 +142,14 @@ func TestRDSHandler_GetSupportedOperations(t *testing.T) {
 func TestRDSHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	assert.Equal(t, 84, h.MatchPriority())
 }
 
 func TestRDSHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	matcher := h.RouteMatcher()
 
 	tests := []struct {
@@ -200,7 +205,7 @@ func TestRDSHandler_RouteMatcher(t *testing.T) {
 func TestRDSHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	e := echo.New()
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=CreateDBInstance&Version=2014-10-31"))
@@ -213,7 +218,7 @@ func TestRDSHandler_ExtractOperation(t *testing.T) {
 func TestRDSHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	e := echo.New()
 
 	req := httptest.NewRequest(http.MethodPost, "/",
@@ -265,6 +270,7 @@ func TestRDSBackend_DNSRegistrar(t *testing.T) {
 
 			registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			b.SetDNSRegistrar(registrar)
 
 			inst, err := b.CreateDBInstance(tt.instanceID, "postgres", "", "", "", "", 0, rds.DBInstanceOptions{})
@@ -541,7 +547,7 @@ func TestRDSHandler_NewOperations2(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 
 			for _, setup := range tt.setupBodies {
 				postRDSForm(t, h, setup)
@@ -722,7 +728,7 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 
 			for _, setupBody := range tt.setupBodies {
 				rds.FlushInstanceLifecycle(h.Backend) // ensure prior instances are available
@@ -746,7 +752,7 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 func TestRDS_FormParseFail_Returns400(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// Send a body that causes ParseForm to fail by using a semicolon-only content type
 	// that triggers an invalid percent-encoding error.
@@ -809,7 +815,7 @@ func TestExtendedOperations_DoNotError(t *testing.T) {
 		},
 	}
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	h.Backend.CreateDBInstance(
 		"db-test",
 		"mysql",
@@ -840,7 +846,7 @@ func TestExtendedOperations_DoNotError(t *testing.T) {
 func TestBackendOps(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	tests := []struct {
 		name string
@@ -869,6 +875,7 @@ func TestCloseIdempotent(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 
 	require.NotPanics(t, func() {
 		b.Close()
@@ -884,6 +891,7 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
 	backend := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := rds.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &rdssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

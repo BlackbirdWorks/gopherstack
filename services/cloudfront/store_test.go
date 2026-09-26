@@ -175,6 +175,7 @@ func TestInMemoryBackend_Operations(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}
@@ -382,6 +383,7 @@ func TestInMemoryBackend_NewOperations(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}
@@ -392,7 +394,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
-
+	t.Cleanup(b.Close)
 	_, err := b.CreateDistribution("ref-br1", "a-dist", true, nil)
 	require.NoError(t, err)
 
@@ -503,6 +505,7 @@ func TestInMemoryBackend_NewResourceTypesCRUD(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}

@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.71.0
-last_audit_commit: ab7ac08a7
-last_audit_date: 2026-09-18
+last_audit_commit: 88924fa3b  # 2026-09-24 perf sweep: storeDatum in-place cap eviction
+last_audit_date: 2026-09-24
 overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams now actually deliver
                       # matched PutMetricData records to their configured Firehose delivery stream
                       # when OutputFormat=json, via a new FirehosePutter interface (SetFirehosePutter,
@@ -148,6 +148,21 @@ leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + 
 ---
 
 ## Notes
+
+### 2026-09-24 perf sweep
+
+`storeDatum` reallocated a fresh cap-sized slice on every call once a metric
+passed `cwMaxMetricDataPoints`; now slides the window in place once pinned
+at the cap. `BenchmarkPutMetricData_AtCap`: 147557ns/487535B/68allocs ->
+16776ns/13608B/65allocs (3-run medians); golden test pins eviction order.
+
+### 2026-09-20 autoscaling-dynamodb-kms-and-cloudwatch terraform sweep
+
+Metric stream `State` was wire-serialized uppercase ("RUNNING"/"STOPPED");
+real AWS's GetMetricStream/ListMetricStreams State is lowercase
+("running"/"stopped"), unlike most CloudWatch enums. Terraform's
+aws_cloudwatch_metric_stream create waiter does an exact-case match and
+failed against the uppercase value.
 
 CloudWatch here speaks **AWS Query (XML) protocol** for the classic SDK path (`Action=` form
 POST, `<Foo Response>` root, `ResponseMetadata>RequestId`) and **rpc-v2-cbor** for
@@ -1312,3 +1327,16 @@ decoded correctly through the real rpc-v2 CBOR client. Gates: `go build
 ./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint
 run --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
 changed; no version bump.
+
+## 2026-09-19 metrics-map eviction fix (gopherstack-4thzo)
+
+Added `metricRecord.LastDatapoint` (additive, no version bump). `SweepExpiredMetrics`
+now evicts a whole series once idle past the documented 2-week `ListMetrics`
+window (`api_op_ListMetrics.go`); `ListMetrics` honours that window unconditionally,
+even before a sweep runs. Alarms on an evicted series read INSUFFICIENT_DATA.
+
+## 2026-09-19 goleak TestMain (gopherstack-1x2u0 leak-audit sweep)
+
+Added `leak_main_test.go`. StartWorker's janitor goroutine is only started
+by explicit test/production calls, all already ctx-cancelled; `go test
+-race -count=2` clean, no leak found, no production change needed.

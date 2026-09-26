@@ -908,10 +908,10 @@ func TestListPermissions_Pagination(t *testing.T) {
 			wantPages:  ram.BuiltInPermissionCount + 2, // each page has 1 item
 		},
 		{
-			name:       "maxResults=101 returns error",
+			name:       "maxResults=501 returns error",
 			extra:      0,
 			wantError:  true,
-			maxResults: ptr32(101),
+			maxResults: ptr32(501),
 		},
 	}
 

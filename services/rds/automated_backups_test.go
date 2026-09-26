@@ -190,7 +190,7 @@ func TestStopDBInstanceAutomatedBackupsReplication(t *testing.T) {
 
 func TestHandler_AutomatedBackupOps(t *testing.T) {
 	t.Parallel()
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// Start replication
 	rec := postRDSForm(t, h,
@@ -231,7 +231,7 @@ func TestCreateDBClusterAutomatedBackup_ResourceID(t *testing.T) {
 func TestInstanceBackup_CreatedWithRetention(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBInstance(
 		"backup-db",
 		"postgres",
@@ -254,7 +254,7 @@ func TestInstanceBackup_CreatedWithRetention(t *testing.T) {
 func TestInstanceBackup_NoRetentionNoBackup(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBInstance(
 		"nobackup-db",
 		"postgres",
@@ -276,7 +276,7 @@ func TestInstanceBackup_NoRetentionNoBackup(t *testing.T) {
 func TestInstanceBackup_Delete(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBInstance(
 		"del-backup-db",
 		"postgres",
@@ -304,7 +304,7 @@ func TestInstanceBackup_Delete(t *testing.T) {
 func TestInstanceBackup_Replication(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	sourceARN := "arn:aws:rds:us-west-2:123456789012:db:source-db"
 
 	backup, err := b.StartDBInstanceAutomatedBackupsReplication(sourceARN, 7)
@@ -320,7 +320,7 @@ func TestInstanceBackup_Replication(t *testing.T) {
 func TestInstanceBackup_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":  {"DescribeDBInstanceAutomatedBackups"},
@@ -347,7 +347,7 @@ func TestInstanceBackup_HTTP(t *testing.T) {
 func TestPersistence_ClusterAutomatedBackups(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	// Create a cluster first, which triggers an automated backup entry
 	_, err := b.CreateDBCluster(
@@ -367,6 +367,7 @@ func TestPersistence_ClusterAutomatedBackups(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	backups := b2.DescribeDBClusterAutomatedBackups("backup-cluster")
@@ -377,7 +378,7 @@ func TestPersistence_ClusterAutomatedBackups(t *testing.T) {
 func TestAutomatedBackup_DescribeClusterViaHandler(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	h := rds.NewHandler(b)
 
 	_, err := b.CreateDBCluster("bkp-cluster", "aurora-postgresql", "admin", "", "", 0, nil,
@@ -393,7 +394,7 @@ func TestAutomatedBackup_DescribeClusterViaHandler(t *testing.T) {
 func TestAutomatedBackup_DescribeInstanceViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=DescribeDBInstanceAutomatedBackups&Version=2014-10-31")
@@ -421,6 +422,7 @@ func Test_DeleteDBInstance_DeleteAutomatedBackups(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			_, err := b.CreateDBInstance(
 				"del-inst-backup", "postgres", "db.t3.micro", "", "admin", "",
 				20, rds.DBInstanceOptions{BackupRetentionPeriod: 7},

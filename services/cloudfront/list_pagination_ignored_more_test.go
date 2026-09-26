@@ -60,6 +60,7 @@ func TestListCachePolicies_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -86,6 +87,7 @@ func TestListOriginRequestPolicies_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -114,6 +116,7 @@ func TestListResponseHeadersPolicies_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -142,6 +145,7 @@ func TestListOAIs_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -169,6 +173,7 @@ func TestListOriginAccessControls_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -197,6 +202,7 @@ func TestListFieldLevelEncryptionConfigs_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -223,6 +229,7 @@ func TestListFieldLevelEncryptionProfiles_SDKRoundTrip_Pagination(t *testing.T) 
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -250,6 +257,7 @@ func TestListPublicKeys_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -281,6 +289,7 @@ func TestListKeyGroups_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -307,6 +316,7 @@ func TestListRealtimeLogConfigs_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -338,6 +348,7 @@ func TestListVpcOrigins_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -373,6 +384,7 @@ func TestListContinuousDeploymentPolicies_SDKRoundTrip_Pagination(t *testing.T) 
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -402,6 +414,7 @@ func TestListStreamingDistributions_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -431,6 +444,7 @@ func TestListTrustStores_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -467,6 +481,7 @@ func TestListConflictingAliases_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	firstDist, err := backend.CreateDistribution("pg-ca-owner", "", true, nil)
@@ -504,6 +519,7 @@ func TestListDomainConflicts_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	validationDist, err := backend.CreateDistribution("pg-dc-owner", "", true, nil)
@@ -558,6 +574,7 @@ func TestListDistributionsByCachePolicyId_SDKRoundTrip_Pagination(t *testing.T) 
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -586,6 +603,7 @@ func TestListDistributionsByKeyGroup_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -609,6 +627,7 @@ func TestListDistributionsByOriginRequestPolicyId_SDKRoundTrip_Pagination(t *tes
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -636,6 +655,7 @@ func TestListDistributionsByResponseHeadersPolicyId_SDKRoundTrip_Pagination(t *t
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -663,6 +683,7 @@ func TestListDistributionsByVpcOriginId_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -686,6 +707,7 @@ func TestListDistributionsByAnycastIpListId_SDKRoundTrip_Pagination(t *testing.T
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -711,6 +733,7 @@ func TestListDistributionsByConnectionFunction_SDKRoundTrip_Pagination(t *testin
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -738,6 +761,7 @@ func TestListDistributionsByConnectionMode_SDKRoundTrip_Pagination(t *testing.T)
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -763,6 +787,7 @@ func TestListDistributionsByTrustStore_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -788,6 +813,7 @@ func TestListDistributionsByWebACLId_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -818,6 +844,7 @@ func TestListDistributionsByRealtimeLogConfig_SDKRoundTrip_Pagination(t *testing
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25
@@ -852,6 +879,7 @@ func TestListDistributionsByOwnedResource_SDKRoundTrip_Pagination(t *testing.T) 
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	const total = 25

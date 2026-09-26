@@ -20,7 +20,7 @@ type hsmClientCertificateXML struct {
 type createHsmClientCertificateResponse struct {
 	XMLName xml.Name                `xml:"CreateHsmClientCertificateResponse"`
 	Xmlns   string                  `xml:"xmlns,attr"`
-	Result  hsmClientCertificateXML `xml:"CreateHsmClientCertificateResult"`
+	Result  hsmClientCertificateXML `xml:"CreateHsmClientCertificateResult>HsmClientCertificate"`
 }
 
 func (h *Handler) handleCreateHsmClientCertificate(vals url.Values) (any, error) {
@@ -117,7 +117,7 @@ type hsmConfigurationXML struct {
 type createHsmConfigurationResponse struct {
 	XMLName xml.Name            `xml:"CreateHsmConfigurationResponse"`
 	Xmlns   string              `xml:"xmlns,attr"`
-	Result  hsmConfigurationXML `xml:"CreateHsmConfigurationResult"`
+	Result  hsmConfigurationXML `xml:"CreateHsmConfigurationResult>HsmConfiguration"`
 }
 
 // handleCreateHsmConfiguration implements CreateHsmConfiguration. Real

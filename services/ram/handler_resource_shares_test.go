@@ -990,9 +990,9 @@ func TestGetResourceShares_Pagination(t *testing.T) {
 			wantPages:   1,
 		},
 		{
-			name:        "maxResults=101 returns InvalidParameterException",
+			name:        "maxResults=501 returns InvalidParameterException",
 			totalShares: 1,
-			maxResults:  ptr32(101),
+			maxResults:  ptr32(501),
 			wantError:   true,
 		},
 		{

@@ -7,8 +7,8 @@
 service: servicediscovery
 sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
-last_audit_commit: e50f52dce                      # this pass (2026-08-28, write-only-state sweep)
-last_audit_date: 2026-08-28
+last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: e50f52dce                      # this pass (2026-08-28, write-only-state sweep)
+last_audit_date: 2026-09-19  # prior: 2026-08-28 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListInstances/ListNamespaces/ListOperations/ListServices member-by-member against servicediscovery@v1.43.4
 overall: A            # write-only-state sweep pass (2026-08-28). No wire_field_fixes_test.go
                        # existed yet for this service despite the prior pass's extensive
                        # "audited and confirmed correct" notes below -- per this campaign's
@@ -43,14 +43,14 @@ ops:
   CreatePrivateDnsNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePublicDnsNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   GetNamespace: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response included a Tags field; real types.Namespace has none (tags only via ListTagsForResource) -- fixed, see Notes"}
-  ListNamespaces: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Tags field removed (see GetNamespace); Filters now implement TYPE/NAME/HTTP_NAME/RESOURCE_OWNER with EQ/BEGINS_WITH -- fixed, see Notes"}
+  ListNamespaces: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Tags field removed (see GetNamespace); Filters now implement TYPE/NAME/HTTP_NAME/RESOURCE_OWNER with EQ/BEGINS_WITH -- fixed, see Notes. FIXED 2026-09-19 (over-wide-response sweep, gopherstack): the prior pass's 'matches exactly' claim missed that types.NamespaceSummary.ResourceOwner is a real optional member -- namespaceToMap never emitted it despite the RESOURCE_OWNER filter already assuming every namespace is self-owned (resourceOwnerMatches compares against the literal \"SELF\"). Now sourced from InMemoryBackend.AccountID() (handler_namespaces.go:266, threaded through both GetNamespace and ListNamespaces call sites). Proven via TestListSummaryShapes (list_summary_shapes_test.go, real client)."}
   DeleteNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHttpNamespace: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed no SOA/DnsProperties surface exists to update -- HttpNamespaceChange has only Description, types.go:408-416"}
   UpdatePrivateDnsNamespace: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "write-only-state bug (this pass): Namespace.Properties.DnsProperties.SOA.TTL (types.PrivateDnsNamespaceChange, types.go:923-975) was entirely absent from the wire-decode struct -- only Description was read, so a real client's documented way to change the SOA TTL after creation was silently dropped. Fixed; round-trip test in wire_field_fixes_test.go."}
   UpdatePublicDnsNamespace: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same SOA TTL wire-decode gap as UpdatePrivateDnsNamespace (types.PublicDnsNamespaceChange, types.go:981-1033) -- fixed, same pass"}
   CreateService: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "Tags field removed from response; ServiceAlreadyExists now enforced (case-insensitive within DNS namespaces, case-sensitive within HTTP namespaces); DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated against their closed enums (see gopherstack-bq50 Notes) -- fixed"}
   GetService: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags field removed (see CreateService) -- fixed"}
-  ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-tuh5: was reusing serviceToMap (the full GetService converter) unscoped, leaking a top-level NamespaceId that types.ServiceSummary does not declare (confirmed against awsAwsjson11_deserializeDocumentServiceSummary; the nested, deprecated DnsConfig.NamespaceId is a distinct field on both shapes and is unaffected). namespaceToMap in this same file was checked and is clean (types.NamespaceSummary matches exactly). serviceToMap now delegates to a dedicated serviceSummaryToMap plus the one extra field. Regression: raw-body assertion (an SDK client discards unrecognised keys and can't observe an over-wide response). Prior pass: Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
+  ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-tuh5: was reusing serviceToMap (the full GetService converter) unscoped, leaking a top-level NamespaceId that types.ServiceSummary does not declare (confirmed against awsAwsjson11_deserializeDocumentServiceSummary; the nested, deprecated DnsConfig.NamespaceId is a distinct field on both shapes and is unaffected). namespaceToMap in this same file was checked and is clean (types.NamespaceSummary matches exactly). serviceToMap now delegates to a dedicated serviceSummaryToMap plus the one extra field. Regression: raw-body assertion (an SDK client discards unrecognised keys and can't observe an over-wide response). Prior pass: Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes. FIXED 2026-09-19 (over-wide-response sweep, gopherstack): serviceSummaryToMap was also missing types.ServiceSummary's CreatedByAccount and ResourceOwner (both real optional members) -- same root cause and fix as ListNamespaces' ResourceOwner gap above. Now sourced from InMemoryBackend.AccountID() (handler_services.go:295-320). Proven via TestListSummaryShapes."}
   DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "was silently auto-deregistering instances instead of failing ResourceInUse -- fixed prior pass"}
   UpdateService: {wire: ok, errors: fixed, state: ok, persist: ok, note: "DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated (see CreateService) -- fixed"}
   GetServiceAttributes: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "response emitted the generic keyArn (\"Arn\") for ServiceAttributes.ServiceArn; real key is \"ServiceArn\" (deserializers.go:6001), distinct from Service/Namespace which really do use \"Arn\" -- fixed 2026-08-23. errcodeaudit 2026-09-12 (gopherstack-r3pr) FIX: a service that had never had attributes set (or had them all deleted) errored with the fabricated \"ServiceAttributesNotFound\" (no such type in servicediscovery@v1.43.4 -- 15 types checked). This op's own deserializeOpError models only InvalidInput/ServiceNotFound, no not-found-for-attributes shape, and GetServiceAttributesOutput.ServiceAttributes.Attributes is a plain map[string]string -- so the real fix is behavioral, not a code swap: no-attributes now returns 200 with an empty map, matching real AWS. ErrServiceAttributesNotFound sentinel deleted (dead after the fix)."}
@@ -59,13 +59,13 @@ ops:
   RegisterInstance: {wire: ok, errors: ok, state: fixed, persist: ok, note: "custom-attribute quota (30 count/255 key/1024 value/5000 total, documented) and AWS_INIT_HEALTH_STATUS seeding were unenforced/unimplemented -- fixed, see Notes"}
   DeregisterInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   GetInstance: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListInstances: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListInstances: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-19 (over-wide-response sweep, gopherstack): types.InstanceSummary.CreatedByAccount and the top-level ListInstancesOutput.ResourceOwner were both unsourced -- neither was emitted at all. Both now sourced from InMemoryBackend.AccountID(), same as ListNamespaces/ListServices above (handler_instances.go:131-145). Proven via TestListSummaryShapes."}
   DiscoverInstances: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "HEALTHY_OR_ELSE_ALL fixed prior pass; OptionalParameters was parsed but never applied -- fixed this pass, see Notes"}
   DiscoverInstancesRevision: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetInstancesHealthStatus: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "explicitly-requested Instances IDs not registered to the service were silently dropped from the response instead of failing InstanceNotFound (one of GetInstancesHealthStatus's 3 documented errors) -- fixed, see gopherstack-bq50 Notes. HealthStatus=UNKNOWN still never returned -- see gaps (structural, unlike the InstanceNotFound precondition)"}
   UpdateInstanceCustomHealthStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   GetOperation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListOperations: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "response used the full Operation shape (Type/CreateDate/UpdateDate/Targets/ErrorCode/ErrorMessage); real ListOperationsOutput.Operations is []types.OperationSummary{Id,Status} only -- fixed. Filters now implement NAMESPACE_ID/SERVICE_ID/STATUS/TYPE/UPDATE_DATE with EQ/IN/BETWEEN -- fixed, see Notes"}
+  ListOperations: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "response used the full Operation shape (Type/CreateDate/UpdateDate/Targets/ErrorCode/ErrorMessage); real ListOperationsOutput.Operations is []types.OperationSummary{Id,Status} only -- fixed. Filters now implement NAMESPACE_ID/SERVICE_ID/STATUS/TYPE/UPDATE_DATE with EQ/IN/BETWEEN -- fixed, see Notes. Re-verified 2026-09-19 (over-wide-response sweep, gopherstack): operationSummaryToMap's 2 keys match types.OperationSummary exactly -- no leaks, no gaps (handler_operations.go:132-137)."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -89,6 +89,13 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+### 2026-09-19 over-wide-response sweep (gopherstack)
+
+ListInstances/ListNamespaces/ListServices were all missing real, optional
+CreatedByAccount/ResourceOwner members -- sourced from AccountID() since
+every resource here is self-owned. ListOperations already exact. No new
+items_still_open entries; all four gaps were code fixes, not disclosures.
 
 ### 2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr): GetServiceAttributes no-attributes case was never an error
 

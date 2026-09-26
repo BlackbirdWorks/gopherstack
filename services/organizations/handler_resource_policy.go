@@ -67,6 +67,7 @@ func (h *Handler) handleDescribeResourcePolicy(c *echo.Context, _ []byte) error 
 func (h *Handler) handlePutResourcePolicy(c *echo.Context, body []byte) error {
 	var req struct {
 		Content string `json:"Content"`
+		Tags    []Tag  `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -77,7 +78,7 @@ func (h *Handler) handlePutResourcePolicy(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Content is required")
 	}
 
-	rp, err := h.Backend.PutResourcePolicy(req.Content)
+	rp, err := h.Backend.PutResourcePolicy(req.Content, req.Tags)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

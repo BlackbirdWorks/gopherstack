@@ -29,11 +29,17 @@ func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
 
 		return a.Engine < b.Engine
 	}, func(v DBEngineVersion) xmlDBEngineVersion {
-		return xmlDBEngineVersion{
+		out := xmlDBEngineVersion{
 			Engine:              v.Engine,
 			EngineVersion:       v.EngineVersion,
 			DBEngineDescription: v.DBEngineDescription,
+			Status:              v.Status,
 		}
+		if v.ImageID != "" {
+			out.Image = &xmlCustomDBEngineVersionAMI{ImageID: v.ImageID, Status: v.Status}
+		}
+
+		return out
 	})
 	if err != nil {
 		return nil, err
@@ -76,9 +82,11 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any
 }
 
 type xmlDBEngineVersion struct {
-	Engine              string `xml:"Engine"`
-	EngineVersion       string `xml:"EngineVersion"`
-	DBEngineDescription string `xml:"DBEngineDescription"`
+	Image               *xmlCustomDBEngineVersionAMI `xml:"Image,omitempty"`
+	Engine              string                       `xml:"Engine"`
+	EngineVersion       string                       `xml:"EngineVersion"`
+	DBEngineDescription string                       `xml:"DBEngineDescription"`
+	Status              string                       `xml:"Status,omitempty"`
 }
 
 type xmlDBEngineVersionList struct {

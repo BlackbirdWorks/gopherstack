@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acmpca
 sdk_module: aws-sdk-go-v2/service/acmpca@v1.50.0   # version audited against
-last_audit_commit: 3cec3729                          # HEAD when this manifest was written
-last_audit_date: 2026-09-11
+last_audit_commit: 2332c3128  # 2026-09-24 DELETED CA unbounded-growth fix; prior: 3cec3729
+last_audit_date: 2026-09-24
 overall: A            # gopherstack-cq4o: ASN.1-heavy ApiPassthrough residuals implemented for real (see Notes)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -43,12 +43,24 @@ items_still_open:
   - "gopherstack-cq4o residual: TemplateArn's CSRPassthrough/APICSRPassthrough varieties only honor Subject/DNSNames already parsed from the CSR by crypto/x509 (the pre-existing behavior); a CSR's own embedded X.509 extensions (e.g. a requested KeyUsage/ExtendedKeyUsage/SAN via a PKCS#10 extensionRequest attribute) are not separately extracted and passed through for Blank*_CSRPassthrough templates -- only ApiPassthrough-sourced KeyUsage/ExtendedKeyUsage/SAN are honored for those. Narrower than a full CSR-extension-passthrough implementation; the documented per-family fixed-extension profiles (the bulk of TemplateArn's behavior) are otherwise fully implemented."
   - "gopherstack-cq4o residual: the per-template CRL-distribution-point sourcing nuance ('[Passthrough from CA configuration or CSR]' on *CSRPassthrough/*APICSRPassthrough template families) is not modeled -- gopherstack always sources the CRL distribution point from the CA's own RevocationConfiguration regardless of template passthrough kind (matching the non-CSRPassthrough families exactly); a CSR-embedded CRL distribution point extension is never parsed or honored."
   - "gopherstack-cq4o residual: TemplateArn's CA-hierarchy path-length inheritance rule ('The CA depth configured on a subordinate CA certificate must not exceed the limit set by its parents in the CA hierarchy') is not enforced -- SubordinateCACertificate_PathLenN's fixed pathLenConstraint is applied to the issued certificate correctly, but no cross-check against the issuing CA's own position in a CA hierarchy is performed (this backend does not model CA hierarchies/parent-child relationships at all)."
-  - DELETED CAs past their RestorableUntil deadline are hidden from every read path (Describe/List/Get/Issue/etc. all treat them as not-found, matching real AWS's user-visible behavior) and RestoreCertificateAuthority correctly rejects them, but the row is not physically freed from the in-memory store.Table until the next process Reset() -- consistent with how every other terminal-state resource in this backend (revoked certs, etc.) is retained rather than garbage-collected; not a new leak, just not a true memory-reclaiming sweep
 deferred: []              # both prior deferred items (ApiPassthrough, TemplateArn) now substantially implemented -- remaining edges tracked under gaps above
-leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/store.Index behind the coarse b.mu lockmetrics.RWMutex, matching pkgs-catalog guidance. The RestorableUntil-deadline enforcement added this pass is a lazy read-time filter (caGet/casInRegion in store.go), not a background sweep -- no new goroutine, no new lock, no new leak surface."}
+leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/store.Index behind the coarse b.mu lockmetrics.RWMutex, matching pkgs-catalog guidance. FIXED 2026-09-24 (leak sweep): DELETED CAs past their RestorableUntil deadline were hidden from every read path but never physically freed from b.cas, an unbounded-growth leak in the same class ec2/ecs/medialive/ram fixed for their own delete-waiter tombstones. pruneExpiredCertificateAuthoritiesLocked now evicts them on the next write-locked op (Create/Delete/RestoreCertificateAuthority); no new goroutine, no new lock."}
 ---
 
 ## Notes
+
+### 2026-09-24 (leak sweep) DELETED CAs now evicted after their restoration window
+
+caGet/casInRegion already hid a DELETED CA past its RestorableUntil deadline
+from every read, matching real AWS's "permanently and irrevocably deletes a
+CA once its restoration window ends," but the row itself stayed in b.cas
+forever -- an unbounded-memory-growth leak in the same class ec2 (c254cd795),
+ecs (3fa9337a8), medialive (gopherstack-f9w3k), and ram fixed for their own
+delete-waiter tombstones. Added pruneExpiredCertificateAuthoritiesLocked,
+called from CreateCertificateAuthority/DeleteCertificateAuthority/
+RestoreCertificateAuthority. No new field (RestorableUntil already tracked
+it), no persistence impact, no version bump. Tests:
+`TestRestorableUntil_PastWindowIsEvictedFromStore` in restorable_until_test.go.
 
 ### 2026-09-11 ASN.1-heavy ApiPassthrough residuals (gopherstack-cq4o)
 
@@ -728,3 +740,16 @@ which this backend auto-self-signs and activates on creation
 (newCertificateAuthorityLocked's own doc comment), so no separate Csr/Import
 round trip was needed to reach ACTIVE for most subtests. Zero bugs --
 confirms the `ops:` table's existing verdicts.
+
+## 2026-09-24: unbounded-map audit (gopherstack parity-sweep)
+
+**leaks:** `idempotency` (store.go/models.go) cached (resourceARN, expiresAt) for
+CreateCertificateAuthority/IssueCertificate's documented 5-minute idempotency
+window, but `idempotentResourceARN` only checked expiry on read -- nothing ever
+deleted an expired entry, so a long-running backend fed unique idempotency tokens
+leaked memory forever. Fixed: `rememberIdempotency` now calls
+`sweepIdempotencyLocked` to purge expired entries on every write (lazy
+prune-on-write, no new goroutine). `idempotency` is deliberately not persisted
+(see models.go), so no snapshot change. Regression test:
+`TestIdempotency_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go), proves an
+entry is kept and resolves inside the window and is swept/forgotten after it.

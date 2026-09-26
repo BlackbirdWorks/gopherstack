@@ -2,11 +2,8 @@ package directoryservice
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ShareDirectory shares a directory.
@@ -23,7 +20,7 @@ func (b *InMemoryBackend) ShareDirectory(
 		return "", ErrDirectoryNotFound
 	}
 
-	id := fmt.Sprintf("d-%s", uuid.NewString()[:10])
+	id := newHexID("d-")
 	now := time.Now().UTC()
 
 	// HANDSHAKE shares require the consumer account to call

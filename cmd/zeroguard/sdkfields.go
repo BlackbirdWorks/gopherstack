@@ -9,6 +9,11 @@ import (
 	"path/filepath"
 )
 
+// identGoInt is the predeclared Go scalar identifier "int", shared between
+// scalarBaseTypes here and scalarKindGroup's widening in scan.go to keep
+// goconst from flagging the literal's repeated use.
+const identGoInt = "int"
+
 // scalarBaseTypes is every predeclared Go scalar identifier this repo uses
 // to model a plain (non-pointer) wire field. A gopherstack field declared
 // as one of these, where the real pinned SDK member is a pointer to the
@@ -16,13 +21,13 @@ import (
 //
 //nolint:gochecknoglobals // read-only lookup table, same pattern as sibling cmd tools
 var scalarBaseTypes = map[string]bool{
-	"int32":   true,
-	"int64":   true,
-	"int":     true,
-	"bool":    true,
-	"string":  true,
-	"float32": true,
-	"float64": true,
+	"int32":    true,
+	"int64":    true,
+	identGoInt: true,
+	"bool":     true,
+	"string":   true,
+	"float32":  true,
+	"float64":  true,
 }
 
 // sdkInputField is one field of a real pinned SDK <Op>Input struct: its

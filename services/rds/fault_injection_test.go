@@ -13,6 +13,7 @@ func TestRDSBackend_FISFaultCleanedOnClusterDelete(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.CreateDBCluster(
 		"fault-cluster",
 		"aurora-postgresql",

@@ -132,6 +132,9 @@ func (b *InMemoryBackend) UploadPart(
 
 	buf := httputils.GetBuffer()
 	defer httputils.PutBuffer(buf)
+	if n := bufferGrowHint(input.ContentLength); n > 0 {
+		buf.Grow(n)
+	}
 
 	writers := []io.Writer{md5Hasher, buf}
 
@@ -502,6 +505,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 				mu:       lockmetrics.New("s3.object"),
 			}
 			bucket.Objects[key] = obj
+			bucket.indexInsert(key)
 		}
 
 		versionID = NullVersion

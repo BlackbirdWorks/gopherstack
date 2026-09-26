@@ -5,6 +5,37 @@ import (
 	"fmt"
 )
 
+// buildInstanceTypeSpecifications converts request-side InstanceTypeConfigs
+// to the response-side InstanceTypeSpecifications real EMR echoes back via
+// DescribeCluster/ListInstanceFleets. Per the real API's documented default
+// (types.InstanceTypeSpecification.BidPriceAsPercentageOfOnDemandPrice,
+// emr@v1.64.4/types/types.go:1638), when neither BidPrice nor
+// BidPriceAsPercentageOfOnDemandPrice is provided,
+// BidPriceAsPercentageOfOnDemandPrice defaults to 100%.
+func buildInstanceTypeSpecifications(configs []InstanceTypeConfigSpec) []InstanceTypeSpecification {
+	if len(configs) == 0 {
+		return nil
+	}
+
+	specs := make([]InstanceTypeSpecification, 0, len(configs))
+
+	for _, c := range configs {
+		bidPct := c.BidPriceAsPercentageOfOnDemandPrice
+		if c.BidPrice == "" && bidPct == 0 {
+			bidPct = 100
+		}
+
+		specs = append(specs, InstanceTypeSpecification{
+			InstanceType:                        c.InstanceType,
+			BidPrice:                            c.BidPrice,
+			BidPriceAsPercentageOfOnDemandPrice: bidPct,
+			WeightedCapacity:                    c.WeightedCapacity,
+		})
+	}
+
+	return specs
+}
+
 // buildInstanceFleets converts RunJobFlow input specs to InstanceFleet
 // records, mirroring AddInstanceFleet's construction so a cluster created
 // with an instance-fleet configuration (Instances.InstanceFleets) gets the
@@ -17,6 +48,7 @@ func (b *InMemoryBackend) buildInstanceFleets(specs []InstanceFleetSpec) []Insta
 			ID:                          b.nextFleetID(),
 			Name:                        spec.Name,
 			InstanceFleetType:           spec.InstanceFleetType,
+			InstanceTypeSpecifications:  buildInstanceTypeSpecifications(spec.InstanceTypeConfigs),
 			TargetOnDemandCapacity:      spec.TargetOnDemandCapacity,
 			TargetSpotCapacity:          spec.TargetSpotCapacity,
 			ProvisionedOnDemandCapacity: spec.TargetOnDemandCapacity,
@@ -48,6 +80,7 @@ func (b *InMemoryBackend) AddInstanceFleet(
 		ID:                          b.nextFleetID(),
 		Name:                        spec.Name,
 		InstanceFleetType:           spec.InstanceFleetType,
+		InstanceTypeSpecifications:  buildInstanceTypeSpecifications(spec.InstanceTypeConfigs),
 		TargetOnDemandCapacity:      spec.TargetOnDemandCapacity,
 		TargetSpotCapacity:          spec.TargetSpotCapacity,
 		ProvisionedOnDemandCapacity: spec.TargetOnDemandCapacity,

@@ -227,7 +227,7 @@ func TestInstanceConnectEndpoint(t *testing.T) { //nolint:paralleltest // existi
 		ep, err := b.CreateInstanceConnectEndpoint("subnet-default", nil, false)
 		require.NoError(t, err)
 		assert.NotEmpty(t, ep.InstanceConnectEndpointID)
-		assert.Equal(t, "active", ep.State)
+		assert.Equal(t, "create-complete", ep.State)
 		epID = ep.InstanceConnectEndpointID
 	})
 

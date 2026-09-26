@@ -71,6 +71,20 @@ func recipeExists(recipeArn string) bool {
 	return false
 }
 
+// recipeTypeForArn returns the built-in recipe catalog's recipeType for
+// recipeArn, or "" if recipeArn matches no known recipe.
+func recipeTypeForArn(recipeArn string) string {
+	for _, r := range getBuiltinRecipes() {
+		if r[keyRecipeArn] == recipeArn {
+			t, _ := r[keyRecipeType].(string)
+
+			return t
+		}
+	}
+
+	return ""
+}
+
 func (h *Handler) describeRecipe(input map[string]any) (map[string]any, error) {
 	recipeArn, _ := input[keyRecipeArn].(string)
 

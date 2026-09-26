@@ -1,8 +1,8 @@
 ---
 service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.157.0
-last_audit_commit: b09a30f43
-last_audit_date: 2026-09-18
+last_audit_commit: 2bc650bf9
+last_audit_date: 2026-09-19
 # 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
 # not total). Swept every sort.Slice/sort.Strings/slices.Sort* call site across
 # this service's ~48 paginated listings for whether the sort key is unique.
@@ -195,6 +195,42 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
 ---
 
 ## Notes
+
+### 2026-09-24 unbounded-growth sweep: job run and crawl history never pruned
+
+b.jobRuns[jobName] and b.crawlHistory[crawlerName] grew without bound --
+every StartJobRun/StartCrawler call appended, nothing ever evicted. AWS Glue
+documents job run and crawler run history as retained for 90 days; added
+pruneOldJobRunsLocked (jobs.go) and pruneOldCrawlHistoryLocked (crawlers.go),
+both run lazily on the next StartJobRun/StartCrawler call for the affected
+job/crawler. See janitor_run_history_test.go.
+
+### 2026-09-19: terraform glue-and-cloudwatch-logs coverage (registry/schema ARN identity + tags)
+
+Real terraform apply of registry, schema, ml_transform, table_optimizer,
+partition(+index), connection, dev_endpoint, and 8 more previously-uncovered
+resources found two identity bugs: GetRegistry/GetSchema/DeleteRegistry/
+DeleteSchema/CreateSchema/ListSchemas only ever consulted RegistryId.RegistryName
+/SchemaId.SchemaName, silently returning EntityNotFoundException for the ARN
+form real clients read resources back with (fixed via registryNameFromID/
+schemaIDNames, handler_schemas.go). Registry and Schema were also entirely
+absent from GetTags/TagResource/UntagResource's resource-kind chain (tags.go)
+so a tagged registry/schema could never be read back (fixed, tags.go).
+
+### 2026-09-18: overwidecandidates re-audit (list-summary-shapes sweep)
+
+`cmd/overwidecandidates` flagged 10 List ops as over-wide-response
+candidates by name pattern (ListAssetTypes, ListConnectionTypes,
+ListDataQualityStatistics, ListFormTypes, ListGlossaries,
+ListGlossaryTerms, ListIterableForms, ListRegistries, ListSchemaVersions,
+ListSchemas). Member-by-member verification against
+`aws-sdk-go-v2/service/glue@v1.157.0` (`cmd/structfielddiff`) found all 10
+already narrowed to their real Summary/ListItem type by prior passes
+(gopherstack-uult/ustu/q4qt) — the tool flags by name, not by current
+shape, and doesn't reflect fixes. ListDataQualityStatistics is a genuine
+void-result op (`Statistics []any`, always empty — no automated
+data-quality monitoring runs in this backend); nothing to leak. 0 code
+changes this pass; see the per-op table in the audit report.
 
 ### 2026-09-18: enumcheck census
 

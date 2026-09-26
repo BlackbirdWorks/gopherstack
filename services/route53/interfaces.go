@@ -46,8 +46,8 @@ type StorageBackend interface {
 	DeleteKeySigningKey(hostedZoneID, name string) error
 
 	// DNSSEC operations
-	EnableHostedZoneDNSSEC(zoneID string) error
-	DisableHostedZoneDNSSEC(zoneID string) error
+	EnableHostedZoneDNSSEC(zoneID string) (string, error)
+	DisableHostedZoneDNSSEC(zoneID string) (string, error)
 	GetDNSSEC(zoneID string) (bool, []KeySigningKey, error)
 
 	// VPC association operations
@@ -73,7 +73,7 @@ type StorageBackend interface {
 	DeleteCidrCollection(id string) error
 	ListCidrCollections(nextToken string, maxResults int) (page.Page[*CidrCollection], error)
 	ListCidrLocations(collectionID, nextToken string, maxResults int) (page.Page[string], error)
-	ListCidrBlocks(collectionID, locationName, nextToken string, maxResults int) (page.Page[string], error)
+	ListCidrBlocks(collectionID, locationName, nextToken string, maxResults int) (page.Page[CidrBlockEntry], error)
 
 	// Query logging operations
 	CreateQueryLoggingConfig(hostedZoneID, logGroupArn string) (*QueryLoggingConfig, error)

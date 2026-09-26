@@ -2,6 +2,8 @@ package ecs
 
 import (
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // accountSettingKey builds the map key for an account setting.
@@ -31,7 +33,27 @@ func (b *InMemoryBackend) ListAccountSettings(
 		return filterAccountSettings(all, name, principalArn), nil
 	}
 
-	return effectiveAccountSettings(all, name, principalArn), nil
+	// EffectiveSettings' doc comment (quoted above): with no principalArn,
+	// results reflect "the root user" -- the aws_ecs_account_setting_default
+	// Terraform resource reads this back via ListAccountSettings and uses the
+	// returned Setting.PrincipalArn as its resource ID (d.SetId(principalARN)
+	// in terraform-provider-aws's ecs/account_setting_default.go), so an
+	// empty PrincipalArn here makes the provider treat the just-created
+	// resource as immediately deleted ("Provider produced inconsistent
+	// result after apply: root object was present, but now absent").
+	effectivePrincipal := principalArn
+	if effectivePrincipal == "" {
+		effectivePrincipal = b.accountRootArn()
+	}
+
+	return effectiveAccountSettings(all, name, effectivePrincipal), nil
+}
+
+// accountRootArn returns this backend's account root ARN, the identity
+// ListAccountSettings' EffectiveSettings resolves to when no principalArn is
+// given ("the root user", per ListAccountSettingsInput.EffectiveSettings).
+func (b *InMemoryBackend) accountRootArn() string {
+	return arn.Build("iam", "", b.accountID, "root")
 }
 
 // filterAccountSettings implements ListAccountSettings' effectiveSettings=false

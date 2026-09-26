@@ -24,23 +24,23 @@ func (rc *ResourceCreator) createFirehoseDeliveryStream(
 		name = logicalID
 	}
 
-	stream, err := rc.backends.Firehose.Backend.CreateDeliveryStream(ctx, firehosebackend.CreateDeliveryStreamInput{
+	_, err := rc.backends.Firehose.Backend.CreateDeliveryStream(ctx, firehosebackend.CreateDeliveryStreamInput{
 		Name: name,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create Firehose delivery stream %s: %w", name, err)
 	}
 
-	return stream.ARN, nil
+	// Ref returns the delivery stream name per the CFN docs (both the real
+	// AWS::KinesisFirehose::DeliveryStream and its AWS::Firehose::DeliveryStream
+	// alias); Arn is a GetAtt-only attribute, see getExtraResourceAttribute.
+	return name, nil
 }
 
-func (rc *ResourceCreator) deleteFirehoseDeliveryStream(ctx context.Context, arn string) error {
+func (rc *ResourceCreator) deleteFirehoseDeliveryStream(ctx context.Context, physicalID string) error {
 	if rc.backends.Firehose == nil {
 		return nil
 	}
 
-	// Extract stream name from ARN: arn:aws:firehose:{region}:{account}:deliverystream/{name}
-	name := resourceNameFromARN(arn)
-
-	return rc.backends.Firehose.Backend.DeleteDeliveryStream(ctx, name)
+	return rc.backends.Firehose.Backend.DeleteDeliveryStream(ctx, physicalID)
 }

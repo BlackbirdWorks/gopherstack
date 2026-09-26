@@ -719,6 +719,8 @@ func (h *Handler) handleGetTransitGatewayRouteTableAssociations(
 		return nil, err
 	}
 
+	assocs = applyTGWRTAssociationFilters(assocs, parseEC2Filters(vals))
+
 	resp := &getTransitGatewayRouteTableAssociationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, a := range assocs {
 		resp.Associations.Items = append(resp.Associations.Items, tgwRTAssociationGetItem{
@@ -742,6 +744,8 @@ func (h *Handler) handleGetTransitGatewayRouteTablePropagations(
 	if err != nil {
 		return nil, err
 	}
+
+	props = applyTGWRTPropagationFilters(props, parseEC2Filters(vals))
 
 	resp := &getTransitGatewayRouteTablePropagationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range props {
@@ -767,6 +771,8 @@ func (h *Handler) handleGetTransitGatewayAttachmentPropagations(
 	if err != nil {
 		return nil, err
 	}
+
+	props = applyTGWAttachmentPropagationFilters(props, parseEC2Filters(vals))
 
 	resp := &getTransitGatewayAttachmentPropagationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range props {

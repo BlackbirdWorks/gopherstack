@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -80,10 +81,12 @@ func (b *InMemoryBackend) StartNetworkInsightsAnalysis(pathID string) (*NetworkI
 
 	id := "nia-" + uuid.New().String()[:8]
 	a := &NetworkInsightsAnalysis{
-		NetworkInsightsAnalysisID: id,
-		NetworkInsightsPathID:     pathID,
-		Status:                    stateAnalysisSucceeded,
-		NetworkPathFound:          true,
+		NetworkInsightsAnalysisID:  id,
+		NetworkInsightsAnalysisARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-analysis/" + id,
+		NetworkInsightsPathID:      pathID,
+		Status:                     stateAnalysisSucceeded,
+		StartDate:                  time.Now().UTC(),
+		NetworkPathFound:           true,
 	}
 	b.networkInsightsAnalyses.Put(a)
 

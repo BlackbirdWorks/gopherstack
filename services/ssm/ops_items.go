@@ -84,8 +84,10 @@ func (b *InMemoryBackend) CreateOpsItem(
 	b.opsItemsStore(region).Put(&item)
 
 	b.opsItemEvents[region] = append(b.opsItemEvents[region], OpsItemEventSummary{
-		OpsItemID: opsItemID,
-		EventID:   "event-create-" + opsItemID,
+		OpsItemID:   opsItemID,
+		EventID:     "event-create-" + opsItemID,
+		Source:      input.Source,
+		CreatedTime: now,
 	})
 
 	if len(input.Tags) > 0 {
@@ -131,8 +133,10 @@ func (b *InMemoryBackend) AssociateOpsItemRelatedItem(
 	related := OpsItemRelatedItem{
 		AssociationID:   assocID,
 		AssociationType: input.AssociationType,
+		OpsItemID:       input.OpsItemID,
 		ResourceType:    input.ResourceType,
 		ResourceURI:     input.ResourceURI,
+		CreatedTime:     UnixTimeFloat(time.Now()),
 	}
 
 	if b.opsItemRelatedItems[region] == nil {
@@ -237,8 +241,6 @@ func matchesOpsMetadataFilter(m OpsMetadata, f OpsMetadataFilterEntry) bool {
 // and paginated by input.MaxResults/NextToken -- real, optional
 // ListOpsMetadataInput members (api_op_ListOpsMetadata.go) a literal
 // struct{} input previously discarded from every request.
-//
-//nolint:dupl // mirrors ListAssociations' filter/sort/paginate shape inherently, not by copy-paste
 func (b *InMemoryBackend) ListOpsMetadata(
 	ctx context.Context,
 	input *ListOpsMetadataInput,
@@ -248,7 +250,7 @@ func (b *InMemoryBackend) ListOpsMetadata(
 	defer b.mu.RUnlock()
 
 	opsMetadata := b.opsMetadataStore(region)
-	list := make([]OpsMetadata, 0, opsMetadata.Len())
+	list := make([]OpsMetadataListItem, 0, opsMetadata.Len())
 
 	for _, m := range opsMetadata.All() {
 		matched := true
@@ -262,7 +264,12 @@ func (b *InMemoryBackend) ListOpsMetadata(
 		}
 
 		if matched {
-			list = append(list, *m)
+			list = append(list, OpsMetadataListItem{
+				OpsMetadataArn:   m.OpsMetadataArn,
+				ResourceID:       m.ResourceID,
+				CreationDate:     m.CreationDate,
+				LastModifiedDate: m.LastModifiedDate,
+			})
 		}
 	}
 
@@ -294,7 +301,7 @@ func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 		var fieldValue string
 
 		switch f.Key {
-		case "Status":
+		case filterKeyStatus:
 			fieldValue = item.Status
 		case "Title":
 			fieldValue = item.Title
@@ -532,8 +539,10 @@ func (b *InMemoryBackend) UpdateOpsItem(
 
 	// Record an event for the update.
 	b.opsItemEvents[region] = append(b.opsItemEvents[region], OpsItemEventSummary{
-		OpsItemID: input.OpsItemID,
-		EventID:   "event-update-" + input.OpsItemID,
+		OpsItemID:   input.OpsItemID,
+		EventID:     "event-update-" + input.OpsItemID,
+		Source:      item.Source,
+		CreatedTime: item.LastModifiedTime,
 	})
 
 	return &UpdateOpsItemOutput{}, nil

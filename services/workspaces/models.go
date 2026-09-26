@@ -46,25 +46,28 @@ type storedWorkspace struct {
 // comments below and persistence.go's doc comment for which of these were
 // persisted before this refactor and remain so.
 type InMemoryBackend struct {
-	applications         *store.Table[storedApplication]
-	images               *store.Table[storedImage]
-	workspaces           *store.Table[storedWorkspace]
-	ipGroups             *store.Table[storedIpGroup]
-	connAliases          *store.Table[storedConnAlias]
-	customBundles        *store.Table[storedCustomBundle]
-	accountLinks         *store.Table[storedAccountLink]
-	pools                *store.Table[storedPool]
-	poolSessions         *store.Table[storedPoolSession]
-	connectAddIns        *store.Table[storedConnectAddIn]
-	registry             *store.Registry
-	clientBranding       *store.Table[storedClientBranding]
-	imagePermissions     map[string]map[string]bool
-	dirSettings          *store.Table[storedDirSettings]
-	tags                 map[string]map[string]string
-	directoryIpGroups    map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
-	mu                   *lockmetrics.RWMutex
-	clientProperties     map[string]storedClientProps
-	appAssociations      map[string]map[string]*storedAppAssociation
+	applications      *store.Table[storedApplication]
+	images            *store.Table[storedImage]
+	workspaces        *store.Table[storedWorkspace]
+	ipGroups          *store.Table[storedIpGroup]
+	connAliases       *store.Table[storedConnAlias]
+	customBundles     *store.Table[storedCustomBundle]
+	accountLinks      *store.Table[storedAccountLink]
+	pools             *store.Table[storedPool]
+	poolSessions      *store.Table[storedPoolSession]
+	connectAddIns     *store.Table[storedConnectAddIn]
+	registry          *store.Registry
+	clientBranding    *store.Table[storedClientBranding]
+	imagePermissions  map[string]map[string]bool
+	dirSettings       *store.Table[storedDirSettings]
+	tags              map[string]map[string]string
+	directoryIpGroups map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
+	mu                *lockmetrics.RWMutex
+	clientProperties  map[string]storedClientProps
+	appAssociations   map[string]map[string]*storedAppAssociation
+	// appConfig is service.AppContext.Config, captured for lazy sibling-service
+	// lookup (the Directory Service backend) -- see cross_service.go.
+	appConfig            any
 	accountConfig        storedAccountConfig
 	accountID            string
 	region               string

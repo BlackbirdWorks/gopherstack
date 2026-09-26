@@ -109,6 +109,27 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 	return &cp, nil
 }
 
+// findTaskSetRefLocked resolves a task set reference that may be either its
+// full ARN (the store's real key, taskSetsKeyFn) or its short Id (e.g.
+// "ecs-svc-91785480", the value CreateTaskSetOutput.TaskSet.Id carries and
+// the one terraform-provider-aws's resourceTaskSetRead/Update/Delete always
+// pass back for Describe/Update/DeleteTaskSet's TaskSet parameter -- a real
+// SDK client never re-sends the ARN it was given at create). Must be called
+// with at least a read lock held.
+func (b *InMemoryBackend) findTaskSetRefLocked(serviceArn, ref string) (*TaskSet, bool) {
+	if ts, ok := b.taskSets.Get(scopedKey(serviceArn, ref)); ok {
+		return ts, true
+	}
+
+	for _, ts := range b.taskSetsByService.Get(serviceArn) {
+		if ts.ID == ref {
+			return ts, true
+		}
+	}
+
+	return nil, false
+}
+
 // DeleteTaskSet removes a task set.
 func (b *InMemoryBackend) DeleteTaskSet(cluster, service, taskSet string) (*TaskSet, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
@@ -127,12 +148,12 @@ func (b *InMemoryBackend) DeleteTaskSet(cluster, service, taskSet string) (*Task
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
-	ts, ok := b.taskSets.Get(scopedKey(svc.ServiceArn, taskSet))
+	ts, ok := b.findTaskSetRefLocked(svc.ServiceArn, taskSet)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, taskSet)
 	}
 
-	b.taskSets.Delete(scopedKey(svc.ServiceArn, taskSet))
+	b.taskSets.Delete(scopedKey(svc.ServiceArn, ts.TaskSetArn))
 	b.deleteResourceTagsLocked(ts.TaskSetArn)
 
 	cp := *ts
@@ -179,7 +200,7 @@ func (b *InMemoryBackend) DescribeTaskSets(
 	failures := make([]Failure, 0, len(taskSets))
 
 	for _, ref := range taskSets {
-		ts, found := b.taskSets.Get(scopedKey(svc.ServiceArn, ref))
+		ts, found := b.findTaskSetRefLocked(svc.ServiceArn, ref)
 		if !found {
 			failures = append(failures, Failure{
 				Arn:    ref,
@@ -225,7 +246,7 @@ func (b *InMemoryBackend) UpdateTaskSet(
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
-	ts, ok := b.taskSets.Get(scopedKey(svc.ServiceArn, taskSet))
+	ts, ok := b.findTaskSetRefLocked(svc.ServiceArn, taskSet)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, taskSet)
 	}
@@ -258,7 +279,7 @@ func (b *InMemoryBackend) UpdateServicePrimaryTaskSet(
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
-	primary, found := b.taskSets.Get(scopedKey(svc.ServiceArn, primaryTaskSet))
+	primary, found := b.findTaskSetRefLocked(svc.ServiceArn, primaryTaskSet)
 	if !found {
 		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, primaryTaskSet)
 	}
@@ -266,7 +287,7 @@ func (b *InMemoryBackend) UpdateServicePrimaryTaskSet(
 	now := time.Now()
 
 	for _, ts := range b.taskSetsByService.Get(svc.ServiceArn) {
-		if ts.TaskSetArn == primaryTaskSet {
+		if ts.TaskSetArn == primary.TaskSetArn {
 			ts.Status = "PRIMARY"
 		} else {
 			ts.Status = statusActive

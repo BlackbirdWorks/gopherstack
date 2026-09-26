@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -89,6 +90,91 @@ func TestRequesterPays_Enforcement(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.wantChargedHdr {
+				assert.Equal(t, "requester", rec.Header().Get("X-Amz-Request-Charged"))
+			}
+			if tt.wantStatus == http.StatusForbidden {
+				assert.Contains(t, rec.Body.String(), "AccessDenied")
+				assert.Contains(t, rec.Body.String(), "Requester Pays")
+			}
+		})
+	}
+}
+
+// TestRequesterPays_OwnerExemption verifies the bucket owner account is
+// exempt from the x-amz-request-payer header requirement, while an anonymous
+// caller or a different account still gets the standard 403.
+func TestRequesterPays_OwnerExemption(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ownerAccount = "111111111111"
+		otherAccount = "222222222222"
+		authHeader   = "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260919/us-east-1/s3/aws4_request, " +
+			"SignedHeaders=host, Signature=mock"
+	)
+
+	tests := []struct {
+		name        string
+		account     string
+		wantStatus  int
+		anonymous   bool
+		withHeader  bool
+		wantCharged bool
+	}{
+		{
+			name:       "owner_without_header_succeeds",
+			account:    ownerAccount,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:        "owner_with_header_succeeds",
+			account:     ownerAccount,
+			withHeader:  true,
+			wantStatus:  http.StatusOK,
+			wantCharged: true,
+		},
+		{
+			name:       "different_account_without_header_denied",
+			account:    otherAccount,
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			// Anonymity trumps account match: even when the (default) awsmeta
+			// account happens to equal the owner, an unsigned request is not
+			// the owner.
+			name:       "anonymous_without_header_denied",
+			account:    ownerAccount,
+			anonymous:  true,
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+
+			ctx := awsmeta.Set(t.Context(), &awsmeta.Metadata{Account: ownerAccount})
+			_, err := backend.CreateBucket(ctx, &sdk_s3.CreateBucketInput{Bucket: aws.String("rp-owner-bucket")})
+			require.NoError(t, err)
+			mustPutObject(t, backend, "rp-owner-bucket", "obj.txt", []byte("hello"))
+			setRequesterPays(t, handler, "rp-owner-bucket")
+
+			req := httptest.NewRequest(http.MethodGet, "/rp-owner-bucket/obj.txt", nil)
+			if !tt.anonymous {
+				req.Header.Set("Authorization", authHeader)
+			}
+			if tt.withHeader {
+				req.Header.Set("X-Amz-Request-Payer", "requester")
+			}
+			req = req.WithContext(awsmeta.Set(req.Context(), &awsmeta.Metadata{Account: tt.account}))
+
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantCharged {
 				assert.Equal(t, "requester", rec.Header().Get("X-Amz-Request-Charged"))
 			}
 			if tt.wantStatus == http.StatusForbidden {

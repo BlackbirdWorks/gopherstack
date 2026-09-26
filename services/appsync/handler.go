@@ -54,6 +54,13 @@ const (
 	pathSegV2          = "v2"
 	pathSegAPIs        = "apis"
 	pathSegDomainNames = "domainnames"
+	pathSegSourceAPIs  = "sourceApis"
+	pathSegMergedAPIs  = "mergedApis"
+
+	// keyMergedAPIAssociations is the mergedApiAssociations subresource segment
+	// under /v1/sourceApis/{sourceApiIdentifier}/... (the sourceApis-side mirror
+	// of keySourceAPIAssociations below).
+	keyMergedAPIAssociations = "mergedApiAssociations"
 
 	// Path segment counts for AppSync routes.
 	pathSegsAPIs           = 2
@@ -310,7 +317,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 // parseOperation derives an operation name from the HTTP method and path.
 func parseOperation(method, path string) string {
-	segs := splitPath(path)
+	segs := normalizeAPIFamilySegs(splitPath(path))
 
 	if len(segs) == 0 {
 		return opUnknown
@@ -325,9 +332,9 @@ func parseOperation(method, path string) string {
 	switch segs[1] {
 	case pathSegDomainNames:
 		return parseOperationDomainNames(method, segs)
-	case "sourceApis":
+	case pathSegSourceAPIs:
 		return parseOperationSourceAPIs(method, segs)
-	case "mergedApis":
+	case pathSegMergedAPIs:
 		return parseOperationMergedAPIs(method, segs)
 	case "dataSource-introspections":
 		return parseOperationDataSourceIntrospections(method, segs)
@@ -395,7 +402,7 @@ func parseOperationDomainNames(method string, segs []string) string {
 
 func parseOperationSourceAPIs(method string, segs []string) string {
 	// /v1/sourceApis/{sourceApiIdentifier}/mergedApiAssociations
-	if segs[3] != "mergedApiAssociations" {
+	if segs[3] != keyMergedAPIAssociations {
 		return opUnknown
 	}
 
@@ -846,6 +853,55 @@ func parseOperationTypeResolvers(method, seg3, seg5 string) string {
 	return opUnknown
 }
 
+// normalizeAPIFamilySegs collapses a possibly ARN-valued mergedApiIdentifier/
+// sourceApiIdentifier path segment back into one segment. The AWS SDK
+// percent-encodes an ARN's "/" as %2F in these URI labels (AssociateSourceGraphqlApi,
+// GetSourceApiAssociation, etc. all accept either the bare API ID or its full ARN —
+// see AssociateSourceGraphqlApiInput doc), but net/http decodes the request path
+// before routing reaches here, splitting the ARN across extra segments (same issue
+// apiIDFromResourceARN works around for /v1/tags/{resourceArn}).
+func normalizeAPIFamilySegs(segs []string) []string {
+	if len(segs) < pathSegsAPIID {
+		return segs
+	}
+
+	var marker string
+
+	switch segs[1] {
+	case pathSegMergedAPIs:
+		marker = keySourceAPIAssociations
+	case pathSegSourceAPIs:
+		marker = keyMergedAPIAssociations
+	default:
+		return segs
+	}
+
+	idx := -1
+
+	for i := 2; i < len(segs); i++ {
+		if segs[i] == marker {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx <= pathSegsAPIID {
+		return segs
+	}
+
+	id, ok := apiIDFromResourceARN(segs[2:idx])
+	if !ok {
+		id = strings.Join(segs[2:idx], "/")
+	}
+
+	normalized := make([]string, 0, len(segs)-(idx-pathSegsAPIID))
+	normalized = append(normalized, segs[0], segs[1], id)
+	normalized = append(normalized, segs[idx:]...)
+
+	return normalized
+}
+
 // splitPath splits a URL path into non-empty segments.
 func splitPath(path string) []string {
 	var segs []string
@@ -865,7 +921,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		method := c.Request().Method
 		path := c.Request().URL.Path
-		segs := splitPath(path)
+		segs := normalizeAPIFamilySegs(splitPath(path))
 		log := logger.Load(ctx)
 
 		log.DebugContext(ctx, "AppSync request", "method", method, "path", path)
@@ -898,9 +954,9 @@ func (h *Handler) dispatchTopLevel(ctx context.Context, c *echo.Context, segs []
 	switch segs[1] {
 	case pathSegDomainNames:
 		return true, h.handleDomainNames(ctx, c, segs)
-	case "sourceApis":
+	case pathSegSourceAPIs:
 		return true, h.handleSourceAPIs(ctx, c, segs)
-	case "mergedApis":
+	case pathSegMergedAPIs:
 		return true, h.handleMergedAPIs(ctx, c, segs)
 	case "dataSource-introspections":
 		return true, h.handleDataSourceIntrospections(ctx, c, segs)

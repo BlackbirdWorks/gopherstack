@@ -1,0 +1,110 @@
+{
+  "ConsumedCapacity": {
+    "CapacityUnits": 10,
+    "ReadCapacityUnits": 10,
+    "TableName": "GoldenQueryTable"
+  },
+  "Count": 9,
+  "Items": [
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#011"
+      },
+      "val": {
+        "N": "110"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#012"
+      },
+      "val": {
+        "N": "120"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#013"
+      },
+      "val": {
+        "N": "130"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#014"
+      },
+      "val": {
+        "N": "140"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#015"
+      },
+      "val": {
+        "N": "150"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#016"
+      },
+      "val": {
+        "N": "160"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#017"
+      },
+      "val": {
+        "N": "170"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#018"
+      },
+      "val": {
+        "N": "180"
+      }
+    },
+    {
+      "pk": {
+        "S": "cust#1"
+      },
+      "sk": {
+        "S": "order#019"
+      },
+      "val": {
+        "N": "190"
+      }
+    }
+  ],
+  "ScannedCount": 20
+}

@@ -117,6 +117,18 @@ func (b *InMemoryBackend) DeleteDBClusterEndpoint(
 }
 
 // DescribeDBClusterEndpoints returns all Neptune DB cluster endpoints or a specific one.
+//
+// A DBClusterEndpointIdentifier that matches nothing returns an empty list,
+// not an error: DescribeDBClusterEndpoints does not declare
+// DBClusterEndpointNotFoundFault as one of its possible errors (verified
+// against the pinned SDK's per-operation error deserializer,
+// awsAwsquery_deserializeOpErrorDescribeDBClusterEndpoints, which only
+// special-cases DBClusterNotFoundFault -- everything else, including that
+// fault's own error code, falls back to a generic smithy.GenericAPIError).
+// Returning that error here made terraform-provider-aws's delete waiter
+// (which polls Describe expecting NotFound == "gone" via errors.As) treat a
+// perfectly normal deletion as a hard failure, since errors.As can't match a
+// type the client never registered for this op.
 func (b *InMemoryBackend) DescribeDBClusterEndpoints(
 	ctx context.Context, endpointID, clusterID string,
 ) ([]DBClusterEndpoint, error) {
@@ -126,11 +138,7 @@ func (b *InMemoryBackend) DescribeDBClusterEndpoints(
 	if endpointID != "" {
 		ep, exists := b.clusterEndpointGet(region, endpointID)
 		if !exists {
-			return nil, fmt.Errorf(
-				"%w: cluster endpoint %s not found",
-				ErrClusterEndpointNotFound,
-				endpointID,
-			)
+			return []DBClusterEndpoint{}, nil
 		}
 		cp := *ep
 

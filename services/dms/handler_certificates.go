@@ -86,8 +86,9 @@ func (h *Handler) handleDescribeCertificates(
 }
 
 type importCertificateInput struct {
-	CertificateIdentifier *string `json:"CertificateIdentifier"`
-	CertificatePem        *string `json:"CertificatePem"`
+	CertificateIdentifier *string    `json:"CertificateIdentifier"`
+	CertificatePem        *string    `json:"CertificatePem"`
+	Tags                  []tagEntry `json:"Tags"`
 }
 
 type importCertificateOutput struct {
@@ -102,7 +103,9 @@ func (h *Handler) handleImportCertificate(
 		return nil, fmt.Errorf("%w: CertificateIdentifier is required", ErrValidation)
 	}
 
-	cert, err := h.Backend.ImportCertificate(ctx, identifier, ptrconv.String(in.CertificatePem))
+	kv := tagsToMap(in.Tags)
+
+	cert, err := h.Backend.ImportCertificate(ctx, identifier, ptrconv.String(in.CertificatePem), kv)
 	if err != nil {
 		return nil, err
 	}

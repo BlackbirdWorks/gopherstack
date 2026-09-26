@@ -40,7 +40,9 @@ const (
 	vicStatusAvailable = "AVAILABLE"
 	vicStatusDeleted   = "DELETED"
 
-	customDomainStatusActive = "ACTIVE"
+	customDomainStatusPendingCertificateDNSValidation = "PENDING_CERTIFICATE_DNS_VALIDATION"
+
+	certValidationRecordStatusPendingValidation = "PENDING_VALIDATION"
 
 	defaultMaxConcurrency int32 = 100
 	defaultMaxSize        int32 = 25
@@ -330,15 +332,17 @@ func (v *storedVpcIngressConnection) toSummary() VpcIngressConnectionSummary {
 
 // storedCustomDomain holds a custom domain association.
 type storedCustomDomain struct {
-	DomainName         string `json:"domainName"`
-	Status             string `json:"status"`
-	EnableWWWSubdomain bool   `json:"enableWwwSubdomain"`
+	DomainName                   string                        `json:"domainName"`
+	Status                       string                        `json:"status"`
+	CertificateValidationRecords []CertificateValidationRecord `json:"certificateValidationRecords,omitempty"`
+	EnableWWWSubdomain           bool                          `json:"enableWwwSubdomain"`
 }
 
 func (d *storedCustomDomain) toCustomDomain() CustomDomain {
 	return CustomDomain{
-		DomainName:         d.DomainName,
-		Status:             d.Status,
-		EnableWWWSubdomain: d.EnableWWWSubdomain,
+		DomainName:                   d.DomainName,
+		Status:                       d.Status,
+		CertificateValidationRecords: d.CertificateValidationRecords,
+		EnableWWWSubdomain:           d.EnableWWWSubdomain,
 	}
 }

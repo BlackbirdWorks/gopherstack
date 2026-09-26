@@ -289,15 +289,27 @@ type CompletionReport struct {
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryTask struct {
-	CreationTime epochTime         `json:"CreationTime"`
-	Report       *CompletionReport `json:"Report,omitempty"`
-	TaskID       string            `json:"TaskId"`
-	FileSystemID string            `json:"FileSystemId"`
-	Type         string            `json:"Type"`
-	Lifecycle    string            `json:"Lifecycle"`
-	ResourceARN  string            `json:"ResourceARN"`
-	Paths        []string          `json:"Paths,omitempty"`
-	Tags         []Tag             `json:"Tags,omitempty"`
+	CreationTime epochTime                 `json:"CreationTime"`
+	EndTime      *epochTime                `json:"EndTime,omitempty"`
+	Report       *CompletionReport         `json:"Report,omitempty"`
+	Status       *DataRepositoryTaskStatus `json:"Status,omitempty"`
+	TaskID       string                    `json:"TaskId"`
+	FileSystemID string                    `json:"FileSystemId"`
+	Type         string                    `json:"Type"`
+	Lifecycle    string                    `json:"Lifecycle"`
+	ResourceARN  string                    `json:"ResourceARN"`
+	Paths        []string                  `json:"Paths,omitempty"`
+	Tags         []Tag                     `json:"Tags,omitempty"`
+}
+
+// DataRepositoryTaskStatus mirrors types.DataRepositoryTaskStatus
+// (types/types.go:2041). ReleasedCapacity (AUTO_RELEASE_DATA / File Cache
+// tasks only) is not modeled: this backend has no File Cache release engine.
+type DataRepositoryTaskStatus struct {
+	LastUpdatedTime epochTime `json:"LastUpdatedTime"`
+	TotalCount      int64     `json:"TotalCount"`
+	SucceededCount  int64     `json:"SucceededCount"`
+	FailedCount     int64     `json:"FailedCount"`
 }
 
 // FileCache represents an Amazon FSx file cache, in the shape used by
@@ -400,15 +412,16 @@ type StorageVirtualMachine struct {
 // typed SDK client silently drops, leaving a volume's SVM association
 // permanently unreadable through every op that returns a Volume.
 type Volume struct {
-	CreationTime       epochTime                 `json:"CreationTime"`
-	OntapConfiguration *OntapVolumeConfiguration `json:"OntapConfiguration,omitempty"`
-	VolumeID           string                    `json:"VolumeId"`
-	VolumeType         string                    `json:"VolumeType"`
-	FileSystemID       string                    `json:"FileSystemId"`
-	Name               string                    `json:"Name"`
-	Lifecycle          string                    `json:"Lifecycle"`
-	ResourceARN        string                    `json:"ResourceARN"`
-	Tags               []Tag                     `json:"Tags,omitempty"`
+	CreationTime         epochTime                   `json:"CreationTime"`
+	OntapConfiguration   *OntapVolumeConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *OpenZFSVolumeConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	VolumeID             string                      `json:"VolumeId"`
+	VolumeType           string                      `json:"VolumeType"`
+	FileSystemID         string                      `json:"FileSystemId"`
+	Name                 string                      `json:"Name"`
+	Lifecycle            string                      `json:"Lifecycle"`
+	ResourceARN          string                      `json:"ResourceARN"`
+	Tags                 []Tag                       `json:"Tags,omitempty"`
 }
 
 // OntapVolumeConfiguration is the ONTAP-specific block on Volume
@@ -419,6 +432,22 @@ type Volume struct {
 // (see PARITY.md).
 type OntapVolumeConfiguration struct {
 	StorageVirtualMachineID string `json:"StorageVirtualMachineId,omitempty"`
+}
+
+// OpenZFSVolumeConfiguration is the OpenZFS-specific block on Volume
+// (types.OpenZFSVolumeConfiguration, fsx@v1.68.4 types/types.go). The AWS
+// provider's FindOpenZFSVolumeByID helper treats a Volume response with no
+// OpenZFSConfiguration as an empty result, so every OpenZFS volume -- root or
+// user-created -- must carry one. Only the fields real AWS sets by default on
+// an unconfigured volume are modeled (DataCompressionType/RecordSizeKiB/
+// CopyTagsToSnapshots/ReadOnly/VolumePath); NfsExports, quotas, snapshot
+// origin, and copy-strategy fields stay a disclosed, unmodeled gap.
+type OpenZFSVolumeConfiguration struct {
+	DataCompressionType string `json:"DataCompressionType,omitempty"`
+	VolumePath          string `json:"VolumePath,omitempty"`
+	RecordSizeKiB       int32  `json:"RecordSizeKiB,omitempty"`
+	CopyTagsToSnapshots bool   `json:"CopyTagsToSnapshots"`
+	ReadOnly            bool   `json:"ReadOnly"`
 }
 
 // AdministrativeAction represents an in-progress or completed FSx

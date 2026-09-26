@@ -8,7 +8,47 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
+
+// TestCreateDomainName_HasDomainNameArn verifies CreateDomainName populates DomainNameArn,
+// which aws_api_gateway_domain_name_access_association needs as its source domain_name_arn input.
+func TestCreateDomainName_HasDomainNameArn(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := boostSetup()
+
+	dn, err := handler.Backend.CreateDomainName(apigateway.CreateDomainNameInput{
+		DomainName: "arn-test.example.com",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:apigateway:us-east-1::/domainnames/arn-test.example.com", dn.DomainNameArnValue)
+}
+
+// TestGetTags_DomainNameAccessAssociation verifies GetTags returns empty tags, not
+// BadRequestException, since terraform's tagging framework calls it on every Read regardless.
+func TestGetTags_DomainNameAccessAssociation(t *testing.T) {
+	t.Parallel()
+
+	handler, e := boostSetup()
+
+	assoc, err := handler.Backend.CreateDomainNameAccessAssociation(apigateway.CreateDomainNameAccessAssociationInput{
+		DomainNameARN:               "arn:aws:apigateway:us-east-1::/domainnames/access-assoc-test.example.com",
+		AccessAssociationSource:     "vpce-test",
+		AccessAssociationSourceType: "VPCE",
+	})
+	require.NoError(t, err)
+
+	getRec := postWithHandler(t, handler, e, "GetTags",
+		fmt.Sprintf(`{"resourceArn":%q}`, assoc.DomainNameAccessAssociationARN))
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tagsResp))
+	gotTags, _ := tagsResp["tags"].(map[string]any)
+	assert.Empty(t, gotTags)
+}
 
 // TestResourceTags tests GetResourceTags, TagResource, UntagResource.
 func TestResourceTags(t *testing.T) {

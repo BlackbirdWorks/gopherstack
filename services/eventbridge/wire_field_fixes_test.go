@@ -381,17 +381,19 @@ func TestPutPermission_Condition_RoundTripsThroughPolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, described.Policy)
 
-	var statements []struct {
-		Condition map[string]map[string]string `json:"Condition"`
-		Sid       string                       `json:"Sid"`
+	var doc struct {
+		Statement []struct {
+			Condition map[string]map[string]string `json:"Condition"`
+			Sid       string                       `json:"Sid"`
+		} `json:"Statement"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(described.Policy)), &statements))
-	require.Len(t, statements, 1)
-	assert.Equal(t, "OrgGrant", statements[0].Sid)
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(described.Policy)), &doc))
+	require.Len(t, doc.Statement, 1)
+	assert.Equal(t, "OrgGrant", doc.Statement[0].Sid)
 	require.NotEmpty(
-		t, statements[0].Condition,
+		t, doc.Statement[0].Condition,
 		"the Condition supplied to PutPermission must round-trip through "+
 			"DescribeEventBus.Policy; pre-fix it was silently dropped",
 	)
-	assert.Equal(t, "o-1234567890", statements[0].Condition["StringEquals"]["aws:PrincipalOrgID"])
+	assert.Equal(t, "o-1234567890", doc.Statement[0].Condition["StringEquals"]["aws:PrincipalOrgID"])
 }

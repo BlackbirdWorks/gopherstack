@@ -23,6 +23,7 @@ func TestListInvalidations_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -78,6 +79,7 @@ func TestListInvalidationsForDistributionTenant_SDKRoundTrip_Pagination(t *testi
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -137,7 +139,9 @@ func TestListInvalidationsForDistributionTenant_SDKRoundTrip_Pagination(t *testi
 func TestListFunctions_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
-	h := cloudfront.NewHandler(cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"))
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
+	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
 	const total = 25
@@ -192,6 +196,7 @@ func TestListDistributionTenants_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -247,6 +252,7 @@ func TestListConnectionGroups_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -298,6 +304,7 @@ func TestListKeyValueStores_SDKRoundTrip_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
@@ -356,6 +363,7 @@ func TestListConnectionFunctions_DuplicateNames_NoDropAcrossPages(t *testing.T) 
 
 	for range 30 {
 		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		t.Cleanup(backend.Close)
 		h := cloudfront.NewHandler(backend)
 		client := newTestCloudFrontClient(t, h)
 

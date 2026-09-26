@@ -10,14 +10,19 @@ import "maps"
 // (cyclomatic complexity 1). Split across several routesX builders (rather
 // than one 63-entry map literal) to stay under funlen's line-count limit --
 // a lookup-table split, not a logic split.
+// Built once: the router evaluates every matcher per request.
 func (h *Handler) routes() map[string]routeEntry {
-	return mergeRoutes(
-		h.routesApps(),
-		h.routesAppVersions(),
-		h.routesPoliciesAndAssessments(),
-		h.routesRecommendationsAndTemplates(),
-		h.routesGroupingMetricsAndTags(),
-	)
+	h.routesOnce.Do(func() {
+		h.routesCache = mergeRoutes(
+			h.routesApps(),
+			h.routesAppVersions(),
+			h.routesPoliciesAndAssessments(),
+			h.routesRecommendationsAndTemplates(),
+			h.routesGroupingMetricsAndTags(),
+		)
+	})
+
+	return h.routesCache
 }
 
 // mergeRoutes combines several method+path -> routeEntry tables into one.

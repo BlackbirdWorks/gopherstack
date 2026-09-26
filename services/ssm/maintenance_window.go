@@ -33,12 +33,33 @@ func (b *InMemoryBackend) maintenanceWindowTasksStore(
 }
 
 // CancelMaintenanceWindowExecution cancels a maintenance window execution.
+// This backend has no state machine for window executions -- they're derived
+// deterministically from the owning window (mwExecID) rather than stored, so
+// there is no CANCELLING/CANCELLED transition to apply. What Cancel CAN do
+// honestly is validate that input.WindowExecutionId actually names a
+// derivable execution of a window that still exists; an unrecognized or
+// stale ID returns the real DoesNotExistException instead of fabricating
+// success, matching GetMaintenanceWindowExecution's existing not-found
+// handling for a known windowID.
 func (b *InMemoryBackend) CancelMaintenanceWindowExecution(
-	_ context.Context,
+	ctx context.Context,
 	input *CancelMaintenanceWindowExecutionInput,
 ) (*CancelMaintenanceWindowExecutionOutput, error) {
 	if input.WindowExecutionID == "" {
 		return nil, fmt.Errorf("%w: WindowExecutionId is required", ErrValidationException)
+	}
+
+	windowID, ok := mwWindowIDFromExec(input.WindowExecutionID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrMaintenanceWindowExecutionNotFound, input.WindowExecutionID)
+	}
+
+	region := getRegion(ctx)
+	b.mu.RLock("CancelMaintenanceWindowExecution")
+	defer b.mu.RUnlock()
+
+	if !b.maintenanceWindowsStore(region).Has(windowID) {
+		return nil, fmt.Errorf("%w: %q", ErrMaintenanceWindowExecutionNotFound, input.WindowExecutionID)
 	}
 
 	return &CancelMaintenanceWindowExecutionOutput{

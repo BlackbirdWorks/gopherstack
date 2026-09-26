@@ -166,6 +166,13 @@ type createMarketplaceModelEndpointOutput struct {
 	MarketplaceModelEndpoint marketplaceEndpointOutput `json:"marketplaceModelEndpoint"`
 }
 
+// marketplaceEndpointStatusRegistered is the only Status this backend ever
+// reports for a marketplace endpoint (bedrock@v1.66.4 types.Status has just
+// StatusRegistered/StatusIncompatibleEndpoint; gopherstack has no path that
+// makes a model source incompatible). Distinct from the endpoint's lifecycle
+// (Creating/Active/Deregistered), which is EndpointStatus.
+const marketplaceEndpointStatusRegistered = "REGISTERED"
+
 type marketplaceEndpointOutput struct {
 	EndpointConfig *endpointConfigWire `json:"endpointConfig,omitempty"`
 	CreatedAt      string              `json:"createdAt"`
@@ -185,7 +192,7 @@ func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpoi
 		EndpointArn:           ep.EndpointArn,
 		EndpointName:          ep.EndpointName,
 		ModelSourceIdentifier: ep.ModelSourceID,
-		Status:                ep.Status,
+		Status:                marketplaceEndpointStatusRegistered,
 		EndpointStatus:        ep.Status,
 		EndpointConfig:        endpointConfigToWire(ep.EndpointConfig),
 		CreatedAt:             ep.CreatedAt.Format(time.RFC3339),
@@ -233,18 +240,42 @@ func (h *Handler) handleGetMarketplaceModelEndpoint(c *echo.Context, id string) 
 	})
 }
 
+// marketplaceEndpointSummaryOutput is the real ListMarketplaceModelEndpointsOutput
+// element shape (types.MarketplaceModelEndpointSummary, bedrock@v1.66.4
+// deserializers.go) -- no endpointConfig, endpointName or endpointStatus,
+// all Get-only (confirmed against
+// awsRestjson1_deserializeDocumentMarketplaceModelEndpointSummary, which has
+// no such cases). endpointName isn't a real member of either shape at all.
+type marketplaceEndpointSummaryOutput struct {
+	CreatedAt             string `json:"createdAt"`
+	UpdatedAt             string `json:"updatedAt"`
+	EndpointArn           string `json:"endpointArn"`
+	ModelSourceIdentifier string `json:"modelSourceIdentifier"`
+	Status                string `json:"status"`
+}
+
+func marketplaceEndpointToSummaryOutput(ep *MarketplaceModelEndpoint) marketplaceEndpointSummaryOutput {
+	return marketplaceEndpointSummaryOutput{
+		EndpointArn:           ep.EndpointArn,
+		ModelSourceIdentifier: ep.ModelSourceID,
+		Status:                marketplaceEndpointStatusRegistered,
+		CreatedAt:             ep.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:             ep.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
 type listMarketplaceModelEndpointsOutput struct {
-	NextToken                 string                      `json:"nextToken,omitempty"`
-	MarketplaceModelEndpoints []marketplaceEndpointOutput `json:"marketplaceModelEndpoints"`
+	NextToken                 string                             `json:"nextToken,omitempty"`
+	MarketplaceModelEndpoints []marketplaceEndpointSummaryOutput `json:"marketplaceModelEndpoints"`
 }
 
 func (h *Handler) handleListMarketplaceModelEndpoints(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(q.Get("nextToken"), q.Get("modelSourceIdentifier"))
-	summaries := make([]marketplaceEndpointOutput, 0, len(endpoints))
+	summaries := make([]marketplaceEndpointSummaryOutput, 0, len(endpoints))
 
 	for _, ep := range endpoints {
-		summaries = append(summaries, marketplaceEndpointToOutput(ep))
+		summaries = append(summaries, marketplaceEndpointToSummaryOutput(ep))
 	}
 
 	return c.JSON(http.StatusOK, listMarketplaceModelEndpointsOutput{

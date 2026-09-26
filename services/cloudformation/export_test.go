@@ -34,8 +34,13 @@ func (r *MacroRegistry) RegisterForTest(name, functionARN, description string) {
 }
 
 // TopoSortResources exposes topoSortResources for white-box testing.
-func TopoSortResources(resources map[string]TemplateResource) []string {
+func TopoSortResources(resources map[string]TemplateResource) ([]string, error) {
 	return topoSortResources(resources)
+}
+
+// ReverseDependencyOrderForTest exposes reverseDependencyOrder for white-box testing.
+func ReverseDependencyOrderForTest(ids []string, templateBody string) []string {
+	return reverseDependencyOrder(ids, templateBody)
 }
 
 // AddStackEventInternal appends a fully-formed StackEvent directly into
@@ -61,6 +66,18 @@ func (b *InMemoryBackend) AddStackSetOperationInternal(stackSetName string, op *
 	}
 
 	b.stackSetOperations[stackSetName][op.OperationID] = op
+}
+
+// AddHookResultInternal inserts a fully-formed HookResult directly into the
+// backend's hookResults table. Nothing in the public API writes this table
+// today (RecordHandlerProgress writes a separate handlerProgress map), so
+// ListHookResults/GetHookResult can only be exercised end-to-end via this
+// test-only seam.
+func (b *InMemoryBackend) AddHookResultInternal(r HookResult) {
+	b.mu.Lock("AddHookResultInternal")
+	defer b.mu.Unlock()
+
+	b.hookResults.Put(&r)
 }
 
 // ParseDependsOn exposes parseDependsOn for white-box testing.

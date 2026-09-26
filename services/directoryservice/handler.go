@@ -224,6 +224,16 @@ func (h *Handler) Name() string { return "DirectoryService" }
 // Reset resets the backend.
 func (h *Handler) Reset() { h.Backend.Reset() }
 
+// Shutdown stops the backend's directory-lifecycle timers so none outlives
+// the service.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
+}
+
+var _ service.Shutdowner = (*Handler)(nil)
+
 // Snapshot returns a JSON snapshot of the backend state for persistence.
 // Delegating this (and Restore below) is what makes the Handler satisfy the
 // unexported persistence.Persistable-shaped interface cli.go's

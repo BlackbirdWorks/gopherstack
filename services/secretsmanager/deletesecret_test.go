@@ -25,6 +25,7 @@ func TestDeleteSecret_SoftDelete(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "soft-del", SecretString: "v"},
@@ -46,6 +47,7 @@ func TestDeleteSecret_ForceDelete(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "force-del", SecretString: "v"},
@@ -67,6 +69,7 @@ func TestDeleteSecret_RecoveryWindowMin(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "recov-min", SecretString: "v"},
@@ -85,6 +88,7 @@ func TestDeleteSecret_RecoveryWindowMax(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "recov-max", SecretString: "v"},
@@ -103,6 +107,7 @@ func TestDeleteSecret_RecoveryWindowTooShort(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "recov-short", SecretString: "v"},
@@ -121,6 +126,7 @@ func TestDeleteSecret_RecoveryWindowTooLong(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "recov-long", SecretString: "v"},
@@ -139,6 +145,7 @@ func TestDeleteSecret_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "missing"})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
@@ -153,6 +160,7 @@ func TestDeleteSecret_AlreadyDeleted(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "already-del", SecretString: "v"},
@@ -172,6 +180,7 @@ func TestDeleteSecret_AlreadyDeletedHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"double-delete","SecretString":"v"}`)
@@ -230,6 +239,7 @@ func TestDeleteSecret_ForceDeleteAndRecoveryWindowConflict(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "del-conflict-" + tc.name,
 				SecretString: "v",
@@ -261,6 +271,7 @@ func TestDeleteSecret_ForceAndRecoveryWindowHTTPErrorType(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -310,6 +321,7 @@ func TestDeleteSecret_ForceDeletePreventsRestore(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 
 			_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "force-del-test",
@@ -346,6 +358,7 @@ func TestDeleteSecret_Cascade(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "cascade", SecretString: "v"},
@@ -398,6 +411,7 @@ func TestDeleteSecret_RejectsWhilePrimaryHasReplicas(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "still-replicated", SecretString: "v"},
@@ -482,6 +496,7 @@ func TestDeleteSecret_RecoveryWindowInDaysHTTP(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			h := secretsmanager.NewHandler(b)
 
 			// Create the secret(s) needed for the test.
@@ -514,6 +529,7 @@ func TestDeleteSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         "restorable",
 			SecretString: "data",
@@ -546,6 +562,7 @@ func TestDeleteSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 
 		_, err := backend.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "missing"})
 		require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)

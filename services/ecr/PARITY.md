@@ -1,8 +1,8 @@
 ---
 service: ecr
 sdk_module: aws-sdk-go-v2/service/ecr@v1.64.0
-last_audit_commit: a2084957b
-last_audit_date: 2026-09-18
+last_audit_commit: f78c3b7c7  # 2026-09-24 goroutine-leak audit (gopherstack-1x2u0)
+last_audit_date: 2026-09-24
 overall: A  # round 4 (gopherstack-6flj wrapper-key sweep) found and fixed 6 more real wire-shape bugs the round-3 "wire: ok" claims had missed -- see "Genuine fixes made this pass, round 4" below. Round 3 closed every remaining gap it found: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -78,6 +78,7 @@ gaps: []
   # previously-"intentional shortcut" test was rewritten to exercise the real
   # AWS behavior instead. (bd: gopherstack-x6i closed)
 items_still_open:
+  - "aws_ecr_registry_scanning_configuration and aws_ecr_replication_configuration (2026-09-19, gopherstack-101r): dropped from test/terraform/fixtures/elb-alb-and-ecr.tf after a real attempt. terraform-provider-aws v5.100.0 fails both resources' apply with 'Provider produced inconsistent result after apply ... root object was present, but now absent', even though this emulator's PutReplicationConfiguration/DescribeRegistry and PutRegistryScanningConfiguration/GetRegistryScanningConfiguration were verified byte-correct against the pinned SDK types via a direct HTTP probe (curl against the built binary) AND round-tripped correctly through the real aws-sdk-go-v2 client in a unit test. TF_LOG=trace showed the provider's own ApplyResourceChange RPC returning diagnostic_error_count=0 -- the rejection happens in terraform-plugin-sdk/Terraform Core's own legacy-SDK state-consistency check, downstream of anything this emulator controls. Every other ECR singleton config resource in the same fixture (aws_ecr_registry_policy, aws_ecr_account_setting) uses the identical Put+immediate-Read pattern and applies cleanly, which is why this is recorded as unresolved rather than something to keep chasing blind."
   - "ListImageReferrers (round 4, disclosed): PutImage never records an OCI-referrer edge from a pushed artifact manifest's 'subject' field back to the subject image, so this op is structurally always empty. Real AWS returns actual referrer artifacts here; gopherstack has no backing model for the relationship at all. Filter/MaxResults/NextToken deliberately left off the wire structs since there is nothing for them to affect."
   - "SetRepositoryPolicy Force (gopherstack-wks5, 2026-08-30): see the ops entry above -- disclosed, not fixed, crosses into IAM policy simulation."
   - "RegistryId (gopherstack-wks5, 2026-08-30, structural, not a per-op bug): a type-identity field scan (go/types, matching decode-target struct fields by object identity rather than name, covering every op registered via service.WrapOp -- the generic JSON-protocol dispatcher whose reflection-based decode is invisible to a literal Bind()/Unmarshal() grep) found the optional registryId request field parsed but never consulted in ~23 input structs across nearly every op (BatchCheckLayerAvailability, BatchDeleteImage, BatchGetImage, CompleteLayerUpload, DeleteLifecyclePolicy, DeletePullThroughCacheRule, DeleteRepository, DescribeImageScanFindings, GetDownloadUrlForLayer, GetLifecyclePolicy, GetLifecyclePolicyPreview, ListImageReferrers, ListImages, PutImage, PutImageScanningConfiguration, PutImageTagMutability, PutLifecyclePolicy, GetRepositoryPolicy/SetRepositoryPolicy/DeleteRepositoryPolicy, UpdateImageStorageClass, UpdatePullThroughCacheRule, UploadLayerPart, ValidatePullThroughCacheRule). This is consistent across the entire service, not an isolated miss: gopherstack models exactly one account per backend instance and no op anywhere validates registryId against it, so accepting-and-ignoring a caller-supplied registryId that matches the caller's own account (the overwhelmingly common case -- registryId exists for rare cross-account resource-policy scenarios) is a no-op by construction, same reasoning as this file's own DeleteReplicationConfiguration-style single-account gaps in sibling services. The one behavioral edge this leaves open: a caller passing a registryId for a DIFFERENT (non-existent, in this single-account model) account currently still operates on the local account's resource instead of returning RepositoryNotFoundException/ImageNotFoundException, a narrow divergence from real cross-account semantics. Not fixed this pass -- would need a uniform per-op mismatch check across all ~23 sites, a design decision bigger than a wire-identity fix. UPDATE (2026-09-18, gopherstack-xhu2t): CreatePullThroughCacheRule and DescribePullThroughCacheRules were missed by this sweep entirely (RegistryId absent from their wire structs, not merely unconsulted) -- both fixed this pass, see their own ops-table rows; unlike the ~23 ops above, RegistryId's *effect* was buildable for these two without a design decision, since CreatePullThroughCacheRule assigns RegistryId to a new record (rather than looking one up by pre-existing identity) and DescribePullThroughCacheRules' RegistryId is a genuine list filter, not an identity-match gate."
@@ -923,3 +924,31 @@ build ./...` (whole module), `go vet`, `go test -race -count=1
 ./services/ecr/...`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all
 clean. No persisted struct fields changed (PullThroughCacheRule.RegistryID
 already existed); no version bump.
+
+## 2026-09-19 (enumcheck sweep)
+
+BatchGetRepositoryScanningConfiguration's per-repo failure code was the
+free-text exception name `RepositoryNotFoundException` instead of the real
+`ScanningConfigurationFailureCode` enum member `REPOSITORY_NOT_FOUND`
+(ecr@v1.64.0 types/enums.go:423). Fixed; proof:
+`TestBatchGetRepositoryScanningConfiguration_MissingRepoFailureCode` asserts
+the typed constant via the real client.
+
+## 2026-09-24 (gopherstack-1x2u0 goroutine-leak audit)
+
+Embedded Docker registry (docker_registry.go, distribution v3.1.1) leaked two
+background goroutines whenever GOPHERSTACK_ENABLE_LOCAL_REGISTRY=1: the
+upload purger (startUploadPurger) and a github.com/docker/go-events
+Broadcaster (app.events.sink), unconditionally started by
+handlers.App.configureEvents. Upload purger disabled via
+`storage.maintenance.uploadpurging.enabled=false` (meaningless for
+in-memory, process-lifetime storage anyway). The broadcaster has no
+exported Close/Shutdown reachable from *handlers.App (app.events.sink is an
+unexported field of an unexported struct) -- added to
+services/ecr/leak_main_test.go's ignore list, one line naming
+`github.com/docker/go-events.(*Broadcaster).run`. Handler now implements
+service.Shutdowner, calling the registry's own Shutdown() (a no-op today
+since this registry isn't a proxy.Closer, but the correct hook). Added
+leak_main_test.go (testleak.VerifyTestMain); 4 test call sites in
+docker_registry_test.go retrofitted via a shared initWithLocalRegistry
+helper with t.Cleanup. No persisted struct fields changed; no version bump.

@@ -88,12 +88,14 @@ func (b *InMemoryBackend) UpdateStreamMode(ctx context.Context, input *UpdateStr
 	// WarmThroughputMiBps is "only valid when the stream mode is being
 	// updated to on-demand" (api_op_UpdateStreamMode.go); a value supplied
 	// alongside a PROVISIONED transition is ignored, matching that
-	// documented constraint.
-	if newMode == streamModeOnDemand && input.WarmThroughputMiBps > 0 {
-		if input.WarmThroughputMiBps > maxWarmThroughputMiBps {
+	// documented constraint. It is optional -- nil (omitted) preserves the
+	// stream's stored value; any non-nil value, including 0, is applied.
+	if newMode == streamModeOnDemand && input.WarmThroughputMiBps != nil {
+		v := *input.WarmThroughputMiBps
+		if v < 0 || v > maxWarmThroughputMiBps {
 			return ErrInvalidArgument
 		}
-		stream.WarmThroughputMiBps = input.WarmThroughputMiBps
+		stream.WarmThroughputMiBps = v
 	}
 
 	return nil

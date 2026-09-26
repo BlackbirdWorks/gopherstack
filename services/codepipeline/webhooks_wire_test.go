@@ -83,3 +83,60 @@ func TestPutWebhook_AuthenticationConfigurationRoundTrip(t *testing.T) {
 		aws.ToString(listOut.Webhooks[0].Definition.AuthenticationConfiguration.AllowedIPRange),
 	)
 }
+
+// TestPutWebhook_UnauthenticatedHasNonNilAuthConfiguration verifies AuthenticationConfiguration
+// is never nil: terraform's flattenWebhookAuthConfiguration (webhook.go:300) dereferences it unchecked.
+func TestPutWebhook_UnauthenticatedHasNonNilAuthConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := codepipeline.NewHandler(codepipeline.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestCodePipelineClient(t, h)
+
+	_, err := client.CreatePipeline(t.Context(), &cpsdk.CreatePipelineInput{
+		Pipeline: &types.PipelineDeclaration{
+			Name:    aws.String("unauth-webhook-pipeline"),
+			RoleArn: aws.String("arn:aws:iam::123456789012:role/pipeline-role"),
+			ArtifactStore: &types.ArtifactStore{
+				Type:     types.ArtifactStoreTypeS3,
+				Location: aws.String("my-artifact-bucket"),
+			},
+			Stages: []types.StageDeclaration{
+				{
+					Name: aws.String("Source"),
+					Actions: []types.ActionDeclaration{
+						{
+							Name: aws.String("SourceAction"),
+							ActionTypeId: &types.ActionTypeId{
+								Category: types.ActionCategorySource,
+								Owner:    types.ActionOwnerAws,
+								Provider: aws.String("S3"),
+								Version:  aws.String("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	putOut, err := client.PutWebhook(t.Context(), &cpsdk.PutWebhookInput{
+		Webhook: &types.WebhookDefinition{
+			Name:                        aws.String("unauth-webhook"),
+			TargetPipeline:              aws.String("unauth-webhook-pipeline"),
+			TargetAction:                aws.String("SourceAction"),
+			Authentication:              types.WebhookAuthenticationTypeUnauthenticated,
+			AuthenticationConfiguration: &types.WebhookAuthConfiguration{},
+			Filters: []types.WebhookFilterRule{
+				{JsonPath: aws.String("$.ref")},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, putOut.Webhook.Definition.AuthenticationConfiguration)
+
+	listOut, err := client.ListWebhooks(t.Context(), &cpsdk.ListWebhooksInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.Webhooks, 1)
+	require.NotNil(t, listOut.Webhooks[0].Definition.AuthenticationConfiguration)
+}

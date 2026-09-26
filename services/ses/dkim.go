@@ -84,9 +84,10 @@ func (b *InMemoryBackend) VerifyDomainDkim(domain string) ([]string, error) {
 	if rec, ok := b.identities.Get(domain); ok {
 		rec.Verified = true
 		rec.DkimTokens = tokens
+		rec.DkimEnabled = true
 	} else {
 		b.identities.Put(&IdentityRecord{
-			Identity: domain, Verified: true, ForwardingEnabled: true, DkimTokens: tokens,
+			Identity: domain, Verified: true, ForwardingEnabled: true, DkimTokens: tokens, DkimEnabled: true,
 		})
 	}
 

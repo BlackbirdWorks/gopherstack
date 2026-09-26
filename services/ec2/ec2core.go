@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // awsRegions is the standard "aws" partition commercial region list, sourced
@@ -130,6 +133,58 @@ type VpcCidrBlockAssociation struct {
 	State         string `json:"state,omitempty"`
 }
 
+// VpcIpv6CidrBlockAssociation represents an IPv6 CIDR block associated with a VPC.
+type VpcIpv6CidrBlockAssociation struct {
+	AssociationID      string `json:"associationID,omitempty"`
+	Ipv6CidrBlock      string `json:"ipv6CidrBlock,omitempty"`
+	Ipv6Pool           string `json:"ipv6Pool,omitempty"`
+	NetworkBorderGroup string `json:"networkBorderGroup,omitempty"`
+	State              string `json:"state,omitempty"`
+}
+
+// AssociateVpcIpv6CidrBlock associates an IPv6 CIDR block with a VPC. Only
+// the Amazon-provided /56 allocation path is modeled (ipv6CidrBlock is
+// generated when the caller doesn't supply one from a BYOIP pool).
+func (b *InMemoryBackend) AssociateVpcIpv6CidrBlock(
+	vpcID, ipv6Pool, ipv6CidrBlock, networkBorderGroup string,
+) (*VpcIpv6CidrBlockAssociation, error) {
+	if vpcID == "" {
+		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AssociateVpcIpv6CidrBlock")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcs.Get(vpcID); !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+	}
+
+	if ipv6CidrBlock == "" {
+		ipv6CidrBlock = generateAmazonIpv6CidrBlock()
+	}
+
+	assoc := &VpcIpv6CidrBlockAssociation{
+		AssociationID:      newVPCCIDRAssociationID(),
+		Ipv6CidrBlock:      ipv6CidrBlock,
+		Ipv6Pool:           ipv6Pool,
+		NetworkBorderGroup: networkBorderGroup,
+		State:              stateAssociated,
+	}
+	b.vpcIpv6CidrAssociations[vpcID+":"+assoc.AssociationID] = assoc
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// generateAmazonIpv6CidrBlock returns a synthetic Amazon-provided /56 IPv6
+// CIDR block in the same 2600:1f:: range real EC2 allocates from.
+func generateAmazonIpv6CidrBlock() string {
+	id := uuid.New()
+
+	return fmt.Sprintf("2600:1f18:%x:%x00::/56", id[0:2], id[2])
+}
+
 // ---- EgressOnly Internet Gateway ----
 
 // CreateEgressOnlyInternetGateway creates a new egress-only internet gateway.
@@ -148,9 +203,13 @@ func (b *InMemoryBackend) CreateEgressOnlyInternetGateway(
 	}
 
 	igw := &EgressOnlyInternetGateway{
-		ID:         newEgressOnlyInternetGatewayID(),
-		VPCID:      vpcID,
-		State:      stateAvailable,
+		ID:    newEgressOnlyInternetGatewayID(),
+		VPCID: vpcID,
+		// State models the (only) attachment's state, not the gateway
+		// itself -- real AttachmentStatus enum values are
+		// attaching/attached/detaching/detached, never "available"
+		// (aws-sdk-go-v2/service/ec2/types/enums.go).
+		State:      attachmentStateAttached,
 		CreateTime: time.Now(),
 	}
 	b.egressOnlyIGWs.Put(igw)
@@ -377,13 +436,14 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 		oldRT    *RouteTable
 		oldIndex int
 		subnetID string
+		wasMain  bool
 		found    bool
 	)
 
 	for _, rt := range b.routeTables.All() {
 		for i, assoc := range rt.Associations {
 			if assoc.ID == associationID {
-				oldRT, oldIndex, subnetID, found = rt, i, assoc.SubnetID, true
+				oldRT, oldIndex, subnetID, wasMain, found = rt, i, assoc.SubnetID, assoc.Main, true
 
 				break
 			}
@@ -398,21 +458,24 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 		return "", fmt.Errorf("%w: %s", ErrAssociationNotFound, associationID)
 	}
 
-	if subnetID == "" {
-		return "", fmt.Errorf(
-			"%w: %s is the implicit main-route-table association for %s; "+
-				"reassigning a VPC's main route table is not supported",
-			ErrInvalidParameter, associationID, oldRT.VPCID,
-		)
-	}
-
 	oldRT.Associations = append(oldRT.Associations[:oldIndex], oldRT.Associations[oldIndex+1:]...)
+
+	// Moving the main association makes newRouteTableID the VPC's new main
+	// route table -- real AWS never leaves two "main" associations for one
+	// VPC, so any pre-existing main association on newRT (there should be at
+	// most one) is demoted first.
+	if wasMain {
+		for i := range newRT.Associations {
+			newRT.Associations[i].Main = false
+		}
+	}
 
 	newAssocID := newRouteTableAssociationID()
 	newRT.Associations = append(newRT.Associations, RouteAssociation{
 		ID:           newAssocID,
 		RouteTableID: newRouteTableID,
 		SubnetID:     subnetID,
+		Main:         wasMain,
 	})
 
 	return newAssocID, nil
@@ -420,7 +483,10 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 
 // ---- AssociateVpcCidrBlock ----
 
-// AssociateVpcCidrBlock associates a secondary CIDR block with a VPC.
+// AssociateVpcCidrBlock associates a secondary CIDR block with a VPC. Real
+// AWS rejects a CIDR outside the /16-/28 size range or one overlapping any
+// CIDR already associated with the SAME VPC (vpc-cidr-blocks.html); it does
+// NOT reject overlap with a different VPC's CIDR blocks.
 func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	vpcID, cidrBlock string,
 ) (*VpcCidrBlockAssociation, error) {
@@ -431,14 +497,39 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	b.mu.Lock("AssociateVpcCidrBlock")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs.Get(vpcID); !ok {
+	vpc, ok := b.vpcs.Get(vpcID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+	}
+
+	if cidrBlock != "" {
+		if !vpcCIDRPrefixLenValid(cidrBlock) {
+			return nil, fmt.Errorf("%w: the CIDR %s is invalid", ErrVpcCIDRRange, cidrBlock)
+		}
+
+		if cidrsOverlap(cidrBlock, vpc.CIDRBlock) {
+			return nil, fmt.Errorf("%w: %s conflicts with the VPC's CIDR %s",
+				ErrVpcCIDRRange, cidrBlock, vpc.CIDRBlock)
+		}
+
+		prefix := vpcID + ":"
+		for key, existing := range b.vpcCidrAssociations {
+			if strings.HasPrefix(key, prefix) && cidrsOverlap(cidrBlock, existing.CidrBlock) {
+				return nil, fmt.Errorf("%w: %s conflicts with existing association %s (%s)",
+					ErrVpcCIDRRange, cidrBlock, existing.AssociationID, existing.CidrBlock)
+			}
+		}
 	}
 
 	assoc := &VpcCidrBlockAssociation{
 		AssociationID: newVPCCIDRAssociationID(),
 		CidrBlock:     cidrBlock,
-		State:         stateAvailable,
+		// "available" is not a valid VpcCidrBlockStateCode (associating |
+		// associated | disassociating | disassociated | failing | failed);
+		// the wrong value hung terraform-provider-aws's wait-for-associated
+		// waiter until timeout since it never saw "associated" (gopherstack
+		// ec2-networking-essentials investigation).
+		State: stateAssociated,
 	}
 	b.vpcCidrAssociations[vpcID+":"+assoc.AssociationID] = assoc
 
@@ -485,30 +576,12 @@ func (b *InMemoryBackend) DescribeTransitGatewayRouteTables(
 	b.mu.RLock("DescribeTransitGatewayRouteTables")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
-	out := make([]*TransitGatewayRouteTable, 0, b.tgwRouteTables.Len())
-
-	for _, rt := range b.tgwRouteTables.All() {
-		if len(idSet) > 0 && !idSet[rt.RouteTableID] {
-			continue
-		}
-
-		cp := *rt
-		out = append(out, &cp)
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].RouteTableID < out[j].RouteTableID
-	})
-
-	return out
+	return describeWithTombstones(b.tgwRouteTables.All(), b.tgwRouteTableTombstones, ids,
+		func(rt *TransitGatewayRouteTable) string { return rt.RouteTableID })
 }
 
-// DeleteTransitGatewayRouteTable removes a TGW route table.
+// DeleteTransitGatewayRouteTable removes a TGW route table, keeping a
+// tombstone so a subsequent by-ID Describe still finds it in "deleted" state.
 func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: TransitGatewayRouteTableId is required", ErrInvalidParameter)
@@ -517,9 +590,16 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 	b.mu.Lock("DeleteTransitGatewayRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTables.Get(id); !ok {
+	rt, ok := b.tgwRouteTables.Get(id)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, id)
 	}
+
+	cp := *rt
+	cp.State = tgwRouteStateDeleted
+	pruneExpiredTombstones(b.tgwRouteTableTombstones, time.Now())
+	b.tgwRouteTableTombstones[id] = tombstone[TransitGatewayRouteTable]{value: &cp, deletedAt: time.Now()}
+
 	b.tgwRouteTables.Delete(id)
 	delete(b.tags, id)
 
@@ -703,7 +783,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
 		TransitGatewayRouteTableID: routeTableID,
 		TransitGatewayAttachmentID: attachmentID,
 		ResourceType:               resourceType,
-		State:                      stateAvailable,
+		State:                      stateAssociated,
 	}
 	b.tgwRTAssociations.Put(assoc)
 

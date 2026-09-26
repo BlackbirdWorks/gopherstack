@@ -35,6 +35,8 @@ func TestDecreaseReplicationFactor_AvailabilityZones_SDKRoundTrip(t *testing.T) 
 	})
 	require.NoError(t, err)
 
+	waitForClusterAvailable(t, client, clusterName)
+
 	// Target the node in us-east-1b for removal by AZ, not by node ID.
 	decOut, err := client.DecreaseReplicationFactor(ctx, &daxsdk.DecreaseReplicationFactorInput{
 		ClusterName:          aws.String(clusterName),

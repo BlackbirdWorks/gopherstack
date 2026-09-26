@@ -85,7 +85,7 @@ func TestResourceCreator_Macro_Delete(t *testing.T) {
 	require.NotNil(t, rec, "macro should be registered")
 
 	// Delete it.
-	err = rc.Delete(t.Context(), "AWS::CloudFormation::Macro", "MyMacro", nil)
+	err = rc.Delete(t.Context(), "AWS::CloudFormation::Macro", "MyMacro", nil, nil)
 	require.NoError(t, err)
 
 	rec = backends.MacroRegistry.Get("MyMacro")

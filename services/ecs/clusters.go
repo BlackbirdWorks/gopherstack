@@ -137,7 +137,15 @@ func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []
 func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 	cp := *c
 
-	cp.ActiveServicesCount = len(b.servicesByCluster.Get(c.ClusterName))
+	activeServices := 0
+
+	for _, svc := range b.servicesByCluster.Get(c.ClusterName) {
+		if svc.Status == statusActive {
+			activeServices++
+		}
+	}
+
+	cp.ActiveServicesCount = activeServices
 	cp.RegisteredContainerInstancesCount = len(b.containerInstancesByCluster.Get(c.ClusterName))
 
 	// RunningTasksCount and PendingTasksCount are maintained as cached counters
@@ -152,8 +160,13 @@ func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 // rather than cascading -- services and tasks must be deleted, and container
 // instances deregistered, first. Must be called with b.mu held.
 func (b *InMemoryBackend) clusterDependencyViolationLocked(clusterName string) error {
-	if svcs := b.servicesInClusterLocked(clusterName); len(svcs) > 0 {
-		return fmt.Errorf("%w: cluster %s still has services", ErrClusterContainsServices, clusterName)
+	for _, svc := range b.servicesInClusterLocked(clusterName) {
+		// DRAINING/INACTIVE services (see DeleteService) are already torn
+		// down in every way that matters (task sets, deployments, tags);
+		// only a still-ACTIVE service blocks cluster deletion.
+		if svc.Status == statusActive {
+			return fmt.Errorf("%w: cluster %s still has services", ErrClusterContainsServices, clusterName)
+		}
 	}
 
 	for _, task := range b.tasksInClusterLocked(clusterName) {
@@ -192,6 +205,8 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	guardErr := func() error {
 		b.mu.Lock("DeleteCluster")
 		defer b.mu.Unlock()
+
+		b.sweepServiceTransitionsLocked(time.Now())
 
 		c, ok := b.clusters.Get(key)
 		if !ok {

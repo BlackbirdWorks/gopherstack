@@ -1,11 +1,15 @@
 package s3
 
 import (
+	"crypto/sha1" //nolint:gosec // S3 checksum algorithm, not a security use of SHA1
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"hash"
 	"hash/crc32"
 	"hash/crc64"
+	"net/http"
+	"strings"
 )
 
 // ChecksumCRC64NVME is the algorithm name for CRC64/NVME checksums.
@@ -52,4 +56,58 @@ func checksumBytesToB64(h hash.Hash) string {
 	}
 
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// newHasherForAlgo returns a fresh hash.Hash for the named checksum algorithm
+// (s3@v1.111.0 types.ChecksumAlgorithm values), or ok=false for an unknown name.
+func newHasherForAlgo(algo string) (hash.Hash, bool) {
+	switch algo {
+	case ChecksumCRC32:
+		return crc32.NewIEEE(), true
+	case ChecksumCRC32C:
+		return NewCRC32C(), true
+	case ChecksumSHA1:
+		return sha1.New(), true //nolint:gosec // S3 checksum algorithm, not a security use of SHA1
+	case ChecksumSHA256:
+		return sha256.New(), true
+	case ChecksumCRC64NVME:
+		return NewCRC64NVME(), true
+	default:
+		return nil, false
+	}
+}
+
+// verifyRequestBodyChecksum implements the whole-request-body checksum
+// mechanism the aws-sdk-go-v2 internal/checksum middleware applies to
+// control-plane XML-body operations whose *Input declares only
+// ChecksumAlgorithm (no per-algorithm Checksum* value field), e.g.
+// PutBucketEncryption/PutBucketPolicy (s3@v1.111.0 serializers.go,
+// X-Amz-Sdk-Checksum-Algorithm): EnableTrailingChecksum is false for these
+// ops (service/internal/checksum@v1.11.2 middleware_compute_input_checksum.go),
+// so the SDK computes the checksum client-side over the whole body and sends
+// it as a plain X-Amz-Checksum-<Algo> header rather than a chunked trailer.
+// Returns ErrBadChecksum on mismatch; no-op when neither header is present.
+func verifyRequestBodyChecksum(r *http.Request, body []byte) error {
+	algo := strings.ToUpper(r.Header.Get("X-Amz-Sdk-Checksum-Algorithm"))
+	if algo == "" {
+		return nil
+	}
+
+	supplied := r.Header.Get("X-Amz-Checksum-" + algo)
+	if supplied == "" {
+		return nil
+	}
+
+	hasher, ok := newHasherForAlgo(algo)
+	if !ok {
+		return nil
+	}
+
+	hasher.Write(body)
+
+	if checksumBytesToB64(hasher) != supplied {
+		return ErrBadChecksum
+	}
+
+	return nil
 }

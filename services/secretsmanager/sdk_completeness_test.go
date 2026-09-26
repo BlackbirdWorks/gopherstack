@@ -17,6 +17,7 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &secretsmanagersdk.Client{}, h.GetSupportedOperations(), []string{})
 }

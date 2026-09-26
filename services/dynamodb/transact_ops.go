@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"maps"
 	"sort"
 	"time"
 
@@ -22,16 +21,6 @@ import (
 // errConditionalCheckFailed is a sentinel used internally to signal that a
 // ConditionExpression did not match during a TransactWriteItems condition check.
 var errConditionalCheckFailed = errors.New("conditional check failed")
-
-type tableStateSnapshot struct {
-	pkIndex            map[string]int
-	pkskIndex          map[string]map[string]int
-	gsiIndexes         map[string]*secondaryIndex
-	lsiIndexes         map[string]*secondaryIndex
-	items              []map[string]any
-	itemSizes          []int
-	totalItemSizeBytes int64
-}
 
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
 
@@ -377,7 +366,10 @@ type transactApplyResult struct {
 	lsiWCUByTable map[string]map[string]float64
 }
 
-// applyTransactItems applies write items atomically, rolling back on any failure.
+// applyTransactItems prepares (validates + computes, can fail, touches no table)
+// then commits (infallible by construction) every write item. Since prepare runs
+// entirely before commit, no rollback is ever needed: a failure surfaces before
+// any table is touched.
 func (db *InMemoryDB) applyTransactItems(
 	ctx context.Context,
 	tables map[string]*Table,
@@ -385,35 +377,187 @@ func (db *InMemoryDB) applyTransactItems(
 	rim types.ReturnItemCollectionMetrics,
 	wantIndexes bool,
 ) (transactApplyResult, error) {
-	snapshots := db.snapshotTables(tables)
+	prepared, err := db.prepareTransactWrites(ctx, tables, items)
+	if err != nil {
+		return transactApplyResult{}, err
+	}
+
 	result := transactApplyResult{
 		itemMetrics:   make(map[string][]types.ItemCollectionMetrics),
 		gsiWCUByTable: make(map[string]map[string]float64),
 		lsiWCUByTable: make(map[string]map[string]float64),
 	}
 
-	for i, ti := range items {
-		w, err := db.applyTransactWrite(ctx, tables, ti, rim, wantIndexes)
-		if err != nil {
-			logger.Load(ctx).
-				ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
-					"error", err,
-					"itemIndex", i)
-			db.rollbackTables(tables, snapshots)
-
-			return transactApplyResult{}, err
-		}
+	for i, p := range prepared {
+		w := db.commitTransactWrite(tables, p, rim, wantIndexes)
 		if w.metric != nil {
 			result.itemMetrics[w.metric.tableName] = append(result.itemMetrics[w.metric.tableName], w.metric.metric)
 		}
 		if wantIndexes {
-			tableName := transactWriteItemTableName(ti)
+			tableName := transactWriteItemTableName(items[i])
 			result.gsiWCUByTable[tableName] = mergeWCUMap(result.gsiWCUByTable[tableName], w.gsiWCU)
 			result.lsiWCUByTable[tableName] = mergeWCUMap(result.lsiWCUByTable[tableName], w.lsiWCU)
 		}
 	}
 
 	return result, nil
+}
+
+// preparedTransactWrite is one TransactWriteItem's already-validated, already-computed
+// write, ready to commit. Exactly one field is non-nil (or none, for a
+// ConditionCheck-only item, which writes nothing).
+type preparedTransactWrite struct {
+	put    *preparedTransactPut
+	del    *preparedTransactDelete
+	update *preparedTransactUpdate
+}
+
+type preparedTransactPut struct {
+	action    *types.Put
+	wireItem  map[string]any
+	tableName string
+}
+
+type preparedTransactDelete struct {
+	action    *types.Delete
+	wireKey   map[string]any
+	tableName string
+}
+
+type preparedTransactUpdate struct {
+	action       *types.Update
+	updated      map[string]any
+	updatedPaths map[string]struct{}
+	tableName    string
+}
+
+// prepareTransactWrites validates and computes every Put/Update/Delete in items
+// against current table state, in order, without mutating any table. It returns
+// the first error it hits, in the same order applyTransactItems used to hit it
+// during apply before this split -- e.g. an out-of-size Put still fails at its own
+// index, not earlier or later.
+func (db *InMemoryDB) prepareTransactWrites(
+	ctx context.Context,
+	tables map[string]*Table,
+	items []types.TransactWriteItem,
+) ([]preparedTransactWrite, error) {
+	prepared := make([]preparedTransactWrite, len(items))
+
+	for i, ti := range items {
+		p, err := db.prepareTransactWrite(ctx, tables, ti)
+		if err != nil {
+			return nil, err
+		}
+		prepared[i] = p
+	}
+
+	return prepared, nil
+}
+
+func (db *InMemoryDB) prepareTransactWrite(
+	ctx context.Context,
+	tables map[string]*Table,
+	ti types.TransactWriteItem,
+) (preparedTransactWrite, error) {
+	switch {
+	case ti.Put != nil:
+		return db.prepareTransactPut(tables, ti.Put)
+	case ti.Delete != nil:
+		return preparedTransactWrite{del: prepareTransactDelete(ti.Delete)}, nil
+	case ti.Update != nil:
+		return db.prepareTransactUpdate(ctx, tables, ti.Update)
+	}
+
+	// ConditionCheck-only item: nothing to prepare or write.
+	return preparedTransactWrite{}, nil
+}
+
+// prepareTransactPut validates the item against its table's schema/size rules --
+// the only way a Put can fail (see applyTransactPut's former behaviour). matchIndex
+// is deliberately NOT resolved here: an earlier Delete in the same transaction can
+// swap-move another item's slot before this Put commits, so the index must be
+// re-resolved fresh at commit time.
+func (db *InMemoryDB) prepareTransactPut(
+	tables map[string]*Table,
+	put *types.Put,
+) (preparedTransactWrite, error) {
+	tableName := aws.ToString(put.TableName)
+	wireItem := models.FromSDKItem(put.Item)
+
+	if err := db.validateItem(wireItem, tables[tableName]); err != nil {
+		return preparedTransactWrite{}, err
+	}
+
+	return preparedTransactWrite{
+		put: &preparedTransactPut{tableName: tableName, action: put, wireItem: wireItem},
+	}, nil
+}
+
+// prepareTransactDelete is infallible today (see the design audit on
+// gopherstack-wdapu: a missing key is a silent no-op, matching applyTransactDelete's
+// former behaviour), so it has no error return.
+func prepareTransactDelete(del *types.Delete) *preparedTransactDelete {
+	return &preparedTransactDelete{
+		tableName: aws.ToString(del.TableName),
+		action:    del,
+		wireKey:   models.FromSDKItem(del.Key),
+	}
+}
+
+// prepareTransactUpdate computes the updated item via computeUpdate, which is the
+// only way an Update can fail (parse/eval errors, or the updated item failing
+// validation). existing is only used to build "updated" via the pure merge in
+// computeUpdate; matchIndex is re-resolved fresh at commit time for the same
+// swap-move reason as prepareTransactPut.
+func (db *InMemoryDB) prepareTransactUpdate(
+	ctx context.Context,
+	tables map[string]*Table,
+	upd *types.Update,
+) (preparedTransactWrite, error) {
+	tableName := aws.ToString(upd.TableName)
+	table := tables[tableName]
+	wireKey := models.FromSDKItem(upd.Key)
+	existing, _ := db.findMatchForPut(table, wireKey)
+
+	dummyInput := &dynamodb.UpdateItemInput{
+		Key:                       upd.Key,
+		TableName:                 upd.TableName,
+		UpdateExpression:          upd.UpdateExpression,
+		ExpressionAttributeNames:  upd.ExpressionAttributeNames,
+		ExpressionAttributeValues: upd.ExpressionAttributeValues,
+	}
+
+	updated, updatedPaths, err := db.computeUpdate(ctx, table, dummyInput, existing)
+	if err != nil {
+		return preparedTransactWrite{}, err
+	}
+
+	return preparedTransactWrite{
+		update: &preparedTransactUpdate{
+			tableName: tableName, action: upd, updated: updated, updatedPaths: updatedPaths,
+		},
+	}, nil
+}
+
+// commitTransactWrite dispatches a prepared write to its commit function. Every
+// path is infallible by construction: everything that could fail already failed
+// (or would have) during prepare.
+func (db *InMemoryDB) commitTransactWrite(
+	tables map[string]*Table,
+	p preparedTransactWrite,
+	rim types.ReturnItemCollectionMetrics,
+	wantIndexes bool,
+) transactSingleWriteResult {
+	switch {
+	case p.put != nil:
+		return db.commitTransactPut(tables[p.put.tableName], p.put, rim, wantIndexes)
+	case p.del != nil:
+		return db.commitTransactDelete(tables[p.del.tableName], p.del, rim, wantIndexes)
+	case p.update != nil:
+		return db.commitTransactUpdate(tables[p.update.tableName], p.update, rim, wantIndexes)
+	}
+
+	return transactSingleWriteResult{}
 }
 
 // enforceTransactWriteThroughput charges each involved table's WCU bucket, one unit
@@ -941,66 +1085,65 @@ type transactSingleWriteResult struct {
 	lsiWCU map[string]float64
 }
 
-func (db *InMemoryDB) applyTransactPut(
+// commitTransactPut writes an already-validated put (see prepareTransactPut). It
+// re-resolves oldItem/matchIndex fresh against table's current state rather than
+// reusing anything computed during prepare: an earlier Delete in this same
+// transaction may have swap-moved another item into this key's old slot, or (since
+// keys are unique within one TransactWriteItems call, per validateTransactWriteItems)
+// this key's own slot is otherwise unaffected -- either way, this lookup is O(1) and
+// always correct, unlike a stale precomputed index would be.
+func (db *InMemoryDB) commitTransactPut(
 	table *Table,
-	tableName string,
-	put *types.Put,
+	p *preparedTransactPut,
 	rim types.ReturnItemCollectionMetrics,
 	wantIndexes bool,
-) (transactSingleWriteResult, error) {
-	wireItem := models.FromSDKItem(put.Item)
-	if err := db.validateItem(wireItem, table); err != nil {
-		return transactSingleWriteResult{}, err
-	}
-
-	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
+) transactSingleWriteResult {
+	oldItem, matchIndex := db.findMatchForPut(table, p.wireItem)
 
 	var metric *transactItemMetric
 	if rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0 {
 		pkDef, _ := getPKAndSK(table.KeySchema)
-		pkVal := BuildKeyString(wireItem, pkDef.AttributeName)
-		collectionBytes := computeLSICollectionSize(table, pkVal, wireItem, matchIndex)
-		metric = lsiCollectionMetricFor(table, tableName, rim, put.Item, collectionBytes)
+		pkVal := BuildKeyString(p.wireItem, pkDef.AttributeName)
+		collectionBytes := computeLSICollectionSize(table, pkVal, p.wireItem, matchIndex)
+		metric = lsiCollectionMetricFor(table, p.tableName, rim, p.action.Item, collectionBytes)
 	}
 
-	db.doPut(table, wireItem, matchIndex)
-	// Capture stream event for the committed transactional write.
+	db.doPut(table, p.wireItem, matchIndex)
 	if matchIndex != -1 {
-		table.appendStreamRecord(streamEventModify, oldItem, wireItem, "", "")
+		table.appendStreamRecord(streamEventModify, oldItem, p.wireItem, "", "")
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, wireItem, "", "")
+		table.appendStreamRecord(streamEventInsert, nil, p.wireItem, "", "")
 	}
 
 	result := transactSingleWriteResult{metric: metric}
 	if wantIndexes {
-		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, wireItem)
+		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, p.wireItem)
 	}
 
-	return result, nil
+	return result
 }
 
-func (db *InMemoryDB) applyTransactDelete(
+// commitTransactDelete removes an already-prepared delete's target. See
+// commitTransactPut's doc for why matchIndex is re-resolved here rather than reused.
+func (db *InMemoryDB) commitTransactDelete(
 	table *Table,
-	tableName string,
-	del *types.Delete,
+	p *preparedTransactDelete,
 	rim types.ReturnItemCollectionMetrics,
 	wantIndexes bool,
-) (transactSingleWriteResult, error) {
-	wireKey := models.FromSDKItem(del.Key)
-	oldItem, matchIndex := db.findMatchForPut(table, wireKey)
+) transactSingleWriteResult {
+	oldItem, matchIndex := db.findMatchForPut(table, p.wireKey)
 	if matchIndex == -1 {
-		return transactSingleWriteResult{}, nil
+		return transactSingleWriteResult{}
 	}
 
 	var metric *transactItemMetric
 	if rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0 {
 		pkDef, _ := getPKAndSK(table.KeySchema)
-		pkVal := BuildKeyString(wireKey, pkDef.AttributeName)
+		pkVal := BuildKeyString(p.wireKey, pkDef.AttributeName)
 		remaining := currentLSICollectionBytes(table, pkVal) - int64(table.itemSizes[matchIndex])
-		metric = lsiCollectionMetricFor(table, tableName, rim, del.Key, remaining)
+		metric = lsiCollectionMetricFor(table, p.tableName, rim, p.action.Key, remaining)
 	}
 
-	// Capture stream event (REMOVE) before the item is removed.
 	table.appendStreamRecord(streamEventRemove, oldItem, nil, "", "")
 	db.deleteItemAtIndex(table, matchIndex)
 
@@ -1009,60 +1152,47 @@ func (db *InMemoryDB) applyTransactDelete(
 		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, oldItem)
 	}
 
-	return result, nil
+	return result
 }
 
-func (db *InMemoryDB) applyTransactUpdate(
-	ctx context.Context,
+// commitTransactUpdate writes an already-computed update's result (see
+// prepareTransactUpdate) via commitUpdate. matchIndex/existing are re-resolved
+// fresh here for the same reason as commitTransactPut.
+func (db *InMemoryDB) commitTransactUpdate(
 	table *Table,
-	tableName string,
-	upd *types.Update,
+	p *preparedTransactUpdate,
 	rim types.ReturnItemCollectionMetrics,
 	wantIndexes bool,
-) (transactSingleWriteResult, error) {
-	wireKey := models.FromSDKItem(upd.Key)
-	oldItem, matchIndex := db.findMatchForPut(table, wireKey)
+) transactSingleWriteResult {
+	wireKey := models.FromSDKItem(p.action.Key)
+	existing, matchIndex := db.findMatchForPut(table, wireKey)
 
-	dummyInput := &dynamodb.UpdateItemInput{
-		Key:                       upd.Key,
-		TableName:                 upd.TableName,
-		UpdateExpression:          upd.UpdateExpression,
-		ExpressionAttributeNames:  upd.ExpressionAttributeNames,
-		ExpressionAttributeValues: upd.ExpressionAttributeValues,
-	}
+	db.commitUpdate(table, existing, p.updated, matchIndex)
 
-	updated, _, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
-	if err != nil {
-		return transactSingleWriteResult{}, err
-	}
-
-	// The item's post-write state is already committed to table.Items by doUpdate,
-	// so the collection's current bytes already reflect this write.
+	// The item's post-write state is already committed to table.Items by
+	// commitUpdate, so the collection's current bytes already reflect this write.
 	var metric *transactItemMetric
 	if rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0 {
 		pkDef, _ := getPKAndSK(table.KeySchema)
-		pkVal := BuildKeyString(updated, pkDef.AttributeName)
-		metric = lsiCollectionMetricFor(table, tableName, rim, upd.Key, currentLSICollectionBytes(table, pkVal))
+		pkVal := BuildKeyString(p.updated, pkDef.AttributeName)
+		metric = lsiCollectionMetricFor(table, p.tableName, rim, p.action.Key, currentLSICollectionBytes(table, pkVal))
 	}
 
-	// Capture stream event for the committed transactional update.
 	if matchIndex != -1 {
-		table.appendStreamRecord(
-			streamEventModify, oldItem, updated, "", "",
-		)
+		table.appendStreamRecord(streamEventModify, existing, p.updated, "", "")
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, updated, "", "")
+		table.appendStreamRecord(streamEventInsert, nil, p.updated, "", "")
 	}
 
 	result := transactSingleWriteResult{metric: metric}
 	if wantIndexes {
-		// oldItem and updated are OR-alternatives (like UpdateItem's own
+		// existing and p.updated are OR-alternatives (like UpdateItem's own
 		// breakdown): an index write is charged once even if the item was a
 		// member both before and after.
-		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, oldItem, updated)
+		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, existing, p.updated)
 	}
 
-	return result, nil
+	return result
 }
 
 // transactWriteItemTableName returns the table name a TransactWriteItem
@@ -1080,88 +1210,4 @@ func transactWriteItemTableName(ti types.TransactWriteItem) string {
 	}
 
 	return ""
-}
-
-func (db *InMemoryDB) applyTransactWrite(
-	ctx context.Context,
-	tables map[string]*Table,
-	ti types.TransactWriteItem,
-	rim types.ReturnItemCollectionMetrics,
-	wantIndexes bool,
-) (transactSingleWriteResult, error) {
-	switch {
-	case ti.Put != nil:
-		tableName := aws.ToString(ti.Put.TableName)
-
-		return db.applyTransactPut(tables[tableName], tableName, ti.Put, rim, wantIndexes)
-
-	case ti.Delete != nil:
-		tableName := aws.ToString(ti.Delete.TableName)
-
-		return db.applyTransactDelete(tables[tableName], tableName, ti.Delete, rim, wantIndexes)
-
-	case ti.Update != nil:
-		tableName := aws.ToString(ti.Update.TableName)
-
-		return db.applyTransactUpdate(ctx, tables[tableName], tableName, ti.Update, rim, wantIndexes)
-	}
-
-	// ConditionCheck-only item: no write applied, nothing to report.
-	return transactSingleWriteResult{}, nil
-}
-
-func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableStateSnapshot {
-	snapshots := make(map[string]tableStateSnapshot, len(tables))
-	for name, t := range tables {
-		// Shallow copy of Items slice (holds references to maps).
-		// Since we always replace maps in the slice (never mutate in-place),
-		// this is sufficient for restoring the table's item references.
-		itemsCopy := make([]map[string]any, len(t.Items))
-		copy(itemsCopy, t.Items)
-
-		// Snapshot itemSizes alongside Items so rollback restores the
-		// len(itemSizes) == len(Items) invariant (and accurate size accounting).
-		itemSizesCopy := make([]int, len(t.itemSizes))
-		copy(itemSizesCopy, t.itemSizes)
-
-		// Deep copy of indexes to ensure rollback restores correct mapping.
-		pkIdxCopy := make(map[string]int, len(t.pkIndex))
-		maps.Copy(pkIdxCopy, t.pkIndex)
-
-		pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
-		for pk, skMap := range t.pkskIndex {
-			skMapCopy := make(map[string]int, len(skMap))
-			maps.Copy(skMapCopy, skMap)
-			pkskIdxCopy[pk] = skMapCopy
-		}
-
-		snapshots[name] = tableStateSnapshot{
-			items:              itemsCopy,
-			itemSizes:          itemSizesCopy,
-			totalItemSizeBytes: t.totalItemSizeBytes,
-			pkIndex:            pkIdxCopy,
-			pkskIndex:          pkskIdxCopy,
-			gsiIndexes:         copySecondaryIndexMap(t.gsiIndexes),
-			lsiIndexes:         copySecondaryIndexMap(t.lsiIndexes),
-		}
-	}
-
-	return snapshots
-}
-
-func (db *InMemoryDB) rollbackTables(
-	tables map[string]*Table,
-	snapshots map[string]tableStateSnapshot,
-) {
-	for name, t := range tables {
-		if s, ok := snapshots[name]; ok {
-			t.Items = s.items
-			t.itemSizes = s.itemSizes
-			t.totalItemSizeBytes = s.totalItemSizeBytes
-			t.pkIndex = s.pkIndex
-			t.pkskIndex = s.pkskIndex
-			t.gsiIndexes = s.gsiIndexes
-			t.lsiIndexes = s.lsiIndexes
-		}
-	}
 }

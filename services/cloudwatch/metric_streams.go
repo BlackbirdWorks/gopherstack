@@ -179,9 +179,12 @@ func (b *InMemoryBackend) ListMetricStreams(
 	return page.New(result, nextToken, maxResults, cwDefaultListMetricStreamsLimit), nil
 }
 
+// AWS's GetMetricStream/ListMetricStreams State is lowercase on the wire
+// ("running"/"stopped"), unlike most CloudWatch enums; the Terraform
+// provider's create waiter matches this exact case.
 const (
-	metricStreamStateRunning = "RUNNING"
-	metricStreamStateStopped = "STOPPED"
+	metricStreamStateRunning = "running"
+	metricStreamStateStopped = "stopped"
 )
 
 // StartMetricStreams sets the State of the named streams to RUNNING.

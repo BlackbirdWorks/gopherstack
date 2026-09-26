@@ -27,6 +27,11 @@ var (
 	ErrInstanceConnectEndpointNotFound = errors.New("InvalidInstanceConnectEndpointId.NotFound")
 	ErrInstanceEventWindowNotFound     = errors.New("InvalidInstanceEventWindowId.NotFound")
 	ErrCapacityReservationFull         = errors.New("CapacityReservationFull")
+	// ErrGatewayNotAttached is DetachInternetGateway's real error code when the
+	// IGW is not currently attached to the given VPC (confirmed against
+	// types.go's StateReason doc comment, which lists it among real
+	// dependency-violation codes).
+	ErrGatewayNotAttached = errors.New("Gateway.NotAttached")
 )
 
 // Managed prefix lists / Client VPN / TGW connect / Verified Access (formerly batch4 errors).

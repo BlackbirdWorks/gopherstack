@@ -29,22 +29,26 @@ func writeJSON(path string, findings []finding) error {
 }
 
 func printReport(findings []finding) {
-	var confident, review []finding
+	var confident, review, unresolved []finding
 
 	for _, f := range findings {
-		if f.Confident {
+		switch {
+		case f.Confident:
 			confident = append(confident, f)
-		} else {
+		case f.Kind == kindUnresolved:
+			unresolved = append(unresolved, f)
+		default:
 			review = append(review, f)
 		}
 	}
 
 	fmt.Fprintf(
 		os.Stdout,
-		"# %d findings: %d confident, %d needs review\n\n",
+		"# %d findings: %d confident, %d needs review, %d unresolved\n\n",
 		len(findings),
 		len(confident),
 		len(review),
+		len(unresolved),
 	)
 
 	if len(confident) > 0 {
@@ -63,6 +67,16 @@ func printReport(findings []finding) {
 		for _, f := range review {
 			printFinding(f)
 		}
+
+		fmt.Fprintln(os.Stdout)
+	}
+
+	if len(unresolved) > 0 {
+		fmt.Fprintln(os.Stdout, "## UNRESOLVED (not a finding -- widen resolution to reclassify)")
+
+		for _, f := range unresolved {
+			printFinding(f)
+		}
 	}
 }
 
@@ -77,10 +91,10 @@ func printFinding(f finding) {
 		return
 	}
 
-	if f.Kind == kindAmbiguousKey {
+	if f.Kind == kindUnresolved {
 		fmt.Fprintf(
 			os.Stdout,
-			"%s:%d  key=%q value=%q is not a member of every candidate enum for this key: %s\n",
+			"%s:%d  key=%q value=%q unresolved: no single real SDK member pinned down (candidates: %s)\n",
 			f.File, f.Line, f.Key, f.Value, f.Enum,
 		)
 

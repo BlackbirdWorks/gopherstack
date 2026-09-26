@@ -5,10 +5,13 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ImportCertificate creates a certificate record.
-func (b *InMemoryBackend) ImportCertificate(ctx context.Context, identifier, certPem string) (*Certificate, error) {
+func (b *InMemoryBackend) ImportCertificate(
+	ctx context.Context, identifier, certPem string, kv map[string]string,
+) (*Certificate, error) {
 	b.mu.Lock("ImportCertificate")
 	defer b.mu.Unlock()
 
@@ -19,12 +22,19 @@ func (b *InMemoryBackend) ImportCertificate(ctx context.Context, identifier, cer
 	}
 
 	certARN := arn.Build("dms", region, b.accountID, "certificate:"+identifier)
+	t := tags.New("dms.certificate." + identifier + ".tags")
+
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+
 	cert := &Certificate{
 		CertificateIdentifier: identifier,
 		CertificateArn:        certARN,
 		CertificatePem:        certPem,
 		AccountID:             b.accountID,
 		Region:                region,
+		Tags:                  t,
 	}
 	b.certificates.Put(cert)
 	cp := *cert
@@ -41,6 +51,7 @@ func (b *InMemoryBackend) DeleteCertificate(ctx context.Context, identifierOrArn
 
 	if cert, ok := b.certificates.Get(regionKey(region, identifierOrArn)); ok {
 		cp := *cert
+		cert.Tags.Close()
 		b.certificates.Delete(regionKey(region, identifierOrArn))
 
 		return &cp, nil
@@ -48,6 +59,7 @@ func (b *InMemoryBackend) DeleteCertificate(ctx context.Context, identifierOrArn
 
 	if cert, ok := lookupUnique(b.certificatesByARN, regionKey(region, identifierOrArn)); ok {
 		cp := *cert
+		cert.Tags.Close()
 		b.certificates.Delete(regionKey(region, cert.CertificateIdentifier))
 
 		return &cp, nil

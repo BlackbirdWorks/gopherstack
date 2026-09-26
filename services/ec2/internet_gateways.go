@@ -160,7 +160,7 @@ func (b *InMemoryBackend) DetachInternetGateway(igwID, vpcID string) error {
 		}
 	}
 
-	return fmt.Errorf("%w: IGW %s is not attached to VPC %s", ErrInvalidParameter, igwID, vpcID)
+	return fmt.Errorf("%w: %s is not attached to network %s", ErrGatewayNotAttached, igwID, vpcID)
 }
 
 // igwDetachDependencyViolationLocked returns a DependencyViolation error if

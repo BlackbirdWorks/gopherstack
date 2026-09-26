@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -85,6 +86,7 @@ func paginateOffset[T any](all []T, maxResults int32, nextToken string) ([]T, st
 const (
 	defaultNamespace         = "default"
 	identityStoreQuickSight  = "QUICKSIGHT"
+	namespaceStatusCreated   = "CREATED"
 	statusCreationSuccessful = "CREATION_SUCCESSFUL"
 	statusCreationInProgress = "CREATION_IN_PROGRESS"
 	statusUpdateSuccessful   = "UPDATE_SUCCESSFUL"
@@ -159,6 +161,7 @@ type InMemoryBackend struct {
 	approvalPolicies *store.Table[storedApprovalPolicy]
 	dlpSettings      *store.Table[storedDlpSetting]
 	limitsProfiles   *store.Table[storedLimitsProfile]
+	apps             *store.Table[storedApp]
 
 	accountID string
 	region    string
@@ -202,7 +205,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		Name:           defaultNamespace,
 		Arn:            b.buildARN("namespace", defaultNamespace),
 		CapacityRegion: region,
-		Status:         statusCreationSuccessful,
+		Status:         namespaceStatusCreated,
 		IdentityStore:  identityStoreQuickSight,
 	})
 
@@ -249,7 +252,7 @@ func (b *InMemoryBackend) Reset() {
 		Name:           defaultNamespace,
 		Arn:            b.buildARN("namespace", defaultNamespace),
 		CapacityRegion: b.region,
-		Status:         statusCreationSuccessful,
+		Status:         namespaceStatusCreated,
 		IdentityStore:  identityStoreQuickSight,
 	})
 }
@@ -572,4 +575,51 @@ func approvalPolicyKey(policyID string) string {
 
 func (b *InMemoryBackend) buildARN(resourceType, resourceID string) string {
 	return arn.Build("quicksight", b.region, b.accountID, fmt.Sprintf("%s/%s", resourceType, resourceID))
+}
+
+// ResolveSourceEntityDefinition is the thread-safe form of
+// resolveSourceEntityDefinition, for handlers whose Create method has no
+// sourceEntityArn parameter of its own (e.g. CreateDashboard) and so must
+// resolve the definition before calling it.
+func (b *InMemoryBackend) ResolveSourceEntityDefinition(sourceEntityArn string) map[string]any {
+	b.mu.RLock("ResolveSourceEntityDefinition")
+	defer b.mu.RUnlock()
+
+	return b.resolveSourceEntityDefinition(sourceEntityArn)
+}
+
+// resolveSourceEntityDefinition looks up the Definition of the Analysis or
+// Template identified by sourceEntityArn. Real AWS derives a new
+// Template/Dashboard's Definition from its SourceEntity at creation time
+// (CreateTemplateInput/CreateDashboardInput accept either an explicit
+// Definition or a SourceEntity, never both) -- this backend otherwise only
+// stores a caller-supplied Definition verbatim, so a SourceEntity-based
+// create left Definition permanently empty (DescribeTemplateDefinition/
+// DescribeDashboardDefinition then have nothing to return). Callers must
+// already hold b.mu.
+func (b *InMemoryBackend) resolveSourceEntityDefinition(sourceEntityArn string) map[string]any {
+	if sourceEntityArn == "" {
+		return nil
+	}
+
+	switch {
+	case strings.Contains(sourceEntityArn, ":analysis/"):
+		for _, a := range b.analyses.All() {
+			if a.Arn == sourceEntityArn {
+				return a.Definition
+			}
+		}
+	case strings.Contains(sourceEntityArn, ":template/"):
+		for _, t := range b.templates.All() {
+			if t.Arn != sourceEntityArn {
+				continue
+			}
+
+			if v, ok := t.Versions[t.LatestVersion]; ok {
+				return v.Definition
+			}
+		}
+	}
+
+	return nil
 }

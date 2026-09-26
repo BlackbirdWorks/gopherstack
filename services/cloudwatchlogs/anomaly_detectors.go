@@ -32,16 +32,13 @@ func (b *InMemoryBackend) CreateLogAnomalyDetector(
 		}
 	}
 
-	if anomalyVisibilityTime != 0 {
-		const msPerDay = 24 * 60 * 60 * 1000
-		visibilityDays := anomalyVisibilityTime / msPerDay
-		if visibilityDays < anomalyVisibilityTimeMinDays ||
-			visibilityDays > anomalyVisibilityTimeMaxDays {
-			return "", fmt.Errorf(
-				"%w: anomalyVisibilityTime must be between %d and %d days",
-				ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
-			)
-		}
+	if anomalyVisibilityTime != 0 &&
+		(anomalyVisibilityTime < anomalyVisibilityTimeMinDays ||
+			anomalyVisibilityTime > anomalyVisibilityTimeMaxDays) {
+		return "", fmt.Errorf(
+			"%w: anomalyVisibilityTime must be between %d and %d days",
+			ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
+		)
 	}
 
 	id := uuid.New().String()
@@ -192,16 +189,12 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 		d.EvaluationFrequency = evaluationFrequency
 	}
 	if anomalyVisibilityTime > 0 {
-		if anomalyVisibilityTime != 0 {
-			const msPerDay = 24 * 60 * 60 * 1000
-			visibilityDays := anomalyVisibilityTime / msPerDay
-			if visibilityDays < anomalyVisibilityTimeMinDays ||
-				visibilityDays > anomalyVisibilityTimeMaxDays {
-				return fmt.Errorf(
-					"%w: anomalyVisibilityTime must be between %d and %d days",
-					ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
-				)
-			}
+		if anomalyVisibilityTime < anomalyVisibilityTimeMinDays ||
+			anomalyVisibilityTime > anomalyVisibilityTimeMaxDays {
+			return fmt.Errorf(
+				"%w: anomalyVisibilityTime must be between %d and %d days",
+				ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
+			)
 		}
 		d.AnomalyVisibilityTime = anomalyVisibilityTime
 	}

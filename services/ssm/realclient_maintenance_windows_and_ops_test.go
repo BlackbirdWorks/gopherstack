@@ -104,12 +104,13 @@ func TestRealClient_MaintenanceWindowsAndOps(t *testing.T) {
 				// Maintenance window executions run on their own cron/rate schedule
 				// -- there is no real StartMaintenanceWindowExecution op to trigger
 				// one on demand, so CancelMaintenanceWindowExecution is exercised
-				// against a synthetic execution ID (a valid real call shape: real
-				// AWS also accepts any well-formed execution ID here and returns
-				// NotFound only asynchronously via the console/other describe ops,
-				// not from Cancel itself).
+				// against this window's own derived execution ID (mwExecID), the
+				// only ID this backend can honestly resolve without a real
+				// execution store. An unrecognized ID is a real
+				// DoesNotExistException (verified separately in
+				// TestCancelMaintenanceWindowExecution).
 				_, err = client.CancelMaintenanceWindowExecution(ctx, &ssmsdk.CancelMaintenanceWindowExecutionInput{
-					WindowExecutionId: aws.String("s11-window-execution-id"),
+					WindowExecutionId: aws.String("mwexec-" + *win.WindowId),
 				})
 				require.NoError(t, err)
 			},

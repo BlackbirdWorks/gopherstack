@@ -406,9 +406,13 @@ type InsightRuleFailure struct {
 
 // metricRecord holds time-series data for a single (MetricName, Dimensions) combination.
 type metricRecord struct {
-	MetricName string        `json:"MetricName"`
-	Dimensions []Dimension   `json:"Dimensions,omitempty"`
-	Points     []MetricDatum `json:"Points"`
+	// LastDatapoint is the max Timestamp across all Points ever stored (points
+	// may arrive out of order). Drives ListMetrics visibility and eviction in
+	// SweepExpiredMetrics -- see cwListMetricsVisibilityWindow.
+	LastDatapoint time.Time     `json:"LastDatapoint,omitzero"`
+	MetricName    string        `json:"MetricName"`
+	Dimensions    []Dimension   `json:"Dimensions,omitempty"`
+	Points        []MetricDatum `json:"Points"`
 }
 
 // dashboardRecord holds dashboard body and metadata.

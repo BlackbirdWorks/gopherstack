@@ -96,11 +96,8 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return tags, nil
 }
 
-// resourceExists reports whether resourceARN identifies a taggable
-// Rekognition resource. Per aws-sdk-go-v2/service/rekognition's
-// api_op_TagResource.go doc comment, TagResource applies to "an Amazon
-// Rekognition collection, stream processor, or Custom Labels model" --
-// the latter is a project *version* ARN, not the project ARN itself.
+// resourceExists reports whether resourceARN is a taggable collection, stream
+// processor, project version or project (CreateProjectInput.Tags).
 func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
 	for _, c := range b.collections.All() {
 		if c.CollectionARN == resourceARN {
@@ -120,7 +117,7 @@ func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
 		}
 	}
 
-	return false
+	return b.projects.Has(resourceARN)
 }
 
 // TaggedEntry pairs a resource ARN with its tags.

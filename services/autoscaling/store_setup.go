@@ -17,7 +17,6 @@ package autoscaling
 // A handful of fields are deliberately NOT registered here and remain plain
 // maps -- see the comment above registerAllTables for the list and why.
 import (
-	"fmt"
 	"slices"
 	"sort"
 
@@ -26,25 +25,27 @@ import (
 
 // describeByNames is the shared shape behind DescribeAutoScalingGroups and
 // DescribeLaunchConfigurations: given a non-empty names filter, look each
-// name up individually (erroring via notFound on the first miss, matching
-// AWS's all-or-nothing DescribeAutoScalingGroups/DescribeLaunchConfigurations
-// semantics); given an empty filter, return every table entry sorted by less.
+// name up and include the ones that exist, silently omitting misses. Real
+// AWS does not error here -- unlike EC2's NotFound family, ASG's Describe
+// operations are filter-style, and Terraform's ASG delete waiter relies on
+// this to observe an empty list once deletion completes. An empty filter
+// returns every table entry sorted by less.
 func describeByNames[V any](
-	table *store.Table[V], names []string, notFound error, less func(a, b *V) bool,
-) ([]V, error) {
+	table *store.Table[V], names []string, less func(a, b *V) bool,
+) []V {
 	if len(names) > 0 {
 		result := make([]V, 0, len(names))
 
 		for _, name := range names {
 			v, ok := table.Get(name)
 			if !ok {
-				return nil, fmt.Errorf("%w: %q", notFound, name)
+				continue
 			}
 
 			result = append(result, *v)
 		}
 
-		return result, nil
+		return result
 	}
 
 	all := table.All()
@@ -56,7 +57,7 @@ func describeByNames[V any](
 
 	sort.Slice(result, func(i, j int) bool { return less(&result[i], &result[j]) })
 
-	return result, nil
+	return result
 }
 
 // scopedKey builds a composite store.Table key for a resource whose identity

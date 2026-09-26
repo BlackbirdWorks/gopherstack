@@ -23,6 +23,7 @@ func (b *InMemoryBackend) CreateVpcEndpointServiceConfiguration(
 		ServiceID:               svcID,
 		ServiceName:             svcName,
 		ServiceType:             vpcEndpointTypeInterface,
+		ServiceState:            serviceStateAvailable,
 		AcceptanceRequired:      acceptanceRequired,
 		NetworkLoadBalancerARNs: nlbARNs,
 	}

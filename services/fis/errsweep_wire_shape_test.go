@@ -30,6 +30,7 @@ func TestSDK_CreateExperimentTemplate_OversizedBody_TypedValidationException(t *
 	t.Parallel()
 
 	backend := fis.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := fis.NewHandler(backend)
 	client, _ := newTestFISClient(t, h)
 
@@ -61,6 +62,7 @@ func TestSDK_GetExperimentTemplate_NotFound_TypedResourceNotFoundException(t *te
 	t.Parallel()
 
 	backend := fis.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := fis.NewHandler(backend)
 	client, _ := newTestFISClient(t, h)
 

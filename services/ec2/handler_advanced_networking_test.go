@@ -180,8 +180,12 @@ func TestEC2Core_Handler_VpcEndpointServiceConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, cfg.ServiceID)
 
+	assert.Equal(t, "Available", cfg.ServiceState,
+		"terraform-provider-aws waits for ServiceState==Available after create")
+
 	cfgs := bk.DescribeVpcEndpointServiceConfigurations([]string{cfg.ServiceID})
 	require.Len(t, cfgs, 1)
+	assert.Equal(t, "Available", cfgs[0].ServiceState)
 
 	cfgs2 := bk.DescribeVpcEndpointServiceConfigurations(nil)
 	assert.Len(t, cfgs2, 1)

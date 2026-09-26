@@ -13,12 +13,22 @@ import (
 
 // newDistributionRegistry creates an embedded Docker Registry v2 [http.Handler]
 // using in-memory storage and no authentication (all requests are accepted).
+// The returned *handlers.App also satisfies an internal Shutdown() error
+// interface the ecr Handler uses to release it (see handler.go).
 func newDistributionRegistry(parent context.Context) http.Handler {
 	cfg := &configuration.Configuration{
 		Version: "0.1",
 		Storage: configuration.Storage{
 			"inmemory": configuration.Parameters{},
 			"delete":   configuration.Parameters{"enabled": true},
+			// Upload-purging periodically scans for stale multipart uploads
+			// to delete; storage here never outlives the process, so the
+			// scan is meaningless and only exists to spawn
+			// startUploadPurger's unstoppable goroutine (app.go, distribution
+			// v3.1.1) -- disable it instead of leaking it.
+			"maintenance": configuration.Parameters{
+				"uploadpurging": map[any]any{"enabled": false},
+			},
 		},
 		HTTP: configuration.HTTP{
 			Headers: map[string][]string{

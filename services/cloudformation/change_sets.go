@@ -23,6 +23,12 @@ type CreateChangeSetOptions struct {
 	// (ErrChangeSetTypeUnsupported -- no resources-to-import machinery
 	// exists in this backend).
 	ChangeSetType string
+	// ResourceTypes/DisableValidation mirror CreateChangeSetInput's own
+	// fields (api_op_CreateChangeSet.go:192,254); stored on the ChangeSet
+	// and applied when ExecuteChangeSet calls CreateStack/UpdateStack,
+	// same as Capabilities.
+	ResourceTypes     []string
+	DisableValidation bool
 }
 
 // CreateChangeSet creates a change set for a stack.
@@ -78,6 +84,9 @@ func (b *InMemoryBackend) CreateChangeSet(
 		Parameters:      params,
 		Capabilities:    capabilities,
 		Tags:            tags,
+
+		ResourceTypes:     opts.ResourceTypes,
+		DisableValidation: opts.DisableValidation,
 	}
 
 	cs.Changes = b.computeChanges(templateBody, stack)
@@ -222,6 +231,8 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		Capabilities:         cs.Capabilities,
 		DisableRollback:      disableRollback,
 		RetainExceptOnCreate: retainExceptOnCreate,
+		ResourceTypes:        cs.ResourceTypes,
+		DisableValidation:    cs.DisableValidation,
 	}
 	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
 	if err != nil {

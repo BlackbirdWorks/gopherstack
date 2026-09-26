@@ -2,11 +2,8 @@ package directoryservice
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // assessmentStatusSuccess is the real types.Assessment.Status value ("Valid
@@ -37,7 +34,7 @@ func (b *InMemoryBackend) startADAssessmentLocked(
 	}
 
 	now := time.Now().UTC()
-	id := fmt.Sprintf("a-%s", uuid.NewString()[:10])
+	id := newHexID("a-")
 	rec := &storedADAssessment{
 		AssessmentID: id,
 		DirectoryID:  directoryID,

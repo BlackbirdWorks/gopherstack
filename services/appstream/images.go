@@ -483,9 +483,13 @@ func (b *InMemoryBackend) CreateImageBuilder(
 		Description:                 description,
 		Platform:                    plat,
 		InstanceType:                instanceType,
-		State:                       imageBuilderStateStopped,
-		IamRoleArn:                  opts.IamRoleArn,
-		AppstreamAgentVersion:       opts.AppstreamAgentVersion,
+		// Real CreateImageBuilder launches the build instance immediately (the
+		// terraform-provider-aws resource waits Pending->Running, never seeing
+		// Stopped after a create); this backend completes deterministically, so
+		// it starts already Running rather than modeling a Pending interval.
+		State:                 imageBuilderStateRunning,
+		IamRoleArn:            opts.IamRoleArn,
+		AppstreamAgentVersion: opts.AppstreamAgentVersion,
 	}
 	b.imageBuilders.Put(ib)
 	b.tags[arn] = storedTags

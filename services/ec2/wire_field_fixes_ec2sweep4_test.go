@@ -211,6 +211,20 @@ func TestModifyVpcEndpointServicePermissions_AddedPrincipals_RealClient(t *testi
 	require.Len(t, out.AddedPrincipals, 1,
 		"AddedPrincipals empty - ModifyVpcEndpointServicePermissions dropped the addedPrincipalSet")
 	assert.Equal(t, principal, aws.ToString(out.AddedPrincipals[0].Principal))
+	assert.Equal(t, types.PrincipalTypeAccount, out.AddedPrincipals[0].PrincipalType,
+		"an unset PrincipalType left the aws_vpc_endpoint_service_allowed_principal resource unreadable after create")
+
+	descOut, err := client.DescribeVpcEndpointServicePermissions(
+		t.Context(),
+		&ec2sdk.DescribeVpcEndpointServicePermissionsInput{
+			ServiceId: svc.ServiceConfiguration.ServiceId,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, descOut.AllowedPrincipals, 1)
+	assert.Equal(t, principal, aws.ToString(descOut.AllowedPrincipals[0].Principal))
+	assert.Equal(t, types.PrincipalTypeAccount, descOut.AllowedPrincipals[0].PrincipalType)
+	assert.NotEmpty(t, aws.ToString(descOut.AllowedPrincipals[0].ServicePermissionId))
 }
 
 // TestDeleteFlowLogs_UnsuccessfulKey_RealClient covers a fabricated field: the

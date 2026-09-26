@@ -14,7 +14,7 @@ import (
 func TestModifyListenerAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "ml-attrs-lb")
 	tgArn := mustCreateTG(t, h, "ml-attrs-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -65,7 +65,7 @@ func TestModifyListenerAttributes(t *testing.T) {
 func TestDescribeListenerAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "dl-attrs-lb")
 	tgArn := mustCreateTG(t, h, "dl-attrs-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -116,7 +116,7 @@ func TestDescribeListenerAttributes(t *testing.T) {
 func TestModifyListenerAttributesPersists(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "listener-attrs-lb")
 	tgArn := mustCreateTG(t, h, "listener-attrs-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -161,7 +161,7 @@ func TestModifyListenerAttributesPersists(t *testing.T) {
 func TestListenerAttributeDefaults(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "attr-defaults-lb")
 	tgArn := mustCreateTG(t, h, "attr-defaults-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -198,7 +198,7 @@ func TestListenerAttributeDefaults(t *testing.T) {
 func TestListenerAttributes_DefaultRouting(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "listener-attr-lb")
 	tgArn := b1CreateTG(t, h, "listener-attr-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -215,7 +215,7 @@ func TestListenerAttributes_DefaultRouting(t *testing.T) {
 func TestModifyListenerAttributes_Smoke(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "mod-listener-attr-lb")
 	tgArn := b1CreateTG(t, h, "mod-listener-attr-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -240,7 +240,7 @@ func TestModifyListenerAttributes_Smoke(t *testing.T) {
 func TestForwardWeightedTGs(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "weighted-lb")
 	tgArn1 := b1CreateTG(t, h, "weighted-tg1")
 	tgArn2 := b1CreateTG(t, h, "weighted-tg2")
@@ -287,7 +287,7 @@ func TestForwardAction_ForwardConfigNormalization(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newParityBHandler()
+			h := newParityBHandler(t)
 			lbArn := pbCreateLB(t, h, "fc-lb")
 			tgArn := pbCreateTG(t, h, "fc-tg")
 

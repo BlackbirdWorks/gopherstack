@@ -380,14 +380,29 @@ const (
 	// for DescribeSessions history before the janitor evicts it (24h, matching
 	// AWS Session Manager history retention semantics).
 	sessionHistoryRetentionSecs = 24 * 60 * 60
-	activationIDPrefix          = "act-"
-	baselineIDPrefix            = "pb-"
-	opsItemIDPrefix             = "oi-"
-	opsMetadataArnTpl           = "arn:aws:ssm:%s:%s:opsmetadata/%s"
-	defaultAccountID            = "123456789012"
-	defaultRegion               = "us-east-1"
-	defaultOpsItemStatus        = "Open"
-	defaultActivationExpiryHrs  = 24
+	// automationExecutionHistoryRetentionSecs is how long a terminal automation
+	// execution is retained before the janitor evicts it (30 days). No AWS doc
+	// page states this figure for Automation specifically (checked
+	// automation-statuses.html, systems-manager-automation.html,
+	// diagnose-and-remediate-execution-history.html and the
+	// DescribeAutomationExecutions API/SDK doc comments); applied by analogy to
+	// Run Command's documented "Execution history retention" section
+	// (docs.aws.amazon.com/systems-manager/latest/userguide/running-commands.html:
+	// "The history of each command is available for up to 30 days"), the
+	// nearest AWS-confirmed SSM execution-history figure.
+	automationExecutionHistoryRetentionSecs = 30 * 24 * 60 * 60
+	activationIDPrefix                      = "act-"
+	baselineIDPrefix                        = "pb-"
+	// baselineIDHexLen matches real AWS's BaselineId shape: "pb-" followed by
+	// exactly 17 hex characters (terraform-provider-aws's aws_ssm_default_
+	// patch_baseline validates baseline_id against this pattern client-side).
+	baselineIDHexLen           = 17
+	opsItemIDPrefix            = "oi-"
+	opsMetadataArnTpl          = "arn:aws:ssm:%s:%s:opsmetadata/%s"
+	defaultAccountID           = "123456789012"
+	defaultRegion              = "us-east-1"
+	defaultOpsItemStatus       = "Open"
+	defaultActivationExpiryHrs = 24
 )
 const (
 	commandStatusPending    = "Pending"
@@ -415,6 +430,7 @@ const (
 	automationStatusCancelled = "Cancelled"
 	automationStatusSuccess   = "Success"
 	automationStatusFailed    = "Failed"
+	automationStatusTimedOut  = "TimedOut"
 	calendarStateOpen         = "OPEN"
 	policyIDPrefix            = "pol-"
 	previewIDPrefix           = "ep-"

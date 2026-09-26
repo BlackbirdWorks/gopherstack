@@ -502,13 +502,13 @@ func (db *InMemoryDB) sortCandidates(
 
 	entries := make([]querySortEntry, len(candidates))
 	for i, item := range candidates {
+		// ParseNumeric/ToString already unwrap internally; skip the extra unwrap.
 		entry := querySortEntry{item: item}
 		if skVal, ok := item[skDef.AttributeName]; ok {
-			unwrapped := dynamoattr.UnwrapAttributeValue(skVal)
 			if skType == "N" {
-				entry.skNum, _ = dynamoattr.ParseNumeric(unwrapped)
+				entry.skNum, _ = dynamoattr.ParseNumeric(skVal)
 			} else {
-				entry.skStr = dynamoattr.ToString(unwrapped)
+				entry.skStr = dynamoattr.ToString(skVal)
 			}
 		}
 		entries[i] = entry

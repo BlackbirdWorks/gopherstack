@@ -17,9 +17,9 @@
 # and `golangci-lint run`, all scoped to ./services/personalize/..., pass clean.
 service: personalize
 sdk_module: aws-sdk-go-v2/service/personalize@v1.50.4  # go.mod pins v1.50.4; prior audit passes cited v1.47.11 in this file -- this pass verified every field/citation below against the actually-pinned v1.50.4 module in the Go module cache
-sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.2]  # GetRecommendations/GetPersonalizedRanking; see the Runtime family below
-last_audit_commit: 12cf224d  # this pass (2026-08-13, gopherstack-sm02) fixed all 16 List-op Get-field leaks; commit hash not yet known at edit time
-last_audit_date: 2026-08-13
+sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.4]  # GetRecommendations/GetPersonalizedRanking/GetActionRecommendations; see the Runtime family below
+last_audit_commit: a8b26ceaa
+last_audit_date: 2026-09-19
 overall: A
 ops:
   CreateDatasetGroup: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added domain enum validation (ECOMMERCE/VIDEO_ON_DEMAND, or empty for a Custom group) -- an unrecognized value previously succeeded silently'}
@@ -73,7 +73,7 @@ ops:
   ListMetricAttributionMetrics: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'was a hardcoded fabricated 2-entry list ignoring the actual attribution; now returns the attribution''s real, paginated Metrics'}
   CreateDatasetImportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
   DescribeDatasetImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasetImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetImportJobSummary via datasetImportJobSummaryToMap -- dropped datasetArn/roleArn/dataSource (3 leaked members)'}
+  ListDatasetImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetImportJobSummary via datasetImportJobSummaryToMap -- dropped datasetArn/roleArn/dataSource (3 leaked members). FIXED 2026-09-18 (gopherstack-dv4s): importMode (real Summary member, sourced since gopherstack-xhu2t added CreateDatasetImportJob.ImportMode validation but only wired it through to Describe) was still missing from the List summary -- added.'}
   CreateDatasetExportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
   DescribeDatasetExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDatasetExportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetExportJobSummary via datasetExportJobSummaryToMap -- dropped datasetArn/roleArn/jobOutput (3 leaked members)'}
@@ -95,6 +95,7 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRecommendations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real personalizeruntime.Client op (confirmed by name against aws-sdk-go-v2/service/personalizeruntime), not personalizesdk.Client -- pkgs/sdkcheck's reverse check flagged this as 'phantom' only because it compared against the control-plane client; sdk_completeness_test.go now checks it against personalizeruntimesdk.Client (2026-07-31, gopherstack-vhw2)"}
   GetPersonalizedRanking: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same as GetRecommendations -- real personalizeruntime.Client op, now checked against the correct sibling client"}
+  GetActionRecommendations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this sweep (2026-09-19): real personalizeruntime.Client op, POST /action-recommendations (verified against personalizeruntime@v1.36.4 api_op_GetActionRecommendations.go/serializers.go/deserializers.go). Genuinely validates the campaign ARN (ResourceNotFoundException when unknown) and its deployed solution version's recipe type via the new ValidateActionRecommenderCampaign (runtime.go), which looks up the real recipe dynamically rather than hardcoding a rejection. This backend's built-in recipe catalog (recipes.go) has no PERSONALIZED_ACTIONS entry -- the recipe family GetActionRecommendations requires -- and there is no actions-dataset item store to source real action IDs/scores from, so every existing campaign fails that check and returns the real SDK-declared InvalidInputException instead of a fabricated ActionList; deliberately not stubbed as a fake success. Proven via TestGetActionRecommendations_RealSDKClient (handler_action_recommendations_test.go, real personalizeruntime client) and TestValidateActionRecommenderCampaign."}
 families:
   DatasetGroup/Dataset/Schema: {status: fixed, note: 'ARNs, timestamps (awstime.Epoch), field shapes verified against types.DatasetGroup/Dataset/DatasetSchema deserializers; Schema correctly has no status field (matches real API). This pass (gopherstack-sm02): ListDatasetGroups/ListDatasets/ListSchemas now use dedicated types.DatasetGroupSummary/DatasetSummary/DatasetSchemaSummary converters instead of the unscoped Describe converter (see ops). Prior pass: domain enum validation on DatasetGroup/Schema, datasetType enum validation + datasetGroupArn/schemaArn FK validation on Dataset (see ops)'}
   Solution/SolutionVersion: {status: fixed, note: 'This pass: SolutionVersion now models datasetGroupArn/eventType/performAutoML/performHPO/performIncrementalUpdate/recipeArn/failureReason, snapshotted from the parent Solution at CreateSolutionVersion time (not a live lookup); Solution.latestSolutionVersion (types.SolutionVersionSummary) now populated on DescribeSolution via a solutionVersions cross-table lookup; SolutionConfig deep-typed (see Campaign/Recommender family note) -- verified field-by-field against types.Solution/types.SolutionVersion/types.SolutionVersionSummary. Prior pass: datasetGroupArn/recipeArn/solutionArn FK validation, eventType/solutionConfig/autoMLResult/latestSolutionUpdate wire fields added; CreateSolution/UpdateSolution wire bug fixed; StopSolutionVersionCreation status-string bug fixed'}
@@ -103,7 +104,7 @@ families:
   Async jobs (DatasetImportJob/DatasetExportJob/BatchInferenceJob/BatchSegmentJob/DataDeletionJob): {status: fixed, note: 'no Delete/Update ops in the real API either -- gopherstack correctly omits them. This pass (gopherstack-sm02): all five List* ops now use dedicated Summary-scoped converters instead of the unscoped Describe converter, dropping 3 leaked members per op (see ops). Prior pass: datasetArn/solutionVersionArn/datasetGroupArn FK validation added to every Create* op (see ops)'}
   Recipe/Algorithm/FeatureTransformation: {status: fixed, note: 'built-in read-only catalogs, ARNs/status/timestamps verified. This pass (gopherstack-sm02): ListRecipes now uses a dedicated types.RecipeSummary converter instead of returning the full DescribeRecipe entry, dropping recipeType. CHECKED 2026-08-30 (wire-key-read sweep): ListRecipesInput.domain/recipeProvider are declared and unread by listRecipes (recipes.go) -- deliberately left unread, not a bug. recipeProvider: types.RecipeProvider (personalize@v1.50.4 types/enums.go) has exactly one legal value, SERVICE -- this service has no CreateRecipe/custom-recipe path, so every recipe in getBuiltinRecipes() is implicitly SERVICE-provided; the filter can never exclude anything a real client could legally send, so reading it would be a no-op with no observable effect. domain: types.Domain has real values (ECOMMERCE, VIDEO_ON_DEMAND) for AWS-provided domain-specific recipe catalogs, but getBuiltinRecipes() models only the general-purpose (domain-less) recipes -- this backend holds no domain-specific recipe data at all, so filtering by domain would either fabricate matches or (more likely, if implemented "honestly") wrongly return empty for a domain real AWS does serve recipes for. Missing backend data, not a misread key -- left absent rather than guessed.'}
   Tags: {status: ok, note: 'tagKey/tagValue round-trip verified; arnExists() FK check spans all 16 resource tables correctly'}
-  Runtime (GetRecommendations/GetPersonalizedRanking): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): both are real aws-sdk-go-v2/service/personalizeruntime ops, not personalize ops -- added the module to go.mod and pointed sdk_completeness_test.go at it directly. That client also has a third op, GetActionRecommendations, which this Handler does not implement (listed as notImplemented in the completeness check; not otherwise audited this sweep).'}
+  Runtime (GetRecommendations/GetPersonalizedRanking/GetActionRecommendations): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): all are real aws-sdk-go-v2/service/personalizeruntime ops, not personalize ops -- added the module to go.mod and pointed sdk_completeness_test.go at it directly. UPDATE (2026-09-19): GetActionRecommendations implemented -- see its own ops: entry for why it validates but never fabricates scores.'}
 gaps: []
 items_still_open: []
 deferred: []
@@ -111,6 +112,28 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
 ---
 
 ## Notes
+
+### 2026-09-19: GetActionRecommendations implemented
+
+New op, POST /action-recommendations, verified against personalizeruntime@v1.36.4.
+Validates campaign existence + recipe type (ValidateActionRecommenderCampaign,
+runtime.go); no PERSONALIZED_ACTIONS recipe or actions-dataset item store
+exists here, so every campaign returns real InvalidInputException -- no
+fabricated ActionList. No persisted state added.
+
+- **2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s)**: all 16
+  census-flagged List ops re-verified member by member against the pinned
+  SDK. 15 were already exactly correct (gopherstack-sm02's 2026-08-13 pass
+  had fixed every leak). One real gap found: `ListDatasetImportJobs`'
+  summary was missing `importMode`, a real, always-populated
+  `DatasetImportJobSummary` member (`CreateDatasetImportJob` validates and
+  defaults it to `FULL` -- gopherstack-xhu2t's 2026-09-12 pass wired it
+  through to Describe and did the same for `ListBatchInferenceJobs`'
+  `batchInferenceJobMode`, but missed this List sibling). Fixed; also
+  corrected a stale comment on `batchInferenceJobSummaryToMap` that claimed
+  `batchInferenceJobMode` had "no source" when the code already emitted it
+  correctly. No persistence-schema change. `go build/vet/test -race`,
+  `golangci-lint run ./services/personalize/...` all clean.
 
 - **2026-09-12 (reqfielddiff, gopherstack-xhu2t)**: worked all 13
   tier-1 findings. **4 real fixes**: `CreateBatchInferenceJob.BatchInferenceJobMode`

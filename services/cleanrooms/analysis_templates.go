@@ -49,6 +49,7 @@ func toCollaborationAnalysisTemplateSummary(
 		CreatorAccountID: creatorAccountID,
 		ID:               t.ID,
 		Name:             t.Name,
+		Description:      t.Description,
 		CreateTime:       t.CreateTime,
 		UpdateTime:       t.UpdateTime,
 	}

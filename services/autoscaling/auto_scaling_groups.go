@@ -217,11 +217,11 @@ func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string, filters []Ta
 	b.mu.RLock("DescribeAutoScalingGroups")
 	defer b.mu.RUnlock()
 
-	groups, err := describeByNames(b.groups, names, ErrGroupNotFound, func(a, c *AutoScalingGroup) bool {
+	groups := describeByNames(b.groups, names, func(a, c *AutoScalingGroup) bool {
 		return a.AutoScalingGroupName < c.AutoScalingGroupName
 	})
-	if err != nil || len(filters) == 0 {
-		return groups, err
+	if len(filters) == 0 {
+		return groups, nil
 	}
 
 	result := make([]AutoScalingGroup, 0, len(groups))

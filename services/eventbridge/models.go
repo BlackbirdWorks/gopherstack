@@ -554,8 +554,13 @@ type UpdateArchiveInput struct {
 	Description      *string `json:"Description,omitempty"`
 	EventPattern     *string `json:"EventPattern,omitempty"`
 	KmsKeyIdentifier *string `json:"KmsKeyIdentifier,omitempty"`
-	ArchiveName      string  `json:"ArchiveName"`
-	RetentionDays    int     `json:"RetentionDays,omitempty"`
+	// RetentionDays is optional on the real SDK (*int32, no "This member is
+	// required." doc, eventbridge@v1.53.0 api_op_UpdateArchive.go): nil means
+	// "not specified" (preserve the stored value). Explicit 0 has a
+	// documented meaning -- "events are retained indefinitely"
+	// (api_op_CreateArchive.go) -- and must be applied, not treated as omitted.
+	RetentionDays *int   `json:"RetentionDays,omitempty"`
+	ArchiveName   string `json:"ArchiveName"`
 }
 
 // UpdateConnectionInput is the input for UpdateConnection.
@@ -779,4 +784,61 @@ type ListCodeBindingsInput struct {
 type GetDiscoveredSchemaInput struct {
 	Type   string   `json:"Type"`
 	Events []string `json:"Events"`
+}
+
+// Discoverer watches an event bus and registers discovered schemas.
+type Discoverer struct {
+	Tags          map[string]string `json:"Tags,omitempty"`
+	DiscovererArn string            `json:"DiscovererArn"`
+	DiscovererID  string            `json:"DiscovererId"`
+	SourceArn     string            `json:"SourceArn"`
+	Description   string            `json:"Description,omitempty"`
+	State         string            `json:"State"`
+	CrossAccount  bool              `json:"CrossAccount"`
+}
+
+// CreateDiscovererInput is the input for CreateDiscoverer.
+type CreateDiscovererInput struct {
+	Tags         map[string]string `json:"Tags,omitempty"`
+	CrossAccount *bool             `json:"CrossAccount,omitempty"`
+	SourceArn    string            `json:"SourceArn"`
+	Description  string            `json:"Description,omitempty"`
+}
+
+// UpdateDiscovererInput is the input for UpdateDiscoverer.
+type UpdateDiscovererInput struct {
+	Description  *string `json:"Description,omitempty"`
+	CrossAccount *bool   `json:"CrossAccount,omitempty"`
+	DiscovererID string  `json:"DiscovererId"`
+}
+
+// ExportSchemaInput is the input for ExportSchema.
+type ExportSchemaInput struct {
+	RegistryName  string `json:"RegistryName"`
+	SchemaName    string `json:"SchemaName"`
+	Type          string `json:"Type"`
+	SchemaVersion string `json:"SchemaVersion,omitempty"`
+}
+
+// ExportedSchema is ExportSchema's result.
+type ExportedSchema struct {
+	Content       string `json:"Content"`
+	SchemaArn     string `json:"SchemaArn"`
+	SchemaName    string `json:"SchemaName"`
+	SchemaVersion string `json:"SchemaVersion"`
+	Type          string `json:"Type"`
+}
+
+// ResourcePolicy is a registry-level resource-based policy with optimistic
+// concurrency via RevisionID.
+type ResourcePolicy struct {
+	Policy     string `json:"Policy"`
+	RevisionID string `json:"RevisionId"`
+}
+
+// PutResourcePolicyInput is the input for PutResourcePolicy.
+type PutResourcePolicyInput struct {
+	RegistryName string `json:"RegistryName,omitempty"`
+	Policy       string `json:"Policy"`
+	RevisionID   string `json:"RevisionId,omitempty"`
 }

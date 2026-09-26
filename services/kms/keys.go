@@ -189,6 +189,9 @@ func (b *InMemoryBackend) CreateKey(
 	keyID := uuid.New().String()
 	keyUsage := input.KeyUsage
 	keySpec := input.KeySpec
+	if keySpec == "" {
+		keySpec = input.CustomerMasterKeySpec
+	}
 
 	// Validate that KeySpec and KeyUsage are compatible when both are specified
 	// (gopherstack-5rjn: see validateKeySpecUsage's doc for the error-code reasoning).
@@ -268,6 +271,10 @@ func (b *InMemoryBackend) DescribeKey(
 	ctx context.Context,
 	input *DescribeKeyInput,
 ) (*DescribeKeyOutput, error) {
+	if err := b.ensureAWSManagedKey(ctx, input.KeyID); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("DescribeKey")
 	defer b.mu.RUnlock()
 
@@ -300,7 +307,7 @@ func (b *InMemoryBackend) ListKeys(
 	for _, k := range b.keysStore(region).All() {
 		entries = append(
 			entries,
-			KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn, Description: k.Description},
+			KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn},
 		)
 	}
 
@@ -353,6 +360,10 @@ func (b *InMemoryBackend) DisableKey(ctx context.Context, input *DisableKeyInput
 		return err
 	}
 
+	if isAWSManagedKey(key) {
+		return errAWSManagedKeyInvalidState("DisableKey", key.Arn)
+	}
+
 	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport ||
 		key.KeyState == KeyStatePendingReplicaDeletion {
 		return keyStateError(key)
@@ -403,6 +414,10 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
+	}
+
+	if isAWSManagedKey(key) {
+		return nil, errAWSManagedKeyInvalidState("ScheduleKeyDeletion", key.Arn)
 	}
 
 	if key.KeyState == KeyStatePendingDeletion {
@@ -497,7 +512,7 @@ func (b *InMemoryBackend) CancelKeyDeletion(
 	key.Enabled = false
 	key.DeletionDate = 0
 
-	return &CancelKeyDeletionOutput{KeyID: key.KeyID, KeyState: key.KeyState}, nil
+	return &CancelKeyDeletionOutput{KeyID: key.KeyID}, nil
 }
 
 // keyToMetadata converts a Key to its KeyMetadata representation.
@@ -505,6 +520,11 @@ func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 	origin := k.Origin
 	if origin == "" {
 		origin = KeyOriginAWSKMS
+	}
+
+	keyManager := k.KeyManager
+	if keyManager == "" {
+		keyManager = KeyManagerCustomer
 	}
 
 	meta := KeyMetadata{
@@ -517,7 +537,7 @@ func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 		KeySpec:               k.KeySpec,
 		CustomerMasterKeySpec: k.KeySpec,
 		CreationDate:          k.CreationDate,
-		KeyManager:            "CUSTOMER",
+		KeyManager:            keyManager,
 		Origin:                origin,
 		MultiRegion:           k.MultiRegion,
 		PrimaryRegion:         k.PrimaryRegion,

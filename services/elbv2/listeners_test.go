@@ -79,7 +79,7 @@ func TestCreateListener(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 			rec := doELBv2(t, h, vals)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -165,7 +165,7 @@ func TestDeleteListener(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 			rec := doELBv2(t, h, vals)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -177,7 +177,7 @@ func TestDeleteListener(t *testing.T) {
 func TestDescribeListeners(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "desc-listener-lb")
 	tgArn := mustCreateTG(t, h, "desc-listener-tg")
 
@@ -215,7 +215,7 @@ func TestDescribeListeners(t *testing.T) {
 func TestModifyListener(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "mod-listener-lb")
 	tgArn := mustCreateTG(t, h, "mod-listener-tg")
 
@@ -270,7 +270,7 @@ func TestModifyListener(t *testing.T) {
 func TestModifyListenerSyncDefaultRule(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "sync-rule-lb")
 	tgArn1 := mustCreateTG(t, h, "sync-rule-tg1")
 	tgArn2 := mustCreateTG(t, h, "sync-rule-tg2")
@@ -324,7 +324,7 @@ func TestModifyListenerSyncDefaultRule(t *testing.T) {
 func TestDescribeListenersSortedByPort(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "sort-listen-lb")
 	tgArn := mustCreateTG(t, h, "sort-listen-tg")
 	certArn := "arn:aws:acm:us-east-1:123456789012:certificate/sort-cert"
@@ -417,7 +417,7 @@ func Test_AlpnPolicyWireShape(t *testing.T) {
 
 			nameSuffix := strings.ReplaceAll(tc.name, "_", "-")
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			lbArn := mustCreateNLB(t, h, "alpn-"+nameSuffix)
 			tgArn := mustCreateTG(t, h, "alpn-tg-"+nameSuffix)
 
@@ -487,7 +487,7 @@ func Test_AlpnPolicyWireShape(t *testing.T) {
 func TestDescribeListenersPagination(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "pag-listeners-lb")
 	tgArn := mustCreateTG(t, h, "pag-listeners-tg")
 
@@ -557,7 +557,7 @@ func TestDescribeListenersPagination(t *testing.T) {
 func TestCreateListener_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "listener-http-lb")
 	tgArn := b1CreateTG(t, h, "listener-http-tg")
 
@@ -591,7 +591,7 @@ func TestCreateListener_HTTP(t *testing.T) {
 func TestDeleteListener_Smoke(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "del-listener-lb")
 	tgArn := b1CreateTG(t, h, "del-listener-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -607,7 +607,7 @@ func TestDeleteListener_Smoke(t *testing.T) {
 func TestDescribeListeners_Smoke(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "desc-listener-lb")
 	tgArn := b1CreateTG(t, h, "desc-listener-tg")
 	b1CreateListener(t, h, lbArn, tgArn)
@@ -624,7 +624,7 @@ func TestDescribeListeners_Smoke(t *testing.T) {
 func TestModifyListener_ChangePort(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "mod-listener-lb")
 	tgArn := b1CreateTG(t, h, "mod-listener-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -644,7 +644,7 @@ func TestModifyListener_ChangePort(t *testing.T) {
 func TestDescribeListeners_Pagination(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "pag-listeners-lb")
 	tgArn := b1CreateTG(t, h, "pag-listeners-tg")
 

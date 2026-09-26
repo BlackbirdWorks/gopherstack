@@ -335,14 +335,7 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created notebook instance (full)",
-		"name",
-		nb.NotebookInstanceName,
-		"arn",
-		nb.NotebookInstanceArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created notebook instance (full)", "name", nb.NotebookInstanceName)
 
 	return json.Marshal(map[string]string{keyNotebookInstanceArn: nb.NotebookInstanceArn})
 }

@@ -1,0 +1,19 @@
+{
+  "ConsumedCapacity": [
+    {
+      "CapacityUnits": 20,
+      "GlobalSecondaryIndexes": {
+        "gsi1": {
+          "CapacityUnits": 10,
+          "WriteCapacityUnits": 10
+        }
+      },
+      "Table": {
+        "CapacityUnits": 10,
+        "WriteCapacityUnits": 10
+      },
+      "TableName": "GoldenTransactTable",
+      "WriteCapacityUnits": 20
+    }
+  ]
+}

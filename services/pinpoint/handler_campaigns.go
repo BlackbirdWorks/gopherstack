@@ -1,7 +1,6 @@
 package pinpoint
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -105,22 +104,17 @@ func (h *Handler) dispatchCampaignByID(c *echo.Context, appID, rest string) erro
 }
 
 func (h *Handler) handleCreateCampaign(c *echo.Context, appID string) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
-	}
-
-	if !checkPayloadSize(c, body, maxInvocationPayloadBytes) {
-		return nil
-	}
-
 	var req createCampaignRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	if !unmarshalBody(c, &req) {
+		return nil
 	}
 
 	if strings.TrimSpace(req.Name) == "" {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
+	}
+
+	if strings.TrimSpace(req.SegmentID) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "SegmentId is required")
 	}
 
 	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)

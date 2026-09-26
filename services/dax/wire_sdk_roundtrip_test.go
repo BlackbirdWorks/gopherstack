@@ -3,6 +3,7 @@ package dax_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -46,6 +47,26 @@ func newTestDAXSDKClient(t *testing.T, h *dax.Handler) *daxsdk.Client {
 	})
 }
 
+// waitForClusterAvailable polls DescribeClusters until clusterName reaches
+// "available", bounding the real transition delay this backend models via a
+// lazy sweep (clusters.go's clusterTransitionDelay) instead of a goroutine.
+// Real network I/O (httptest.NewServer) rules out testing/synctest here --
+// the same finding services/fsx recorded (gopherstack-k3ae): its accept/
+// read/write goroutines join any synctest bubble but block on real network
+// I/O, which synctest never counts as durably blocked, so its fake clock
+// never advances.
+func waitForClusterAvailable(t *testing.T, client *daxsdk.Client, clusterName string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeClusters(t.Context(), &daxsdk.DescribeClustersInput{
+			ClusterNames: []string{clusterName},
+		})
+
+		return err == nil && len(out.Clusters) == 1 && aws.ToString(out.Clusters[0].Status) == "available"
+	}, 3*time.Second, 20*time.Millisecond)
+}
+
 // TestDescribeEvents_NodeRebootSourceType_SDKRoundTrip proves that an event
 // emitted for a node-level action (RebootNode) carries a SourceType the real
 // SDK's types.SourceType enum actually defines. Real DAX's SourceType enum
@@ -73,6 +94,8 @@ func TestDescribeEvents_NodeRebootSourceType_SDKRoundTrip(t *testing.T) {
 	require.NotEmpty(t, created.Cluster.Nodes)
 
 	nodeID := aws.ToString(created.Cluster.Nodes[0].NodeId)
+
+	waitForClusterAvailable(t, client, clusterName)
 
 	_, err = client.RebootNode(t.Context(), &daxsdk.RebootNodeInput{
 		ClusterName: aws.String(clusterName),

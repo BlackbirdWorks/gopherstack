@@ -1,8 +1,8 @@
 ---
 service: ssoadmin
 sdk_module: aws-sdk-go-v2/service/ssoadmin@v1.43.1
-last_audit_commit: 15d6ce54c
-last_audit_date: 2026-09-18
+last_audit_commit: c02948310
+last_audit_date: 2026-09-20
 overall: A            # multiple severe client-breaking wire-shape bugs found and fixed 2026-07-24 sweep.
                       # 2026-08-21 (gopherstack-c8ge, Scope B): fixed UpdateTrustedTokenIssuer reusing
                       # Create's OIDC config shape for Update, wholesale-replacing the stored config and
@@ -472,3 +472,11 @@ populated field DescribeApplication already returns correctly. Fixed; proven fai
 pre-fix by `TestListApplications_PortalOptions_RealClient`. All other item shapes
 (AccountAssignment, ApplicationProvider, TrustedTokenIssuerMetadata, status metadata
 types, etc.) matched the SDK exactly. Gates clean (0 lint, new and full-run).
+
+## 2026-09-20 (ssoadmin-config-and-lightsail terraform coverage)
+
+CreateApplication's PortalOptions and DescribeApplication's Description were
+both unconditionally-non-nil/present when unset, crashing the real
+terraform-provider-aws (nil-vs-empty portal_options block) and causing a
+permanent description diff. Both now stay nil/omitted when the request/state
+never set them; see `handler_applications.go`.

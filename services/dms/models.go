@@ -144,7 +144,10 @@ type Endpoint struct {
 	ServiceAccessRoleArn      string     `json:"serviceAccessRoleArn,omitempty"`
 	SslMode                   string     `json:"sslMode,omitempty"`
 	ExternalTableDefinition   string     `json:"externalTableDefinition,omitempty"`
-	Port                      int32      `json:"port,omitempty"`
+	// S3Settings is the raw S3Settings JSON object, stored verbatim -- see
+	// EndpointConnectionSettings.S3Settings in endpoints.go.
+	S3Settings string `json:"s3Settings,omitempty"`
+	Port       int32  `json:"port,omitempty"`
 }
 
 // ReplicationTask represents an AWS DMS replication task.
@@ -172,6 +175,7 @@ type ReplicationTask struct {
 
 // Certificate represents a DMS certificate.
 type Certificate struct {
+	Tags                  *tags.Tags `json:"-"`
 	CertificateIdentifier string
 	CertificateArn        string
 	CertificatePem        string

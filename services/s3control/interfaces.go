@@ -36,6 +36,8 @@ type StorageBackend interface {
 	DeleteMultiRegionAccessPoint(accountID, name string) error
 	ListMultiRegionAccessPoints(accountID string) []*MultiRegionAccessPoint
 	PutMultiRegionAccessPointPolicy(accountID, name, policy string) error
+	CreateMRAPPutPolicyRequest(accountID, name string) *MultiRegionAccessPointRequest
+	CreateMRAPDeleteRequest(accountID, name string) *MultiRegionAccessPointRequest
 	CreateStorageLensGroup(accountID, name string) *StorageLensGroup
 
 	Reset()

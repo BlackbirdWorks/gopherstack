@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -43,6 +44,7 @@ func (b *InMemoryBackend) CreateVpcOrigin(cfg VpcOriginEndpointConfig, tags map[
 	defer b.mu.Unlock()
 
 	id := generateID()
+	now := time.Now().UTC().Format(time.RFC3339)
 	origin := &VpcOrigin{
 		ID:                   id,
 		ARN:                  b.vpcOriginARN(id),
@@ -50,8 +52,14 @@ func (b *InMemoryBackend) CreateVpcOrigin(cfg VpcOriginEndpointConfig, tags map[
 		ETag:                 uuid.NewString(),
 		EndpointArn:          cfg.Arn,
 		OriginProtocolPolicy: cfg.OriginProtocolPolicy,
-		HTTPPort:             cfg.HTTPPort,
-		HTTPSPort:            cfg.HTTPSPort,
+		// Provisioning is synchronous in this emulator (no async VPC
+		// interface-endpoint handshake), so the origin is Deployed
+		// immediately -- same convention as Distribution/StreamingDistribution.
+		Status:           statusDeployed,
+		CreatedTime:      now,
+		LastModifiedTime: now,
+		HTTPPort:         cfg.HTTPPort,
+		HTTPSPort:        cfg.HTTPSPort,
 	}
 	if len(tags) > 0 {
 		origin.Tags = maps.Clone(tags)
@@ -113,6 +121,7 @@ func (b *InMemoryBackend) UpdateVpcOrigin(id string, cfg VpcOriginEndpointConfig
 	origin.HTTPPort = cfg.HTTPPort
 	origin.HTTPSPort = cfg.HTTPSPort
 	origin.ETag = uuid.NewString()
+	origin.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *origin
 
 	return &cp, nil

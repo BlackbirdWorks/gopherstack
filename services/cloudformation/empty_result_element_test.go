@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -99,8 +100,10 @@ func TestEmptyResultElement_RealClient(t *testing.T) {
 				})
 				require.NoError(t, err)
 
+				hyphenated := strings.ReplaceAll(typeName, "::", "-")
+
 				_, err = client.DeregisterType(t.Context(), &cfnsdk.DeregisterTypeInput{
-					Arn: aws.String("arn:aws:cloudformation:::type/resource/" + typeName),
+					Arn: aws.String("arn:aws:cloudformation:us-east-1:000000000000:type/resource/" + hyphenated),
 				})
 
 				return err
@@ -155,10 +158,13 @@ func TestEmptyResultElement_RealClient(t *testing.T) {
 				})
 				require.NoError(t, err)
 
+				typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/" +
+					strings.ReplaceAll(typeName, "::", "-")
+
 				_, err = client.SetTypeDefaultVersion(
 					t.Context(),
 					&cfnsdk.SetTypeDefaultVersionInput{
-						Arn:       aws.String("arn:aws:cloudformation:::type/resource/" + typeName),
+						Arn:       aws.String(typeArn),
 						VersionId: aws.String("00000001"),
 					},
 				)

@@ -109,6 +109,7 @@ func TestHandler_Dispatch(t *testing.T) {
 			e := echo.New()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 
 			if tt.setupFn != nil {
 				tt.setupFn(t, backend)
@@ -149,6 +150,7 @@ func TestHandler_FullCycle(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	// CreateSecret
@@ -221,6 +223,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	req := httptest.NewRequest(http.MethodPut, "/something", nil)
@@ -236,6 +239,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 
 	e := echo.New()
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 	matcher := h.RouteMatcher()
 
@@ -265,6 +269,7 @@ func TestHandler_InvalidTarget(t *testing.T) {
 	e := echo.New()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
@@ -280,6 +285,7 @@ func TestHandler_Interface(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	assert.Equal(t, "SecretsManager", h.Name())
@@ -371,6 +377,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 			e := echo.New()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			h := secretsmanager.NewHandler(backend)
 
 			if tt.name == "SecretAlreadyExists" {
@@ -406,6 +413,7 @@ func TestHandler_Chaos(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 	h.DefaultRegion = "us-east-1"
 
@@ -419,6 +427,7 @@ func TestHandler_Reset(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(
@@ -437,6 +446,7 @@ func TestBackend_Reset(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 
 	_, err := backend.CreateSecret(
 		context.Background(),
@@ -454,6 +464,7 @@ func TestResolveSecretIDByARN(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 
 	// Create a secret and retrieve its ARN
 	out, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
@@ -476,6 +487,7 @@ func TestListAll(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 
 	for _, name := range []string{"z-secret", "a-secret", "m-secret"} {
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: name})
@@ -497,6 +509,7 @@ func TestHandler_OpsLen(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	assert.Equal(t, len(h.GetSupportedOperations()), secretsmanager.HandlerOpsLen(h))
@@ -507,6 +520,7 @@ func TestBackend_AccountIDAndRegion(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackendWithConfig("123456789012", "eu-west-1")
+	t.Cleanup(b.StopRotationScheduler)
 	assert.Equal(t, "123456789012", b.AccountID())
 	assert.Equal(t, "eu-west-1", b.Region())
 }
@@ -526,6 +540,7 @@ func TestBackend_SecretCount(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	require.Equal(t, 0, secretsmanager.SecretCount(b))
 
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "a", SecretString: "v"})
@@ -542,6 +557,7 @@ func TestBackend_ResourcePolicyCount(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "pol-secret", SecretString: "v"},
@@ -569,6 +585,7 @@ func TestBackend_ReplicationConfigCount(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "rep-cnt", SecretString: "v"},
@@ -596,6 +613,7 @@ func TestBackend_AddSecretInternal(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	b.AddSecretInternal(&secretsmanager.Secret{
 		ARN:  "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-seed-AABBCC",
 		Name: "my-seed",
@@ -612,6 +630,7 @@ func TestBackend_GenerateVersionID(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "uuid-ver", SecretString: "v"},
@@ -638,6 +657,7 @@ func TestBackend_ResetCleansAllMaps(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "reset-s", SecretString: "v"},
@@ -666,6 +686,7 @@ func TestBackend_RestoreEnsuresNonNilMaps(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	// Restore with minimal valid JSON that has no map keys.
 	err := b.Restore(t.Context(), []byte(`{"accountID":"acct","region":"us-east-1"}`))
 	require.NoError(t, err)
@@ -729,6 +750,7 @@ func TestHandler_ErrorResponseAmznErrortypeHeader(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			h := secretsmanager.NewHandler(b)
 
 			if tt.seed != nil {

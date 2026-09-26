@@ -45,11 +45,29 @@ func TestDescribeType_Registered(t *testing.T) {
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("MyOrg::Svc::Res", "s3://pkg.zip")
 			},
-			typeArn: "arn:aws:cloudformation:::type/resource/MyOrg::Svc::Res",
+			typeArn: "arn:aws:cloudformation:us-east-1:000000000000:type/resource/MyOrg-Svc-Res",
 			check: func(t *testing.T, d *cloudformation.TypeDetails) {
 				t.Helper()
 				assert.Equal(t, "MyOrg::Svc::Res", d.TypeName)
 				assert.NotEmpty(t, d.TypeArn)
+			},
+		},
+		{
+			// Real DescribeTypeRegistrationOutput.TypeVersionArn (and the
+			// aws_cloudformation_type resource's id) carries a trailing
+			// "/<versionId>" the base TypeArn doesn't -- DescribeType must
+			// accept that shape too, resolving to the named version
+			// (gopherstack: DescribeType previously 404'd on it).
+			name: "lookup by version-suffixed ARN after RegisterType",
+			setup: func(b *cloudformation.InMemoryBackend) {
+				_, _ = b.RegisterType("MyOrg::Ver::Suffixed", "s3://pkg.zip")
+			},
+			typeArn: "arn:aws:cloudformation:us-east-1:000000000000:type/resource/MyOrg-Ver-Suffixed/00000001",
+			check: func(t *testing.T, d *cloudformation.TypeDetails) {
+				t.Helper()
+				assert.Equal(t, "MyOrg::Ver::Suffixed", d.TypeName)
+				assert.Equal(t, "00000001", d.VersionID)
+				assert.True(t, d.IsDefaultVersion)
 			},
 		},
 		{
@@ -103,8 +121,8 @@ func TestDescribeType_Registered(t *testing.T) {
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("MyOrg::Def::Type", "s3://v1.zip")
 				_, _ = b.RegisterType("MyOrg::Def::Type", "s3://v2.zip")
-				typeArn := "arn:aws:cloudformation:::type/resource/MyOrg::Def::Type"
-				_ = b.SetTypeDefaultVersion(typeArn, "00000001")
+				typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/MyOrg-Def-Type"
+				_ = b.SetTypeDefaultVersion(typeArn, "", "00000001")
 			},
 			typeName: "MyOrg::Def::Type",
 			check: func(t *testing.T, d *cloudformation.TypeDetails) {
@@ -304,7 +322,7 @@ func TestListTypes_Visibility(t *testing.T) {
 			name: "deprecated type excluded from list",
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("Acme::Dep::Type", "s3://pkg.zip")
-				typeArn := "arn:aws:cloudformation:::type/resource/Acme::Dep::Type"
+				typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/Acme-Dep-Type"
 				_ = b.DeregisterType("Acme::Dep::Type", typeArn, "")
 			},
 			wantNotPresent: []string{"Acme::Dep::Type"},

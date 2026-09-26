@@ -77,7 +77,7 @@ func TestCreateRuleWithConditions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			lbArn := mustCreateLB(t, h, "cond-lb")
 			tgArn := mustCreateTG(t, h, "cond-tg")
 			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -121,7 +121,7 @@ func TestCreateRuleWithConditions(t *testing.T) {
 func TestModifyRuleWithConditions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "modrule-cond-lb")
 	tgArn := mustCreateTG(t, h, "modrule-cond-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -196,7 +196,7 @@ func TestModifyRuleWithConditions(t *testing.T) {
 func TestHTTPRequestMethodConditionWhitelist(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "method-whitelist-lb")
 	tgArn := mustCreateTG(t, h, "method-whitelist-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -252,7 +252,7 @@ func TestHTTPRequestMethodConditionWhitelist(t *testing.T) {
 func TestRedirectActionParsed(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "redirect-lb")
 	tgArn := mustCreateTG(t, h, "redirect-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -303,7 +303,7 @@ func TestRedirectActionParsed(t *testing.T) {
 func TestFixedResponseActionParsed(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "fixed-response-lb")
 	tgArn := mustCreateTG(t, h, "fixed-response-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -353,7 +353,7 @@ func TestFixedResponseActionParsed(t *testing.T) {
 func TestForwardWeightedTargetGroups(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "weighted-lb")
 	tg1Arn := mustCreateTG(t, h, "weighted-tg1")
 	tg2Arn := mustCreateTG(t, h, "weighted-tg2")
@@ -408,7 +408,7 @@ func TestForwardWeightedTargetGroups(t *testing.T) {
 func TestAuthenticateCognitoAction(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "cognito-lb")
 	tgArn := mustCreateTG(t, h, "cognito-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -473,7 +473,7 @@ func TestAuthenticateCognitoAction(t *testing.T) {
 func TestAuthenticateOidcAction(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "oidc-lb")
 	tgArn := mustCreateTG(t, h, "oidc-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -529,7 +529,7 @@ func TestAuthenticateOidcAction(t *testing.T) {
 func TestCreateRule_PathPattern(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rule-path-lb")
 	tgArn := b1CreateTG(t, h, "rule-path-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -551,7 +551,7 @@ func TestCreateRule_PathPattern(t *testing.T) {
 func TestCreateRule_HostHeader(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rule-host-lb")
 	tgArn := b1CreateTG(t, h, "rule-host-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -573,7 +573,7 @@ func TestCreateRule_HostHeader(t *testing.T) {
 func TestCreateRule_RedirectAction(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rule-redir-lb")
 	tgArn := b1CreateTG(t, h, "rule-redir-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -599,7 +599,7 @@ func TestCreateRule_RedirectAction(t *testing.T) {
 func TestCreateRule_FixedResponse(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rule-fixed-lb")
 	tgArn := b1CreateTG(t, h, "rule-fixed-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -625,7 +625,7 @@ func TestCreateRule_FixedResponse(t *testing.T) {
 func TestCreateRule_AuthenticateCognito(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rule-cognito-lb")
 	tgArn := b1CreateTG(t, h, "rule-cognito-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -655,7 +655,7 @@ func TestCreateRule_AuthenticateCognito(t *testing.T) {
 func TestCreateRule_AuthenticateOIDC(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rule-oidc-lb")
 	tgArn := b1CreateTG(t, h, "rule-oidc-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -686,7 +686,7 @@ func TestCreateRule_AuthenticateOIDC(t *testing.T) {
 func TestModifyRule_ChangeConditions(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "mod-rule-lb")
 	tgArn := b1CreateTG(t, h, "mod-rule-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -787,7 +787,7 @@ func TestRuleConditionRegexValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			lbArn := mustCreateLB(t, h, "regex-lb")
 			tgArn := mustCreateTG(t, h, "regex-tg")
 			listenerArn := mustCreateListener(t, h, lbArn, tgArn)

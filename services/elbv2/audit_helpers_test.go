@@ -16,6 +16,7 @@ func auditHandler(t *testing.T) *elbv2.Handler {
 	t.Helper()
 
 	b := elbv2.NewInMemoryBackend("111122223333", config.DefaultRegion)
+	t.Cleanup(b.Close)
 	t.Cleanup(func() { b.Close() })
 
 	return elbv2.NewHandler(b)
@@ -25,6 +26,7 @@ func auditBackend(t *testing.T) *elbv2.InMemoryBackend {
 	t.Helper()
 
 	b := elbv2.NewInMemoryBackend("111122223333", config.DefaultRegion)
+	t.Cleanup(b.Close)
 	t.Cleanup(func() { b.Close() })
 
 	return b

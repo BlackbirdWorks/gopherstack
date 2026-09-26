@@ -42,10 +42,20 @@ func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, chal
 
 	b.mfaSessions[sessionToken] = entry
 
-	return &AuthResult{
+	result := &AuthResult{
 		MFASession:    sessionToken,
 		ChallengeName: challengeType,
 	}
+
+	if challengeType == challengeMFASetup {
+		// InitiateAuth doc: "The MFA types activated for the user pool will be
+		// listed in the challenge parameters MFAS_CAN_SETUP value." SOFTWARE_TOKEN_MFA
+		// is the only factor RespondToMFASetupChallenge can actually complete here
+		// (see its doc comment), so it's the only one honestly advertised.
+		result.ChallengeParameters = map[string]string{"MFAS_CAN_SETUP": `["SOFTWARE_TOKEN_MFA"]`}
+	}
+
+	return result
 }
 
 // mfaChallengeType returns the challenge type to use given pool config and user preference.

@@ -16,11 +16,14 @@ import (
 // Groups operation, extracted from resourcegroups@v1.36.4 serializers.go:
 // each entry's "request.Method" and the string passed to
 // httpbinding.SplitURI in that op's
-// awsRestjson1_serializeOp<Op>.HandleSerialize. PLACEHOLDER stands in for
-// the {Arn} URI label on the three tag ops (GetTags/Tag/Untag) --
-// isResourceTagsPath (handler.go) only checks the "/resources/" prefix and
-// "/tags" suffix, never ARN shape, so the literal value doesn't matter
-// here, only that the path matches Op. 23 real ops here, matching
+// awsRestjson1_serializeOp<Op>.HandleSerialize. The three tag ops
+// (GetTags/Tag/Untag) use a real "arn:aws:resource-groups:..." ARN for the
+// {Arn} URI label -- isResourceTagsPath (handler.go) requires that service
+// segment to disambiguate this shared "/resources/{Arn}/tags" shape from
+// other services multiplexed onto the same gopherstack host (QuickSight,
+// S3 Control, ...) that use the identical REST path pattern for their own
+// tag ops (gopherstack-101r-adjacent route-prefix collision, fixed by
+// narrowing the match rather than raising MatchPriority). 23 real ops here, matching
 // resourcegroups's real op count exactly (also matches
 // GetSupportedOperations's own 23 entries one-for-one).
 //
@@ -52,7 +55,7 @@ func sdkRouteCases() []struct{ op, method, path string } {
 		{"GetGroupConfiguration", "POST", "/get-group-configuration"},
 		{"GetGroupQuery", "POST", "/get-group-query"},
 		{"GetTagSyncTask", "POST", "/get-tag-sync-task"},
-		{"GetTags", "GET", "/resources/PLACEHOLDER/tags"},
+		{"GetTags", "GET", "/resources/arn:aws:resource-groups:us-east-1:000000000000:group/g/tags"},
 		{"GroupResources", "POST", "/group-resources"},
 		{"ListGroupResources", "POST", "/list-group-resources"},
 		{"ListGroupingStatuses", "POST", "/list-grouping-statuses"},
@@ -61,9 +64,9 @@ func sdkRouteCases() []struct{ op, method, path string } {
 		{"PutGroupConfiguration", "POST", "/put-group-configuration"},
 		{"SearchResources", "POST", "/resources/search"},
 		{"StartTagSyncTask", "POST", "/start-tag-sync-task"},
-		{"Tag", "PUT", "/resources/PLACEHOLDER/tags"},
+		{"Tag", "PUT", "/resources/arn:aws:resource-groups:us-east-1:000000000000:group/g/tags"},
 		{"UngroupResources", "POST", "/ungroup-resources"},
-		{"Untag", "PATCH", "/resources/PLACEHOLDER/tags"},
+		{"Untag", "PATCH", "/resources/arn:aws:resource-groups:us-east-1:000000000000:group/g/tags"},
 		{"UpdateAccountSettings", "POST", "/update-account-settings"},
 		{"UpdateGroup", "POST", "/update-group"},
 		{"UpdateGroupQuery", "POST", "/update-group-query"},

@@ -64,6 +64,53 @@ func TestGrantRevokeListPermissions(t *testing.T) {
 	}
 }
 
+// TestRevokePermissions_AlreadyRevoked_ReturnsInvalidInput proves revoking a
+// principal/resource/permission combination that doesn't currently exist is
+// a real AWS InvalidInputException ("No permissions revoked. Grantee has
+// no..."), not a silent no-op. terraform-provider-aws's
+// resourcePermissionsDelete deliberately revokes twice and treats getting
+// this exact error on the second call as confirmation the delete completed
+// (its comment: "we'll retry until we get the right error"); returning nil
+// here made that second call look like another successful revoke, which its
+// retry loop can't distinguish from "not deleted yet" and eventually called
+// helper/retry's RetryableError(nil) -- a documented misuse that surfaces as
+// "empty retryable error received. This is a bug with the Terraform AWS
+// Provider" and hung every aws_lakeformation_permissions destroy.
+func TestRevokePermissions_AlreadyRevoked_ReturnsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	resource := &lakeformation.Resource{
+		DataLocation: &lakeformation.DataLocationResource{ResourceArn: "arn:aws:s3:::already-revoked-bucket"},
+	}
+	entry := &lakeformation.PermissionEntry{
+		Principal: &lakeformation.DataLakePrincipal{
+			DataLakePrincipalIdentifier: "arn:aws:iam::123456789012:role/already-revoked-role",
+		},
+		Resource:    resource,
+		Permissions: []string{"DATA_LOCATION_ACCESS"},
+	}
+
+	require.NoError(t, b.GrantPermissions(t.Context(), entry))
+	require.NoError(t, b.RevokePermissions(t.Context(), entry))
+
+	err := b.RevokePermissions(t.Context(), entry)
+	require.ErrorIs(t, err, lakeformation.ErrValidation)
+	assert.Contains(t, err.Error(), "No permissions revoked. Grantee has no")
+
+	// A principal/resource pair that was never granted anything hits the
+	// same error, not a silent nil.
+	err = b.RevokePermissions(t.Context(), &lakeformation.PermissionEntry{
+		Principal: &lakeformation.DataLakePrincipal{
+			DataLakePrincipalIdentifier: "arn:aws:iam::123456789012:role/never-granted-role",
+		},
+		Resource:    resource,
+		Permissions: []string{"DATA_LOCATION_ACCESS"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No permissions revoked. Grantee has no")
+}
+
 func TestGrantPermissions_ConditionRoundTrips(t *testing.T) {
 	t.Parallel()
 

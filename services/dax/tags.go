@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
@@ -20,6 +21,8 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	if !b.arnExists(resourceArn) {
 		// TagResource's own awsAwsjson11_deserializeOpErrorTagResource switch
@@ -71,6 +74,8 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) (m
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
+	b.sweepClusterTransitionsLocked(time.Now())
+
 	if !b.arnExists(resourceArn) {
 		return nil, fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
 	}
@@ -104,8 +109,10 @@ func (b *InMemoryBackend) ListTags(
 		return nil, "", fmt.Errorf("%w: ResourceName is required", ErrInvalidARN)
 	}
 
-	b.mu.RLock("ListTags")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTags")
+	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	if !b.arnExists(resourceArn) {
 		// ListTags's own awsAwsjson11_deserializeOpErrorListTags switch has no
@@ -159,8 +166,10 @@ type TaggedEntry struct {
 // TaggedResources returns every DAX cluster ARN that currently has at least
 // one tag applied via TagResource.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
-	b.mu.RLock("TaggedResources")
-	defer b.mu.RUnlock()
+	b.mu.Lock("TaggedResources")
+	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	out := make([]TaggedEntry, 0, len(b.tags))
 

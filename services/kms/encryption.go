@@ -82,6 +82,10 @@ func (b *InMemoryBackend) Encrypt(
 		return nil, err
 	}
 
+	if err := b.ensureAWSManagedKey(ctx, input.KeyID); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("Encrypt")
 	defer b.mu.RUnlock()
 
@@ -204,6 +208,14 @@ func (b *InMemoryBackend) Decrypt(
 	input *DecryptInput,
 ) (*DecryptOutput, error) {
 	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {
+		return nil, err
+	}
+
+	// input.KeyID is only a verification hint (verifyKeyIDHint below) -- real
+	// decryption always resolves the key from the ciphertext blob -- but a
+	// hint naming an AWS managed alias must still provision it like every
+	// other alias-accepting op (gopherstack-6u8p4).
+	if err := b.ensureAWSManagedKey(ctx, input.KeyID); err != nil {
 		return nil, err
 	}
 

@@ -160,6 +160,10 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{"/security-profiles-for-target", "list_security_profiles_for_target", true},
 		{"/audit/mitigationactions/tasks/task-1/cancel", "audit_mitigation_cancel", true},
 		{"/audit/tasks/task-2/cancel", "audit_task_cancel", true},
+		// A blanket HasPrefix(path, "/audit/") swallowed these Backup paths
+		// (RouteMatcher prefix collision); IoT never routes either.
+		{"/audit/frameworks", "backup_frameworks_not_claimed", false},
+		{"/audit/report-plans", "backup_report_plans_not_claimed", false},
 		{"/s3/bucket", "other_service", false},
 	}
 

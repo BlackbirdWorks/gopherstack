@@ -2,19 +2,65 @@ package cloudformation
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
+	awsarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// buildTypeARN returns the real AWS-shaped ARN for a privately-registered
+// CloudFormation type: TypeName's "::" separators become "-" and the ARN is
+// account/region-scoped (real type ARNs, e.g.
+// arn:aws:cloudformation:us-east-1:123456789012:type/resource/MyOrg-Svc-Res,
+// per RegisterType/DescribeType's TypeArn/Arn members).
+func (b *InMemoryBackend) buildTypeARN(typeName string) string {
+	hyphenated := strings.ReplaceAll(typeName, "::", "-")
+
+	return awsarn.Build("cloudformation", b.region, b.accountID, "type/resource/"+hyphenated)
+}
+
+// buildTypeVersionARN returns the version-specific ARN for a registered type
+// version. Real DescribeTypeRegistrationOutput.TypeVersionArn is distinct
+// from TypeArn -- the ARN of this specific version, not the type as a whole
+// (cloudformation@v1.76.1 api_op_DescribeTypeRegistration.go) -- and real
+// TypeVersionSummary.Arn (ListTypeVersions) carries the same per-version
+// suffix.
+func buildTypeVersionARN(typeARN, versionID string) string {
+	return typeARN + "/" + versionID
+}
+
+// typeVersionIDPattern matches the "00000001"-style 8-digit version id
+// RegisterType/SetTypeDefaultVersion produce (see RegisterType's
+// fmt.Sprintf("%08d", versionNum)).
+var typeVersionIDPattern = regexp.MustCompile(`^\d{8}$`)
+
+// splitTypeVersionARN splits a version-suffixed type ARN
+// (.../type/resource/Name/00000001) into its base ARN and version id. The
+// third return is false when typeARN has no such trailing version segment.
+func splitTypeVersionARN(typeARN string) (string, string, bool) {
+	idx := strings.LastIndex(typeARN, "/")
+	if idx < 0 {
+		return "", "", false
+	}
+
+	candidate := typeARN[idx+1:]
+	if !typeVersionIDPattern.MatchString(candidate) {
+		return "", "", false
+	}
+
+	return typeARN[:idx], candidate, true
+}
 
 func (b *InMemoryBackend) ActivateType(typeName, typeArn string) (string, error) {
 	b.mu.Lock("ActivateType")
 	defer b.mu.Unlock()
 	key := typeArn
 	if key == "" {
-		key = "arn:aws:cloudformation:::type/resource/" + typeName
+		key = b.buildTypeARN(typeName)
 	}
 	if t, ok := b.typeRegistry.Get(key); ok {
 		t.IsActivated = true
@@ -37,7 +83,7 @@ func (b *InMemoryBackend) DeactivateType(typeName, typeArn string) error {
 	defer b.mu.Unlock()
 	key := typeArn
 	if key == "" {
-		key = "arn:aws:cloudformation:::type/resource/" + typeName
+		key = b.buildTypeARN(typeName)
 	}
 	t, ok := b.typeRegistry.Get(key)
 	if !ok || !t.IsActivated {
@@ -52,7 +98,7 @@ func (b *InMemoryBackend) RegisterType(typeName, _ string) (string, error) {
 	b.mu.Lock("RegisterType")
 	defer b.mu.Unlock()
 	token := uuid.New().String()
-	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
+	typeArn := b.buildTypeARN(typeName)
 	// Each call to RegisterType creates a new version.
 	existingVersions := b.typeVersions[typeArn]
 	versionNum := len(existingVersions) + 1
@@ -81,10 +127,11 @@ func (b *InMemoryBackend) RegisterType(typeName, _ string) (string, error) {
 		})
 	}
 	b.typeRegistrations.Put(&TypeRegistrationRecord{
-		Token:    token,
-		TypeName: typeName,
-		TypeArn:  typeArn,
-		Status:   statusComplete,
+		Token:     token,
+		TypeName:  typeName,
+		TypeArn:   typeArn,
+		VersionID: versionID,
+		Status:    statusComplete,
 	})
 
 	return token, nil
@@ -101,7 +148,7 @@ func (b *InMemoryBackend) DeregisterType(typeName, typeArn, versionID string) er
 
 	key := typeArn
 	if key == "" {
-		key = "arn:aws:cloudformation:::type/resource/" + typeName
+		key = b.buildTypeARN(typeName)
 	}
 	t, ok := b.typeRegistry.Get(key)
 	if !ok {
@@ -158,7 +205,7 @@ func (b *InMemoryBackend) DeregisterType(typeName, typeArn, versionID string) er
 func (b *InMemoryBackend) PublishType(typeName string) (string, error) {
 	b.mu.Lock("PublishType")
 	defer b.mu.Unlock()
-	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
+	typeArn := b.buildTypeARN(typeName)
 	t, ok := b.typeRegistry.Get(typeArn)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
@@ -168,17 +215,27 @@ func (b *InMemoryBackend) PublishType(typeName string) (string, error) {
 	return typeArn, nil
 }
 
-func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, version string) error {
+// SetTypeDefaultVersion identifies the type by Arn, or by TypeName when Arn
+// is empty (SetTypeDefaultVersionInput allows either -- api_op_SetTypeDefaultVersion.go:
+// "Arn" or "TypeName"+"Type"; the aws_cloudformation_type resource always
+// sends TypeName, never Arn).
+func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, typeName, version string) error {
 	b.mu.Lock("SetTypeDefaultVersion")
 	defer b.mu.Unlock()
-	t, ok := b.typeRegistry.Get(typeArn)
+
+	key := typeArn
+	if key == "" {
+		key = b.buildTypeARN(typeName)
+	}
+
+	t, ok := b.typeRegistry.Get(key)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
+		return fmt.Errorf("%w: %s", ErrTypeNotFound, key)
 	}
 	t.DefaultVersion = version
 	t.VersionID = version
 	// Update typeVersions IsDefault flags.
-	for _, v := range b.typeVersions[typeArn] {
+	for _, v := range b.typeVersions[key] {
 		v.IsDefault = v.VersionID == version
 	}
 
@@ -218,7 +275,7 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 
 		typeArn := ident.TypeArn
 		if typeArn == "" {
-			typeArn = "arn:aws:cloudformation:::type/resource/" + name
+			typeArn = b.buildTypeARN(name)
 		}
 		cfg, hasCfg := b.typeConfigs[name]
 		_, registered := b.typeRegistry.Get(typeArn)
@@ -316,7 +373,7 @@ func (b *InMemoryBackend) ListTypeVersions(
 ) (page.Page[string], error) {
 	b.mu.RLock("ListTypeVersions")
 	defer b.mu.RUnlock()
-	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
+	typeArn := b.buildTypeARN(typeName)
 	wantDeprecated := deprecatedStatus == typeStatusDeprecated
 
 	if versions, ok := b.typeVersions[typeArn]; ok && len(versions) > 0 {
@@ -382,15 +439,22 @@ func (b *InMemoryBackend) ListTypeRegistrations(
 // registration requests with a ProgressStatus of other than COMPLETE, this
 // will be null"), its TypeArn -- populated here since every registration this
 // mock creates is immediately COMPLETE.
-func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (string, string, error) {
+func (b *InMemoryBackend) DescribeTypeRegistration(
+	registrationToken string,
+) (string, string, string, error) {
 	b.mu.RLock("DescribeTypeRegistration")
 	defer b.mu.RUnlock()
 	rec, ok := b.typeRegistrations.Get(registrationToken)
 	if !ok {
-		return "", "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
+		return "", "", "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
 	}
 
-	return rec.Status, rec.TypeArn, nil
+	versionArn := rec.TypeArn
+	if rec.VersionID != "" {
+		versionArn = buildTypeVersionARN(rec.TypeArn, rec.VersionID)
+	}
+
+	return rec.Status, rec.TypeArn, versionArn, nil
 }
 
 // TestType starts a test run for a registered extension. versionID mirrors
@@ -405,7 +469,7 @@ func (b *InMemoryBackend) TestType(typeName, typeArn, versionID string) (string,
 	token := uuid.New().String()
 	key := typeArn
 	if key == "" {
-		key = "arn:aws:cloudformation:::type/resource/" + typeName
+		key = b.buildTypeARN(typeName)
 	}
 
 	if versionID != "" {
@@ -424,11 +488,19 @@ func (b *InMemoryBackend) TestType(typeName, typeArn, versionID string) (string,
 		}
 	}
 
+	resolvedVersion := versionID
+	if resolvedVersion == "" {
+		if t, ok := b.typeRegistry.Get(key); ok {
+			resolvedVersion = t.DefaultVersion
+		}
+	}
+
 	b.typeRegistrations.Put(&TypeRegistrationRecord{
-		Token:    token,
-		TypeName: typeName,
-		TypeArn:  key,
-		Status:   statusComplete,
+		Token:     token,
+		TypeName:  typeName,
+		TypeArn:   key,
+		VersionID: resolvedVersion,
+		Status:    statusComplete,
 	})
 
 	return token, nil
@@ -474,6 +546,32 @@ func (b *InMemoryBackend) typeVersionDeprecatedStatus(reg *RegisteredType, resol
 	return "LIVE"
 }
 
+// findTypeByARNLocked looks up a registered type by its base ARN, falling
+// back to stripping a trailing "/<versionId>" segment (see
+// splitTypeVersionARN) when the exact key isn't found: DescribeTypeRegistrationOutput.
+// TypeVersionArn (and TypeVersionSummary.Arn) carry that suffix, and the
+// aws_cloudformation_type resource stores TypeVersionArn as its id and reads
+// it back via DescribeTypeInput.Arn. When the fallback matches, it also
+// returns the stripped version id so the caller resolves to that specific
+// version. Must be called with at least a read lock held.
+func (b *InMemoryBackend) findTypeByARNLocked(typeARN string) (*RegisteredType, string, bool) {
+	if r, ok := b.typeRegistry.Get(typeARN); ok {
+		return r, "", true
+	}
+
+	base, ver, ok := splitTypeVersionARN(typeARN)
+	if !ok {
+		return nil, "", false
+	}
+
+	r, ok := b.typeRegistry.Get(base)
+	if !ok {
+		return nil, "", false
+	}
+
+	return r, ver, true
+}
+
 // DescribeType returns detailed information about a registered CloudFormation type.
 // Lookup is by typeName, arn, or versionID — at least one must be non-empty.
 func (b *InMemoryBackend) DescribeType(typeName, arn, versionID string) (*TypeDetails, error) {
@@ -481,19 +579,26 @@ func (b *InMemoryBackend) DescribeType(typeName, arn, versionID string) (*TypeDe
 	defer b.mu.RUnlock()
 
 	var reg *RegisteredType
+
 	switch {
 	case arn != "":
-		r, ok := b.typeRegistry.Get(arn)
+		r, versionFromARN, ok := b.findTypeByARNLocked(arn)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrTypeNotFound, arn)
 		}
+
 		reg = r
+		if versionID == "" {
+			versionID = versionFromARN
+		}
 	case typeName != "":
-		key := "arn:aws:cloudformation:::type/resource/" + typeName
+		key := b.buildTypeARN(typeName)
+
 		r, ok := b.typeRegistry.Get(key)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrTypeNotFound, typeName)
 		}
+
 		reg = r
 	default:
 		return nil, fmt.Errorf("%w: TypeName or Arn is required", ErrTypeNotFound)

@@ -1,8 +1,8 @@
 ---
 service: kafka
 sdk_module: aws-sdk-go-v2/service/kafka@v1.57.2
-last_audit_commit: fcb3fbbb9f46c11d4cf4034410f5ec80e7f16f63
-last_audit_date: 2026-08-05
+last_audit_commit: 7480cad08
+last_audit_date: 2026-09-19
 overall: A            # topic/replicator field-name/shape gaps closed; two prior "ok" families had a real wire bug each, now fixed
                        # 2026-08-21 (gopherstack-1vv2): fixed UpdateReplicationInfo wholesale-
                        # replacing stored TopicReplication with the narrower Update payload,
@@ -116,6 +116,15 @@ gaps: []
   #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
   #     ownership model to draw a different value from.
 items_still_open:
+  - "MSK Connect (CreateConnector/CreateCustomPlugin/CreateWorkerConfiguration and
+    the rest of the kafkaconnect API, e.g. Terraform's aws_mskconnect_connector/
+    _custom_plugin/_worker_configuration) is not implemented at all -- it is a
+    structurally distinct AWS service/endpoint (kafkaconnect, not kafka) with no
+    services/kafkaconnect directory in this repo and no route registered for any
+    of its ops. 2026-09-20 (transferfamily-and-msk Terraform coverage pass): confirmed via
+    grep that no such service exists before attempting any fixture; left out of
+    that pass's fixture rather than fabricating a stub. Implementing it is a new
+    service, not a fix to this one."
   - "Channel Create/Update/Delete are immediate (no CREATING/UPDATING/DELETING
     polling window) -- same documented simplification as Topic.Status (see
     below): the real API exposes a ClusterOperationArn/polling protocol this
@@ -151,6 +160,18 @@ leaks: {status: clean, note: "no goroutines/timers introduced or found this pass
 ---
 
 ## Notes
+
+**2026-09-19 (list-summary-shapes sweep, CLEAN -- no bug found):** member-by-member
+diffed the 7 census-flagged List ops (ListChannels, ListClusterOperations,
+ListClusterOperationsV2, ListClusters, ListNodes, ListReplicators, ListTopics)
+against their real SDK item types via `cmd/structfielddiff`. All 7 already
+emit the exact real shape: ListClusters/ListClusterOperations correctly reuse
+the same full type Describe uses (the real SDK has no narrower Summary for
+either); ListClusterOperationsV2's `clusterOperationV2SummaryOutput` (7/7
+members), ListChannels' `channelInfoOutput` (6/6), ListNodes' `NodeInfo`
+(7/7), ListReplicators' `replicatorSummaryOutput` (9/9), and ListTopics'
+`topicInfoOutput` (5/5) all match their real narrow Summary types exactly, no
+leaks or gaps.
 
 **2026-08-22 (gopherstack-35gu): GetCompatibleKafkaVersions returned the
 wrong item shape entirely.** Filed during the zquj keycheck sweep as

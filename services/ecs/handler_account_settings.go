@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -11,6 +12,7 @@ import (
 
 type listAccountSettingsInput struct {
 	Name              string `json:"name,omitempty"`
+	Value             string `json:"value,omitempty"`
 	PrincipalArn      string `json:"principalArn,omitempty"`
 	NextToken         string `json:"nextToken,omitempty"`
 	MaxResults        int    `json:"maxResults,omitempty"`
@@ -26,6 +28,12 @@ func (h *Handler) handleListAccountSettings(
 	_ context.Context,
 	in *listAccountSettingsInput,
 ) (*listAccountSettingsOutput, error) {
+	// ecs@v1.96.0 api_op_ListAccountSettings.go's Value doc: "You must also
+	// specify an account setting name to use this parameter."
+	if in.Value != "" && in.Name == "" {
+		return nil, fmt.Errorf("%w: name is required when value is specified", ErrInvalidParameter)
+	}
+
 	settings, err := h.Backend.ListAccountSettings(in.Name, in.PrincipalArn, in.EffectiveSettings)
 	if err != nil {
 		return nil, err
@@ -33,6 +41,10 @@ func (h *Handler) handleListAccountSettings(
 
 	views := make([]accountSettingView, 0, len(settings))
 	for _, s := range settings {
+		if in.Value != "" && s.Value != in.Value {
+			continue
+		}
+
 		views = append(views, accountSettingView(s))
 	}
 

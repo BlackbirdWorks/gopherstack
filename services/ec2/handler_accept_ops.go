@@ -32,6 +32,7 @@ type capacityReservationItem struct {
 	State                  string          `xml:"state"`
 	InstanceMatchCriteria  string          `xml:"instanceMatchCriteria,omitempty"`
 	Tenancy                string          `xml:"tenancy,omitempty"`
+	InstancePlatform       string          `xml:"instancePlatform,omitempty"`
 	TagSet                 []simpleTagItem `xml:"tagSet>item"`
 	AvailableInstanceCount int             `xml:"availableInstanceCount"`
 	TotalInstanceCount     int             `xml:"totalInstanceCount"`
@@ -100,14 +101,22 @@ type acceptTransitGatewayPeeringAttachmentResponse struct {
 	TransitGatewayPeeringAtt tgwPeeringAttachmentItem `xml:"transitGatewayPeeringAttachment"`
 }
 
+type tgwVpcAttachmentOptionsItem struct {
+	ApplianceModeSupport            string `xml:"applianceModeSupport,omitempty"`
+	DNSSupport                      string `xml:"dnsSupport,omitempty"`
+	Ipv6Support                     string `xml:"ipv6Support,omitempty"`
+	SecurityGroupReferencingSupport string `xml:"securityGroupReferencingSupport,omitempty"`
+}
+
 type tgwVpcAttachmentItem struct {
-	TransitGatewayAttachmentID string          `xml:"transitGatewayAttachmentId"`
-	TransitGatewayID           string          `xml:"transitGatewayId,omitempty"`
-	VpcID                      string          `xml:"vpcId,omitempty"`
-	State                      string          `xml:"state"`
-	CreationTime               string          `xml:"creationTime,omitempty"`
-	SubnetIDs                  []string        `xml:"subnetIds>item,omitempty"`
-	TagSet                     []simpleTagItem `xml:"tagSet>item"`
+	TransitGatewayAttachmentID string                      `xml:"transitGatewayAttachmentId"`
+	TransitGatewayID           string                      `xml:"transitGatewayId,omitempty"`
+	VpcID                      string                      `xml:"vpcId,omitempty"`
+	State                      string                      `xml:"state"`
+	CreationTime               string                      `xml:"creationTime,omitempty"`
+	SubnetIDs                  []string                    `xml:"subnetIds>item,omitempty"`
+	Options                    tgwVpcAttachmentOptionsItem `xml:"options"`
+	TagSet                     []simpleTagItem             `xml:"tagSet>item"`
 }
 
 type acceptTransitGatewayVpcAttachmentResponse struct {
@@ -138,7 +147,8 @@ type acceptVpcEndpointConnectionsResponse struct {
 }
 
 type vpcPeeringConnectionVpcInfoItem struct {
-	VpcID string `xml:"vpcId,omitempty"`
+	PeeringOptions *peeringOptionsItem `xml:"peeringOptions,omitempty"`
+	VpcID          string              `xml:"vpcId,omitempty"`
 }
 
 type vpcPeeringConnectionStatusItem struct {
@@ -157,14 +167,27 @@ type vpcPeeringConnectionItem struct {
 	TagSet                 []simpleTagItem                 `xml:"tagSet>item"`
 }
 
-func toVpcPeeringConnectionItem(pc *VpcPeeringConnection, tags map[string]string) vpcPeeringConnectionItem {
-	return vpcPeeringConnectionItem{
+func toVpcPeeringConnectionItem(
+	pc *VpcPeeringConnection,
+	tags map[string]string,
+	opts *PeeringConnectionOptionsBoth,
+) vpcPeeringConnectionItem {
+	item := vpcPeeringConnectionItem{
 		VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
 		RequesterVpcInfo:       vpcPeeringConnectionVpcInfoItem{VpcID: pc.RequesterVpcID},
 		AccepterVpcInfo:        vpcPeeringConnectionVpcInfoItem{VpcID: pc.AccepterVpcID},
 		Status:                 vpcPeeringConnectionStatusItem{Code: pc.State},
 		TagSet:                 tagItemsFromMap(tags),
 	}
+
+	if opts != nil {
+		reqItem := toPeeringOptionsItem(opts.Requester)
+		item.RequesterVpcInfo.PeeringOptions = &reqItem
+		accItem := toPeeringOptionsItem(opts.Accepter)
+		item.AccepterVpcInfo.PeeringOptions = &accItem
+	}
+
+	return item
 }
 
 type acceptVpcPeeringConnectionResponse struct {
@@ -391,9 +414,13 @@ func (h *Handler) handleAcceptVpcPeeringConnection(vals url.Values, reqID string
 	}
 
 	return &acceptVpcPeeringConnectionResponse{
-		Xmlns:                ec2XMLNS,
-		RequestID:            reqID,
-		VpcPeeringConnection: toVpcPeeringConnectionItem(pc, h.Backend.TagsForResource(pc.VpcPeeringConnectionID)),
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		VpcPeeringConnection: toVpcPeeringConnectionItem(
+			pc,
+			h.Backend.TagsForResource(pc.VpcPeeringConnectionID),
+			h.Backend.GetVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID),
+		),
 	}, nil
 }
 
@@ -594,6 +621,7 @@ func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error
 	// pins "released/unknown host id -> empty result, no error" (gopherstack-ggu4a:
 	// verified, not the silent-omission bug for this particular op).
 	hosts := h.Backend.DescribeHosts(ids)
+	hosts = applyHostFilters(hosts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeHostsResponse{
 		Xmlns:     ec2XMLNS,
@@ -652,7 +680,11 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 	for _, pc := range connections {
 		resp.VpcPeeringConnections.Items = append(
 			resp.VpcPeeringConnections.Items,
-			toVpcPeeringConnectionItem(pc, h.Backend.TagsForResource(pc.VpcPeeringConnectionID)),
+			toVpcPeeringConnectionItem(
+				pc,
+				h.Backend.TagsForResource(pc.VpcPeeringConnectionID),
+				h.Backend.GetVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID),
+			),
 		)
 	}
 

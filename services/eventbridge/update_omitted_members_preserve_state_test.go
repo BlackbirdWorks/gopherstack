@@ -68,6 +68,7 @@ func testArchiveFieldsPreserved(t *testing.T) {
 		Description:      aws.String("first description"),
 		EventPattern:     aws.String(`{"source":["a"]}`),
 		KmsKeyIdentifier: aws.String("alias/first-key"),
+		RetentionDays:    aws.Int32(30),
 	})
 	require.NoError(t, err)
 
@@ -77,7 +78,7 @@ func testArchiveFieldsPreserved(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "first description", aws.ToString(described.Description))
 
-	// Omits every optional field -- all three must survive.
+	// Omits every optional field -- all four must survive.
 	_, err = client.UpdateArchive(ctx, &eventbridgesdk.UpdateArchiveInput{
 		ArchiveName: aws.String("omit-archive"),
 	})
@@ -91,6 +92,8 @@ func testArchiveFieldsPreserved(t *testing.T) {
 		"Description must survive an update that omits it")
 	assert.JSONEq(t, `{"source":["a"]}`, aws.ToString(afterOmit.EventPattern),
 		"EventPattern must survive an update that omits it")
+	assert.Equal(t, int32(30), aws.ToInt32(afterOmit.RetentionDays),
+		"RetentionDays must survive an update that omits it")
 
 	// An explicit empty Description is a meaningful clear and must be applied.
 	_, err = client.UpdateArchive(ctx, &eventbridgesdk.UpdateArchiveInput{
@@ -106,6 +109,24 @@ func testArchiveFieldsPreserved(t *testing.T) {
 	assert.Empty(t, aws.ToString(cleared.Description))
 	assert.JSONEq(t, `{"source":["a"]}`, aws.ToString(cleared.EventPattern),
 		"fields not sent in this call must remain untouched")
+	assert.Equal(t, int32(30), aws.ToInt32(cleared.RetentionDays),
+		"fields not sent in this call must remain untouched")
+
+	// RetentionDays: 0 has a documented, distinct meaning -- "events are
+	// retained indefinitely" (eventbridge@v1.53.0 api_op_CreateArchive.go)
+	// -- and an explicit zero must be applied, not treated as omitted.
+	_, err = client.UpdateArchive(ctx, &eventbridgesdk.UpdateArchiveInput{
+		ArchiveName:   aws.String("omit-archive"),
+		RetentionDays: aws.Int32(0),
+	})
+	require.NoError(t, err)
+
+	indefinite, err := client.DescribeArchive(ctx, &eventbridgesdk.DescribeArchiveInput{
+		ArchiveName: aws.String("omit-archive"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), aws.ToInt32(indefinite.RetentionDays),
+		"explicit RetentionDays=0 must be applied (indefinite retention), not ignored as omitted")
 }
 
 func testConnectionDescriptionPreserved(t *testing.T) {

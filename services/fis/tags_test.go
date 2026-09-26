@@ -265,7 +265,7 @@ func TestTagResource_InvalidKeyPrefix(t *testing.T) {
 func TestListTagsForResource_NonNilWhenEmpty(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:   "EXT-tagsnone",
 		Arn:  "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-tagsnone",

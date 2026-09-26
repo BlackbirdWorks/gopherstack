@@ -34,6 +34,18 @@ func isValidSignalType(s string) bool {
 	}
 }
 
+// isTerminalAutomationStatus reports whether status is a terminal
+// AutomationExecutionStatus (types/enums.go) this backend can ever assign.
+func isTerminalAutomationStatus(status string) bool {
+	switch status {
+	case automationStatusSuccess, automationStatusFailed, automationStatusCancelled,
+		automationStatusTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *InMemoryBackend) automationExecutionsStore(region string) *store.Table[AutomationExecution] {
 	return getOrCreateTable(
 		b, b.automationExecutions, "automationExecutions", region, automationExecutionKeyFn,

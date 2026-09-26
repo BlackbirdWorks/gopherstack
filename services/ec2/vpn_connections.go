@@ -69,7 +69,9 @@ func (b *InMemoryBackend) CreateVpnConnectionRoute(
 	route := &VpnConnectionRoute{
 		VpnConnectionID: vpnConnectionID,
 		DestinationCIDR: destinationCIDR,
-		State:           stateActive,
+		// Real VpnStaticRoute.State uses the VpnState enum (pending/available/
+		// deleting/deleted), never "active" (aws-sdk-go-v2/service/ec2/types/enums.go).
+		State: stateAvailable,
 	}
 	b.vpnConnectionRoutes.Put(route)
 
@@ -145,34 +147,41 @@ func (b *InMemoryBackend) CreateVpnConnection(
 	return copyVpnConnection(conn), nil
 }
 
+// SetVpnConnectionStaticRoutesOnly sets StaticRoutesOnly, which real AWS only
+// accepts as a CreateVpnConnection request parameter (Options.StaticRoutesOnly),
+// never via ModifyVpnConnectionOptions.
+func (b *InMemoryBackend) SetVpnConnectionStaticRoutesOnly(vpnConnectionID string, staticRoutesOnly bool) {
+	b.mu.Lock("SetVpnConnectionStaticRoutesOnly")
+	defer b.mu.Unlock()
+
+	if conn, ok := b.vpnConnections.Get(vpnConnectionID); ok {
+		conn.Options.StaticRoutesOnly = staticRoutesOnly
+	}
+}
+
 // DescribeVpnConnections returns VPN connections, optionally filtered by IDs.
+// A just-deleted connection named explicitly by id is still returned, in
+// "deleted" state, from its tombstone -- an unfiltered call never surfaces
+// it. Real AWS keeps a deleted VPN connection describable this way for a
+// period, and terraform-provider-aws's delete waiter
+// (findVPNConnectionByID, internal/service/ec2/find.go) treats state
+// "deleted" the same as NotFound, so either shape completes it.
 func (b *InMemoryBackend) DescribeVpnConnections(ids []string) []*VpnConnection {
 	b.mu.RLock("DescribeVpnConnections")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
+	out := describeWithTombstones(b.vpnConnections.All(), b.vpnConnectionTombstones, ids,
+		func(c *VpnConnection) string { return c.VpnConnectionID })
+
+	for i, conn := range out {
+		out[i] = copyVpnConnection(conn)
 	}
-
-	out := make([]*VpnConnection, 0, b.vpnConnections.Len())
-
-	for _, conn := range b.vpnConnections.All() {
-		if len(idSet) > 0 && !idSet[conn.VpnConnectionID] {
-			continue
-		}
-
-		out = append(out, copyVpnConnection(conn))
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].VpnConnectionID < out[j].VpnConnectionID
-	})
 
 	return out
 }
 
-// DeleteVpnConnection removes a VPN connection along with any static routes registered against it.
+// DeleteVpnConnection removes a VPN connection along with any static routes registered against
+// it, keeping a tombstone so a subsequent by-ID Describe still finds it in "deleted" state.
 func (b *InMemoryBackend) DeleteVpnConnection(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: VpnConnectionId is required", ErrInvalidParameter)
@@ -181,9 +190,16 @@ func (b *InMemoryBackend) DeleteVpnConnection(id string) error {
 	b.mu.Lock("DeleteVpnConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpnConnections.Get(id); !ok {
+	conn, ok := b.vpnConnections.Get(id)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, id)
 	}
+
+	cp := *conn
+	cp.State = tgwRouteStateDeleted
+	pruneExpiredTombstones(b.vpnConnectionTombstones, time.Now())
+	b.vpnConnectionTombstones[id] = tombstone[VpnConnection]{value: &cp, deletedAt: time.Now()}
+
 	b.vpnConnections.Delete(id)
 	delete(b.tags, id)
 

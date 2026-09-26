@@ -445,8 +445,6 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 func TestCloudWatchLogsBackend_CreateLogAnomalyDetector_VisibilityTimeValidation(t *testing.T) {
 	t.Parallel()
 
-	const msPerDay = 24 * 60 * 60 * 1000
-
 	tests := []struct {
 		wantErr               error
 		name                  string
@@ -459,27 +457,27 @@ func TestCloudWatchLogsBackend_CreateLogAnomalyDetector_VisibilityTimeValidation
 		},
 		{
 			name:                  "7_days_min",
-			anomalyVisibilityTime: 7 * msPerDay,
+			anomalyVisibilityTime: 7,
 			wantStatus:            "INITIALIZING",
 		},
 		{
 			name:                  "90_days_max",
-			anomalyVisibilityTime: 90 * msPerDay,
+			anomalyVisibilityTime: 90,
 			wantStatus:            "INITIALIZING",
 		},
 		{
 			name:                  "30_days_valid",
-			anomalyVisibilityTime: 30 * msPerDay,
+			anomalyVisibilityTime: 30,
 			wantStatus:            "INITIALIZING",
 		},
 		{
 			name:                  "6_days_too_small",
-			anomalyVisibilityTime: 6 * msPerDay,
+			anomalyVisibilityTime: 6,
 			wantErr:               cloudwatchlogs.ErrValidation,
 		},
 		{
 			name:                  "91_days_too_large",
-			anomalyVisibilityTime: 91 * msPerDay,
+			anomalyVisibilityTime: 91,
 			wantErr:               cloudwatchlogs.ErrValidation,
 		},
 	}
@@ -518,8 +516,6 @@ func TestCloudWatchLogsBackend_CreateLogAnomalyDetector_VisibilityTimeValidation
 func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_SetsLastModified(t *testing.T) {
 	t.Parallel()
 
-	const msPerDay = 24 * 60 * 60 * 1000
-
 	b := cloudwatchlogs.NewInMemoryBackend()
 	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
 	require.NoError(t, err)
@@ -534,7 +530,7 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_SetsLastModified(t *test
 
 	time.Sleep(2 * time.Millisecond)
 
-	err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", 30*msPerDay, true)
+	err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", 30, true)
 	require.NoError(t, err)
 
 	after, err := b.GetLogAnomalyDetector(arn)
@@ -545,8 +541,6 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_SetsLastModified(t *test
 func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_VisibilityTimeValidation(t *testing.T) {
 	t.Parallel()
 
-	const msPerDay = 24 * 60 * 60 * 1000
-
 	tests := []struct {
 		wantErr               error
 		name                  string
@@ -554,16 +548,16 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_VisibilityTimeValidation
 	}{
 		{
 			name:                  "valid_30_days",
-			anomalyVisibilityTime: 30 * msPerDay,
+			anomalyVisibilityTime: 30,
 		},
 		{
 			name:                  "too_small_6_days",
-			anomalyVisibilityTime: 6 * msPerDay,
+			anomalyVisibilityTime: 6,
 			wantErr:               cloudwatchlogs.ErrValidation,
 		},
 		{
 			name:                  "too_large_91_days",
-			anomalyVisibilityTime: 91 * msPerDay,
+			anomalyVisibilityTime: 91,
 			wantErr:               cloudwatchlogs.ErrValidation,
 		},
 	}

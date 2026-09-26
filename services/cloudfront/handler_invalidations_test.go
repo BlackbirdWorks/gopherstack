@@ -409,7 +409,7 @@ func TestSortedInvalidations(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
-
+	t.Cleanup(b.Close)
 	d, err := b.CreateDistribution("ref-sorted-inv", "sorted-inv-dist", true, nil)
 	require.NoError(t, err)
 
@@ -433,6 +433,7 @@ func TestHandleGetInvalidationPathFallback(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 	h := cloudfront.NewHandler(b)
 
 	d, err := b.CreateDistribution("ref-path-fb", "path-fb-dist", true, nil)

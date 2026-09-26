@@ -13,6 +13,13 @@ func (b *InMemoryBackend) PutRemediationConfigurations(configs []RemediationConf
 
 	for i := range configs {
 		cp := configs[i]
+		if cp.Arn == "" {
+			cp.Arn = fmt.Sprintf(
+				"arn:aws:config:%s:%s:remediation-configuration/%s",
+				b.region, b.accountID, cp.ConfigRuleName,
+			)
+		}
+
 		b.remediationConfigs.Put(&cp)
 	}
 

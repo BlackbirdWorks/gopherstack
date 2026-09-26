@@ -22,6 +22,7 @@ func TestRestoreSecret_ClearsDeletedDate(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "restore-me", SecretString: "v"},
@@ -43,6 +44,7 @@ func TestRestoreSecret_ActiveSecretFails(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "active-restore", SecretString: "v"},
@@ -58,6 +60,7 @@ func TestRestoreSecret_WritableAfterRestore(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "write-after-restore", SecretString: "v"},
@@ -81,6 +84,7 @@ func TestRestoreSecret_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.RestoreSecret(context.Background(), &secretsmanager.RestoreSecretInput{SecretID: "missing"})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
@@ -93,6 +97,7 @@ func TestRestoreSecret_RestoredSecretIsReadable(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -125,6 +130,7 @@ func TestRestoreSecret_ClearsDeletedDateOnCustomWindow(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -157,6 +163,7 @@ func TestRestoreSecret_RestoreActiveSecretFails(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -180,6 +187,7 @@ func TestRestoreSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 
 		_, err := backend.RestoreSecret(context.Background(), &secretsmanager.RestoreSecretInput{SecretID: "missing"})
 		require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
@@ -189,6 +197,7 @@ func TestRestoreSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         "restorable2",
 			SecretString: "data",

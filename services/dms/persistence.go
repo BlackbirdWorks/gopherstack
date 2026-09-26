@@ -176,6 +176,10 @@ func (b *InMemoryBackend) resourceTagsSnapshot() map[string]map[string]string {
 		addTags(rc.ReplicationConfigArn, rc.Tags)
 	}
 
+	for _, cert := range b.certificates.All() {
+		addTags(cert.CertificateArn, cert.Tags)
+	}
+
 	return out
 }
 
@@ -250,6 +254,9 @@ func (b *InMemoryBackend) reinitTagsLocked(resourceTags map[string]map[string]st
 	reinitTags(b.replicationConfigs, func(v *ReplicationConfig) **tags.Tags { return &v.Tags },
 		func(v *ReplicationConfig) string { return v.ReplicationConfigIdentifier }, "dms.replication-config.",
 		resourceTags, func(v *ReplicationConfig) string { return v.ReplicationConfigArn })
+	reinitTags(b.certificates, func(v *Certificate) **tags.Tags { return &v.Tags },
+		func(v *Certificate) string { return v.CertificateIdentifier }, "dms.certificate.",
+		resourceTags, func(v *Certificate) string { return v.CertificateArn })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

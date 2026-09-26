@@ -13,7 +13,7 @@ import (
 
 // handleSourceAPIs handles /v1/sourceApis/{sourceApiIdentifier}/mergedApiAssociations[/{assocId}].
 func (h *Handler) handleSourceAPIs(ctx context.Context, c *echo.Context, segs []string) error {
-	if segs[3] != "mergedApiAssociations" {
+	if segs[3] != keyMergedAPIAssociations {
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 	}
 

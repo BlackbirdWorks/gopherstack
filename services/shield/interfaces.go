@@ -28,7 +28,9 @@ type StorageBackend interface {
 	DescribeEmergencyContactSettings() []EmergencyContact
 	EnableProactiveEngagement() error
 	DisableProactiveEngagement() error
-	CreateProtectionGroup(id, aggregation, pattern, resourceType string, members []string) (*ProtectionGroup, error)
+	CreateProtectionGroup(
+		id, aggregation, pattern, resourceType string, members []string, tags map[string]string,
+	) (*ProtectionGroup, error)
 	DescribeProtectionGroup(id string) (*ProtectionGroup, error)
 	ListProtectionGroups() []*ProtectionGroup
 	UpdateProtectionGroup(id, aggregation, pattern, resourceType string, members []string) error

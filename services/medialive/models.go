@@ -71,7 +71,11 @@ func (c *storedChannel) toChannel() *Channel {
 // method). EncoderSettings is intentionally excluded -- see ChannelSummary's
 // doc comment.
 func (c *storedChannel) toSummary() *ChannelSummary {
+	tags := make(map[string]string, len(c.Tags))
+	maps.Copy(tags, c.Tags)
+
 	return &ChannelSummary{
+		Tags:                  tags,
 		ARN:                   c.ARN,
 		ID:                    c.ID,
 		Name:                  c.Name,
@@ -133,6 +137,10 @@ func (i *storedInput) toSummary() *InputSummary {
 }
 
 type storedInputSecurityGroup struct {
+	// DeletedAt is when State became DELETED; pruneDeletedInputSecurityGroupsLocked
+	// evicts the group medialiveDeletedTTL past this point. Zero when State
+	// is not DELETED.
+	DeletedAt      time.Time         `json:"deletedAt"`
 	Tags           map[string]string `json:"tags"`
 	ARN            string            `json:"arn"`
 	ID             string            `json:"id"`
@@ -234,6 +242,10 @@ type storedMultiplexSettings struct {
 
 // Tags and Programs (maps) first, then slice, then strings, then value struct: reduces GC pointer scan.
 type storedMultiplex struct {
+	// DeletedAt is when State became DELETED; pruneDeletedMultiplexesLocked
+	// evicts the multiplex medialiveDeletedTTL past this point. Zero when
+	// State is not DELETED.
+	DeletedAt         time.Time                          `json:"deletedAt"`
 	Tags              map[string]string                  `json:"tags"`
 	Programs          map[string]*storedMultiplexProgram `json:"programs"`
 	ARN               string                             `json:"arn"`
@@ -293,9 +305,11 @@ type storedServiceDescriptor struct {
 }
 
 type storedMultiplexProgramSettings struct {
+	VideoConstantBitrate     *int32                  `json:"videoConstantBitrate,omitempty"`
 	ServiceDescriptor        storedServiceDescriptor `json:"serviceDescriptor"`
 	PreferredChannelPipeline string                  `json:"preferredChannelPipeline"`
 	ProgramNumber            int                     `json:"programNumber"`
+	HasServiceDescriptor     bool                    `json:"hasServiceDescriptor,omitempty"`
 }
 
 // Strings first, value struct last: reduces GC pointer scan.
@@ -313,6 +327,8 @@ func (p *storedMultiplexProgram) toProgram() *MultiplexProgram {
 			ProgramName:              p.ProgramName,
 			ProgramNumber:            p.Settings.ProgramNumber,
 			PreferredChannelPipeline: p.Settings.PreferredChannelPipeline,
+			HasServiceDescriptor:     p.Settings.HasServiceDescriptor,
+			VideoConstantBitrate:     p.Settings.VideoConstantBitrate,
 			ServiceDescriptor: ServiceDescriptor{
 				ProviderName: p.Settings.ServiceDescriptor.ProviderName,
 				ServiceName:  p.Settings.ServiceDescriptor.ServiceName,

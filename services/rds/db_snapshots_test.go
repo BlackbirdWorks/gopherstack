@@ -115,7 +115,7 @@ func TestCreateDBSnapshot_CaseInsensitiveIdentifier(t *testing.T) {
 func TestCopyTagsToSnapshotPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -145,6 +145,7 @@ func TestCopyDBSnapshotWithKmsKeyId(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateDBInstance("snap-src-inst", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{
 		StorageEncrypted: true,
@@ -171,6 +172,7 @@ func TestSnapshotKmsKeyIdViaHandler(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateDBInstance("kms-inst", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{
 		StorageEncrypted: true,
@@ -194,7 +196,7 @@ func TestSnapshotKmsKeyIdViaHandler(t *testing.T) {
 func TestCopyDBSnapshotViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	// Create instance + snapshot.
 	mustCreateAccuracyRDSInstance(t, h, "cpy-snap-inst")
@@ -234,7 +236,7 @@ func TestCopyDBSnapshotViaHandler(t *testing.T) {
 func TestCreateDBSnapshotCopiesKmsKeyId(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -273,7 +275,7 @@ func TestCreateDBSnapshotCopiesKmsKeyId(t *testing.T) {
 func TestCreateDBSnapshotNoKmsKeyIdForUnencrypted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 	mustCreateAccuracyRDSInstance(t, h, "unenc-inst")
 
 	rec := doAccuracyRDS(t, h, url.Values{
@@ -336,6 +338,7 @@ func Test_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			_, err := b.CreateDBInstance(
 				"del-inst", "postgres", "db.t3.micro", "", "admin", "",
 				20, rds.DBInstanceOptions{},
@@ -516,6 +519,7 @@ func TestSnapshotCount(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	assert.Equal(t, 0, rds.SnapshotCount(b))
 
 	_, err := b.CreateDBInstance("i1", "mysql", "", "", "", "", 0, rds.DBInstanceOptions{})
@@ -599,6 +603,7 @@ func TestRDSBackend_CopyDBSnapshot(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			snap, err := b.CopyDBSnapshot(tt.sourceID, tt.targetID, rds.CopyDBSnapshotOptions{})
@@ -691,6 +696,7 @@ func TestRDSBackend_RestoreDBInstanceFromDBSnapshot(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			inst, err := b.RestoreDBInstanceFromDBSnapshot(tt.instanceID, tt.snapshotID, tt.opts)

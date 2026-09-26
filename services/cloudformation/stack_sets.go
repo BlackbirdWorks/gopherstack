@@ -58,7 +58,7 @@ func (b *InMemoryBackend) CreateStackSet(
 		StackSetName: name,
 		Description:  description,
 		TemplateBody: templateBody,
-		Status:       "ACTIVE",
+		Status:       statusActive,
 		StackSetARN: arn.Build(
 			"cloudformation", b.region, b.accountID, "stackset/"+name+":"+stackSetID,
 		),
@@ -202,10 +202,13 @@ func (b *InMemoryBackend) ListStackSets(
 		}
 
 		result = append(result, StackSetSummary{
-			StackSetID:   ss.StackSetID,
-			StackSetName: ss.StackSetName,
-			Status:       ss.Status,
-			Description:  ss.Description,
+			StackSetID:       ss.StackSetID,
+			StackSetName:     ss.StackSetName,
+			Status:           ss.Status,
+			Description:      ss.Description,
+			AutoDeployment:   ss.AutoDeployment,
+			ManagedExecution: ss.ManagedExecution,
+			PermissionModel:  ss.PermissionModel,
 		})
 	}
 	sort.Slice(

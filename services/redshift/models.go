@@ -88,6 +88,7 @@ type Snapshot struct {
 	SnapshotCreateTime            time.Time                  `json:"snapshotCreateTime"`
 	SnapshotIdentifier            string                     `json:"snapshotIdentifier"`
 	ClusterIdentifier             string                     `json:"clusterIdentifier"`
+	SnapshotArn                   string                     `json:"snapshotArn,omitempty"`
 	SnapshotType                  string                     `json:"snapshotType"`
 	Status                        string                     `json:"status"`
 	NodeType                      string                     `json:"nodeType,omitempty"`

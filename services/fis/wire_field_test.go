@@ -211,6 +211,7 @@ func TestFISListOps_NarrowSummaryParity(t *testing.T) {
 			t.Parallel()
 
 			backend := fis.NewInMemoryBackend(fisTestRegion, "000000000000")
+			t.Cleanup(backend.Close)
 			client, baseURL := newTestFISClient(t, fis.NewHandler(backend))
 			tt.test(t, client, baseURL)
 		})

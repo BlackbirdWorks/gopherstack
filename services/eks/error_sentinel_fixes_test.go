@@ -222,6 +222,26 @@ func TestListTagsForResource_UnknownARN_NotFoundException(t *testing.T) {
 	require.ErrorAsf(t, err, &nf, "expected a real NotFoundException from the SDK deserializer, got %v", err)
 }
 
+// TestDescribeCluster_UnknownName_ResourceNotFoundException proves
+// DescribeCluster reports an unknown cluster name via the code its own
+// deserializer models -- ResourceNotFoundException, the family every
+// eks op besides TagResource/UntagResource/ListTagsForResource uses
+// (see the NotFoundException tests above for that carve-out).
+func TestDescribeCluster_UnknownName_ResourceNotFoundException(t *testing.T) {
+	t.Parallel()
+
+	h := newSentinelTestHandler(t)
+	client := newTestEKSClient(t, h)
+
+	_, err := client.DescribeCluster(t.Context(), &ekssdk.DescribeClusterInput{
+		Name: aws.String("no-such-cluster"),
+	})
+	require.Error(t, err)
+
+	var nf *types.ResourceNotFoundException
+	require.ErrorAsf(t, err, &nf, "expected a real ResourceNotFoundException from the SDK deserializer, got %v", err)
+}
+
 // TestTagResource_TooManyTags_BadRequestException proves TagResource reports
 // a tag-limit validation failure with the real BadRequestException code
 // (see TestTagResource_UnknownARN_NotFoundException's deserializer note) --

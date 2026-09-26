@@ -15,7 +15,7 @@ import (
 func TestDBInstance_OptimizedWritesAndStorageOptimized(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	inst, err := b.CreateDBInstance("ow-inst", "postgres", "db.r6g.large", "", "admin", "", 100,
 		rds.DBInstanceOptions{
@@ -31,7 +31,7 @@ func TestDBInstance_OptimizedWritesAndStorageOptimized(t *testing.T) {
 func TestDBInstance_ModifyOptimizedWrites(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateDBInstance("mod-ow", "postgres", "db.t3.micro", "", "admin", "", 20,
 		rds.DBInstanceOptions{})
@@ -51,7 +51,7 @@ func TestDBInstance_ModifyOptimizedWrites(t *testing.T) {
 func TestDBInstance_NewFieldsViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateDBInstance&Version=2014-10-31"+
@@ -70,7 +70,7 @@ func TestDBInstance_NewFieldsViaHandler(t *testing.T) {
 func TestPersistence_InstanceNewFields(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateDBInstance("inst-snap", "postgres", "db.r6g.large", "", "admin", "", 100,
 		rds.DBInstanceOptions{
@@ -84,6 +84,7 @@ func TestPersistence_InstanceNewFields(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	instances, err := b2.DescribeDBInstances("inst-snap")
@@ -103,7 +104,7 @@ func TestPersistence_InstanceNewFields(t *testing.T) {
 func Test_DeleteDBInstance_NotFoundBeforeParamValidation(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 	rec := postRDSForm(t, h, "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=missing-inst")
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -200,7 +201,7 @@ func Test_DescribeDBInstances_Filters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			postRDSForm(t, h,
 				"Action=CreateDBInstance&Version=2014-10-31"+
 					"&DBInstanceIdentifier=filt-mysql-1&Engine=mysql"+
@@ -313,6 +314,7 @@ func TestReset(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.CreateDBInstance("inst-1", "mysql", "", "", "", "", 0, rds.DBInstanceOptions{})
 	require.NoError(t, err)
 
@@ -333,6 +335,7 @@ func TestDeleteDBInstanceCascadeInstanceRoles(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddInstanceInternal("my-inst", "mysql")
 
 	err := b.AddRoleToDBInstance("my-inst", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
@@ -389,6 +392,7 @@ func TestRDSBackend_NewInstanceFields(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			inst, err := b.CreateDBInstance("test-db", "postgres", "db.t3.micro", "mydb", "admin", "", 20, tt.opts)
 
 			require.NoError(t, err)
@@ -526,6 +530,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			require.NoError(t, tt.setup(b))
 			rds.FlushInstanceLifecycle(b) // advance creating→available for tests that need it
 
@@ -612,6 +617,7 @@ func TestRDSBackend_RestoreDBInstanceToPointInTime(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			inst, err := b.RestoreDBInstanceToPointInTime(tt.target, tt.source, rds.DBInstanceOptions{})

@@ -14,7 +14,7 @@ import (
 func TestHTTPSListenerCertificateEnforcement(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "https-cert-lb")
 	tgArn := mustCreateTG(t, h, "https-cert-tg")
 
@@ -48,7 +48,7 @@ func TestHTTPSListenerCertificateEnforcement(t *testing.T) {
 func TestHTTPSListenerDefaultCertMarked(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "https-default-cert-lb")
 	tgArn := mustCreateTG(t, h, "https-default-cert-tg")
 
@@ -105,7 +105,7 @@ func TestHTTPSListenerDefaultCertMarked(t *testing.T) {
 func TestMutualAuthenticationOnListener(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "mtls-lb")
 	tgArn := mustCreateTG(t, h, "mtls-tg")
 
@@ -166,7 +166,7 @@ func TestMutualAuthenticationOnListener(t *testing.T) {
 func TestRemoveLastCertificateHTTPS(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "cert-lb")
 	tgArn := mustCreateTG(t, h, "cert-tg")
 
@@ -212,7 +212,7 @@ func TestRemoveLastCertificateHTTPS(t *testing.T) {
 func TestCertificatesInDescribeListeners(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "certs-describe-lb")
 	tgArn := mustCreateTG(t, h, "certs-describe-tg")
 
@@ -261,7 +261,7 @@ func TestCertificatesInDescribeListeners(t *testing.T) {
 func TestHTTPSListenerRequiresCert(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "https-nocert-lb")
 	tgArn := mustCreateTG(t, h, "https-nocert-tg")
 
@@ -281,7 +281,7 @@ func TestHTTPSListenerRequiresCert(t *testing.T) {
 func TestHTTPSListenerDefaultSSLPolicy(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "https-ssl-policy-lb")
 	tgArn := mustCreateTG(t, h, "https-ssl-policy-tg")
 
@@ -314,7 +314,7 @@ func TestHTTPSListenerDefaultSSLPolicy(t *testing.T) {
 func TestCreateListener_HTTPS_RequiresCert(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "listener-https-no-cert")
 	tgArn := b1CreateTG(t, h, "listener-https-tg")
 
@@ -333,7 +333,7 @@ func TestCreateListener_HTTPS_RequiresCert(t *testing.T) {
 func TestCreateListener_HTTPS_WithCert(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "listener-https-cert")
 	tgArn := b1CreateTG(t, h, "listener-https-cert-tg")
 
@@ -354,7 +354,7 @@ func TestCreateListener_HTTPS_WithCert(t *testing.T) {
 func TestCreateListener_DefaultSSLPolicy(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "listener-default-ssl")
 	tgArn := b1CreateTG(t, h, "listener-default-ssl-tg")
 
@@ -375,7 +375,7 @@ func TestCreateListener_DefaultSSLPolicy(t *testing.T) {
 func TestMutualAuth_OnListener(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "mtls-lb")
 	tgArn := b1CreateTG(t, h, "mtls-tg")
 

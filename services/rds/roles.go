@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"slices"
 )
 
 // AddRoleToDBInstance associates an IAM role with the given DB instance for the given feature
@@ -70,4 +71,42 @@ func (b *InMemoryBackend) RemoveRoleFromDBInstance(instanceID, roleARN, featureN
 	}
 
 	return nil
+}
+
+// InstanceAssociatedRoles returns the IAM roles associated with the given DB
+// instance (AssociatedRoles on DescribeDBInstances' DBInstance, rds@v1.124.1
+// types.go:1956). Returns nil if the instance does not exist or has no
+// associated roles. Every entry in b.instanceRoles is applied synchronously
+// by AddRoleToDBInstance, so Status is always ACTIVE -- there is no
+// PENDING/INVALID state this backend ever produces.
+func (b *InMemoryBackend) InstanceAssociatedRoles(instanceID string) []DBInstanceRole {
+	b.mu.RLock("InstanceAssociatedRoles")
+	defer b.mu.RUnlock()
+
+	inst, exists := b.instances.Get(normalizeID(instanceID))
+	if !exists {
+		return nil
+	}
+
+	roles := b.instanceRoles[inst.DBInstanceIdentifier]
+	if len(roles) == 0 {
+		return nil
+	}
+
+	result := make([]DBInstanceRole, 0, len(roles))
+	for feature, roleARN := range roles {
+		result = append(result, DBInstanceRole{RoleArn: roleARN, FeatureName: feature, Status: clusterRoleStatusActive})
+	}
+	slices.SortFunc(result, func(a, b DBInstanceRole) int {
+		switch {
+		case a.FeatureName < b.FeatureName:
+			return -1
+		case a.FeatureName > b.FeatureName:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	return result
 }

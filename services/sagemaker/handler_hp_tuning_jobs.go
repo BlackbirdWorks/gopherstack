@@ -90,14 +90,7 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created HP tuning job",
-		"name",
-		j.HyperParameterTuningJobName,
-		"arn",
-		j.HyperParameterTuningJobArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created HP tuning job", "name", j.HyperParameterTuningJobName)
 
 	return json.Marshal(
 		map[string]string{"HyperParameterTuningJobArn": j.HyperParameterTuningJobArn},

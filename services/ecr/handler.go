@@ -95,6 +95,25 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // RegistryEnabled returns true if the embedded Docker registry is enabled.
 func (h *Handler) RegistryEnabled() bool { return h.registryEnabled }
 
+// registryShutdowner is satisfied by *handlers.App (distribution/registry/handlers),
+// the embedded Docker registry newDistributionRegistry builds.
+type registryShutdowner interface{ Shutdown() error }
+
+// Shutdown releases the embedded Docker registry, if enabled, so its
+// resources don't outlive the service. Satisfies service.Shutdowner.
+//
+// It does not stop every registry goroutine: distribution v3.1.1's
+// configureEvents unconditionally starts a github.com/docker/go-events
+// Broadcaster (app.events.sink) with no exported way to close it -- see
+// pkgs/testleak's ignore list.
+func (h *Handler) Shutdown(_ context.Context) {
+	if s, ok := h.registryHandler.(registryShutdowner); ok {
+		_ = s.Shutdown()
+	}
+}
+
+var _ service.Shutdowner = (*Handler)(nil)
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "ECR" }
 

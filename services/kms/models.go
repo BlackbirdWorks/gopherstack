@@ -28,6 +28,17 @@ const KeyUsageEncryptDecrypt = "ENCRYPT_DECRYPT"
 // KeyUsageSignVerify is the string constant for sign/verify-only keys.
 const KeyUsageSignVerify = "SIGN_VERIFY"
 
+// KeyManagerCustomer is DescribeKey's KeyMetadata.KeyManager value for a
+// customer-created key. It is also the implicit value for a Key.KeyManager
+// zero value, so keys persisted before this field existed still report
+// CUSTOMER (additive persistence: gopherstack-6u8p4).
+const KeyManagerCustomer = "CUSTOMER"
+
+// KeyManagerAWS is DescribeKey's KeyMetadata.KeyManager value for an AWS
+// managed key (e.g. alias/aws/dynamodb), lazily provisioned on first
+// reference -- see aws_managed_keys.go.
+const KeyManagerAWS = "AWS"
+
 // Note: Go fields use KeyID (Go convention) while JSON tags use KeyId (AWS API wire format).
 // This intentional difference matches both Go naming best practices and AWS API compatibility.
 
@@ -49,6 +60,9 @@ type Key struct {
 	Arn              string `json:"Arn"`
 	ExpirationModel  string `json:"ExpirationModel,omitempty"`
 	CustomKeyStoreID string `json:"CustomKeyStoreId,omitempty"`
+	// KeyManager is CUSTOMER or AWS (gopherstack-6u8p4); a zero value means
+	// CUSTOMER (see KeyManagerCustomer).
+	KeyManager string `json:"KeyManager,omitempty"`
 	// Rotations stores all rotation events with their types. The separate
 	// RotationDates and OnDemandRotationDates slices are kept for JSON
 	// backwards-compatibility with existing snapshots.
@@ -138,9 +152,13 @@ type Alias struct {
 
 // CreateKeyInput is the request payload for CreateKey.
 type CreateKeyInput struct {
-	Description                    string `json:"Description,omitempty"`
-	KeyUsage                       string `json:"KeyUsage,omitempty"`
-	KeySpec                        string `json:"KeySpec,omitempty"`
+	Description string `json:"Description,omitempty"`
+	KeyUsage    string `json:"KeyUsage,omitempty"`
+	KeySpec     string `json:"KeySpec,omitempty"`
+	// CustomerMasterKeySpec is KeySpec's deprecated predecessor (same enum, same
+	// meaning); aws_kms_key's customer_master_key_spec argument still sends this
+	// wire field, not KeySpec.
+	CustomerMasterKeySpec          string `json:"CustomerMasterKeySpec,omitempty"`
 	Origin                         string `json:"Origin,omitempty"`
 	Policy                         string `json:"Policy,omitempty"`
 	Region                         string `json:"-"`
@@ -174,14 +192,15 @@ type DescribeKeyOutput struct {
 	KeyMetadata KeyMetadata `json:"KeyMetadata"`
 }
 
-// KeyListEntry is a brief key reference used in ListKeys.
+// KeyListEntry is a brief key reference used in ListKeys, matching real
+// AWS's types.KeyListEntry exactly -- KeyId and KeyArn only. It has no
+// Description member (kms@v1.59.0 deserializers.go's
+// awsAwsjson11_deserializeDocumentKeyListEntry has no "Description" case).
 type KeyListEntry struct {
 	// KeyId is the UUID of the key.
 	KeyID string `json:"KeyId"`
 	// KeyArn is the full ARN of the key.
 	KeyArn string `json:"KeyArn"`
-	// Description is the optional human-readable description of the key.
-	Description string `json:"Description,omitempty"`
 }
 
 // ListKeysInput is the request payload for ListKeys.
@@ -393,9 +412,10 @@ type CancelKeyDeletionInput struct {
 }
 
 // CancelKeyDeletionOutput is the response payload for CancelKeyDeletion.
+// KeyState is intentionally absent: the real CancelKeyDeletionOutput has only
+// KeyId (kms@v1.59.0 api_op_CancelKeyDeletion.go:69).
 type CancelKeyDeletionOutput struct {
-	KeyID    string `json:"KeyId"`
-	KeyState string `json:"KeyState"`
+	KeyID string `json:"KeyId"`
 }
 
 // ErrorResponse is the KMS JSON error response format.
@@ -851,6 +871,11 @@ type CustomKeyStore struct {
 	ConnectionState    string  `json:"ConnectionState"`
 	CustomKeyStoreType string  `json:"CustomKeyStoreType"`
 	CreationDate       float64 `json:"CreationDate"`
+	// CloudHsmClusterId and TrustAnchorCertificate are echoed back by
+	// DescribeCustomKeyStores for AWS_CLOUDHSM stores (types.go:37-40,225);
+	// KeyStorePassword is write-only and never echoed.
+	CloudHsmClusterID      string `json:"CloudHsmClusterId,omitempty"`
+	TrustAnchorCertificate string `json:"TrustAnchorCertificate,omitempty"`
 }
 
 // CreateCustomKeyStoreInput is the request payload for CreateCustomKeyStore.
@@ -859,6 +884,10 @@ type CreateCustomKeyStoreInput struct {
 	CustomKeyStoreName string `json:"CustomKeyStoreName"`
 	// CustomKeyStoreType is the type of custom key store (default AWS_CLOUDHSM).
 	CustomKeyStoreType string `json:"CustomKeyStoreType,omitempty"`
+	// CloudHsmClusterID and TrustAnchorCertificate are AWS_CLOUDHSM-only
+	// inputs, echoed back verbatim by DescribeCustomKeyStores.
+	CloudHsmClusterID      string `json:"CloudHsmClusterId,omitempty"`
+	TrustAnchorCertificate string `json:"TrustAnchorCertificate,omitempty"`
 }
 
 // CreateCustomKeyStoreOutput is the response payload for CreateCustomKeyStore.

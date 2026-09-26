@@ -54,6 +54,7 @@ func TestDistributionStatusTransition(t *testing.T) {
 				require.NotEmpty(t, data)
 
 				restored := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+				t.Cleanup(restored.Close)
 				require.NoError(t, restored.Restore(t.Context(), data))
 
 				d, err := restored.GetDistribution(distID)
@@ -70,7 +71,7 @@ func TestDistributionStatusTransition(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-
+			t.Cleanup(b.Close)
 			callerRef := "ref-transition-" + tt.name
 			d, err := b.CreateDistribution(callerRef, "orig", true, minimalDistConfig(callerRef, "orig", true))
 			require.NoError(t, err)
@@ -106,7 +107,7 @@ func TestDeleteDistribution_CleansUpSideMaps(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-
+	t.Cleanup(b.Close)
 	callerRef := "ref-delete-sidemaps"
 	d, err := b.CreateDistribution(callerRef, "orig", false, minimalDistConfig(callerRef, "orig", false))
 	require.NoError(t, err)

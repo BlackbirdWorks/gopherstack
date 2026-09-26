@@ -57,7 +57,7 @@ func TestStartExportTask_RequiredWireFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newAccuracyRDSHandler()
+			h := newAccuracyRDSHandler(t)
 			vals := url.Values{
 				"Action":               {"StartExportTask"},
 				"Version":              {"2014-10-31"},
@@ -81,19 +81,23 @@ func TestStartExportTask_RequiredWireFields(t *testing.T) {
 	}
 }
 
-func TestRDSBackend_CancelExportTask_RemovesFromMap(t *testing.T) {
+func TestRDSBackend_CancelExportTask_KeepsRecord(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	_, err := b.StartExportTask("my-task", "arn:aws:rds:us-east-1:000000000000:snapshot:s1", "my-bucket",
 		"arn:aws:iam::000000000000:role/export-role", "arn:aws:kms:us-east-1:000000000000:key/test-key")
 	require.NoError(t, err)
 
 	task, err := b.CancelExportTask("my-task")
 	require.NoError(t, err)
-	assert.Equal(t, "canceled", task.Status)
+	assert.Equal(t, "CANCELED", task.Status)
 
-	// Task should no longer be in the map.
-	_, err = b.DescribeExportTasks("my-task")
-	require.Error(t, err)
+	// Real AWS export tasks are permanent records: canceling one only moves
+	// it to CANCELED, it stays describable afterward (same as COMPLETE/FAILED).
+	tasks, err := b.DescribeExportTasks("my-task")
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, "CANCELED", tasks[0].Status)
 }

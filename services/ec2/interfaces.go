@@ -78,6 +78,10 @@ type Backend interface {
 	// DeleteSecurityGroup removes a security group by ID.
 	DeleteSecurityGroup(id string) error
 
+	// ValidateSecurityGroupQuotasForInterface checks whether the given security groups can be
+	// associated with a single network interface without exceeding per-interface quotas.
+	ValidateSecurityGroupQuotasForInterface(groupIDs []string) error
+
 	// AuthorizeSecurityGroupIngress appends ingress rules to a security group.
 	AuthorizeSecurityGroupIngress(groupID string, rules []SecurityGroupRule) error
 
@@ -291,6 +295,7 @@ type Backend interface {
 
 	// DescribeSecurityGroupRules returns all rules for a security group.
 	DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error)
+	DescribeSecurityGroupRulesByIDs(ruleIDs []string) ([]*SecurityGroupRuleDetail, error)
 
 	// ModifySecurityGroupRules replaces all rules in the specified direction.
 	ModifySecurityGroupRules(groupID string, updates []SecurityGroupRuleUpdate) error
@@ -409,6 +414,11 @@ type Backend interface {
 	// TagsForResource returns a copy of all tags currently set on a single
 	// resource. Returns an empty (non-nil) map when nothing is tagged.
 	TagsForResource(resourceID string) map[string]string
+
+	// TagsForResources returns a copy of the tags for each of resourceIDs
+	// under a single lock. Resources with no tags are omitted; a missing key
+	// means "no tags" (reading a nil map is safe).
+	TagsForResources(resourceIDs []string) map[string]map[string]string
 
 	// ---- accept / advertise / allocate operations ----
 
@@ -615,6 +625,17 @@ type Backend interface {
 	// SecondaryCidrBlockAssociationsForVPC returns vpcID's secondary CIDR
 	// block associations (not including the primary CIDR block).
 	SecondaryCidrBlockAssociationsForVPC(vpcID string) []*VpcCidrBlockAssociation
+
+	// AssociateVpcIpv6CidrBlock associates an IPv6 CIDR block with a VPC.
+	AssociateVpcIpv6CidrBlock(
+		vpcID, ipv6Pool, ipv6CidrBlock, networkBorderGroup string,
+	) (*VpcIpv6CidrBlockAssociation, error)
+
+	// DisassociateVpcIpv6CidrBlock removes an IPv6 CIDR block association from a VPC.
+	DisassociateVpcIpv6CidrBlock(associationID string) (vpcID string, assoc *VpcIpv6CidrBlockAssociation, err error)
+
+	// SecondaryIpv6CidrBlockAssociationsForVPC returns vpcID's IPv6 CIDR block associations.
+	SecondaryIpv6CidrBlockAssociationsForVPC(vpcID string) []*VpcIpv6CidrBlockAssociation
 
 	// ---- Transit Gateway Route Tables ----
 
@@ -914,6 +935,10 @@ type Backend interface {
 		extra ...VpnConnectionExtraOptions,
 	) (*VpnConnection, error)
 
+	// SetVpnConnectionStaticRoutesOnly sets the StaticRoutesOnly flag captured
+	// at CreateVpnConnection time.
+	SetVpnConnectionStaticRoutesOnly(vpnConnectionID string, staticRoutesOnly bool)
+
 	// ModifyVpnTunnelOptions updates the configuration of a single tunnel of a VPN connection.
 	ModifyVpnTunnelOptions(
 		vpnConnectionID, outsideIPAddress string, opts VpnTunnelOptionsModify,
@@ -1160,6 +1185,72 @@ type Backend interface {
 	// MoveByoipCidrToIpam associates an existing BYOIP CIDR with an IPAM pool.
 	MoveByoipCidrToIpam(cidr, poolID, poolOwner string) (*ByoipCidr, error)
 
+	// ---- IPAM internet registry / routing policy ----
+
+	// CreateIpamInternetRegistryAssociation creates an association between an IPAM and an RIR.
+	CreateIpamInternetRegistryAssociation(
+		ipamID, organizationHandle, rir, description string,
+	) (*IpamInternetRegistryAssociation, error)
+
+	// DescribeIpamInternetRegistryAssociations returns internet registry associations,
+	// optionally filtered by ID and/or generic filters.
+	DescribeIpamInternetRegistryAssociations(
+		ids []string, filters map[string][]string,
+	) []*IpamInternetRegistryAssociation
+
+	// EnableIpamInternetRegistryAssociation completes BPKI setup for a pending association.
+	EnableIpamInternetRegistryAssociation(
+		id, childHandle, parentBpkiTa, parentHandle, rpkiVersion, serviceURI string,
+	) (*IpamInternetRegistryAssociation, error)
+
+	// DeleteIpamInternetRegistryAssociation removes an internet registry association.
+	DeleteIpamInternetRegistryAssociation(id string) (*IpamInternetRegistryAssociation, error)
+
+	// GetIpamInternetRegistryAssociationAsns returns ASNs registered via an association.
+	GetIpamInternetRegistryAssociationAsns(id string) ([]*IpamInternetRegistryAssociationAsn, error)
+
+	// GetIpamInternetRegistryAssociationCidrs returns CIDRs registered via an association.
+	GetIpamInternetRegistryAssociationCidrs(id string) ([]*IpamInternetRegistryAssociationCidr, error)
+
+	// CreateIpamRoutingPolicyRegistration creates a routing policy registration (ROA) for a CIDR.
+	CreateIpamRoutingPolicyRegistration(
+		assocID, cidr string, asns []string, description string, maxLength int32, permitMoreSpecific, force bool,
+	) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// ModifyIpamRoutingPolicyRegistration updates an existing routing policy registration.
+	ModifyIpamRoutingPolicyRegistration(
+		assocID, cidr string, asns []string, description string, maxLength int32, permitMoreSpecific, force bool,
+	) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// DeleteIpamRoutingPolicyRegistration removes a routing policy registration.
+	DeleteIpamRoutingPolicyRegistration(assocID, cidr string, force bool) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// BatchModifyIpamRoutingPolicyRegistrations applies a batch of routing policy registration
+	// changes described by deltaJSON.
+	BatchModifyIpamRoutingPolicyRegistrations(
+		assocID, deltaJSON string, force bool,
+	) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// GetIpamRoutingPolicyRegistrations returns routing policy registrations for an
+	// association, optionally filtered to a single CIDR.
+	GetIpamRoutingPolicyRegistrations(assocID, cidr string) ([]*IpamRoutingPolicyRegistration, error)
+
+	// GetIpamRoutingPolicyRegistrationDeltas returns the change history for an association.
+	GetIpamRoutingPolicyRegistrationDeltas(
+		assocID, deltaID, chronologicalOrder string, startTime, endTime *time.Time,
+	) ([]*IpamRoutingPolicyRegistrationDelta, error)
+
+	// GetIpamRouteOriginAuthorizations returns the ROAs currently published for an association.
+	GetIpamRouteOriginAuthorizations(assocID, cidr string) ([]*IpamRouteOriginAuthorization, error)
+
+	// GetIpamDiscoveredRoutes validates the resource discovery ID; this backend does not model
+	// BGP route discovery, so the caller always gets an empty (correctly-shaped) result.
+	GetIpamDiscoveredRoutes(resourceDiscoveryID string) error
+
+	// GetIpamRouteProtectionFindings validates the IPAM ID; this backend does not model RPKI
+	// route validation, so the caller always gets an empty (correctly-shaped) result.
+	GetIpamRouteProtectionFindings(ipamID string) error
+
 	// ---- spot fleet ----
 
 	// RequestSpotFleet creates a new Spot Fleet request and fulfills it.
@@ -1214,6 +1305,15 @@ type Backend interface {
 	ModifySnapshotTier(snapshotID, storageTier string) error
 	ResetSnapshotAttribute(snapshotID string) error
 
+	// ModifySnapshotCreateVolumePermission applies CreateVolumePermission.Add/Remove account
+	// IDs and the "all" (public) group to a snapshot.
+	ModifySnapshotCreateVolumePermission(
+		snapshotID string, addAccountIDs []string, addPublic bool, removeAccountIDs []string, removePublic bool,
+	) error
+	// GetSnapshotCreateVolumePermission returns the account IDs a snapshot is shared with and
+	// whether it is public.
+	GetSnapshotCreateVolumePermission(snapshotID string) (accountIDs []string, public bool)
+
 	// ---- batch1: VPC/Subnet/SG ----
 
 	CreateDefaultVpc() (*VPC, error)
@@ -1226,8 +1326,8 @@ type Backend interface {
 	DescribeStaleSecurityGroups(vpcID string) []StaleSGItem
 	DescribeSecurityGroupVpcAssociations(sgIDs []string) []SGVpcAssocItem
 	ModifyVpcTenancy(vpcID, tenancy string) error
-	ModifyVpcPeeringConnectionOptions(peeringID string, opts PeeringConnectionOptions) error
-	GetVpcPeeringConnectionOptions(peeringID string) *PeeringConnectionOptions
+	ModifyVpcPeeringConnectionOptions(peeringID string, isAccepter bool, opts PeeringConnectionOptions) error
+	GetVpcPeeringConnectionOptions(peeringID string) *PeeringConnectionOptionsBoth
 
 	// ---- batch1: EIP attributes ----
 
@@ -1295,7 +1395,7 @@ type Backend interface {
 	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
 	DescribeVpcEndpointServicePermissions(serviceID string) []string
 	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) ([]string, error)
-	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string, resetPolicy ...bool) error
+	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string, opts ModifyVpcEndpointOptions) error
 
 	// ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
 	// endpoint's usage within the given charge scope.
@@ -1329,6 +1429,15 @@ type Backend interface {
 	DisableImageDeregistrationProtection(imageID string) error
 	ModifyImageAttribute(imageID, attribute, value string) error
 	GetImageAttribute(imageID, attribute string) string
+
+	// ModifyImageLaunchPermission applies LaunchPermission.Add/Remove account IDs and the
+	// "all" (public) group to an AMI.
+	ModifyImageLaunchPermission(
+		imageID string, addAccountIDs []string, addPublic bool, removeAccountIDs []string, removePublic bool,
+	) error
+	// GetImageLaunchPermission returns the account IDs an AMI is shared with and whether
+	// it is public.
+	GetImageLaunchPermission(imageID string) (accountIDs []string, public bool)
 	ResetImageAttribute(imageID, attribute string) error
 	DescribeInstanceImageMetadata(instanceIDs []string) []InstanceImageMetadataItem
 	EnableSerialConsoleAccess()
@@ -1336,6 +1445,8 @@ type Backend interface {
 	GetSerialConsoleAccessStatus() bool
 	EnableVgwRoutePropagation(routeTableID, gatewayID string) error
 	DisableVgwRoutePropagation(routeTableID, gatewayID string) error
+	// GetPropagatingVgws returns the VGW IDs propagating routes into routeTableID.
+	GetPropagatingVgws(routeTableID string) []string
 	GetDefaultCreditSpecification() string
 	ModifyDefaultCreditSpecification(cpuCredits string) error
 	CreateReplaceRootVolumeTask(instanceID, snapshotID string) (*ReplaceRootVolumeTask, error)
@@ -1378,6 +1489,15 @@ type Backend interface {
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
 	SetImageMetadata(imageID, imdsSupport, virtualizationType string)
+
+	// SetImageRootDeviceName applies RegisterImage's RootDeviceName to an existing image.
+	SetImageRootDeviceName(imageID, rootDeviceName string)
+
+	// SetImageBlockDeviceMappings applies RegisterImage's BlockDeviceMapping.N.* entries.
+	SetImageBlockDeviceMappings(imageID string, mappings []ImageBlockDeviceMapping)
+
+	// SetImageEnhancedNetworking applies RegisterImage's EnaSupport/SriovNetSupport.
+	SetImageEnhancedNetworking(imageID string, enaSupportSet, enaSupport bool, sriovNetSupport string)
 	ImportImage(description, architecture, platform string, encrypted bool, kmsKeyID string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
 	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
@@ -1412,7 +1532,9 @@ type Backend interface {
 	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
-	ModifyTransitGateway(tgwID, description string) (*TransitGateway, error)
+	ModifyTransitGateway(
+		tgwID, description, associationDefaultRouteTableID, propagationDefaultRouteTableID string,
+	) (*TransitGateway, error)
 
 	// ---- batch4: ManagedPrefixList ----
 	CreateManagedPrefixList(
@@ -1436,8 +1558,8 @@ type Backend interface {
 	AssociateClientVpnTargetNetwork(endpointID, subnetID string) (string, error)
 	DisassociateClientVpnTargetNetwork(endpointID, assocID string) error
 	DescribeClientVpnTargetNetworks(endpointID string) ([]*ClientVpnTargetNetwork, error)
-	CreateClientVpnRoute(endpointID, destinationCidr, description string) error
-	DeleteClientVpnRoute(endpointID, destinationCidr string) error
+	CreateClientVpnRoute(endpointID, destinationCidr, targetSubnet, description string) error
+	DeleteClientVpnRoute(endpointID, destinationCidr, targetSubnet string) error
 	DescribeClientVpnRoutes(endpointID string) ([]ClientVpnRoute, error)
 	AuthorizeClientVpnIngress(endpointID, cidr, description string) error
 	RevokeClientVpnIngress(endpointID, cidr string) error
@@ -1489,13 +1611,14 @@ type Backend interface {
 	CreateTransitGatewayConnectPeer(
 		connectAttachmentID, peerAddress, transitGatewayAddress string,
 		insideCidrBlocks []string,
+		bgpAsn int64,
 	) (*TransitGatewayConnectPeer, error)
 	DeleteTransitGatewayConnectPeer(id string) (*TransitGatewayConnectPeer, error)
 	DescribeTransitGatewayConnectPeers(ids []string) []*TransitGatewayConnectPeer
 
 	// ---- batch4: TGW PrefixListRef ----
 	CreateTransitGatewayPrefixListReference(
-		routeTableID, prefixListID string,
+		routeTableID, prefixListID, attachmentID string,
 		blackhole bool,
 	) (*TransitGatewayPrefixListReference, error)
 	DeleteTransitGatewayPrefixListReference(
@@ -1984,7 +2107,19 @@ type Backend interface {
 
 	// ---- Instance-attribute misc cluster ----
 
+	// SetCapacityReservationInstancePlatform applies CreateCapacityReservation's InstancePlatform.
+	SetCapacityReservationInstancePlatform(reservationID, platform string)
+	// SetFlowLogDeliverLogsPermissionArn applies CreateFlowLogs' DeliverLogsPermissionArn.
+	SetFlowLogDeliverLogsPermissionArn(flowLogID, arn string)
+	// SetTransitGatewayVpcAttachmentOptions applies explicit Options overrides on top of
+	// CreateTransitGatewayVpcAttachment's defaults.
+	SetTransitGatewayVpcAttachmentOptions(
+		attachmentID, applianceModeSupport, dnsSupport, ipv6Support, sgReferencingSupport string,
+	)
 	ModifyAvailabilityZoneGroup(groupName, optInStatus string) (bool, error)
+	// GetAvailabilityZoneGroups returns every zone group modified so far, keyed by name,
+	// with its current opt-in status.
+	GetAvailabilityZoneGroups() map[string]string
 	ModifyHosts(
 		hostIDs []string, autoPlacement, hostMaintenance, hostRecovery, instanceFamily, instanceType string,
 	) ([]string, []HostModifyFailure, error)
@@ -2120,6 +2255,8 @@ type Backend interface {
 	CancelImageLaunchPermission(imageID string) error
 	DescribeImageReferences(imageIDs []string) []*ImageReferenceEntry
 	GetImageAncestry(imageID string) ([]*ImageAncestryEntry, error)
+	ReplaceImageInstanceTypeSpecification(imageID string, supported, unsupported []string) error
+	GetImageInstanceTypeSpecification(imageID string) *InstanceTypeSpecification
 	GetFlowLogsIntegrationTemplate(
 		flowLogID, s3DestinationArn, athenaResultS3DestinationArn, partitionLoadFrequency string,
 	) (string, error)

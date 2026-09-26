@@ -1,34 +1,34 @@
 ---
 service: managedblockchain
 sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.34.4
-last_audit_commit: a073b2b1
-last_audit_date: 2026-09-04
+last_audit_commit: a5efc2c05
+last_audit_date: 2026-09-19
 overall: A
 ops:
   CreateNetwork: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "FrameworkConfiguration.Fabric.Edition, VpcEndpointServiceName, Framework restricted to HYPERLEDGER_FABRIC; see Notes"}
   GetNetwork: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric + VpcEndpointServiceName"}
-  ListNetworks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented via pkgs/page; see Notes"}
+  ListNetworks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented via pkgs/page; see Notes. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set exact against v1.34.4, see list_summary_shapes_test.go."}
   CreateMember: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "InvitationId now required and validated against a real PENDING invitation for this network, consumed (ACCEPTED) on success; MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername/AdminPassword required and validated, KmsKeyArn accepted; see Notes"}
   GetMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.AdminUsername/CaEndpoint + KmsKeyArn; LogPublishingConfiguration.Fabric.CaLogs wire key fixed CloudWatch->Cloudwatch, see 2026-08-20 Notes"}
-  ListMembers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  ListMembers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set exact against v1.34.4, see list_summary_shapes_test.go."}
   DeleteMember: {wire: ok, errors: ok, state: fixed, persist: ok, note: "cascades to member's nodes, matching real AWS; now also cascade-deletes the network when the removed member was its last, matching both the direct-call and approved-removal-proposal paths; see 2026-09-04 Notes"}
   UpdateMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "LogPublishingConfiguration.Fabric.CaLogs.Cloudwatch request/response wire key fixed, see 2026-08-20 Notes"}
   CreateNode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "NodeConfiguration.StateDB accepted (defaults CouchDB), KmsKeyArn inherited from owning member; see Notes"}
   GetNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.PeerEndpoint/PeerEventEndpoint + StateDB + KmsKeyArn; LogPublishingConfiguration.Fabric.{ChaincodeLogs,PeerLogs} wire key fixed CloudWatch->Cloudwatch, see 2026-08-20 Notes"}
-  ListNodes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  ListNodes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set exact against v1.34.4, see list_summary_shapes_test.go."}
   DeleteNode: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateNode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "MemberId moved from a required query parameter to the required JSON body field a real client actually sends; LogPublishingConfiguration.Fabric.{ChaincodeLogs,PeerLogs}.Cloudwatch wire key fixed; see 2026-08-20 Notes"}
   CreateProposal: {wire: ok, errors: ok, state: ok, persist: ok}
   GetProposal: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now resolves a lapsed IN_PROGRESS proposal to EXPIRED on read; see 2026-09-04 Notes"}
-  ListProposals: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "server-side pagination now implemented; fabricated ProposalSummary.NetworkId member removed, see 2026-08-20 Notes; now resolves EXPIRED the same way GetProposal does, see 2026-09-04 Notes"}
+  ListProposals: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "server-side pagination now implemented; fabricated ProposalSummary.NetworkId member removed, see 2026-08-20 Notes; now resolves EXPIRED the same way GetProposal does, see 2026-09-04 Notes. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set exact against v1.34.4, see list_summary_shapes_test.go."}
   VoteOnProposal: {wire: ok, errors: ok, state: fixed, persist: ok, note: "tallies votes and resolves APPROVED/REJECTED against VotingPolicy; not a disguised no-op; now also resolves EXPIRED on a lapsed proposal and rejects votes on it, see 2026-09-04 Notes; executeProposalActionsLocked now fails a RemoveAction whose target member already left independently, setting ACTION_FAILED instead of silently succeeding as APPROVED, see 2026-09-08 Notes"}
-  ListProposalVotes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  ListProposalVotes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set exact against v1.34.4, see list_summary_shapes_test.go."}
   ListInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented; fabricated Invitation.NetworkId/NetworkName top-level members removed, see 2026-08-20 Notes"}
   RejectInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccessor: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-09-12: was a hard delete (Get/ListAccessors 404'd immediately after); real AWS keeps the accessor visible with status PENDING_DELETION (api_op_DeleteAccessor.go doc). Now transitions Status in place and drops only the arnToResource entry (so TagResource still correctly fails), matching the documented lifecycle."}
-  ListAccessors: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  ListAccessors: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set exact against v1.34.4, see list_summary_shapes_test.go."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -593,3 +593,14 @@ still correctly fails. Three pre-existing tests (`TestHandler_DeleteAccessor`,
 `TestHandler_AccessorLifecycleViaHTTP`, `TestHandler_AccessorRoundTrip`) had
 encoded the wrong hard-delete/404 shape as correct -- corrected to assert
 `PENDING_DELETION` instead. All other 13 ops clean.
+
+## Notes (2026-09-19 pass — gopherstack-dv4s over-wide-response census)
+
+Verified all 6 census-flagged List ops member-by-member against
+cmd/structfielddiff for managedblockchain@v1.34.4: ListAccessors,
+ListMembers, ListNetworks, ListNodes, ListProposalVotes, ListProposals. All
+6 already exact (prior sweeps had already built dedicated narrow summary
+projections for each). No new bug found; false-positive census hits.
+Locked in via list_summary_shapes_test.go (real SDK client round-trips).
+Gates: `go build`/`go vet`/`go test -race` clean, `golangci-lint run` 0
+issues.

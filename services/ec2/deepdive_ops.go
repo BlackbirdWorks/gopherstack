@@ -143,6 +143,20 @@ func (b *InMemoryBackend) DescribeNetworkAcls(vpcIDs []string) []*NetworkACL {
 		allowed[id] = true
 	}
 
+	// explicitlyAssociated collects every subnet ID already listed in a stored
+	// (non-default) ACL's AssociationIDs (set by CreateNetworkAcl's SubnetId
+	// or ReplaceNetworkAclAssociation) -- these subnets have moved off the
+	// VPC's default ACL and must not also appear in its synthetic listing
+	// below, or DescribeNetworkAcls' association.subnet-id filter would
+	// (correctly) report the same subnet on two ACLs at once.
+	explicitlyAssociated := make(map[string]bool)
+
+	for _, stored := range b.networkACLs.All() {
+		for _, subnetID := range stored.AssociationIDs {
+			explicitlyAssociated[subnetID] = true
+		}
+	}
+
 	networkACLs := make([]*NetworkACL, 0, b.vpcs.Len())
 	for _, vpc := range b.vpcs.All() {
 		if len(allowed) > 0 && !allowed[vpc.ID] {
@@ -151,13 +165,20 @@ func (b *InMemoryBackend) DescribeNetworkAcls(vpcIDs []string) []*NetworkACL {
 
 		assocIDs := make([]string, 0, b.subnets.Len())
 		for _, subnet := range b.subnets.All() {
-			if subnet.VPCID == vpc.ID {
-				assocIDs = append(assocIDs, "aclassoc-"+subnet.ID)
+			if subnet.VPCID == vpc.ID && !explicitlyAssociated[subnet.ID] {
+				// AssociationIDs stores the raw subnet ID, matching this
+				// backend's documented association-ID simplification
+				// (network_acls.go's AddSubnetAssociation/
+				// ReplaceNetworkACLAssociation do the same) -- a distinct
+				// "aclassoc-" ID here would silently break the
+				// association.subnet-id filter, which compares directly
+				// against AssociationIDs.
+				assocIDs = append(assocIDs, subnet.ID)
 			}
 		}
 
 		networkACLs = append(networkACLs, &NetworkACL{
-			ID:             "acl-default-" + vpc.ID,
+			ID:             networkACLDefaultIDPrefix + vpc.ID,
 			VPCID:          vpc.ID,
 			IsDefault:      true,
 			AssociationIDs: assocIDs,

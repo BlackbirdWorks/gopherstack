@@ -29,7 +29,7 @@ func TestCreateCluster(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, "my-cluster", c.ClusterName)
 				assert.Equal(t, "dax.r5.large", c.NodeType)
-				assert.Equal(t, dax.StatusAvailable, c.Status)
+				assert.Equal(t, dax.StatusCreating, c.Status)
 				assert.Equal(t, 1, c.TotalNodes)
 				assert.Equal(t, 1, c.ActiveNodes)
 				assert.Len(t, c.Nodes, 1)
@@ -764,8 +764,13 @@ func TestDeleteCluster(t *testing.T) {
 			assert.Equal(t, tt.clusterName, deleted.ClusterName)
 			assert.Equal(t, dax.StatusDeleting, deleted.Status)
 
-			_, _, err = b.DescribeClusters([]string{tt.clusterName}, 0, "")
-			require.Error(t, err)
+			// A deleting cluster stays visible with its transient status until
+			// its deadline passes -- matching real AWS, which keeps reporting
+			// "deleting" for a while rather than vanishing immediately.
+			clusters, _, err := b.DescribeClusters([]string{tt.clusterName}, 0, "")
+			require.NoError(t, err)
+			require.Len(t, clusters, 1)
+			assert.Equal(t, dax.StatusDeleting, clusters[0].Status)
 		})
 	}
 }

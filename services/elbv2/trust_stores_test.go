@@ -101,7 +101,7 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 
 			rec := doELBv2(t, h, vals)
@@ -118,7 +118,7 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	// Create a trust store.
 	createRec := doELBv2(t, h, url.Values{
@@ -414,7 +414,7 @@ func TestELBv2_DescribeTrustStores(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 
 			rec := doELBv2(t, h, vals)
@@ -521,7 +521,7 @@ func TestELBv2_ModifyTrustStore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 
 			rec := doELBv2(t, h, vals)
@@ -567,7 +567,7 @@ func TestTrustStore_CaCertificatesBundleS3Wiring(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			createRec := doELBv2(t, h, url.Values{
 				"Action":                       {"CreateTrustStore"},
 				"Version":                      {"2015-12-01"},
@@ -619,7 +619,7 @@ func TestTrustStore_CaCertificatesBundleS3Wiring(t *testing.T) {
 func TestTrustStore_FullLifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 
 	// Create
 	cRec := doELBv2(t, h, url.Values{
@@ -671,7 +671,7 @@ func TestTrustStore_FullLifecycle(t *testing.T) {
 func TestTrustStore_Revocations(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tsRec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateTrustStore"},
 		"Version": {"2015-12-01"},
@@ -713,7 +713,7 @@ func TestTrustStore_Revocations(t *testing.T) {
 func TestGetTrustStoreCaCertificatesBundle(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tsRec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateTrustStore"},
 		"Version": {"2015-12-01"},
@@ -742,7 +742,7 @@ func TestGetTrustStoreCaCertificatesBundle(t *testing.T) {
 func TestDescribeTrustStoreAssociations(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tsRec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateTrustStore"},
 		"Version": {"2015-12-01"},
@@ -772,7 +772,7 @@ func TestDescribeTrustStoreAssociations(t *testing.T) {
 func TestDeleteSharedTrustStoreAssociation(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tsRec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateTrustStore"},
 		"Version": {"2015-12-01"},
@@ -850,7 +850,7 @@ func TestDeleteSharedTrustStoreAssociation(t *testing.T) {
 func TestRemoveTrustStoreRevocations(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tsRec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateTrustStore"},
 		"Version": {"2015-12-01"},
@@ -886,7 +886,7 @@ func TestRemoveTrustStoreRevocations(t *testing.T) {
 func TestGetTrustStoreRevocationContent(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tsRec := doELBv2(t, h, url.Values{
 		"Action":  {"CreateTrustStore"},
 		"Version": {"2015-12-01"},

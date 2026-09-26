@@ -26,7 +26,8 @@ var (
 	ErrDuplicateSGName           = errors.New("InvalidGroup.Duplicate")
 	ErrInvalidInstanceState      = errors.New("IncorrectInstanceState")
 	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
-	ErrCIDRConflict              = errors.New("InvalidVpc.Conflict")
+	ErrSubnetCIDRConflict        = errors.New("InvalidSubnet.Conflict")
+	ErrVpcCIDRRange              = errors.New("InvalidVpc.Range")
 	ErrDryRunOperation           = errors.New("request would have succeeded, but DryRun flag is set")
 	ErrDuplicatePermission       = errors.New("InvalidPermission.Duplicate")
 
@@ -88,6 +89,8 @@ const (
 	resourceTypeSnapshot               = "snapshot"
 	resourceTypeENI                    = "network-interface"
 	vpcDefaultName                     = "vpc-default"
+	dhcpOptionsDefaultID               = "dopt-default"
+	routeTableDefaultID                = "rtb-default"
 	archX8664                          = "x86_64"
 	resourceTypeFISInstance            = "aws:ec2:instance"
 	ec2BooleanFalse                    = "false"
@@ -95,6 +98,11 @@ const (
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.
 	stateActive = "active"
+
+	// instanceConnectEndpointStateCreateComplete matches
+	// types.Ec2InstanceConnectEndpointStateCreateComplete (ec2@v1.329.0
+	// types/enums.go): a distinct state set from stateActive above.
+	instanceConnectEndpointStateCreateComplete = "create-complete"
 
 	// lifecycleReconcileInterval is how often the reconciler advances transitional instance states.
 	lifecycleReconcileInterval = 50 * time.Millisecond
@@ -302,6 +310,7 @@ type Subnet struct {
 	// services/outposts backend (cross_service.go) when wired. Empty for a
 	// normal (non-Outpost) subnet.
 	OutpostArn          string `json:"outpostArn,omitempty"`
+	Arn                 string `json:"arn,omitempty"`
 	IsDefault           bool   `json:"isDefault,omitempty"`
 	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch,omitempty"`
 }
@@ -315,87 +324,108 @@ type InMemoryBackend struct {
 	// Outposts backend on demand -- see cross_service.go's SetAppConfig doc
 	// comment for why this must be lazy rather than resolved at
 	// construction time.
-	appConfig                      any
-	addressTransfers               map[string]*AddressTransfer
-	capacityReservations           *store.Table[CapacityReservation]
-	vpcs                           *store.Table[VPC]
-	subnets                        *store.Table[Subnet]
-	keyPairs                       *store.Table[KeyPair]
-	reservedInstancesExchanges     *store.Table[ReservedInstancesExchange]
-	addresses                      *store.Table[Address]
-	internetGateways               *store.Table[InternetGateway]
-	natGateways                    *store.Table[NatGateway]
-	routeTables                    *store.Table[RouteTable]
-	placementGroups                *store.Table[PlacementGroup]
-	spotRequests                   *store.Table[SpotInstanceRequest]
-	instances                      *store.Table[Instance]
-	images                         *store.Table[AMIStub]
-	launchTemplates                *store.Table[LaunchTemplate]
-	vpcEndpoints                   *store.Table[VpcEndpoint]
-	tags                           map[string]map[string]string
-	securityGroups                 *store.Table[SecurityGroup]
-	networkInterfaces              *store.Table[NetworkInterface]
-	volumes                        *store.Table[Volume]
-	tgwMulticastDomainAssociations *store.Table[TransitGatewayMulticastDomainAssociation]
-	tgwPeeringAttachments          *store.Table[TransitGatewayPeeringAttachment]
-	tgwVpcAttachments              *store.Table[TransitGatewayVpcAttachment]
-	vpcEndpointConnections         *store.Table[VpcEndpointConnection]
-	vpcPeeringConnections          *store.Table[VpcPeeringConnection]
-	byoipCidrs                     *store.Table[ByoipCidr]
-	dedicatedHosts                 *store.Table[Host]
-	snapshots                      *store.Table[Snapshot]
-	networkACLs                    *store.Table[StoredNetworkACL]
-	transitGateways                *store.Table[TransitGateway]
-	flowLogs                       *store.Table[FlowLog]
-	dhcpOptionSets                 *store.Table[DhcpOptions]
-	egressOnlyIGWs                 *store.Table[EgressOnlyInternetGateway]
-	iamAssociations                *store.Table[IamInstanceProfileAssociation]
-	tgwRouteTables                 *store.Table[TransitGatewayRouteTable]
-	tgwRoutes                      *store.Table[TransitGatewayRoute]
-	tgwRTAssociations              *store.Table[TransitGatewayRouteTableAssociation]
-	tgwPolicyTables                *store.Table[TransitGatewayPolicyTable]
-	tgwPolicyTableAssociations     *store.Table[TransitGatewayPolicyTableAssociation]
-	tgwPolicyTableEntries          *store.Table[TransitGatewayPolicyTableEntry]
-	tgwRouteTableAnnouncements     *store.Table[TransitGatewayRouteTableAnnouncement]
-	vpcCidrAssociations            map[string]*VpcCidrBlockAssociation
-	vpnGateways                    *store.Table[VpnGateway]
-	customerGateways               *store.Table[CustomerGateway]
-	vpnConnections                 *store.Table[VpnConnection]
-	vpcEndpointServiceConfigs      *store.Table[VpcEndpointServiceConfig]
-	ipams                          *store.Table[Ipam]
-	ipamScopes                     *store.Table[IpamScope]
-	ipamPools                      *store.Table[IpamPool]
-	ipamPoolCidrs                  map[string][]*IpamPoolCidr
-	ipamPoolAllocations            *store.Table[IpamPoolAllocation]
-	ipamResourceDiscoveries        *store.Table[IpamResourceDiscovery]
-	ipamResourceDiscoveryAssocs    *store.Table[IpamResourceDiscoveryAssociation]
-	ipamByoasns                    *store.Table[IpamByoasn]
-	ipamAsnAssociations            *store.Table[IpamAsnAssociation]
-	ipamVerificationTokens         *store.Table[IpamExternalResourceVerificationToken]
-	ipamResourceCidrs              *store.Table[IpamResourceCidr]
-	ipamPrefixListResolvers        *store.Table[IpamPrefixListResolver]
-	ipamPrefixListResolverVersions map[string][]int64
-	ipamPrefixListResolverTargets  *store.Table[IpamPrefixListResolverTarget]
-	ipamPolicies                   *store.Table[IpamPolicy]
-	ipamPolicyEnabledTargets       map[string]string
-	ipamOrgAdminAccountID          string
-	spotFleets                     *store.Table[SpotFleetRequest]
-	spotFleetHistory               map[string][]SpotFleetHistoryRecord
+	appConfig                           any
+	addressTransfers                    map[string]*AddressTransfer
+	capacityReservations                *store.Table[CapacityReservation]
+	vpcs                                *store.Table[VPC]
+	subnets                             *store.Table[Subnet]
+	keyPairs                            *store.Table[KeyPair]
+	reservedInstancesExchanges          *store.Table[ReservedInstancesExchange]
+	addresses                           *store.Table[Address]
+	internetGateways                    *store.Table[InternetGateway]
+	natGateways                         *store.Table[NatGateway]
+	routeTables                         *store.Table[RouteTable]
+	placementGroups                     *store.Table[PlacementGroup]
+	spotRequests                        *store.Table[SpotInstanceRequest]
+	instances                           *store.Table[Instance]
+	images                              *store.Table[AMIStub]
+	launchTemplates                     *store.Table[LaunchTemplate]
+	vpcEndpoints                        *store.Table[VpcEndpoint]
+	tags                                map[string]map[string]string
+	securityGroups                      *store.Table[SecurityGroup]
+	networkInterfaces                   *store.Table[NetworkInterface]
+	volumes                             *store.Table[Volume]
+	tgwMulticastDomainAssociations      *store.Table[TransitGatewayMulticastDomainAssociation]
+	tgwPeeringAttachments               *store.Table[TransitGatewayPeeringAttachment]
+	tgwVpcAttachments                   *store.Table[TransitGatewayVpcAttachment]
+	vpcEndpointConnections              *store.Table[VpcEndpointConnection]
+	vpcPeeringConnections               *store.Table[VpcPeeringConnection]
+	byoipCidrs                          *store.Table[ByoipCidr]
+	dedicatedHosts                      *store.Table[Host]
+	snapshots                           *store.Table[Snapshot]
+	networkACLs                         *store.Table[StoredNetworkACL]
+	transitGateways                     *store.Table[TransitGateway]
+	flowLogs                            *store.Table[FlowLog]
+	dhcpOptionSets                      *store.Table[DhcpOptions]
+	egressOnlyIGWs                      *store.Table[EgressOnlyInternetGateway]
+	iamAssociations                     *store.Table[IamInstanceProfileAssociation]
+	tgwRouteTables                      *store.Table[TransitGatewayRouteTable]
+	tgwRoutes                           *store.Table[TransitGatewayRoute]
+	tgwRTAssociations                   *store.Table[TransitGatewayRouteTableAssociation]
+	tgwPolicyTables                     *store.Table[TransitGatewayPolicyTable]
+	tgwPolicyTableAssociations          *store.Table[TransitGatewayPolicyTableAssociation]
+	tgwPolicyTableEntries               *store.Table[TransitGatewayPolicyTableEntry]
+	tgwRouteTableAnnouncements          *store.Table[TransitGatewayRouteTableAnnouncement]
+	vpcCidrAssociations                 map[string]*VpcCidrBlockAssociation
+	vpcIpv6CidrAssociations             map[string]*VpcIpv6CidrBlockAssociation
+	vpnGateways                         *store.Table[VpnGateway]
+	customerGateways                    *store.Table[CustomerGateway]
+	vpnConnections                      *store.Table[VpnConnection]
+	vpcEndpointServiceConfigs           *store.Table[VpcEndpointServiceConfig]
+	ipams                               *store.Table[Ipam]
+	ipamScopes                          *store.Table[IpamScope]
+	ipamPools                           *store.Table[IpamPool]
+	ipamPoolCidrs                       map[string][]*IpamPoolCidr
+	ipamInternetRegistryAssociations    *store.Table[IpamInternetRegistryAssociation]
+	ipamRoutingPolicyRegistrations      *store.Table[IpamRoutingPolicyRegistration]
+	ipamRoutingPolicyRegistrationDeltas *store.Table[IpamRoutingPolicyRegistrationDelta]
+	ipamPoolAllocations                 *store.Table[IpamPoolAllocation]
+	ipamResourceDiscoveries             *store.Table[IpamResourceDiscovery]
+	ipamResourceDiscoveryAssocs         *store.Table[IpamResourceDiscoveryAssociation]
+	ipamByoasns                         *store.Table[IpamByoasn]
+	ipamAsnAssociations                 *store.Table[IpamAsnAssociation]
+	ipamVerificationTokens              *store.Table[IpamExternalResourceVerificationToken]
+	ipamResourceCidrs                   *store.Table[IpamResourceCidr]
+	ipamPrefixListResolvers             *store.Table[IpamPrefixListResolver]
+	ipamPrefixListResolverVersions      map[string][]int64
+	ipamPrefixListResolverTargets       *store.Table[IpamPrefixListResolverTarget]
+	ipamPolicies                        *store.Table[IpamPolicy]
+	ipamPolicyEnabledTargets            map[string]string
+	ipamOrgAdminAccountID               string
+	spotFleets                          *store.Table[SpotFleetRequest]
+	spotFleetHistory                    map[string][]SpotFleetHistoryRecord
 	// batch1 additions
-	volumeModifications      *store.Table[VolumeModification]
-	snapshotTiers            map[string]string
-	snapshotAttributes       map[string]map[string]string
-	sgVpcAssociations        map[string]map[string]string
-	vpcTenancy               map[string]string
-	vpcPeeringOptions        map[string]*PeeringConnectionOptions
-	subnetCIDRAssociations   map[string][]*SubnetCIDRAssociation
-	addressAttributes        *store.Table[AddressAttribute]
-	instanceCreditSpecs      map[string]string
-	instanceMetadataDefaults *InstanceMetadataDefaults
-	instanceEventNotifAttrs  *InstanceEventNotificationAttributes
-	niPermissions            *store.Table[NetworkInterfacePermission]
-	niIPv6Addresses          map[string][]string
-	idFormatSettings         map[string]bool
+	volumeModifications       *store.Table[VolumeModification]
+	snapshotTiers             map[string]string
+	snapshotAttributes        map[string]map[string]string
+	sgVpcAssociations         map[string]map[string]string
+	vpcTenancy                map[string]string
+	vpcPeeringOptions         map[string]*PeeringConnectionOptions
+	vpcPeeringAccepterOptions map[string]*PeeringConnectionOptions
+
+	// tgwRouteTableTombstones retains a deleted TGW route table's last known
+	// state (real AWS keeps DescribeTransitGatewayRouteTables answering with
+	// state "deleted" for a period rather than NotFound; some
+	// terraform-provider-aws delete waiters treat a NotFound response as a
+	// fatal error instead of "done").
+	tgwRouteTableTombstones map[string]tombstone[TransitGatewayRouteTable]
+	// tgwVpcAttachmentTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for TGW VPC attachment delete waiters.
+	tgwVpcAttachmentTombstones map[string]tombstone[TransitGatewayVpcAttachment]
+	// natGatewayTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for DeleteNatGateway's delete waiter.
+	natGatewayTombstones map[string]tombstone[NatGateway]
+	// tgwPeeringAttachmentTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for DeleteTransitGatewayPeeringAttachment's delete waiter.
+	tgwPeeringAttachmentTombstones map[string]tombstone[TransitGatewayPeeringAttachment]
+	subnetCIDRAssociations         map[string][]*SubnetCIDRAssociation
+	addressAttributes              *store.Table[AddressAttribute]
+	instanceCreditSpecs            map[string]string
+	instanceMetadataDefaults       *InstanceMetadataDefaults
+	instanceEventNotifAttrs        *InstanceEventNotificationAttributes
+	niPermissions                  *store.Table[NetworkInterfacePermission]
+	niIPv6Addresses                map[string][]string
+	idFormatSettings               map[string]bool
 	// batch2 additions
 	endpointConnectionNotifs      *store.Table[VpcEndpointConnectionNotification]
 	vpcEndpointServicePermissions map[string][]string
@@ -406,6 +436,11 @@ type InMemoryBackend struct {
 	imageDeprecated               map[string]string
 	imageDeregistrationProtection map[string]bool
 	imageAttributes               map[string]map[string]string
+	imageInstanceTypeSpecs        map[string]*InstanceTypeSpecification
+	imageLaunchPermissions        map[string]map[string]bool
+	imageLaunchPermissionPublic   map[string]bool
+	snapshotCreateVolumePerms     map[string]map[string]bool
+	snapshotCreateVolumePubGroup  map[string]bool
 	vgwRoutePropagation           map[string]bool
 	// batch4 additions
 	managedPrefixLists           *store.Table[ManagedPrefixList]
@@ -430,12 +465,18 @@ type InMemoryBackend struct {
 	vpnConnectionRoutes      *store.Table[VpnConnectionRoute]
 	spotDatafeed             *SpotDatafeed
 	// batch5 additions
-	trafficMirrorFilters               *store.Table[TrafficMirrorFilter]
-	trafficMirrorFilterRules           *store.Table[TrafficMirrorFilterRule]
-	trafficMirrorSessions              *store.Table[TrafficMirrorSession]
-	trafficMirrorTargets               *store.Table[TrafficMirrorTarget]
-	fleets                             *store.Table[Fleet]
-	fleetHistory                       map[string][]FleetHistoryRecord
+	trafficMirrorFilters     *store.Table[TrafficMirrorFilter]
+	trafficMirrorFilterRules *store.Table[TrafficMirrorFilterRule]
+	trafficMirrorSessions    *store.Table[TrafficMirrorSession]
+	trafficMirrorTargets     *store.Table[TrafficMirrorTarget]
+	fleets                   *store.Table[Fleet]
+	fleetHistory             map[string][]FleetHistoryRecord
+	// fleetTombstones is the same tombstone pattern as tgwRouteTableTombstones,
+	// for DeleteFleets' delete waiter.
+	fleetTombstones map[string]tombstone[Fleet]
+	// vpnConnectionTombstones is the same tombstone pattern as
+	// tgwRouteTableTombstones, for DeleteVpnConnection's delete waiter.
+	vpnConnectionTombstones            map[string]tombstone[VpnConnection]
 	networkInsightsPaths               *store.Table[NetworkInsightsPath]
 	networkInsightsAnalyses            *store.Table[NetworkInsightsAnalysis]
 	networkInsightsAccessScopes        *store.Table[NetworkInsightsAccessScope]
@@ -573,14 +614,15 @@ type InMemoryBackend struct {
 
 func newInMemoryBackendMaps() *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:            store.NewRegistry(),
-		tags:                make(map[string]map[string]string),
-		addressTransfers:    make(map[string]*AddressTransfer),
-		vpcCidrAssociations: make(map[string]*VpcCidrBlockAssociation),
-		ipamPoolCidrs:       make(map[string][]*IpamPoolCidr),
-		instanceIDsByVPC:    make(map[string]map[string]struct{}),
-		eniIDsByInstance:    make(map[string]map[string]struct{}),
-		eniIDByAttachment:   make(map[string]string),
+		registry:                store.NewRegistry(),
+		tags:                    make(map[string]map[string]string),
+		addressTransfers:        make(map[string]*AddressTransfer),
+		vpcCidrAssociations:     make(map[string]*VpcCidrBlockAssociation),
+		vpcIpv6CidrAssociations: make(map[string]*VpcIpv6CidrBlockAssociation),
+		ipamPoolCidrs:           make(map[string][]*IpamPoolCidr),
+		instanceIDsByVPC:        make(map[string]map[string]struct{}),
+		eniIDsByInstance:        make(map[string]map[string]struct{}),
+		eniIDByAttachment:       make(map[string]string),
 	}
 	registerAllTables(b)
 	initCoreExtraMaps(b)
@@ -622,11 +664,18 @@ func initVerifiedAccessExtMaps(b *InMemoryBackend) {
 func initCoreExtraMaps(b *InMemoryBackend) {
 	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
 	b.fleetHistory = make(map[string][]FleetHistoryRecord)
+	b.fleetTombstones = make(map[string]tombstone[Fleet])
+	b.vpnConnectionTombstones = make(map[string]tombstone[VpnConnection])
 	b.snapshotTiers = make(map[string]string)
 	b.snapshotAttributes = make(map[string]map[string]string)
 	b.sgVpcAssociations = make(map[string]map[string]string)
 	b.vpcTenancy = make(map[string]string)
 	b.vpcPeeringOptions = make(map[string]*PeeringConnectionOptions)
+	b.vpcPeeringAccepterOptions = make(map[string]*PeeringConnectionOptions)
+	b.tgwRouteTableTombstones = make(map[string]tombstone[TransitGatewayRouteTable])
+	b.tgwVpcAttachmentTombstones = make(map[string]tombstone[TransitGatewayVpcAttachment])
+	b.natGatewayTombstones = make(map[string]tombstone[NatGateway])
+	b.tgwPeeringAttachmentTombstones = make(map[string]tombstone[TransitGatewayPeeringAttachment])
 	b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
 	b.instanceCreditSpecs = make(map[string]string)
 	b.niIPv6Addresses = make(map[string][]string)
@@ -637,6 +686,11 @@ func initCoreExtraMaps(b *InMemoryBackend) {
 	b.imageDeprecated = make(map[string]string)
 	b.imageDeregistrationProtection = make(map[string]bool)
 	b.imageAttributes = make(map[string]map[string]string)
+	b.imageInstanceTypeSpecs = make(map[string]*InstanceTypeSpecification)
+	b.imageLaunchPermissions = make(map[string]map[string]bool)
+	b.imageLaunchPermissionPublic = make(map[string]bool)
+	b.snapshotCreateVolumePerms = make(map[string]map[string]bool)
+	b.snapshotCreateVolumePubGroup = make(map[string]bool)
 	b.vgwRoutePropagation = make(map[string]bool)
 }
 
@@ -716,6 +770,7 @@ func (b *InMemoryBackend) Reset() {
 	b.tags = make(map[string]map[string]string)
 	b.addressTransfers = make(map[string]*AddressTransfer)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
+	b.vpcIpv6CidrAssociations = make(map[string]*VpcIpv6CidrBlockAssociation)
 	initSecondaryIndexMaps(b)
 	b.freePrivateIPs = nil
 	b.nextPrivateIPIndex = 0
@@ -739,10 +794,12 @@ func (b *InMemoryBackend) Reset() {
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.
+	b.seedDefaultDhcpOptionsLocked()
 	b.vpcs.Put(&VPC{
-		ID:        vpcDefaultName,
-		CIDRBlock: "172.31.0.0/16",
-		IsDefault: true,
+		ID:            vpcDefaultName,
+		CIDRBlock:     "172.31.0.0/16",
+		IsDefault:     true,
+		DHCPOptionsID: dhcpOptionsDefaultID,
 	})
 	b.subnets.Put(&Subnet{
 		ID:               "subnet-default",
@@ -759,6 +816,27 @@ func (b *InMemoryBackend) Reset() {
 		VPCID:       vpcDefaultName,
 	})
 	b.indexSGLocked("sg-default", vpcDefaultName)
+	b.createMainRouteTableLocked(routeTableDefaultID, vpcDefaultName, "172.31.0.0/16")
+}
+
+// seedDefaultDhcpOptionsLocked (re-)creates the account's default DHCP options
+// set (dopt-default): every AWS account/region has one, associated with the
+// default VPC and any VPC reset to "default" via AssociateDhcpOptions. Must be
+// called with b.mu held.
+func (b *InMemoryBackend) seedDefaultDhcpOptionsLocked() {
+	domainName := b.Region + ".compute.internal"
+	if b.Region == "us-east-1" {
+		domainName = "ec2.internal"
+	}
+
+	b.dhcpOptionSets.Put(&DhcpOptions{
+		DhcpOptionsID: dhcpOptionsDefaultID,
+		Configurations: []DhcpConfiguration{
+			{Key: "domain-name", Values: []string{domainName}},
+			{Key: "domain-name-servers", Values: []string{"AmazonProvidedDNS"}},
+		},
+		AssociatedVPCIDs: []string{},
+	})
 }
 
 // resetNewOpsMapsLocked re-initialises all "new operations" resource maps introduced
@@ -766,6 +844,7 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.addressTransfers = make(map[string]*AddressTransfer)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
+	b.vpcIpv6CidrAssociations = make(map[string]*VpcIpv6CidrBlockAssociation)
 	initCoreExtraMaps(b)
 	initBatch6Maps(b)
 	b.resetAdvancedNetworkingMapsLocked()
@@ -871,12 +950,14 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 
 // initDefaults pre-populates a default VPC, subnet, and security group.
 func (b *InMemoryBackend) initDefaults() {
+	b.seedDefaultDhcpOptionsLocked()
+
 	defaultVPCID := vpcDefaultName
 	b.vpcs.Put(&VPC{
 		ID:            defaultVPCID,
 		CIDRBlock:     "172.31.0.0/16",
 		IsDefault:     true,
-		DHCPOptionsID: dhcpOptionsDefault,
+		DHCPOptionsID: dhcpOptionsDefaultID,
 	})
 
 	defaultSubnetID := "subnet-default"
@@ -888,6 +969,8 @@ func (b *InMemoryBackend) initDefaults() {
 		IsDefault:        true,
 	})
 	b.indexSubnetLocked(defaultSubnetID, defaultVPCID)
+
+	b.createMainRouteTableLocked(routeTableDefaultID, defaultVPCID, "172.31.0.0/16")
 
 	defaultSGID := "sg-default"
 	b.securityGroups.Put(&SecurityGroup{
@@ -1086,4 +1169,18 @@ func cidrContains(outer, inner string) bool {
 	ones2, _ := innerNet.Mask.Size()
 
 	return outerNet.Contains(innerNet.IP) && ones1 <= ones2
+}
+
+// vpcCIDRPrefixLenValid reports whether an IPv4 CIDR's prefix length falls
+// within the documented VPC CIDR block size (vpc-cidr-blocks.html: /16 to
+// /28 netmask). A malformed or non-IPv4 CIDR is treated as invalid.
+func vpcCIDRPrefixLenValid(cidr string) bool {
+	_, n, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return false
+	}
+
+	ones, bits := n.Mask.Size()
+
+	return bits == 32 && ones >= 16 && ones <= 28
 }

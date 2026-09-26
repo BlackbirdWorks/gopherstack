@@ -173,5 +173,15 @@ type ExportedUpdateMultiRegionClusterRequest = updateMultiRegionClusterRequest
 // ExportedResetParameterGroupRequest aliases resetParameterGroupRequest for testing.
 type ExportedResetParameterGroupRequest = resetParameterGroupRequest
 
+// ExportedTagEntry aliases tagEntry so other packages (e.g. cloudformation)
+// can build CreateXRequest.Tags without going through the HTTP handler.
+type ExportedTagEntry = tagEntry
+
+// ExportedUpdateParameterGroupRequest aliases updateParameterGroupRequest for external callers.
+type ExportedUpdateParameterGroupRequest = updateParameterGroupRequest
+
+// ExportedParameterNameValueEntry aliases parameterNameValueEntry for external callers.
+type ExportedParameterNameValueEntry = parameterNameValueEntry
+
 // ExportedDescribeServiceUpdatesRequest aliases describeServiceUpdatesRequest for testing.
 type ExportedDescribeServiceUpdatesRequest = describeServiceUpdatesRequest

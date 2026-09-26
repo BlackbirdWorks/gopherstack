@@ -461,8 +461,11 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 
 // mergeTags merges new tags into existing ones, returning a new map.
 func mergeTags(existing, incoming map[string]string) map[string]string {
-	result := make(map[string]string, len(existing)+len(incoming))
-	maps.Copy(result, existing)
+	result := maps.Clone(existing)
+	if result == nil {
+		result = make(map[string]string)
+	}
+
 	maps.Copy(result, incoming)
 
 	return result

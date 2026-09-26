@@ -20,7 +20,9 @@ type StorageBackend interface {
 	DescribeStackProvisioningParameters(stackID string) (agentInstallerURL string, params map[string]string, err error)
 
 	// Layer operations
-	CreateLayer(stackID, layerType, name, shortname string, installUpdatesOnBoot *bool) (*Layer, error)
+	CreateLayer(
+		stackID, layerType, name, shortname string, installUpdatesOnBoot *bool, attributes map[string]string,
+	) (*Layer, error)
 	DescribeLayers(stackID string, layerIDs []string) ([]*Layer, error)
 	UpdateLayer(layerID, name string, installUpdatesOnBoot *bool) error
 	DeleteLayer(layerID string) error
@@ -279,6 +281,7 @@ type InstancesCount struct {
 type Layer struct {
 	CreatedAt            time.Time
 	InstallUpdatesOnBoot *bool
+	Attributes           map[string]string
 	StackID              string
 	LayerID              string
 	Arn                  string

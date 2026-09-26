@@ -78,9 +78,13 @@ func TestHandler_DeleteServerCascade(t *testing.T) {
 	})
 }
 
-// TestHandler_DeleteServerOnlineReturnsConflict verifies that DeleteServer
-// returns a ConflictException (400) when the server is ONLINE.
-func TestHandler_DeleteServerOnlineReturnsConflict(t *testing.T) {
+// TestHandler_DeleteServerOnlineSucceeds verifies that DeleteServer has no
+// state precondition: real AWS lets an ONLINE server be deleted directly
+// (terraform-provider-aws destroys aws_transfer_server via DescribeServer +
+// DeleteServer only, never StopServer -- confirmed via an actual Terraform
+// apply/destroy). A prior version of this handler rejected this with a
+// fabricated ConflictException; removed.
+func TestHandler_DeleteServerOnlineSucceeds(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
@@ -92,9 +96,7 @@ func TestHandler_DeleteServerOnlineReturnsConflict(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 		serverID := createResp["ServerId"].(string)
 
-		// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
-		startRec := doTransferRequest(t, h, "StartServer", map[string]any{"ServerId": serverID})
-		require.Equal(t, http.StatusOK, startRec.Code)
+		// A real server self-starts after CreateServer; see TestHandler_CreateServer.
 		time.Sleep(serverTransitionWait)
 
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
@@ -102,14 +104,8 @@ func TestHandler_DeleteServerOnlineReturnsConflict(t *testing.T) {
 		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
 		require.Equal(t, "ONLINE", resp["Server"].(map[string]any)["State"].(string))
 
-		// Server is ONLINE; delete should fail.
 		delRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
-		assert.Equal(t, http.StatusBadRequest, delRec.Code)
-
-		var errResp map[string]any
-		require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &errResp))
-		// The handler maps ErrConflict to ResourceExistsException.
-		assert.Contains(t, errResp["__type"], "ResourceExistsException")
+		assert.Equal(t, http.StatusOK, delRec.Code)
 	})
 }
 

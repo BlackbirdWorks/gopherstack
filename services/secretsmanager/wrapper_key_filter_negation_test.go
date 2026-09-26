@@ -18,6 +18,7 @@ func TestListSecrets_FilterNegationExcludes(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	for _, name := range []string{"prod/db", "prod/api", "dev/db"} {
 		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: name, SecretString: "v"})
 		require.NoError(t, err)
@@ -46,6 +47,7 @@ func TestBatchGetSecretValue_FilterAllKeyIsHonoured(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name: "match-me", SecretString: "v",
 	})

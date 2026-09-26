@@ -35,6 +35,8 @@ func (b *InMemoryBackend) PutPolicyBasedShare(resourceARN string, principals, ac
 
 	now := time.Now()
 
+	b.pruneDeletedResourceSharesLocked(now)
+
 	rs := b.findPolicyShareLocked(resourceARN)
 	if rs == nil {
 		shareID := uuid.NewString()
@@ -82,12 +84,14 @@ func (b *InMemoryBackend) DeletePolicyBasedShare(resourceARN string) error {
 	b.mu.Lock("DeletePolicyBasedShare")
 	defer b.mu.Unlock()
 
+	now := time.Now()
+
+	b.pruneDeletedResourceSharesLocked(now)
+
 	rs := b.findPolicyShareLocked(resourceARN)
 	if rs == nil {
 		return nil
 	}
-
-	now := time.Now()
 
 	for _, a := range b.associations {
 		if a.ResourceShareARN == rs.ARN && a.Status == associationStatusAssociated {

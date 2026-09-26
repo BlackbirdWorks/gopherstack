@@ -21,7 +21,7 @@ import (
 func newTestHandler(t *testing.T) *fis.Handler {
 	t.Helper()
 
-	backend := fis.NewTestBackend()
+	backend := fis.NewTestBackend(t)
 	h := fis.NewHandler(backend)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"
@@ -283,7 +283,7 @@ func TestErrorResponse_ValidationException_HasType(t *testing.T) {
 func TestReset(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:  "EXT-reset1",
 		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-reset1",
@@ -300,7 +300,7 @@ func TestReset(t *testing.T) {
 func TestMultipleResetCycle(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	for i := range 3 {
 		b.AddTemplateInternal(&fis.ExperimentTemplate{
@@ -392,7 +392,7 @@ func TestGetSupportedOperations_AllOps(t *testing.T) {
 func TestSeedHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	tpl := &fis.ExperimentTemplate{
 		ID:   "EXT-seed1",
@@ -420,7 +420,7 @@ func TestSeedHelpers(t *testing.T) {
 func TestExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	assert.Equal(t, 0, b.TemplateCount())
 	assert.Equal(t, 0, b.ExperimentCount())
 	assert.Equal(t, 0, b.TargetAccountConfigCount())
@@ -461,7 +461,7 @@ func TestErrValidationMapping(t *testing.T) {
 func TestPersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:   "EXT-persist1",
@@ -478,7 +478,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := fis.NewTestBackend()
+	b2 := fis.NewTestBackend(t)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.TemplateCount())
@@ -492,11 +492,11 @@ func TestPersistenceRoundTrip(t *testing.T) {
 func TestPersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := fis.NewTestBackend()
+	b2 := fis.NewTestBackend(t)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 0, b2.TemplateCount())
@@ -507,7 +507,7 @@ func TestPersistenceEmpty(t *testing.T) {
 func TestSeedHelper_DeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:  "EXT-deepcopy1",
 		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-deepcopy1",

@@ -1,8 +1,8 @@
 ---
 service: awsconfig
 sdk_module: aws-sdk-go-v2/service/configservice@v1.68.4
-last_audit_commit: 198990e82
-last_audit_date: 2026-08-07
+last_audit_commit: c02948310
+last_audit_date: 2026-09-20
 overall: A            # this pass: implemented the 5 ops the SDK bump (v1.61.2 -> v1.68.0)
                        # revealed as newly-supported and missing from GetSupportedOperations:
                        # PutConnector/GetConnector/ListConnectors/DeleteConnector (a new
@@ -969,3 +969,15 @@ Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
 -count=1 ./services/awsconfig/...` (pass, including the new suite),
 `golangci-lint run --new-from-rev=HEAD ./services/awsconfig/...`.
 `cmd/paritylint` stays at 0 missing-items-still-open FAIL.
+
+## 2026-09-20 (ssoadmin-config-and-lightsail terraform coverage)
+
+Fixed three real bugs found via the terraform-aws provider: PutConfigurationAggregator
+returned an empty envelope (real output carries the created ConfigurationAggregator;
+provider nil-derefs it, crashing the whole plugin process), DescribeOrganizationConfigRules/
+DescribeOrganizationConformancePacks ignored their name-list filters entirely, and
+PutOrganizationConfigRule dropped OrganizationManagedRuleMetadata/OrganizationCustomRuleMetadata/
+ExcludedAccounts, so aws_config_organization_managed_rule/aws_config_organization_custom_rule
+always read back as not-found. RemediationConfiguration also gained ResourceType/TargetVersion/
+Parameters/Arn/Automatic/MaximumAutomaticAttempts/RetryAttemptSeconds, closing a real drift
+against aws_config_remediation_configuration. See organization.go, aggregators.go, remediation.go.

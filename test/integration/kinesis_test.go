@@ -358,6 +358,7 @@ func TestIntegration_Kinesis_EnhancedFanOut(t *testing.T) {
 
 	stream := subOut.GetStream()
 
+	// Close once the record arrives rather than draining the 5-minute window (gopherstack-j60e).
 	var got []string
 	for event := range stream.Events() {
 		if ev, ok := event.(*kinesistypes.SubscribeToShardEventStreamMemberSubscribeToShardEvent); ok {
@@ -365,8 +366,11 @@ func TestIntegration_Kinesis_EnhancedFanOut(t *testing.T) {
 				got = append(got, string(r.Data))
 			}
 		}
+		if len(got) > 0 {
+			break
+		}
 	}
-	require.NoError(t, stream.Err())
+	require.NoError(t, stream.Close())
 	assert.Contains(t, got, "efo-test-payload")
 
 	// DeregisterStreamConsumer

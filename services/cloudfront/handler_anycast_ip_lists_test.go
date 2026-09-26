@@ -23,7 +23,7 @@ func TestAnycastIPList_NameUniqueness(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-
+	t.Cleanup(b.Close)
 	first, err := b.CreateAnycastIPList("dup-name", 3, nil)
 	require.NoError(t, err)
 
@@ -45,7 +45,7 @@ func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-
+	t.Cleanup(b.Close)
 	list, err := b.CreateAnycastIPList("ips-list", 4, nil)
 	require.NoError(t, err)
 	assert.Len(t, list.AnycastIPs, 4)
@@ -140,6 +140,7 @@ func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 	list, err := b.CreateAnycastIPList("persist-list", 3, nil)
 	require.NoError(t, err)
 
@@ -148,6 +149,7 @@ func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b2.Close)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -339,6 +341,7 @@ func TestAnycastIPList_IpamCidrConfigs_RealClient(t *testing.T) {
 func TestAnycastIPList_CRUD(t *testing.T) {
 	t.Parallel()
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 	h := cloudfront.NewHandler(b)
 	const prefix = "/2020-05-31/"
 

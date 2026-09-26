@@ -88,6 +88,7 @@ var resourceTypeDispatchTable = sync.OnceValue(func() map[string]resourceTypeCla
 		pathSegKnowledgeBases:      classifyKnowledgeBasePaths,
 		pathSegSpaces:              classifySpacePaths,
 		pathSegQuickIndex:          classifyQuickIndexPaths,
+		pathSegApps:                classifyAppPaths,
 		pathSegResource2:           classifyResourceFoldersPaths,
 		pathSegCustomizations:      classifyCustomizationPaths,
 		pathSegCustomPermission:    classifyAccountCustomPermissionPaths,
@@ -902,6 +903,44 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 		return opSearchKnowledgeBases, ""
 	case pathSegSpaces:
 		return opSearchSpaces, ""
+	case pathSegApps:
+		return opSearchApps, ""
+	}
+
+	return opUnknown, ""
+}
+
+// classifyAppPaths routes /accounts/{AwsAccountId}/apps[/{AppId}[/permissions]].
+// Real AWS has no CreateApp (see AddAppInternal, app.go), so unlike
+// classifyDashboardPaths there is no POST case at nSegsAccountResID.
+func classifyAppPaths(method string, segs []string, n int) (string, string) {
+	switch n {
+	case nSegsAccountRes:
+		if method == http.MethodGet {
+			return opListApps, seg(segs, segAccountID)
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+
+		switch method {
+		case http.MethodGet:
+			return opDescribeApp, id
+		case http.MethodDelete:
+			return opDeleteApp, id
+		}
+	case nSegsSubRes:
+		if seg(segs, segSubRes) != pathSegPermissions {
+			return opUnknown, ""
+		}
+
+		id := seg(segs, segResID)
+
+		switch method {
+		case http.MethodGet:
+			return opDescribeAppPermissions, id
+		case http.MethodPut:
+			return opUpdateAppPermissions, id
+		}
 	}
 
 	return opUnknown, ""

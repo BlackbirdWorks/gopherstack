@@ -78,13 +78,18 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 	// parameter-driven rendering to apply initial overrides to -- disclosed
 	// as a gap (PARITY.md items_still_open) rather than stored with nowhere
 	// to prove it landed.
+	definition := mapField(body, keyDefinition)
+	if definition == nil {
+		definition = h.Backend.ResolveSourceEntityDefinition(sourceEntityArnFromBody(body))
+	}
+
 	d, err := h.Backend.CreateDashboard(
 		accountID,
 		dashboardID,
 		name,
 		strField(body, "ThemeArn"),
 		strField(body, keyVersionDescription),
-		mapField(body, keyDefinition),
+		definition,
 		mapField(body, "DashboardPublishOptions"),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),

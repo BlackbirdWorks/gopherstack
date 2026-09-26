@@ -115,6 +115,7 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 			t.Parallel()
 
 			b := elbv2.NewInMemoryBackend("111122223333", config.DefaultRegion)
+			t.Cleanup(b.Close)
 			t.Cleanup(func() { b.Close() })
 			h := elbv2.NewHandler(b)
 

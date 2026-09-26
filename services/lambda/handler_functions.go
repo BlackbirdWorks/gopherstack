@@ -151,6 +151,32 @@ func (h *Handler) validateMemoryAndTimeout(c *echo.Context, memorySize, timeout 
 	return true
 }
 
+// validateMemoryAndTimeoutUpdate validates the optional MemorySize/Timeout
+// pointers on UpdateFunctionConfiguration. Unlike Create, Update has no
+// "0 means use defaults" convention -- nil means the caller omitted the
+// field (leave the stored value untouched), and any non-nil value, including
+// an explicit zero, must fall in the documented range or the request is
+// rejected exactly as real Lambda rejects it (InvalidParameterValueException;
+// api_op_UpdateFunctionConfiguration.go declares both *int32, and 0 sits
+// below minMemorySize/minTimeout so it fails the same range check).
+func (h *Handler) validateMemoryAndTimeoutUpdate(c *echo.Context, memorySize, timeout *int32) bool {
+	if memorySize != nil && (*memorySize < minMemorySize || *memorySize > maxMemorySize) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("MemorySize must be between %d and %d MB", minMemorySize, maxMemorySize))
+
+		return false
+	}
+
+	if timeout != nil && (*timeout < minTimeout || *timeout > maxTimeout) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("Timeout must be between %d and %d seconds", minTimeout, maxTimeout))
+
+		return false
+	}
+
+	return true
+}
+
 // validateImageURIResolves reports whether imageURI resolves against a real
 // ECR backend, writing an InvalidParameterValueException matching AWS's
 // CreateFunction/UpdateFunctionCode message ("Source image <uri> does not
@@ -628,7 +654,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if !h.validateMemoryAndTimeout(c, input.MemorySize, input.Timeout) {
+	if !h.validateMemoryAndTimeoutUpdate(c, input.MemorySize, input.Timeout) {
 		return nil
 	}
 
@@ -715,12 +741,12 @@ func applyFunctionConfigurationCoreFields(fn *FunctionConfiguration, input *Upda
 		fn.Description = *input.Description
 	}
 
-	if input.MemorySize > 0 {
-		fn.MemorySize = input.MemorySize
+	if input.MemorySize != nil {
+		fn.MemorySize = int(*input.MemorySize)
 	}
 
-	if input.Timeout > 0 {
-		fn.Timeout = input.Timeout
+	if input.Timeout != nil {
+		fn.Timeout = int(*input.Timeout)
 	}
 
 	if input.Environment != nil {

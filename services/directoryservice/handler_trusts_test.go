@@ -111,6 +111,71 @@ func TestCreateTrust_Validation(t *testing.T) {
 	}
 }
 
+// TestCreateTrust_StateByDirection verifies every direction except "One-Way: Incoming" lands on
+// TrustState "Verified": terraform's resourceTrustCreate waits on waitTrustVerified for the rest.
+func TestCreateTrust_StateByDirection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		direction string
+		wantState string
+	}{
+		{name: "one_way_outgoing_verified", direction: "One-Way: Outgoing", wantState: "Verified"},
+		{name: "two_way_verified", direction: "Two-Way", wantState: "Verified"},
+		{name: "one_way_incoming_created", direction: "One-Way: Incoming", wantState: "Created"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			dirID := mustCreateSimpleAD(t, h, tt.name+".example.com")
+
+			rec := doRequest(t, h, "CreateTrust", map[string]any{
+				"DirectoryId":      dirID,
+				"RemoteDomainName": "partner.example.com",
+				"TrustPassword":    "TrustPw1!",
+				"TrustDirection":   tt.direction,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			descRec := doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID})
+			require.Equal(t, http.StatusOK, descRec.Code)
+			body := respBody(t, descRec)
+			trusts, _ := body["Trusts"].([]any)
+			require.Len(t, trusts, 1)
+			trust := trusts[0].(map[string]any)
+			assert.Equal(t, tt.wantState, trust["TrustState"])
+		})
+	}
+}
+
+// TestCreateTrust_AutoCreatesConditionalForwarder verifies CreateTrust also creates a conditional
+// forwarder for the remote domain: terraform's trust Read looks one up and errors if none exists.
+func TestCreateTrust_AutoCreatesConditionalForwarder(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+	rec := doRequest(t, h, "CreateTrust", map[string]any{
+		"DirectoryId":      dirID,
+		"RemoteDomainName": "partner.example.com",
+		"TrustPassword":    "TrustPw1!",
+		"TrustDirection":   "Two-Way",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descRec := doRequest(t, h, "DescribeConditionalForwarders", map[string]any{"DirectoryId": dirID})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	body := respBody(t, descRec)
+	forwarders, _ := body["ConditionalForwarders"].([]any)
+	require.Len(t, forwarders, 1)
+	fwd := forwarders[0].(map[string]any)
+	assert.Equal(t, "partner.example.com", fwd["RemoteDomainName"])
+}
+
 func TestDescribeTrusts_StateFields(t *testing.T) {
 	t.Parallel()
 

@@ -5,27 +5,31 @@ import "time"
 // Stack represents a CloudFormation stack.
 type Stack struct {
 	// RollbackConfiguration uses a long AWS-compatible JSON field name; line length accepted.
-	RollbackConfiguration       *RollbackConfiguration `xml:"RollbackConfiguration,omitempty"   json:"rollbackConfiguration,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	CreationTime                time.Time              `xml:"CreationTime"                      json:"creationTime"`
-	LastUpdatedTime             *time.Time             `xml:"LastUpdatedTime,omitempty"         json:"lastUpdatedTime,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	DeletionTime                *time.Time             `xml:"DeletionTime,omitempty"            json:"deletionTime,omitempty"`    //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	StackID                     string                 `xml:"StackId"                           json:"stackID"`
-	StackName                   string                 `xml:"StackName"                         json:"stackName"`
-	Description                 string                 `xml:"Description,omitempty"             json:"description,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	StackStatus                 string                 `xml:"StackStatus"                       json:"stackStatus"`
-	StackStatusReason           string                 `xml:"StackStatusReason,omitempty"       json:"stackStatusReason,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	RoleARN                     string                 `xml:"RoleARN,omitempty"                 json:"roleARN,omitempty"`
-	TemplateBody                string                 `xml:"-"                                 json:"templateBody,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	ParentID                    string                 `xml:"ParentId,omitempty"                json:"parentID,omitempty"`
-	RootID                      string                 `xml:"RootId,omitempty"                  json:"rootID,omitempty"`
-	Parameters                  []Parameter            `xml:"Parameters>member,omitempty"       json:"parameters,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	Outputs                     []Output               `xml:"Outputs>member,omitempty"          json:"outputs,omitempty"`
-	Tags                        []Tag                  `xml:"Tags>member,omitempty"             json:"tags,omitempty"`
-	Capabilities                []string               `xml:"Capabilities>member,omitempty"     json:"capabilities,omitempty"`      //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	NotificationARNs            []string               `xml:"NotificationARNs>member,omitempty" json:"notificationARNs,omitempty"`  //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	TimeoutInMinutes            int                    `xml:"TimeoutInMinutes,omitempty"        json:"timeoutInMinutes,omitempty"`  //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	EnableTerminationProtection bool                   `xml:"EnableTerminationProtection"       json:"enableTerminationProtection"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
-	DisableRollback             bool                   `xml:"DisableRollback,omitempty"         json:"disableRollback,omitempty"`   //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	RollbackConfiguration *RollbackConfiguration `xml:"RollbackConfiguration,omitempty" json:"rollbackConfiguration,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	CreationTime          time.Time              `xml:"CreationTime"                    json:"creationTime"`
+	LastUpdatedTime       *time.Time             `xml:"LastUpdatedTime,omitempty"       json:"lastUpdatedTime,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	DeletionTime          *time.Time             `xml:"DeletionTime,omitempty"          json:"deletionTime,omitempty"`    //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	// ResourceAttrs stashes Fn::GetAtt side-channel values not derivable from
+	// PhysicalID+Type alone (e.g. CodeArtifact Domain's Name), so delete-time
+	// resolution sees them too -- see extractAttrStash (gopherstack-9e44r).
+	ResourceAttrs               map[string]string `xml:"-"                                 json:"resourceAttrs,omitempty"`
+	StackID                     string            `xml:"StackId"                           json:"stackID"`
+	StackName                   string            `xml:"StackName"                         json:"stackName"`
+	Description                 string            `xml:"Description,omitempty"             json:"description,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	StackStatus                 string            `xml:"StackStatus"                       json:"stackStatus"`
+	StackStatusReason           string            `xml:"StackStatusReason,omitempty"       json:"stackStatusReason,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	RoleARN                     string            `xml:"RoleARN,omitempty"                 json:"roleARN,omitempty"`
+	TemplateBody                string            `xml:"-"                                 json:"templateBody,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	ParentID                    string            `xml:"ParentId,omitempty"                json:"parentID,omitempty"`
+	RootID                      string            `xml:"RootId,omitempty"                  json:"rootID,omitempty"`
+	Parameters                  []Parameter       `xml:"Parameters>member,omitempty"       json:"parameters,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	Outputs                     []Output          `xml:"Outputs>member,omitempty"          json:"outputs,omitempty"`
+	Tags                        []Tag             `xml:"Tags>member,omitempty"             json:"tags,omitempty"`
+	Capabilities                []string          `xml:"Capabilities>member,omitempty"     json:"capabilities,omitempty"`      //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	NotificationARNs            []string          `xml:"NotificationARNs>member,omitempty" json:"notificationARNs,omitempty"`  //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	TimeoutInMinutes            int               `xml:"TimeoutInMinutes,omitempty"        json:"timeoutInMinutes,omitempty"`  //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	EnableTerminationProtection bool              `xml:"EnableTerminationProtection"       json:"enableTerminationProtection"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	DisableRollback             bool              `xml:"DisableRollback,omitempty"         json:"disableRollback,omitempty"`   //nolint:lll // goimports struct-tag alignment exceeds line limit.
 }
 
 // RollbackConfiguration holds rollback trigger configuration for a stack.
@@ -82,13 +86,16 @@ type Tag struct {
 
 // StackSummary is a brief summary of a stack for ListStacks.
 type StackSummary struct {
-	CreationTime      time.Time  `xml:"CreationTime"                json:"creationTime"`
-	DeletionTime      *time.Time `xml:"DeletionTime,omitempty"      json:"deletionTime,omitempty"`
-	LastUpdatedTime   *time.Time `xml:"LastUpdatedTime,omitempty"   json:"lastUpdatedTime,omitempty"`
-	StackID           string     `xml:"StackId"                     json:"stackID"`
-	StackName         string     `xml:"StackName"                   json:"stackName"`
-	StackStatus       string     `xml:"StackStatus"                 json:"stackStatus"`
-	StackStatusReason string     `xml:"StackStatusReason,omitempty" json:"stackStatusReason,omitempty"`
+	CreationTime        time.Time  `xml:"CreationTime"                  json:"creationTime"`
+	DeletionTime        *time.Time `xml:"DeletionTime,omitempty"        json:"deletionTime,omitempty"`
+	LastUpdatedTime     *time.Time `xml:"LastUpdatedTime,omitempty"     json:"lastUpdatedTime,omitempty"`
+	StackID             string     `xml:"StackId"                       json:"stackID"`
+	StackName           string     `xml:"StackName"                     json:"stackName"`
+	StackStatus         string     `xml:"StackStatus"                   json:"stackStatus"`
+	StackStatusReason   string     `xml:"StackStatusReason,omitempty"   json:"stackStatusReason,omitempty"`
+	ParentID            string     `xml:"ParentId,omitempty"            json:"parentID,omitempty"`
+	RootID              string     `xml:"RootId,omitempty"              json:"rootID,omitempty"`
+	TemplateDescription string     `xml:"TemplateDescription,omitempty" json:"templateDescription,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
 }
 
 // StackEvent is a single event in a stack's history.
@@ -135,6 +142,12 @@ type ChangeSet struct {
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
 	Capabilities          []string               `xml:"-"                               json:"capabilities,omitempty"`
 	Tags                  []Tag                  `xml:"-"                               json:"tags,omitempty"`
+	// ResourceTypes/DisableValidation mirror CreateChangeSetInput's own
+	// fields (api_op_CreateChangeSet.go:192,254) -- not part of
+	// DescribeChangeSetOutput's wire shape, threaded through to Execute's
+	// internal CreateStack/UpdateStack call the same way Capabilities is.
+	ResourceTypes     []string `xml:"-" json:"resourceTypes,omitempty"`
+	DisableValidation bool     `xml:"-" json:"disableValidation,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.
@@ -278,10 +291,13 @@ type ManagedExecution struct {
 
 // StackSetSummary is a brief summary of a StackSet.
 type StackSetSummary struct {
-	StackSetID   string `xml:"StackSetId"`
-	StackSetName string `xml:"StackSetName"`
-	Status       string `xml:"Status"`
-	Description  string `xml:"Description,omitempty"`
+	AutoDeployment   *AutoDeployment   `xml:"-"`
+	ManagedExecution *ManagedExecution `xml:"-"`
+	StackSetID       string            `xml:"StackSetId"`
+	StackSetName     string            `xml:"StackSetName"`
+	Status           string            `xml:"Status"`
+	Description      string            `xml:"Description,omitempty"`
+	PermissionModel  string            `xml:"-"`
 }
 
 // StackInstance represents an instance of a StackSet in a specific account/region.
@@ -367,10 +383,11 @@ type RegisteredType struct {
 
 // TypeRegistrationRecord holds the state of a type registration request.
 type TypeRegistrationRecord struct {
-	Token    string
-	TypeName string
-	TypeArn  string
-	Status   string // COMPLETE / IN_PROGRESS / FAILED
+	Token     string
+	TypeName  string
+	TypeArn   string
+	VersionID string
+	Status    string // COMPLETE / IN_PROGRESS / FAILED
 }
 
 // Publisher holds publisher registration info.

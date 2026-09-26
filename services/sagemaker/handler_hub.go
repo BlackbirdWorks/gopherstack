@@ -180,7 +180,7 @@ func (h *Handler) handleCreateHub(ctx context.Context, body []byte) ([]byte, err
 		return nil, err
 	}
 
-	logger.Load(ctx).InfoContext(ctx, "sagemaker: created hub", "name", hub.HubName, "arn", hub.HubArn)
+	logger.Load(ctx).InfoContext(ctx, "sagemaker: created hub", "name", hub.HubName)
 
 	return json.Marshal(map[string]string{keyHubArn: hub.HubArn})
 }

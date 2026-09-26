@@ -394,8 +394,9 @@ func TestIntegration_Route53_PrivateHostedZoneVPCRoundTrip(t *testing.T) {
 
 	var foundByVPC bool
 
+	// HostedZoneSummary.HostedZoneId is the bare id, unlike HostedZone.Id.
 	for _, s := range listByVPCOut.HostedZoneSummaries {
-		if aws.ToString(s.HostedZoneId) == zoneID {
+		if aws.ToString(s.HostedZoneId) == strings.TrimPrefix(zoneID, "/hostedzone/") {
 			foundByVPC = true
 		}
 	}

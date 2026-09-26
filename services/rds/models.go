@@ -2,6 +2,7 @@ package rds
 
 import (
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -88,6 +89,14 @@ type DBClusterMember struct {
 // omitted case is handled. That handling is a documented placeholder, not
 // verified against real AWS; see gopherstack-1jkv and PARITY.md.
 type DBClusterRole struct {
+	RoleArn     string `json:"roleArn"`
+	FeatureName string `json:"featureName"`
+	Status      string `json:"status"`
+}
+
+// DBInstanceRole represents an IAM role association on a DB instance
+// (AssociatedRoles on DescribeDBInstances' DBInstance, rds@v1.124.1 types.go:1956).
+type DBInstanceRole struct {
 	RoleArn     string `json:"roleArn"`
 	FeatureName string `json:"featureName"`
 	Status      string `json:"status"`
@@ -329,14 +338,15 @@ type DBCluster struct {
 // DBClusterSnapshot represents an RDS cluster snapshot.
 type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
-	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
+	EngineVersion               string    `json:"engineVersion,omitempty"`
 	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
 	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`
-	EngineVersion               string    `json:"engineVersion,omitempty"`
+	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	Status                      string    `json:"status"`
 	SnapshotType                string    `json:"snapshotType,omitempty"`
+	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot          bool      `json:"copyTagsToSnapshot,omitempty"`
@@ -382,6 +392,12 @@ type DBEngineVersion struct {
 	Engine              string `json:"engine"`
 	EngineVersion       string `json:"engineVersion"`
 	DBEngineDescription string `json:"dbEngineDescription"`
+	// Status is only meaningful for custom engine versions; builtin engines leave it empty like
+	// real AWS. terraform's waitCustomDBEngineVersionCreated reads an empty Status as "not found".
+	Status string `json:"status,omitempty"`
+	// ImageID is only meaningful for custom engine versions (rds@v1.124.1 types.DBEngineVersion.Image.ImageId);
+	// builtin engines leave it empty like real AWS.
+	ImageID string `json:"imageId,omitempty"`
 	// IsDefault is internal bookkeeping for DescribeDBEngineVersions.DefaultOnly
 	// filtering -- real AWS's DBEngineVersion output type has no corresponding
 	// wire field (rds@v1.124.1 types.DBEngineVersion), so this never appears in
@@ -655,17 +671,18 @@ type DBSnapshotTenantDatabase struct {
 
 // DBInstanceAutomatedBackup represents an automated backup record for an RDS instance.
 type DBInstanceAutomatedBackup struct {
-	DBInstanceIdentifier  string `json:"dbInstanceIdentifier"`
-	DbiResourceID         string `json:"dbiResourceId"`
-	Engine                string `json:"engine"`
-	EngineVersion         string `json:"engineVersion"`
-	DBInstanceArn         string `json:"dbInstanceArn"`
-	Region                string `json:"region"`
-	Status                string `json:"status"`
-	AllocatedStorage      int    `json:"allocatedStorage"`
-	Port                  int    `json:"port"`
-	BackupRetentionPeriod int    `json:"backupRetentionPeriod"`
-	Encrypted             bool   `json:"encrypted"`
+	DBInstanceIdentifier          string `json:"dbInstanceIdentifier"`
+	DbiResourceID                 string `json:"dbiResourceId"`
+	Engine                        string `json:"engine"`
+	EngineVersion                 string `json:"engineVersion"`
+	DBInstanceArn                 string `json:"dbInstanceArn"`
+	DBInstanceAutomatedBackupsArn string `json:"dbInstanceAutomatedBackupsArn"`
+	Region                        string `json:"region"`
+	Status                        string `json:"status"`
+	AllocatedStorage              int    `json:"allocatedStorage"`
+	Port                          int    `json:"port"`
+	BackupRetentionPeriod         int    `json:"backupRetentionPeriod"`
+	Encrypted                     bool   `json:"encrypted"`
 }
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
@@ -807,9 +824,12 @@ type InMemoryBackend struct {
 	piMetrics                 map[string]map[string][]PIDataPoint
 	instanceLogFiles          map[string][]DBLogFile
 	instanceLogContent        map[string]map[string]string
+	stopCh                    chan struct{}
 	accountID                 string
 	region                    string
 	defaultCACertificateID    string
 	events                    []Event
+	reconcilerWG              sync.WaitGroup
 	reconcilerRunning         bool
+	closed                    bool
 }

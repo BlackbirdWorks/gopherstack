@@ -112,6 +112,31 @@ func (b *InMemoryBackend) TagsForResource(resourceID string) map[string]string {
 	return out
 }
 
+// TagsForResources returns a copy of the tags for each of resourceIDs under a
+// single lock, for callers (e.g. DescribeInstances) that would otherwise call
+// TagsForResource once per resource and pay its RLock/RUnlock N times.
+// Resources with no tags are omitted from the result; callers should treat a
+// missing key the same as an empty map (safe: reading a nil Go map is a no-op).
+func (b *InMemoryBackend) TagsForResources(resourceIDs []string) map[string]map[string]string {
+	b.mu.RLock("TagsForResources")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]map[string]string, len(resourceIDs))
+
+	for _, id := range resourceIDs {
+		src, ok := b.tags[id]
+		if !ok || len(src) == 0 {
+			continue
+		}
+
+		cp := make(map[string]string, len(src))
+		maps.Copy(cp, src)
+		out[id] = cp
+	}
+
+	return out
+}
+
 // DescribeTags returns all tag entries, optionally filtered by resource IDs.
 func (b *InMemoryBackend) DescribeTags(resourceIDs []string) []TagEntry {
 	b.mu.RLock("DescribeTags")

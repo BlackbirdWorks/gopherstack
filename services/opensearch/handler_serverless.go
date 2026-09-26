@@ -109,6 +109,7 @@ func (h *Handler) handleServerlessCollectionCreate(w http.ResponseWriter, r *htt
 		req.Type,
 		req.Description,
 		req.KmsKeyArn,
+		"",
 		req.Tags,
 	)
 	if err != nil {

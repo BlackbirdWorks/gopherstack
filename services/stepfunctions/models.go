@@ -263,12 +263,16 @@ type MapRun struct {
 	// child workflow executions per Map item (DISTRIBUTED mode runs inline,
 	// same as INLINE) -- so it stays genuinely zero-valued rather than
 	// fabricating a mapping onto ItemCounts. See PARITY.md.
-	ExecutionCounts            MapRunExecutionCounts `json:"executionCounts"`
-	StartDate                  float64               `json:"startDate"`
-	ToleratedFailurePercentage float64               `json:"toleratedFailurePercentage,omitempty"`
-	MaxConcurrency             int                   `json:"maxConcurrency,omitempty"`
-	ToleratedFailureCount      int                   `json:"toleratedFailureCount,omitempty"`
-	RedriveCount               int                   `json:"redriveCount,omitempty"`
+	ExecutionCounts MapRunExecutionCounts `json:"executionCounts"`
+	StartDate       float64               `json:"startDate"`
+	// ToleratedFailurePercentage/MaxConcurrency/ToleratedFailureCount are all
+	// required on DescribeMapRunOutput (sfn@v1.49.0 api_op_DescribeMapRun.go)
+	// even though 0 is a common, real value for each (e.g. unbounded
+	// concurrency) -- must never be omitted, so no omitempty here.
+	ToleratedFailurePercentage float64 `json:"toleratedFailurePercentage"`
+	MaxConcurrency             int     `json:"maxConcurrency"`
+	ToleratedFailureCount      int     `json:"toleratedFailureCount"`
+	RedriveCount               int     `json:"redriveCount,omitempty"`
 }
 
 // MapRunItemCounts holds item-level counts for a Map Run.

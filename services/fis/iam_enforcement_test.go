@@ -62,6 +62,7 @@ func setupFISEnforcementServer(t *testing.T, iamBackend *mockFISIAMBackend) *htt
 	t.Helper()
 
 	backend := fis.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	handler := fis.NewHandler(backend)
 
 	e := echo.New()

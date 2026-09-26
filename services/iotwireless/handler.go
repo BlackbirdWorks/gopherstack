@@ -399,7 +399,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			"/" + pathBaseSingleWirelessDeviceImport,
 			"/" + pathBaseServiceEndpoint,
 		} {
-			if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			if strings.HasPrefix(path, prefix) && (len(path) == len(prefix) || path[len(prefix)] == '/') {
 				return httputils.ExtractServiceFromRequest(c.Request()) == iotwirelessService
 			}
 		}

@@ -98,7 +98,7 @@ func (h *Handler) restAPISpecActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusCreated, api, nil
+			return http.StatusCreated, toWireRestAPI(api), nil
 		},
 		opPutRestAPI: func(b []byte) (int, any, error) {
 			specBody, env := decodeRestAPISpecPayload(b)
@@ -113,7 +113,7 @@ func (h *Handler) restAPISpecActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, api, nil
+			return http.StatusOK, toWireRestAPI(api), nil
 		},
 	}
 }

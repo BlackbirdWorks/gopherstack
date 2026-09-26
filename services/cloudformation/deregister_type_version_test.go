@@ -26,7 +26,7 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		require.NoError(t, err)
 		_, err = b.RegisterType("Acme::Multi::A", "s3://v2.zip")
 		require.NoError(t, err)
-		typeArn := "arn:aws:cloudformation:::type/resource/Acme::Multi::A"
+		typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/Acme-Multi-A"
 
 		err = b.DeregisterType("Acme::Multi::A", typeArn, "00000001")
 		require.NoError(t, err)
@@ -53,7 +53,7 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		b := newBackend()
 		_, err := b.RegisterType("Acme::Solo::B", "s3://v1.zip")
 		require.NoError(t, err)
-		typeArn := "arn:aws:cloudformation:::type/resource/Acme::Solo::B"
+		typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/Acme-Solo-B"
 
 		err = b.DeregisterType("Acme::Solo::B", typeArn, "00000001")
 		require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		require.NoError(t, err)
 		_, err = b.RegisterType("Acme::Multi::C", "s3://v2.zip")
 		require.NoError(t, err)
-		typeArn := "arn:aws:cloudformation:::type/resource/Acme::Multi::C"
+		typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/Acme-Multi-C"
 
 		// 00000002 is the default version after two RegisterType calls.
 		err = b.DeregisterType("Acme::Multi::C", typeArn, "00000002")
@@ -99,7 +99,7 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		require.NoError(t, err)
 		_, err = b.RegisterType("Acme::Multi::F", "s3://v2.zip")
 		require.NoError(t, err)
-		typeArn := "arn:aws:cloudformation:::type/resource/Acme::Multi::F"
+		typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/Acme-Multi-F"
 
 		err = b.DeregisterType("Acme::Multi::F", typeArn, "")
 		require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		b := newBackend()
 		_, err := b.RegisterType("Acme::Solo::D", "s3://v1.zip")
 		require.NoError(t, err)
-		typeArn := "arn:aws:cloudformation:::type/resource/Acme::Solo::D"
+		typeArn := "arn:aws:cloudformation:us-east-1:000000000000:type/resource/Acme-Solo-D"
 
 		err = b.DeregisterType("Acme::Solo::D", typeArn, "99999999")
 		require.Error(t, err)

@@ -392,6 +392,20 @@ func (b *InMemoryBackend) AssociationExecutionCount(assocID string) int {
 	return len(b.associationExecutionsStore(b.Region())[assocID])
 }
 
+// AutomationExecutionCount returns the number of automation executions
+// stored in the default region.
+func (b *InMemoryBackend) AutomationExecutionCount() int {
+	b.mu.RLock("AutomationExecutionCount")
+	defer b.mu.RUnlock()
+
+	t, ok := b.automationExecutions[b.Region()]
+	if !ok {
+		return 0
+	}
+
+	return t.Len()
+}
+
 // AddAutomationExecutionInternal seeds an automation execution directly into
 // the backend for testing, bypassing StartAutomationExecution's real-time
 // StartTime assignment so callers can construct StartTime ties.

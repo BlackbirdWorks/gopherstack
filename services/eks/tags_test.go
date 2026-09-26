@@ -470,7 +470,7 @@ func TestTagResourceOnIdentityProviderConfig(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	cfg, err := b.AssociateIdentityProviderConfig(
+	cfg, _, err := b.AssociateIdentityProviderConfig(
 		"c1", "oidc", "idp1",
 		map[string]string{"issuerUrl": "https://issuer.example.com", "clientId": "client1"},
 		nil, nil,

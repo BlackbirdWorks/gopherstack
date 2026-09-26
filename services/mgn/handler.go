@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,9 +24,11 @@ var errUnknownPath = errors.New("unknown path")
 
 // Handler is the HTTP handler for the AWS Application Migration Service API.
 type Handler struct {
-	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
+	Backend     *InMemoryBackend
+	routesCache map[string]routeEntry
+	AccountID   string
+	Region      string
+	routesOnce  sync.Once
 }
 
 // NewHandler creates a new MGN handler.
@@ -312,18 +315,26 @@ func rawPathSegments(r *http.Request) []string {
 	}
 
 	rawPath = strings.TrimPrefix(rawPath, "/")
-	parts := strings.Split(rawPath, "/")
 
-	segments := make([]string, 0, len(parts))
+	// Manual scan instead of strings.Split: avoids the intermediate parts
+	// slice allocation on every matcher call.
+	segments := make([]string, 0, strings.Count(rawPath, "/")+1)
 
-	for _, p := range parts {
-		if p == "" {
+	for rawPath != "" {
+		seg := rawPath
+		if i := strings.IndexByte(rawPath, '/'); i >= 0 {
+			seg, rawPath = rawPath[:i], rawPath[i+1:]
+		} else {
+			rawPath = ""
+		}
+
+		if seg == "" {
 			continue
 		}
 
-		decoded, err := url.PathUnescape(p)
+		decoded, err := url.PathUnescape(seg)
 		if err != nil {
-			decoded = p
+			decoded = seg
 		}
 
 		segments = append(segments, decoded)

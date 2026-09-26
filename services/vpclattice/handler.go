@@ -61,6 +61,7 @@ const (
 	keyPrivateDNSEnabled  = "privateDnsEnabled"
 	keyNameRequired       = "name is required"
 	keyDestinationARN     = "destinationArn"
+	keyTags               = "tags"
 
 	keyType                        = "type"
 	keyVpcIdentifier               = "vpcIdentifier"
@@ -1075,7 +1076,7 @@ func classifyALSPath(
 func extractTags(body map[string]any) map[string]string {
 	tags := make(map[string]string)
 
-	if t, ok := body["tags"].(map[string]any); ok {
+	if t, ok := body[keyTags].(map[string]any); ok {
 		for k, v := range t {
 			if s, ok2 := v.(string); ok2 {
 				tags[k] = s

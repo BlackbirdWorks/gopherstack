@@ -109,6 +109,7 @@ func (b *InMemoryBackend) ListResourcesInProtectionGroup(protectionGroupID strin
 func (b *InMemoryBackend) CreateProtectionGroup(
 	id, aggregation, pattern, resourceType string,
 	members []string,
+	tags map[string]string,
 ) (*ProtectionGroup, error) {
 	b.mu.Lock("CreateProtectionGroup")
 	defer b.mu.Unlock()
@@ -164,6 +165,7 @@ func (b *InMemoryBackend) CreateProtectionGroup(
 		ResourceType:       resourceType,
 		Members:            append([]string(nil), members...),
 		CreationTime:       time.Now(),
+		Tags:               cloneTags(tags),
 	}
 	b.protectionGroups.Put(pg)
 

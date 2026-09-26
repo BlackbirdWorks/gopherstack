@@ -31,10 +31,17 @@ type handlePollForActivityTaskInput struct {
 	Identity string      `json:"identity,omitempty"`
 }
 
+// TaskToken has no omitempty: PollForActivityTaskOutput.TaskToken is
+// required, and the real API's own doc comment defines "no task available"
+// as "an ActivityTask object [with] a taskToken with the value of an empty
+// string" -- dropping the key entirely (as omitempty did) left a real
+// client's TaskToken nil instead of a pointer to "", exactly the required-
+// member-absent bug this file's sibling decisionTaskOutput.TaskToken
+// already avoids.
 type pollForActivityTaskOutput struct {
 	WorkflowExecution *workflowExecutionRef     `json:"workflowExecution,omitempty"`
 	ActivityType      *ActivityTaskActivityType `json:"activityType,omitempty"`
-	TaskToken         string                    `json:"taskToken,omitempty"`
+	TaskToken         string                    `json:"taskToken"`
 	ActivityID        string                    `json:"activityId,omitempty"`
 	Input             string                    `json:"input,omitempty"`
 	StartedEventID    int64                     `json:"startedEventId,omitempty"`

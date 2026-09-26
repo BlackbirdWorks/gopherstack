@@ -198,13 +198,20 @@ func (h *Handler) createHostedZone(c *echo.Context) error {
 	}
 
 	var vpcID, vpcRegion string
+
+	privateZone := req.HostedZoneConfig.PrivateZone
 	if req.VPC != nil {
 		vpcID, vpcRegion = req.VPC.VPCID, req.VPC.VPCRegion
+		// A request VPC element makes the zone private regardless of whether the
+		// optional HostedZoneConfig.PrivateZone flag is set (api_op_CreateHostedZone.go:
+		// "if you don't specify ... the PrivateZone element, omit HostedZoneConfig");
+		// terraform's aws_route53_zone sends VPC alone, with no PrivateZone flag.
+		privateZone = true
 	}
 
 	hz, err := h.Backend.CreateHostedZone(
 		req.Name, req.CallerReference,
-		req.HostedZoneConfig.Comment, req.HostedZoneConfig.PrivateZone,
+		req.HostedZoneConfig.Comment, privateZone,
 		normaliseDelegationSetID(req.DelegationSetID),
 		vpcID, vpcRegion,
 	)
@@ -458,7 +465,12 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 	xmlZones := make([]xmlHostedZoneSummary, 0, len(p.Data))
 	for _, z := range p.Data {
 		xmlZones = append(xmlZones, xmlHostedZoneSummary{
-			HostedZoneID: "/hostedzone/" + z.ID,
+			// HostedZoneSummary.HostedZoneId is bare (route53@v1.65.6 types.go),
+			// unlike HostedZone.Id elsewhere in this API, which carries a
+			// "/hostedzone/" prefix -- terraform-provider-aws's
+			// findZoneAssociationByThreePartKey compares this directly against
+			// the bare zone_id attribute with no CleanZoneID() unprefixing.
+			HostedZoneID: z.ID,
 			Name:         z.Name,
 			Owner:        xmlHostedZoneOwner{OwningAccount: h.Backend.AccountID()},
 		})

@@ -17,7 +17,7 @@ import (
 func TestClusterSnapshot_CRUD(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	_, err := b.CreateDBCluster(
 		"cluster-a",
@@ -51,7 +51,7 @@ func TestClusterSnapshot_CRUD(t *testing.T) {
 func TestClusterSnapshot_Copy(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"cluster-b",
 		"aurora-mysql",
@@ -74,6 +74,46 @@ func TestClusterSnapshot_Copy(t *testing.T) {
 	snaps, err := b.DescribeDBClusterSnapshots("", "")
 	require.NoError(t, err)
 	assert.Len(t, snaps, 2)
+}
+
+// TestCopyDBClusterSnapshot_SourceIdentifierForms covers gopherstack-mb53:
+// SourceDBClusterSnapshotIdentifier accepts a bare identifier or a full ARN
+// (real AWS docs, required when copying an encrypted snapshot); only the
+// bare-identifier form used to resolve. It also verifies the copy's
+// SourceDBClusterSnapshotArn is populated -- real AWS never leaves it null on
+// a copy, and terraform-provider-aws's aws_rds_cluster_snapshot_copy Read
+// panics with a nil pointer dereference when it comes back empty.
+func TestCopyDBClusterSnapshot_SourceIdentifierForms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sourceIDFunc func(arn string) string
+		name         string
+	}{
+		{name: "bare identifier", sourceIDFunc: func(string) string { return "src-snap" }},
+		{name: "full ARN", sourceIDFunc: func(arn string) string { return arn }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBatch2Backend(t)
+
+			_, err := b.CreateDBCluster(
+				"cluster-c", "aurora-mysql", "admin", "", "", 3306, nil, rds.DBClusterOptions{},
+			)
+			require.NoError(t, err)
+
+			src, err := b.CreateDBClusterSnapshot("src-snap", "cluster-c")
+			require.NoError(t, err)
+
+			dst, err := b.CopyDBClusterSnapshot(tc.sourceIDFunc(src.DBClusterSnapshotArn), "dst-snap", false)
+			require.NoError(t, err)
+			assert.Equal(t, "dst-snap", dst.DBClusterSnapshotIdentifier)
+			assert.Equal(t, src.DBClusterSnapshotArn, dst.SourceDBClusterSnapshotArn)
+		})
+	}
 }
 
 // TestClusterSnapshot_Duplicate covers the exact-duplicate-identifier case,
@@ -140,7 +180,7 @@ func TestClusterSnapshot_Duplicate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBatch2Backend()
+			b := newBatch2Backend(t)
 			_, err := b.CreateDBCluster(
 				"cluster-c-"+tt.name,
 				"aurora-postgresql",
@@ -190,7 +230,7 @@ func TestClusterSnapshot_Duplicate(t *testing.T) {
 func TestClusterSnapshot_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.DeleteDBClusterSnapshot("noexist")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, rds.ErrClusterSnapshotNotFound)
@@ -199,7 +239,7 @@ func TestClusterSnapshot_DeleteNotFound(t *testing.T) {
 func TestClusterSnapshot_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -245,7 +285,7 @@ func TestClusterSnapshot_HTTP(t *testing.T) {
 func TestConcurrent_ClusterSnapshot(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateDBCluster(
 		"conc-cluster",
 		"aurora-postgresql",
@@ -388,7 +428,7 @@ func TestDescribeDBClusterSnapshotAttributes(t *testing.T) {
 		snapshotID string
 		wantErr    bool
 	}{
-		{name: "success returns empty attrs", snapshotID: "cluster-snap-1"},
+		{name: "success returns default restore attribute for a manual snapshot", snapshotID: "cluster-snap-1"},
 		{name: "not found", snapshotID: "missing", wantErr: true, wantErrIs: rds.ErrClusterSnapshotNotFound},
 	}
 	for _, tt := range tests {
@@ -419,6 +459,13 @@ func TestDescribeDBClusterSnapshotAttributes(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.snapshotID, got.DBClusterSnapshotIdentifier)
+			// Real AWS always includes a "restore" entry for a manual
+			// snapshot before any ModifyDBClusterSnapshotAttribute call;
+			// terraform-provider-aws's aws_rds_cluster_snapshot_copy Read
+			// panics on a nil pointer dereference when this list is empty.
+			require.Len(t, got.DBClusterSnapshotAttributes, 1)
+			assert.Equal(t, "restore", got.DBClusterSnapshotAttributes[0].AttributeName)
+			assert.Empty(t, got.DBClusterSnapshotAttributes[0].AttributeValues)
 		})
 	}
 }

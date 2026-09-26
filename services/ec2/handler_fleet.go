@@ -285,7 +285,7 @@ func (h *Handler) handleDeleteFleets(vals url.Values, reqID string) (any, error)
 	for _, d := range deleted {
 		resp.SuccessfulFleetDeletions.Items = append(resp.SuccessfulFleetDeletions.Items, deleteFleetSuccessItem{
 			FleetID:            d.FleetID,
-			CurrentFleetState:  tgwRouteStateDeleted,
+			CurrentFleetState:  d.CurrentFleetState,
 			PreviousFleetState: d.PreviousFleetState,
 		})
 	}
@@ -296,6 +296,7 @@ func (h *Handler) handleDeleteFleets(vals url.Values, reqID string) (any, error)
 func (h *Handler) handleDescribeFleets(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "FleetId")
 	fleets := h.Backend.DescribeFleets(ids)
+	fleets = applyFleetFilters(fleets, parseEC2Filters(vals))
 
 	resp := &describeFleetsResponse{RequestID: reqID}
 	for _, f := range fleets {

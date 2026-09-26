@@ -30,7 +30,7 @@ func TestResourceCreator_Glue_Crawler_CreateDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "cfn-test-crawler", crawler.Name)
 
-	err = rc.Delete(t.Context(), "AWS::Glue::Crawler", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::Glue::Crawler", physID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -55,7 +55,7 @@ func TestResourceCreator_Glue_Trigger_CreateDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ON_DEMAND", trigger.Type)
 
-	err = rc.Delete(t.Context(), "AWS::Glue::Trigger", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::Glue::Trigger", physID, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -82,7 +82,7 @@ func TestResourceCreator_Glue_Connection_CreateDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "JDBC", conn.ConnectionType)
 
-	err = rc.Delete(t.Context(), "AWS::Glue::Connection", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::Glue::Connection", physID, nil, nil)
 	require.NoError(t, err)
 }
 

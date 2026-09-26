@@ -62,7 +62,7 @@ func TestResourceCreator_ResilienceHub_NilBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props))
+			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props, nil))
 		})
 	}
 }
@@ -111,7 +111,7 @@ func TestResourceCreator_ResilienceHub_App(t *testing.T) {
 	assert.Equal(t, "lambda", mapping.ResourceName)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:my-fn", mapping.PhysicalResourceID.Identifier)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::ResilienceHub::App", physID, props))
+	require.NoError(t, rc.Delete(ctx, "AWS::ResilienceHub::App", physID, props, nil))
 
 	_, err = h.Backend.GetApp(physID)
 	require.Error(t, err)
@@ -154,7 +154,7 @@ func TestResourceCreator_ResilienceHub_ResiliencyPolicy(t *testing.T) {
 	require.Contains(t, policy.Policy, "Region")
 	assert.Equal(t, int32(86400), policy.Policy["Region"].RtoInSecs)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::ResilienceHub::ResiliencyPolicy", physID, props))
+	require.NoError(t, rc.Delete(ctx, "AWS::ResilienceHub::ResiliencyPolicy", physID, props, nil))
 
 	_, err = h.Backend.DescribeResiliencyPolicy(physID)
 	require.Error(t, err)

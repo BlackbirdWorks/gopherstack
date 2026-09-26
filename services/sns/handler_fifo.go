@@ -1,7 +1,6 @@
 package sns
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -25,61 +24,49 @@ const fifoDedupMaxEntries = 100_000
 // insertOrder records keys in insertion order; since all entries share the same TTL,
 // the oldest entry is always at insertOrder[insertHead], enabling O(1) amortized eviction.
 type fifoDeduplication struct {
-	entries     map[string]time.Time // dedupKey → expiry
-	insertOrder []string             // keys in insertion order
-	insertHead  int                  // index of the first live entry in insertOrder
+	lastSweep   time.Time
+	entries     map[string]time.Time
+	insertOrder []string
+	insertHead  int
 	mu          sync.Mutex
 }
 
-// fifoDedupSweepInterval is the cadence at which the background goroutine
-// evicts expired entries from the deduplication map. This supplements the
-// opportunistic eviction inside isDuplicate/record and ensures that a
-// long-idle FIFO topic does not retain stale entries indefinitely.
+// fifoDedupSweepInterval is the minimum interval between lazy sweeps that evict
+// expired entries from the deduplication map on the isDuplicate/record path.
+// This supplements the capacity-triggered sweep in record() and ensures a
+// long-idle FIFO topic does not retain stale entries indefinitely, without a
+// dedicated background goroutine per Handler (each Handler in test/CI use
+// otherwise leaked one goroutine for the process lifetime).
 const fifoDedupSweepInterval = time.Minute
 
 func newFifoDeduplication() *fifoDeduplication {
 	return &fifoDeduplication{
 		entries:     make(map[string]time.Time),
 		insertOrder: make([]string, 0, fifoDedupMaxEntries),
+		lastSweep:   time.Now(),
 	}
 }
 
-// startPeriodicSweep launches a background goroutine that evicts expired
-// entries at fifoDedupSweepInterval. The goroutine stops when ctx is cancelled.
-func (d *fifoDeduplication) startPeriodicSweep(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(fifoDedupSweepInterval)
-		defer ticker.Stop()
+// sweepIfDueLocked runs sweepExpiredLocked when fifoDedupSweepInterval has
+// elapsed since the last sweep. Caller must hold d.mu.
+func (d *fifoDeduplication) sweepIfDueLocked(now time.Time) {
+	if now.Sub(d.lastSweep) < fifoDedupSweepInterval {
+		return
+	}
 
-		for {
-			select {
-			case now := <-ticker.C:
-				func() {
-					d.mu.Lock()
-					defer d.mu.Unlock()
-
-					d.sweepExpiredLocked(now)
-				}()
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	d.sweepExpiredLocked(now)
+	d.lastSweep = now
 }
 
-// check returns true if the dedup ID has already been seen within the TTL window,
-// and records it otherwise.
 // isDuplicate returns true if dedupID was already seen within the TTL window.
 // It does NOT record the ID — call record() after a successful publish.
-// Expired entries are intentionally not swept here; the background goroutine
-// and the capacity-triggered sweep in record() maintain memory bounds.
-// The correctness check now.Before(exp) already returns false for expired entries,
-// so an O(n) sweep on every publish would be pure overhead.
 func (d *fifoDeduplication) isDuplicate(topicArn, dedupID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	now := time.Now()
+	d.sweepIfDueLocked(now)
+
 	key := topicArn + "/" + dedupID
 	exp, found := d.entries[key]
 
@@ -92,6 +79,7 @@ func (d *fifoDeduplication) record(topicArn, dedupID string) {
 	defer d.mu.Unlock()
 
 	now := time.Now()
+	d.sweepIfDueLocked(now)
 
 	// Bound memory: when at the cap, force a sweep before insertion so a workload
 	// with many short-lived dedup IDs cannot grow without bound.

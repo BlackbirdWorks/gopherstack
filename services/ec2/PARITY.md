@@ -1,9 +1,220 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 302aa4e3c  # zeroguard: ModifyInstancePlacement omitted-member fix
-last_audit_date: 2026-09-18
-overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
+last_audit_commit: 5cb6665a0   # was 30db30dd8
+last_audit_date: 2026-09-24   # was 2026-09-23
+overall: A   # Filter.N sweep, fourth batch (2026-09-24, chore/parity-sweep-2026-09-18
+             # branch, continues gopherstack-rwwvt): fixed 16 more of the ~84 ops the third
+             # batch left as items_still_open, prioritised Terraform-facing families as
+             # directed -- DescribeLaunchTemplates (previously applied zero Filters despite
+             # being registered with real ID-lookup logic), the CoIP/local gateway family
+             # (DescribeCoipPools, DescribeLocalGateways, DescribeLocalGatewayVirtualInterfaces,
+             # DescribeLocalGatewayVirtualInterfaceGroups), DescribeVolumeStatus/
+             # VolumesModifications, DescribeMacHosts (cross-referenced against
+             # Backend.DescribeHosts since MacHost itself carries neither filterable field),
+             # DescribeFpgaImages, DescribeImportImageTasks (task-state; also discovered its
+             # filter list flattens under "Filters.N", not the usual "Filter.N" --
+             # parseEC2FilterListKeyed(vals, prefix) now generalizes parseEC2Filters for this),
+             # DescribeInstanceEventWindows, DescribeInstanceCreditSpecifications, and
+             # DescribeLockedSnapshots, plus missing sub-filters on three already-partially-fixed
+             # ops: DescribeImages (owner-id, virtualization-type, tag-key, and the full
+             # block-device-mapping.* family), DescribeSnapshots (description, owner-id,
+             # volume-size, tag-key), and DescribeKeyPairs (tag-key). Also fixed a real,
+             # unrelated bug found while testing DescribeImages' new tag-key filter:
+             # RegisterImage never parsed TagSpecifications at all (every other Create op in
+             # this file does), so a real client's RegisterImage-with-tags call silently
+             # dropped every tag. Corrected one stale items_still_open claim:
+             # DescribeIamInstanceProfileAssociations was listed as "state filter only" but
+             # both its documented filters (instance-id, state) were already implemented;
+             # removed rather than re-fixed. See items_still_open for exact filter names,
+             # unmodeled gaps (DescribeVolumeStatus's action.*/event.* family, FpgaImage's
+             # product-code, VolumeModification's original-iops/MultiAttach fields, etc.), and
+             # the updated ~72-op remaining count.
+             # ---- prior pass's note follows ----
+             # Filter.N sweep, third batch (2026-09-24, chore/parity-sweep-2026-09-18
+             # branch, continues gopherstack-rwwvt): fixed 13 more of the ~99 ops the prior
+             # pass on this branch left as items_still_open, prioritised Terraform-facing
+             # families as directed -- placement groups, EC2 Fleet, spot price history,
+             # reserved instances, the full Traffic Mirror describe family, VPC endpoint
+             # associations, the local gateway route table family, and Network Insights
+             # paths/analyses. Also fixed a related non-Filter.N bug found auditing the
+             # VerifiedAccess family (both DescribeVerifiedAccessEndpoints/Groups silently
+             # dropped their documented VerifiedAccessGroupId/VerifiedAccessInstanceId scalar
+             # params). See items_still_open for the exact filter names each op got, which
+             # documented filters were left as unmodeled gaps, and which ops were confirmed to
+             # have genuinely no enumerated Filter.N names at all (a real, deliberately-unfixed
+             # gap, not merely unreached) -- the IPAM Describe*/Get* family, RouteServer*, and
+             # NetworkInsightsAccessScope(Analyses) all fall in that category. Also corrected a
+             # stale items_still_open claim: DescribeCapacityReservations,
+             # DescribeCapacityReservationFleets, and DescribeLaunchTemplateVersions were
+             # already fixed by an earlier pass but still listed as open; confirmed still
+             # correct and removed from the open list rather than re-fixed. New code:
+             # handler_filters.go gained 13 new applyXxxFilters/xxxMatchesFilter pairs plus a
+             # shared matchesTagFilter(resourceID, filterName, values, b) (bool, bool) helper
+             # for the tag-key/tag:<key> pair, now used by the two new filters that need it
+             # (placement groups, reserved instances) instead of repeating the loop inline;
+             # handler_verified_access.go's two Describe handlers gained direct
+             # slices.DeleteFunc-based scalar-param filtering (not Filter.N, so routed outside
+             # the applyXxxFilters convention). New tests (real aws-sdk-go-v2-client-driven,
+             # table-driven, t.Parallel outer+inner, each creating 2+ objects and asserting only
+             # the matching one(s) come back): realclient_filters_batch3_test.go, 15 tests
+             # (TestRealClient_DescribePlacementGroupsFilters,
+             # TestRealClient_DescribeFleetsFilters,
+             # TestRealClient_DescribeSpotPriceHistoryFilters,
+             # TestRealClient_DescribeReservedInstancesFilters,
+             # TestRealClient_DescribeTrafficMirrorFiltersFilters,
+             # TestRealClient_DescribeTrafficMirrorSessionsFilters,
+             # TestRealClient_DescribeTrafficMirrorTargetsFilters,
+             # TestRealClient_DescribeVpcEndpointAssociationsFilters,
+             # TestRealClient_DescribeLocalGatewayRouteTablesFilters,
+             # TestRealClient_DescribeLocalGatewayRouteTableVpcAssociationsFilters,
+             # TestRealClient_DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociationsFilters,
+             # TestRealClient_DescribeNetworkInsightsPathsFilters,
+             # TestRealClient_DescribeNetworkInsightsAnalysesFilters,
+             # TestRealClient_DescribeVerifiedAccessEndpointsScalarParams,
+             # TestRealClient_DescribeVerifiedAccessGroupsScalarParam). Gates: gofmt clean; go
+             # build ./... and go vet ./services/ec2/... clean; go test -race -count=1
+             # ./services/ec2/... pass; golangci-lint run ./services/ec2/... 0 issues (fixed
+             # cyclop x1 in reservedInstanceMatchesFilter via the new matchesTagFilter helper,
+             # goconst x1 to a new filterKeyProductDesc const shared with the two pre-existing
+             # product-description switch cases, golines x1 and govet/fieldalignment x1 in the
+             # new test file -- no nolints added); go test ./pkgs/persistence/ pass;
+             # parityfmtcheck clean; go.mod/go.sum untouched.
+             # ---- prior pass's note follows ----
+             # Filter.N sweep, second batch (2026-09-24, chore/parity-sweep-2026-09-18
+             # branch, continues gopherstack-rwwvt): fixed 17 more of the ~116 ops the prior
+             # pass on this branch left as items_still_open, prioritised transit gateway
+             # sub-resources / VPC endpoint / Client VPN / Hosts as directed. Transit Gateway
+             # (9): DescribeTransitGatewayConnects (options.protocol, state,
+             # transit-gateway-attachment-id, transit-gateway-id,
+             # transport-transit-gateway-attachment-id -- no tag:/tag-key documented for this
+             # op); DescribeTransitGatewayConnectPeers (state, transit-gateway-attachment-id,
+             # transit-gateway-connect-peer-id -- no tag documented); DescribeTransitGatewayMulticastDomains
+             # (state, transit-gateway-id, transit-gateway-multicast-domain-id -- verified
+             # against the live AWS API reference, no tag:/tag-key documented for this op despite
+             # the wire response carrying a tagSet); DescribeTransitGatewayPeeringAttachments
+             # (local-owner-id/remote-owner-id -> Requester/AccepterOwnerID, state,
+             # tag:<key>/tag-key, transit-gateway-attachment-id, transit-gateway-id ->
+             # RequesterTransitGatewayID); GetTransitGatewayAttachmentPropagations
+             # (transit-gateway-route-table-id); GetTransitGatewayMulticastDomainAssociations
+             # (resource-id, resource-type, state, subnet-id, transit-gateway-attachment-id);
+             # GetTransitGatewayPrefixListReferences (attachment.transit-gateway-attachment-id,
+             # is-blackhole, prefix-list-id, state -- attachment.resource-id/resource-type and
+             # prefix-list-owner-id documented but TransitGatewayPrefixListReference has no
+             # backing field, left unimplemented); GetTransitGatewayRouteTableAssociations
+             # (resource-type, transit-gateway-attachment-id only -- resource-id is documented
+             # and modeled but AssociateTransitGatewayRouteTable never populates it, unlike
+             # EnableTransitGatewayRouteTablePropagation which does for the sibling
+             # Propagations op, so it stays unimplemented rather than filtering a field nothing
+             # sets); GetTransitGatewayRouteTablePropagations (resource-id, resource-type,
+             # transit-gateway-attachment-id). VPC Endpoint (4): DescribeVpcEndpointConnections
+             # (service-id, vpc-endpoint-id, vpc-endpoint-state -- ip-address-type,
+             # vpc-endpoint-owner, vpc-endpoint-region documented but unmodeled);
+             # DescribeVpcEndpointConnectionNotifications (connection-notification-arn/-id/-state/-type,
+             # service-id, vpc-endpoint-id -- all 6 documented filters, all backed);
+             # DescribeVpcEndpointServiceConfigurations (service-id, service-name, service-state,
+             # tag:<key>, tag-key -- supported-ip-address-types documented but unmodeled);
+             # DescribeVpcEndpointServicePermissions (principal, principal-type via the existing
+             # principalTypeFor helper). Client VPN (3): DescribeClientVpnAuthorizationRules
+             # (description, destination-cidr -- group-id is documented and modeled
+             # (ClientVpnAuthRule.GroupID) but AuthorizeClientVpnIngress never reads a GroupId
+             # off the wire to populate it, every rule created with AccessAll:true, so left
+             # unimplemented rather than filtering a field nothing ever sets);
+             # DescribeClientVpnRoutes (destination-cidr, origin, target-subnet);
+             # DescribeClientVpnTargetNetworks (association-id, target-network-id, vpc-id).
+             # Terraform read path (1): DescribeHosts (auto-placement, availability-zone,
+             # instance-type, state, tag-key -- client-token, host-reservation-id documented but
+             # unmodeled). DescribeClientVpnConnections audited and confirmed correct as-is
+             # (always empty -- this backend never establishes real client sessions, matching
+             # the op's existing in-code comment; not a filter-ignoring bug). New code:
+             # handler_filters.go gained a generic applyFilterList[T] helper (the standard
+             # AND-across-names/OR-within-values loop, now shared instead of copy-pasted per
+             # op) plus a matchesTGWResourceFilter helper for the resource-id/resource-type/
+             # transit-gateway-attachment-id trio shared by the Propagations and
+             # MulticastDomainAssociations ops, and the 17 new applyXxxFilters/xxxMatchesFilter
+             # pairs; handler_client_vpn.go gained filterAndPageClientVpnList[T] to deduplicate
+             # the filter+paginate steps shared by its three Describe* handlers (golangci-lint
+             # dupl otherwise fired between DescribeClientVpnRoutes and
+             # DescribeClientVpnAuthorizationRules). New tests (all real aws-sdk-go-v2-client-driven,
+             # table-driven, t.Parallel outer+inner, each creating 2+ objects and asserting only
+             # the matching one(s) come back): realclient_filters_tgw_subresources_test.go (9
+             # tests), realclient_filters_vpc_endpoints_test.go (4 tests),
+             # realclient_filters_client_vpn_hosts_test.go (4 tests, incl. DescribeHosts). Gates:
+             # gofmt clean; go build ./... and go vet ./services/ec2/... clean; go test -race
+             # -count=1 ./services/ec2/... pass; golangci-lint run ./services/ec2/... 0 issues
+             # (fixed dupl x2, goconst x1 to a new filterKeyPrefixListID const, golines/lll in
+             # the new test files, nonamedreturns in matchesTGWResourceFilter -- no nolints
+             # added); go test ./pkgs/persistence/ pass; parityfmtcheck clean; go.mod/go.sum
+             # untouched.
+             # ---- prior pass's note follows ----
+             # Filter.N sweep (chore/parity-sweep-2026-09-18 branch, closes
+             # gopherstack-rwwvt): DescribeTransitGatewayVpcAttachments only honoured
+             # TransitGatewayAttachmentIds and silently dropped every Filter.N (state,
+             # transit-gateway-attachment-id, transit-gateway-id, vpc-id, tag:<key>, tag-key --
+             # all real, api_op_DescribeTransitGatewayVpcAttachments.go-documented and backed by
+             # stored fields). Fixed via a new applyTGWVpcAttachmentFilters/
+             # tgwVpcAttachmentMatchesFilter pair in handler_filters.go, following the file's
+             # existing applyXxxFilters convention, wired into handleDescribeTransitGatewayVpcAttachments
+             # (handler_networking1.go) after the existing requireAllIDsPresent check (matches
+             # handleDescribeTransitGateways' ordering). Audited every other registered EC2
+             # Describe*/Get* handler against the pinned SDK's per-op "Filters []types.Filter"
+             # (or, for the DescribeNatGateways family, the singular "Filter []types.Filter")
+             # field: of 181 ops the SDK declares as filterable, 60 already apply filters and 121
+             # silently ignored Filters entirely (see below and .claude-scratch audit for the
+             # full op list -- not reproduced here in full given its size). Of the priority
+             # families called out for this pass: DescribeNetworkAcls, DescribeRouteTables,
+             # DescribeCustomerGateways, DescribeVpnGateways, DescribeNatGateways,
+             # DescribeIpamScopes, and DescribeIpamResourceDiscoveries were already fixed by an
+             # earlier pass and confirmed still correct. Newly fixed this pass, beyond the
+             # mandatory target: (2) DescribeTransitGatewayAttachments -- same
+             # filters-ignored bug, same TransitGatewayVpcAttachment-derived data; added
+             # applyTGWAttachmentFilters/tgwAttachmentMatchesFilter covering resource-id,
+             # resource-type, state, transit-gateway-attachment-id, transit-gateway-id, tag:<key>,
+             # tag-key (association.*, resource-owner-id, transit-gateway-owner-id are documented
+             # but this backend's TransitGatewayAttachmentSummary has no backing field, left
+             # unimplemented rather than fabricated). (3) DescribeClientVpnEndpoints -- added
+             # applyClientVpnEndpointFilters/clientVpnEndpointMatchesFilter covering endpoint-id,
+             # transport-protocol, tag:<key>, tag-key (the two real documented filters this
+             # backend has data for). (4) DescribeVpnConnections -- added
+             # applyVpnConnectionFilters/vpnConnectionMatchesFilter covering vpn-connection-id,
+             # state, type, customer-gateway-id, vpn-gateway-id, transit-gateway-id,
+             # option.static-routes-only, tag:<key>, tag-key; customer-gateway-configuration
+             # (an XML blob, not an equality-filterable field), route.destination-cidr-block, and
+             # bgp-asn are documented but unmodeled, left unimplemented. (5)
+             # DescribeVpcEndpointServices -- added the "service-type" Filter (derived from the
+             # existing gatewayEndpointServiceType helper); ServiceRegion.N and the remaining
+             # documented Filters (owner, tag:<key>, etc.) stay a documented gap since this
+             # backend's service catalogue is a static per-region name list with no per-service
+             # attribute data to filter against. New tests (all real aws-sdk-go-v2-client-driven,
+             # table-driven, t.Parallel outer+inner): realclient_filters_tgw_vpn_test.go --
+             # TestRealClient_DescribeTransitGatewayVpcAttachmentsFilters,
+             # TestRealClient_DescribeTransitGatewayAttachmentsFilters,
+             # TestRealClient_DescribeClientVpnEndpointsFilters,
+             # TestRealClient_DescribeVpnConnectionsFilters,
+             # TestRealClient_DescribeVpcEndpointServicesFilters -- each creates 2+ objects,
+             # applies a filter, and asserts only the matching object(s) come back; empty-filter
+             # behaviour is unchanged (every new applyXxxFilters function returns its input
+             # unmodified when len(filters)==0, same as every pre-existing one). Remaining
+             # filter-ignoring ops, not fixed this pass (out of scope/lower priority; see
+             # items_still_open for the full breakdown by family): the rest of the transit
+             # gateway family (DescribeTransitGatewayConnectPeers/Connects/MeteringPolicies/
+             # MulticastDomains/PeeringAttachments/PolicyTables/RouteTableAnnouncements and every
+             # GetTransitGateway*/GetTransitGatewayRouteTable* sub-resource op), the remaining VPC
+             # endpoint ops (DescribeVpcEndpointAssociations/ConnectionNotifications/
+             # ServiceConfigurations/ServicePermissions), DescribeClientVpnAuthorizationRules/
+             # Connections/Routes/TargetNetworks, the local gateway route table family
+             # (DescribeLocalGatewayRouteTables and its VirtualInterfaceGroupAssociations/
+             # VpcAssociations siblings), and the large IPAM Describe*/Get* surface
+             # (DescribeIpamPools/Ipams/PoolAllocations/ExternalResourceVerificationTokens/
+             # PrefixListResolvers(Targets)/ResourceDiscoveryAssociations/Policies and every
+             # GetIpamDiscovered*/GetIpamPolicy*/GetIpamPrefixListResolver*/GetIpamPoolCidrs/
+             # GetIpamResourceCidrs/GetIpamRouteProtectionFindings/GetIpamInternetRegistryAssociation*
+             # op). Gates run: gofmt -l (clean), go build ./... && go vet ./services/ec2/...
+             # (clean), go test -race -count=1 ./services/ec2/... (pass), golangci-lint run
+             # ./services/ec2/... (clean), go test ./pkgs/persistence/ (pass), parityfmtcheck
+             # (clean), go.mod/go.sum untouched.
+             # ---- prior pass's note follows ----
+             # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
              # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
              # and the map-literal `"OpName": h.handleOpName`), restricted to Describe*/List*,
@@ -329,8 +540,236 @@ families:
   tgw_policy_table_entries: {status: ok, note: "NEW (2026-08-05, SDK bump ec2 v1.317->v1.319.1, gopherstack-8pce follow-up): implemented Create/Modify/DeleteTransitGatewayPolicyTableEntry, the 3 of the 13 newly-exposed ops in this family. A prior pass's GetTransitGatewayPolicyTableEntries doc comment claimed 'Real AWS exposes no API to create policy table entries directly' — that was true when written but is now WRONG: the v1.319 bump adds exactly that API. Corrected the comment and GetTransitGatewayPolicyTableEntries itself, which previously validated the table existed and always returned an empty list; it now returns the real stored entries (was a disguised, now-incorrect stub given the new Create op — caught by the 'a resource created by a Create operation must be visible to the matching Describe' rule). New backend.TransitGatewayPolicyTableEntry model + tgwPolicyTableEntries store.Table, keyed policyTableID+ruleNumber (mirrors the pre-existing tgwMeteringPolicyEntries pattern exactly). Field-diffed against the installed SDK's serializers.go/deserializers.go/validators.go: wire params are flat (PolicyRule.SourceCidrBlock/SourcePortRange/DestinationCidrBlock/DestinationPortRange/Protocol/MetaData.MetaDataKey/MetaDataValue, TargetRouteTableId, PolicyRuleNumber, TransitGatewayPolicyTableId), response element names are policyRuleNumber/targetRouteTableId/state/policyRule (nested destinationCidrBlock/destinationPortRange/metaData/protocol/sourceCidrBlock/sourcePortRange) — all lowerCamelCase, ISO8601 timestamps (this op has none). CreateTransitGatewayPolicyTableEntry validates TransitGatewayPolicyTableId/PolicyRuleNumber/TargetRouteTableId are required (matching validateOpCreateTransitGatewayPolicyTableEntryInput) and that TargetRouteTableId refers to a real, existing TGW route table (real invariant: an entry must route to somewhere that exists) — not just accepting any string. ModifyTransitGatewayPolicyTableEntry implements 'unspecified fields retain their current value' field-by-field (matching this file's existing ModifyTransitGatewayPrefixListReference/ModifyTransitGatewayMeteringPolicy convention), re-validating TargetRouteTableId existence when provided. DeleteTransitGatewayPolicyTable now also cascades to entries (previously only cascaded associations). Not-found for a nonexistent rule number reuses ErrInvalidParameter (matching the sibling TransitGatewayMeteringPolicyEntry convention exactly, rather than inventing a new sentinel for an AWS error code this pass could not verify against any documented example). Tests: TestTGWPeripherals_PolicyTableEntryLifecycle/_PolicyTableEntriesValidation/_DeletePolicyTableCascadesEntries/_PolicyTableEntrySnapshotRestore (backend), TestTGWPeripheralsHandler_PolicyTableEntryLifecycle (wire, via postForm/dispatchHandler proving the exact query-param and XML-response shapes above)."}
   application_status_checks: {status: ok, note: "NEW (2026-08-05, SDK bump ec2 v1.317->v1.319.1, gopherstack-8pce follow-up): implemented all 10 newly-exposed ops (Create/Modify/Delete/DescribeApplicationStatusChecks, Associate/DisassociateApplicationStatusCheck, DescribeApplicationStatusCheckAssociations, Enable/DisableApplicationStatusCheckSuppression, DescribeApplicationStatus). Understanding, confirmed by reading every operation's doc comment plus types.go/serializers.go/deserializers.go/validators.go in the installed SDK: an ApplicationStatusCheck is a reusable HTTP(S) health-check DEFINITION (protocol/port/path/thresholds/interval/timeout), created independently of any instance; Associate/DisassociateApplicationStatusCheck attach it to instances directly by ID or indirectly via a tag key/value (current AND future instances with that tag are covered); Enable/DisableApplicationStatusCheckSuppression temporarily excludes an instance's checks from affecting its aggregated status; DescribeApplicationStatus returns the real target of the whole family — each instance's single AGGREGATED status, derived only from checks whose Aggregation='included' (checks with Aggregation='excluded' run independently and never affect it, per the real doc comment). CRUD/association/suppression state is fully real: CreateApplicationStatusCheck applies the real, doc-comment-documented AWS defaults (Path=/, Interval=60, Timeout=6, FailureThreshold=2, SuccessThreshold=5, StatusCodeMatcher=200, InitializationGracePeriodSeconds=300, Aggregation=included) and enforces the real, documented 50-check-per-account limit and Timeout<Interval/Path-starts-with-/ constraints; DeleteApplicationStatusCheck marks Deleted+DeletionTime rather than removing the row outright (real AWS retains a deleted check during an undocumented grace period, visible via IncludeAll=true — this backend retains indefinitely rather than inventing an unspecified grace-period duration, a real gap, not a fabrication) and cascades to every association targeting it; Associate/DisassociateApplicationStatusCheck enforce the real 'exactly one of InstanceIds/TargetTagAssociations, not both' InvalidParameterCombination rule and report real per-target Successful/UnsuccessfulResults (field-diffed: note SuccessfulAssociationResponseObject's AssociationType vocabulary is 'INSTANCE_ID'/'EC2TAG', a DIFFERENT wire vocabulary from ApplicationStatusCheckAssociationObject's 'instance-id'/'tag' used by DescribeApplicationStatusCheckAssociations — an easy-to-miss trap this pass caught by reading both deserializers directly rather than assuming one covers the other); Enable/DisableApplicationStatusCheckSuppression validate the instance exists and compute a real ResumeAt from DurationSeconds (0/absent = indefinite, matching the documented behaviour). DescribeApplicationStatus is the one op a mock backend cannot honestly fully implement: real AWS derives it from actually running HTTP health checks against the instance's application, which this backend does not and cannot do. Per this task's explicit no-fabrication rule, it NEVER returns 'ok'/'impaired'/'initializing' (all three require a real check result this backend does not have) — it returns only the subset of the real ApplicationStatusEnum that is honestly, fully derivable from tracked state: 'suppressed' (a real active ApplicationStatusSuppression exists), 'not-applicable' (real AWS's own documented meaning: no included-aggregation check applies to the instance — verified true here, not approximated), or 'insufficient-data' (an included check IS associated but this backend has never run it, so there is genuinely zero result data — the honest, not fabricated, answer for that value's own documented meaning). See gaps for what remains unmodeled. New sentinels: ErrApplicationStatusCheckNotFound (InvalidApplicationStatusCheckId.NotFound), ErrInvalidParameterCombination (InvalidParameterCombination, new — not previously used anywhere in this file), ErrTooManyApplicationStatusChecks (ApplicationStatusCheckLimitExceeded). New ID prefix 'asc-' (resourceTypePrefixes: 'application-status-check', the real AWS ResourceType string) plus 3 new store.Table-backed maps (applicationStatusChecks/applicationStatusCheckAssociations/applicationStatusSuppressions), all registered via the existing b.registry Snapshot/Restore mechanism — no persistence.go changes needed. Tests: application_status_checks_test.go (12 backend tests: create validation/defaults/quota, modify-retains-unset-fields, delete-cascade+IncludeAll retention, describe filters, instance+tag association lifecycle including partial-success Successful/Unsuccessful reporting, suppression, the dedicated 'never fabricates' status test, snapshot/restore round trip) and handler_application_status_checks_test.go (4 wire tests via postForm/dispatchHandler proving the exact query-param names — InstanceId.N not InstanceIds.N, PolicyRule-style nested TargetTagAssociation.N.Key/.Value — and XML response element names field-diffed above)."}
   unrecorded_describe_ops_sweep41: {status: ok, note: "SWEEP (this pass): 19 of the 37 Describe/List ops this file had never recorded as verified, real-client-driven (wire_field_fixes_ec2sweep41_test.go). FIXED 8 request-param bugs — DescribePrincipalIdFormat (fabricated PrincipalArn key, ignored real Resource.N filter; Backend.DescribePrincipalIDFormat's signature changed from principalARN string to resources []string), DescribeIamInstanceProfileAssociations (Filter.1.Value.1 read unconditionally as instance-id before checking Filter.1.Name, misreading a lone \"state\" filter; \"state\" filter now also implemented), DescribeLaunchTemplates (LaunchTemplateId.N never read, only LaunchTemplateName.N), DescribeLaunchTemplateVersions (LaunchTemplateName/Versions/MinVersion/MaxVersion never read, only the scalar LaunchTemplateId), DescribeImageUsageReports (ReportId.N/ImageId.N never read at all), DescribeVpcEndpointServices (ServiceName.N never read at all), DescribeCustomerGateways and DescribeVpnGateways (Filters never read at all — new applyCustomerGatewayFilters/applyVpnGatewayFilters in handler_filters.go). CONFIRMED CORRECT: DescribeAccountAttributes, DescribeDeclarativePoliciesReports, DescribeVpcClassicLink (singular VpcId.N) + DescribeVpcClassicLinkDnsSupport (plural VpcIds.N — same field name, opposite wire key, both confirmed), DescribeVpcPeeringConnections, DescribeIpams, DescribeVpcEncryptionControls, DescribeFpgaImages, DescribeInstanceSqlHaStates. CORRECTION: DescribeTransitGatewayConnects/ConnectPeers/PeeringAttachments/RouteTables were already fixed and real-client-tested in wire_field_fixes_ec2sweep36_test.go; this file simply never recorded them. 18 of the 37 remain unaudited this pass: DescribeAggregateIdFormat, DescribeAwsNetworkPerformanceMetricSubscriptions, DescribeClassicLinkInstances, DescribeExportTasks, DescribeFpgaImageAttribute, DescribeImageUsageReportEntries, DescribeInstanceEventNotificationAttributes, DescribeInstanceSqlHaHistoryStates, DescribeIpamPools, DescribeIpamScopes, DescribeNetworkInterfaceAttribute, DescribeSecondaryInterfaces, DescribeSecondaryNetworks, DescribeSecondarySubnets, DescribeServiceLinkVirtualInterfaces, DescribeVpnConcentrators (plus MaxResults/NextToken and the remaining Filters surface on several of the ops fixed/confirmed above were not separately re-audited). See top-of-file pass note for full detail."}
+  ipam_internet_registry_and_routing_policy: {status: ok, note: "NEW (2026-09-19, ec2 SDK bump
+    v1.319.1->v1.329.0): implemented all 17 previously-unimplemented ops. Internet registry
+    associations (Create/Describe/Enable/Delete, Get*Asns/Get*Cidrs) link an IPAM to an RIR
+    (ripe/apnic/arin/lacnic -- the real Rir enum; AFRINIC is not a member) with the real
+    IpamInternetRegistryAssociationState lifecycle (Create lands on pending-enable, the actual
+    steady state pre-Enable, not a fabricated create-complete this enum has no member for).
+    Routing policy registrations (Create/Modify/Delete/BatchModify, Get*Registrations/
+    *RegistrationDeltas/*RouteOriginAuthorizations) are full CRUD keyed by (associationId, cidr)
+    per the real API; Get*Asns/Get*Cidrs/GetIpamRouteOriginAuthorizations are derived live from
+    these registrations' own stored Asns/Cidr (real client input, never fabricated).
+    GetIpamDiscoveredRoutes/GetIpamRouteProtectionFindings validate their FK (resource discovery
+    ID / IPAM ID) but always return empty -- see structural_gaps. BatchModifyIpamRoutingPolicyRegistrations'
+    DeltaJson has no AWS-published schema (SDK doc comment: 'in JSON format' only); this backend
+    defines and documents its own array-of-{action,cidr,asns,...} shape rather than guessing at
+    an undocumented one. ReplaceImageInstanceTypeSpecification (images.go) sets/clears an AMI's
+    supported/unsupported instance type lists, enforced only for account-owned images (the
+    seeded public catalog reports InvalidParameterValue, no dedicated ownership error code
+    confirmed). ValidateSecurityGroupQuotasForInterface (security_groups.go) checks the real
+    default VPC quotas (5 groups/interface, 60 combined rules/interface); no dedicated quota
+    error code is confirmed in the pinned SDK so both map to InvalidParameterValue. Tests:
+    ipam_internet_registry_test.go, ipam_routing_policy_test.go, image_instance_type_spec_test.go,
+    security_group_quota_test.go -- all real aws-sdk-go-v2 client round-trips (create ->
+    describe/get -> enable/modify -> delete -> not-found, plus filter and MaxResults/NextToken
+    pagination). Caught and fixed one wire bug this pass: ReplaceImageInstanceTypeSpecificationOutput's
+    field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "Filter.N sweep, fourth batch (2026-09-24, gopherstack-rwwvt sweep, continues the third
+    batch below): fixed 16 more ops -- DescribeLaunchTemplates (launch-template-name,
+    create-time, tag:<key>, tag-key -- all four documented filters, all backed);
+    DescribeCoipPools (coip-pool.local-gateway-route-table-id, coip-pool.pool-id, both
+    backed via CreateCoipPool); DescribeLocalGateways (local-gateway-id, outpost-arn,
+    owner-id, state, all backed via SeedLocalGateway -- this resource family has no Create
+    API, Outpost-provisioned); DescribeLocalGatewayVirtualInterfaces (local-address,
+    local-bgp-asn, local-gateway-id, local-gateway-virtual-interface-id, owner-id,
+    peer-address, peer-bgp-asn, vlan -- all eight documented filters, all backed via
+    SeedLocalGatewayVirtualInterface); DescribeLocalGatewayVirtualInterfaceGroups
+    (local-gateway-id, local-gateway-virtual-interface-group-id,
+    local-gateway-virtual-interface-id, owner-id -- all four, backed via
+    SeedLocalGatewayVirtualInterfaceGroup); DescribeVolumeStatus (availability-zone only --
+    action.*/event.*/volume-status.* documented but this backend runs no real health-check
+    pipeline, VolumeStatus is always the constant 'ok' with no per-event data behind it, left
+    unmodeled); DescribeVolumesModifications (modification-state, original-size,
+    original-volume-type, start-time, target-iops, target-size, target-volume-type,
+    volume-id -- original-iops documented but VolumeModification.OrigIops is never populated
+    by ModifyVolume, originalMultiAttachEnabled/targetMultiAttachEnabled have no backing
+    field at all, both left unmodeled); DescribeMacHosts (availability-zone, instance-type --
+    MacHost itself carries neither field on the wire, cross-referenced against
+    Backend.DescribeHosts by HostID instead of fabricating a match); DescribeFpgaImages
+    (create-time, fpga-image-id, fpga-image-global-id, name, owner-id, shell-version, state,
+    tag:<key>, tag-key -- product-code documented but FpgaImage.ProductCodes is never
+    populated by CreateFpgaImage, left unmodeled); DescribeImportImageTasks (task-state only
+    documented filter -- also discovered this op's Filter list flattens under 'Filters.N' on
+    the wire, not the usual 'Filter.N' (confirmed against the pinned SDK's
+    awsEc2query_serializeOpDocumentDescribeImportImageTasksInput FlatKey call); added
+    parseEC2FilterListKeyed(vals, prefix) so parseEC2Filters(vals) ==
+    parseEC2FilterListKeyed(vals, \"Filter\") and this one op calls the keyed variant
+    directly); DescribeInstanceEventWindows (dedicated-host-id, event-window-name,
+    instance-id, tag:<key>, tag-key, tag-value -- instance-tag/instance-tag-key/
+    instance-tag-value, which filter on an *associated instance's* tags rather than the
+    window's own, left unmodeled as a more involved cross-resource lookup);
+    DescribeInstanceCreditSpecifications (instance-id -- the only documented filter;
+    InstanceId.N already worked, Filter.N did not); DescribeLockedSnapshots (lock-state --
+    the only documented filter). Also added missing sub-filters to three ops a prior pass had
+    already partially fixed: DescribeImages gained owner-id, virtualization-type, tag-key,
+    and the full block-device-mapping.* family (device-name, snapshot-id, volume-type,
+    volume-size, delete-on-termination, encrypted -- all backed via RegisterImage);
+    DescribeSnapshots gained description, owner-id, volume-size, tag-key (all backed via
+    CreateSnapshot); DescribeKeyPairs gained tag-key (key-name/key-pair-id/fingerprint/tag:
+    were already implemented). Found and fixed one real, unrelated bug while testing
+    DescribeImages' new tag-key filter: RegisterImage never parsed TagSpecifications at all
+    (every other Create op in this file does -- CreateFpgaImage, CreateSnapshot, etc.), so a
+    real client's RegisterImage call with tags silently dropped every tag; now parses
+    TagSpecifications and calls Backend.CreateTags, matching the existing CreateImage/
+    CopyImage pattern in handler_image_ops.go/handler_deepdive_ops.go. Corrected one stale
+    claim in the batch-three bullet below: DescribeIamInstanceProfileAssociations was listed
+    as 'state filter only' but both its documented filters (instance-id, state) were already
+    implemented (handler_ec2core.go); removed rather than re-fixed. Confirmed genuinely
+    unreachable (no enumerated Filter.N names on the pinned SDK's doc comment, same treatment
+    as DescribeIpamPools et al.): DescribeTransitGatewayMeteringPolicies ('One or more
+    filters to apply when describing transit gateway metering policies.'), DescribeExportTasks
+    ('the filters for the export tasks.'), DescribeImportSnapshotTasks ('The filters.', no
+    per-name breakdown, unlike its DescribeImportImageTasks sibling). DescribeStaleSecurityGroups
+    and DescribeAddressesAttribute confirmed to have no Filter.N parameter on the wire at all
+    (VpcId + pagination only; AllocationId.N + Attribute only) -- not a gap, nothing to
+    implement. DescribeSecurityGroupRules' documented tag:<key> filter confirmed a real,
+    deliberately-unfixed gap: no write path threads a TagSpecification through
+    AuthorizeSecurityGroupIngress/Egress for the security-group-rule resource type, so a
+    security group rule's tags are never populated to filter against. New code:
+    handler_filters.go gained 12 new applyXxxFilters/xxxMatchesFilter pairs, a shared
+    matchesWildcardTimeFilter(wireTime string, values []string) bool helper (used by the new
+    launch-template/fpga-image create-time filters and refactored into the pre-existing
+    image-usage-report creation-time filter to avoid triplicating the wildcard-match loop),
+    parseEC2FilterListKeyed, a filterKeyOutpostArn constant (goconst: outpost-arn now had
+    three call sites), and imageMatchesBlockDeviceMappingFilter (extracted out of
+    imageMatchesFilter to keep it under cyclop's complexity budget once six new
+    block-device-mapping.* cases were added). New tests, all real aws-sdk-go-v2-client-driven,
+    table-driven, t.Parallel outer+inner, each creating 2+ objects through the real
+    Create/Register/Run/Associate/Lock API and asserting only the matching object(s) come
+    back (LocalGateway/LocalGatewayVirtualInterface(Group) use backend.SeedXxx directly per
+    this family's established no-Create-API convention): realclient_filters_launch_templates_test.go,
+    realclient_filters_local_gateway_family_test.go (4 tests), realclient_filters_volumes_test.go
+    (2 tests), realclient_filters_mac_hosts_test.go, realclient_filters_fpga_images_test.go,
+    realclient_filters_import_image_tasks_test.go, realclient_filters_event_window_test.go,
+    realclient_filters_images_test.go, realclient_filters_snapshots_key_pairs_test.go (2 tests),
+    realclient_filters_instance_credit_locked_snapshots_test.go (2 tests) -- 16 test functions
+    total. (The instance-event-window test file is named realclient_filters_event_window_test.go,
+    not ...instance_event_windows_test.go, because a trailing '_windows_test.go' segment matches
+    Go's GOOS build-constraint filename convention and silently excludes the file on non-Windows
+    builds -- caught only because `go list -f '{{.XTestGoFiles}}'` omitted it.) Gates: gofmt
+    clean; go build ./... and go vet ./services/ec2/... clean; go test -race -count=1
+    ./services/ec2/... pass; golangci-lint run ./services/ec2/... 0 issues (fixed cyclop x1 in
+    imageMatchesFilter, goconst x1 to filterKeyOutpostArn, golines/lll x1 in a new test file --
+    no nolints added); go test ./pkgs/persistence/ pass; parityfmtcheck clean; go.mod/go.sum
+    untouched."
+  - "Filter.N ignored on ~84 Describe*/Get* ops (2026-09-24, gopherstack-rwwvt sweep, third
+    batch): of the 181 registered EC2 ops the pinned SDK (ec2@v1.329.0) declares as filterable
+    (per-op 'Filters []types.Filter', or 'Filter []types.Filter' for the DescribeNatGateways
+    family), 82 already applied filters coming into this batch and this pass fixed 13 more
+    (DescribePlacementGroups (group-name, state, strategy, tag:<key>, tag-key -- group-arn and
+    spread-level documented but unmodeled), DescribeFleets (fleet-state, type --
+    activity-status and replace-unhealthy-instances documented but unmodeled;
+    excess-capacity-termination-policy documented as a true/false value but this backend stores
+    the real no-termination/termination enum, left unmodeled rather than fabricating a mapping),
+    DescribeSpotPriceHistory (availability-zone, instance-type, product-description, spot-price
+    -- availability-zone-id unmodeled, timestamp's documented wildcard matching not
+    implemented), DescribeReservedInstances (availability-zone, duration, end, fixed-price,
+    instance-type, product-description, reserved-instances-id, start, state, usage-price,
+    tag:<key>, tag-key -- availability-zone-id and scope documented but unmodeled),
+    DescribeTrafficMirrorFilters (description, traffic-mirror-filter-id -- both backed; this op
+    was missing from every earlier pass's unread-Filters audit despite ignoring Filters
+    entirely), DescribeTrafficMirrorSessions (description, network-interface-id, owner-id,
+    packet-length, session-number, traffic-mirror-filter-id, traffic-mirror-session-id,
+    traffic-mirror-target-id, virtual-network-id -- all nine backed), DescribeTrafficMirrorTargets
+    (description, network-interface-id, network-load-balancer-arn, owner-id,
+    traffic-mirror-target-id -- all five backed), DescribeVpcEndpointAssociations
+    (vpc-endpoint-id only -- this backend models a VPC endpoint association as the endpoint
+    itself rather than a real VPC Lattice service-network association record, so
+    association-id, associated-resource-accessibility, associated-resource-id,
+    service-network-arn, and resource-configuration-group-arn stay documented-but-unmodeled
+    gaps), DescribeLocalGatewayRouteTables (local-gateway-id,
+    local-gateway-route-table-arn/-id, outpost-arn, owner-id, state -- all six backed),
+    DescribeLocalGatewayRouteTableVpcAssociations (local-gateway-id,
+    local-gateway-route-table-arn/-id, local-gateway-route-table-vpc-association-id, owner-id,
+    state, vpc-id -- all seven backed), DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations
+    (local-gateway-id, local-gateway-route-table-arn/-id,
+    local-gateway-route-table-virtual-interface-group-association-id/-id, owner-id, state --
+    all seven backed), DescribeNetworkInsightsPaths (destination, protocol, source --
+    filter-at-source.*/filter-at-destination.* documented but unmodeled: no per-endpoint
+    address/port-range filter data), DescribeNetworkInsightsAnalyses (path-found, status --
+    both backed)). Also fixed as a related, non-Filter.N bug found while auditing the
+    VerifiedAccess family: DescribeVerifiedAccessEndpoints and DescribeVerifiedAccessGroups
+    both declare no Filter.N names at all ('One or more filters. Filter names and values are
+    case-sensitive.'), but each has a real, separately-documented scalar request parameter
+    (VerifiedAccessGroupId/VerifiedAccessInstanceId on Endpoints, VerifiedAccessInstanceId on
+    Groups) that was silently dropped -- a client narrowing by group or instance got every
+    endpoint/group in the account back. Now filtered post-hoc (VerifiedAccessInstanceId on
+    Endpoints resolved via the endpoint's group, since VerifiedAccessEndpoint has no direct
+    instance-id field). Audited but NOT touched, already correct coming into this batch:
+    DescribeCapacityReservations and DescribeCapacityReservationFleets (both already apply
+    Filters via applyCapacityReservationFilters / a backend-side filters param -- an earlier
+    pass fixed these without a matching items_still_open update) and
+    DescribeLaunchTemplateVersions (already applies image-id/instance-type/is-default-version
+    via applyLaunchTemplateVersionFilters, alongside its pre-existing
+    Versions/MinVersion/MaxVersion handling) -- the 'DescribeCapacityReservation*' and
+    'LaunchTemplate* sub-ops' mentions in this bullet's prior revision were stale. Confirmed
+    DELIBERATE, documented gaps (Filter.N present on the wire but the pinned SDK's doc comment
+    enumerates no filter names at all, so implementing named matching would mean fabricating
+    semantics never verified against the wire -- same treatment as DescribeIpamPools et al.):
+    DescribeRouteServers/RouteServerEndpoints/RouteServerPeers ('One or more filters to apply
+    to the describe request.'), DescribeVerifiedAccessInstances/Endpoints/Groups/TrustProviders'
+    own Filter.N ('Filter names and values are case-sensitive.' -- only the scalar params above
+    were fixed), and DescribeNetworkInsightsAccessScopes/AccessScopeAnalyses ('There are no
+    supported filters.', verbatim). ~72 remain genuinely unread as of the fourth batch above:
+    the rest of the transit gateway family
+    (DescribeTransitGatewayMeteringPolicies/PolicyTables/RouteTableAnnouncements -- the latter
+    two's SDK/API-reference doc comments give no enumerated filter names at all, a real,
+    deliberately-unfixed gap same as DescribeIpamPools et al. below, not merely unreached; and
+    every GetTransitGatewayMeteringPolicyEntries/GetTransitGatewayPolicyTableAssociations/
+    GetTransitGatewayPolicyTableEntries sub-resource op, same no-enumerated-filters gap);
+    DescribeClientVpnConnections audited and CONFIRMED CORRECT (always empty by design -- this
+    backend never establishes real client sessions -- not a filter-ignoring bug); the
+    bulk of the IPAM Describe*/Get* surface (DescribeIpamPools/Ipams/PoolAllocations/
+    ExternalResourceVerificationTokens/PrefixListResolvers(Targets)/ResourceDiscoveryAssociations/
+    Policies and every GetIpamDiscovered*/GetIpamPolicy*/GetIpamPrefixListResolver*/
+    GetIpamPoolCidrs/GetIpamResourceCidrs/GetIpamRouteProtectionFindings/
+    GetIpamInternetRegistryAssociation* op -- audited this pass: DescribeIpamPools, DescribeIpams,
+    DescribeIpamResourceDiscoveryAssociations, GetIpamPoolAllocations, and GetIpamPoolCidrs all
+    confirmed to give no enumerated Filter.N names either, 'One or more filters for the
+    request.'/'The resource discovery association filters.' with no per-name breakdown -- same
+    deliberate-gap treatment, not merely unreached); plus a long tail of lower-priority families
+    (DescribeCapacityBlock*, DescribeInstance*/Fleet* sub-ops, MacModificationTasks,
+    DescribeStoreImageTasks, DescribeReplaceRootVolumeTasks,
+    DescribeReservedInstancesListings/ReservedInstancesModifications,
+    DescribeScheduledInstances, DescribeSecurityGroupVpcAssociations,
+    DescribeVpcBlockPublicAccessExclusions/VpcClassicLink/VpcEncryptionControls,
+    DescribeTrafficMirrorFilterRules, DescribeTrunkInterfaceAssociations,
+    DescribeOutpostLags, DescribeElasticGpus,
+    DescribeExportImageTasks/FastLaunchImages/FastSnapshotRestores,
+    DescribeStoreImageTasks, DescribeInstanceConnectEndpoints/ImageMetadata/Topology,
+    DescribeSecondaryInterfaces (tag-key only -- everything else already
+    fixed), and DescribeAwsNetworkPerformanceMetricSubscriptions/
+    DescribeCapacityManagerDataExports/DescribeImageUsageReports (report-id/image-id already
+    fixed by an earlier pass; remaining Filters unread). Each of these needs the same treatment as
+    this pass's fixes: read the op's SDK doc comment for its documented filter names, cross-check
+    against what this backend's struct actually stores, add an applyXxxFilters/xxxMatchesFilter
+    pair to handler_filters.go for only the filters with real backing data, and wire it into the
+    handler after any existing requireAllIDsPresent check."
+  - "DescribeVpnConnections transit-gateway-id filter (2026-09-24, Ec2IpamAndTransitgatewayAdvanced CI-regression
+    fix + filter-population audit): removed. VpnConnection.TransitGatewayID is a real,
+    modeled field (ModifyVpnConnection clears it when moving a connection onto a
+    VpnGatewayId), but CreateVpnConnection only ever accepts CustomerGatewayId +
+    VpnGatewayId -- it never reads a TransitGatewayId off the wire, so the field is never
+    populated on create and the filter could never match a live connection. Same audit
+    fixed the sibling bug this filter's presence masked: CreateClientVpnRoute never read
+    TargetVpcSubnetId either, so DescribeClientVpnRoutes' target-subnet filter (added by
+    commit 9f1633435) never matched -- that one broke terraform/TestTerraform_Ec2IpamAndTransitgatewayAdvanced
+    (aws_ec2_client_vpn_route's create waiter polls DescribeClientVpnRoutes by
+    destination-cidr + target-subnet) and is now fixed: TargetVpcSubnetId is read in
+    handleCreateClientVpnRoute/handleDeleteClientVpnRoute and stored on
+    ClientVpnRoute.TargetSubnet. The rest of the same three commits'
+    (15bb3bca9/9f1633435/e69438d14) new filter cases were re-audited field-by-field against
+    their Create paths and all populate correctly; this was the only false claim found."
+  - "aws_network_interface_permission (2026-09-24, ec2-networking-essentials): CreateNetworkInterfacePermission
+    correctly returns the real AWS wire value PermissionState.State='granted' (lowercase, matching
+    ec2@v1.329.0 types.NetworkInterfacePermissionStateCode), but terraform-provider-aws's own create
+    waiter for this resource polls for the literal uppercase string 'GRANTED' and errors 'unexpected
+    state granted, wanted target GRANTED' — a provider-side bug (verified via TF_LOG=trace against a
+    live apply), not a gopherstack wire-shape gap. Dropped from ec2-networking-essentials's fixture rather than
+    emulate the wrong-case value, which would break real-AWS parity to appease a buggy client."
   - "Application Status Checks (2026-08-05, gopherstack-8pce follow-up): HealthCheckPaths (cross-AZ/Local-Zone
     health-check source/destination ENI paths) is not modeled at all — CreateApplicationStatusCheck silently
     accepts but discards it, and healthCheckPathSet is always rendered empty. This is a deep, separate feature
@@ -474,6 +913,75 @@ items_still_open:
     DescribeInstances never renders a blockDeviceMapping set at all; a real fix needs a new
     per-instance block-device-mapping model threaded through RunInstances/DescribeInstances/
     ModifyInstanceAttribute together, out of scope for a single-field fix."
+  - "aws_spot_fleet_request via classic launch_specification (ec2-compute-and-storage, 2026-09-19): does
+    not apply through terraform-provider-aws 5.100.0. Root-caused and fixed two real, verified
+    bugs in this pass: (1) RequestSpotInstances never reported SpotInstanceStatus.Code on the
+    wire (spotInstanceRequestItem had no <status> block at all), so the provider's fulfillment
+    waiter for aws_spot_instance_request polled forever -- fixed (spot_instances.go/
+    handler_spot_instances.go now echo status.code=fulfilled/status.message, matching
+    RequestSpotInstances' 'immediately fulfils' doc comment). (2) RegisterImage silently
+    dropped RootDeviceName and every BlockDeviceMapping.N.* member -- DescribeImages could
+    never report an AMI's root device or EBS mappings, breaking any real client (this one
+    included) that resolves a launch spec's root volume from the AMI -- fixed
+    (SetImageRootDeviceName/SetImageBlockDeviceMappings, images.go/handler_images.go, new
+    blockDeviceMapping set on the wire, field-diffed against BlockDeviceMappingResponse/
+    EbsBlockDeviceResponse in the pinned SDK). With both fixed, aws_spot_fleet_request's
+    launch_specification with a real, registered AMI still panics inside
+    terraform-provider-aws itself: hashLaunchSpecification (ec2_spot_fleet_request.go:2088,
+    called from launchSpecsToSet:1859, from resourceSpotFleetRequestRead:1070) does an
+    unconditional interface{}->string type assertion that panics with 'interface conversion:
+    interface {} is nil, not string' once the read path has real AMI/root-device data to work
+    with. Tried populating every documented LaunchSpecification field this backend could
+    plausibly be missing (placement.availabilityZone, monitoring.enabled, ebsOptimized,
+    iamInstanceProfile.{name,arn}, weightedCapacity always-present) one at a time, rebuilding
+    and re-running against a live container each time; the panic's file:line never moved,
+    including with a same-shape request that uses an unregistered (fake) AMI ID, which instead
+    fails cleanly with 'reading ... launch specifications: couldn't find resource' (no panic).
+    This is consistent with a real, pre-existing bug in this pinned provider build's own Set
+    hash function reading a map key its own flatten step conditionally skips, not a
+    still-missing gopherstack wire field -- but that could not be fully confirmed without the
+    provider's source, which is not vendored here. aws_spot_fleet_request was dropped from
+    ec2-compute-and-storage.tf/ec2_compute_and_storage_uncovered_test.go rather than merged failing; aws_spot_instance_request
+    and aws_ec2_fleet (both fixed/confirmed working end-to-end via the same test) were kept."
+  - "ec2-compute-and-storage/12 residual drift (2026-09-19), confirmed real via TF_LOG=trace against the
+    live wire response, not just plan output: (1) aws_vpn_connection's tunnel1/2_ike_versions
+    flip to null on every re-plan even though DescribeVpnConnections' raw XML correctly and
+    consistently includes ikeVersionSet=[ikev1,ikev2] on both the CreateVpnConnection response
+    and every later Describe (verified byte-for-byte identical across two separate polls) --
+    this is a terraform-provider-aws-side read/flatten quirk for this specific attribute, not
+    a wire gap here. (2) aws_default_vpc_dhcp_options' tags never persist: traced with
+    TF_LOG=trace and confirmed the provider issues exactly one DescribeDhcpOptions call during
+    Create and never issues CreateTags for this resource at all (no transparent-tagging
+    interceptor fires) -- CreateTags itself works correctly when called directly (verified via
+    the AWS CLI against the same running container), so this is the provider never asking us
+    to store the tag, not a backend bug. (3) aws_ec2_fleet's launched instance is not cleaned
+    up on 'terraform destroy' unless the resource sets terminate_instances = true (the
+    ec2-compute-and-storage.tf fixture does not); with the default false, the instance and its ENI
+    outlive 'DeleteFleets' by design (matching real AWS), which then blocks
+    'aws_subnet'/DependencyViolation at the end of the same destroy -- setting
+    terminate_instances = true was tried and instead exposed a separate multi-minute-plus
+    'still destroying' hang on aws_ec2_fleet itself (root cause not identified: possibly a
+    real, slow but eventually-successful wait tied to this backend's async instance-state
+    reconciler rather than a hang, not confirmed either way within this pass's time budget) --
+    left at the documented, real-AWS-matching default rather than trading a known, understood
+    gap for an unconfirmed one. (4) aws_vpc_peering_connection_accepter plans to clear its
+    tags whenever aws_vpc_peering_connection (the same underlying resource) sets tags and the
+    accepter resource does not -- a known real-world terraform-provider-aws quirk for this
+    resource pair (both sides tag the same physical connection); ec2-default-resources-and-transitgateway.tf now avoids
+    it by leaving tags off the requester side entirely. (5) aws_spot_instance_request's
+    source_dest_check always shows false->true drift: DescribeInstances never renders a
+    top-level sourceDestCheck field at all (a pre-existing, structural gap -- fixing it risks
+    a deadlock via PrimaryNetworkInterfaceSourceDestCheck taking its own RLock if ever called
+    from within an already-locked path, plus golden-test regeneration); not fixed this pass.
+    (6) aws_ebs_snapshot_copy's description drifts on every re-plan; the resource's schema
+    does not mark description Computed, so this matches real AWS's own well-known drift for
+    this exact resource, not a gopherstack gap."
+  - "AssociateVpcCidrBlock (2026-09-25, cross-VPC CIDR overlap fix below): enforces the
+    documented /16-/28 size range and same-VPC overlap rejection, but not the full
+    vpc-cidr-blocks.html 'IPv4 CIDR block association restrictions' matrix (e.g. rejecting a
+    172.16.0.0/12-range CIDR on a VPC whose existing block is from 10.0.0.0/8, or the
+    198.19.0.0/16 / 100.64.0.0/10 cross-family rules) -- fixable, just not implemented yet;
+    left open rather than half-modeled."
 structural_gaps:
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always
@@ -486,6 +994,10 @@ structural_gaps:
     produce a genuine check result, timestamp, or transition here, in an emulator or not.
     Reporting anything but the explicitly-defined 'not-applicable'/'insufficient-data'/
     'suppressed' subset would be fabrication. (gopherstack-8pce, 2026-08-07)"
+  - "GetIpamDiscoveredRoutes/GetIpamRouteProtectionFindings (2026-09-19): no BGP route
+    discovery or RPKI route-validation pipeline exists in this emulator -- both ops validate
+    their real FK (IpamResourceDiscoveryId / IpamId, correct NotFound on an unknown one) but
+    always return an empty, correctly-shaped result rather than fabricate routes or findings."
 deferred:
   - trunk_enclave.go's TrunkInterfaceAssociation.Tags: genuinely cannot migrate to the shared tag store — see tag_dual_storage note above (no TagSpecifications on the real create call, no ResourceType enum entry, so CreateTags could never target it even if registered). Left as the single remaining embedded-Tags field in the codebase, by design. RE-VERIFIED (gopherstack-8pce, 2026-07-31 pass): re-read AssociateTrunkInterfaceInput and the ResourceType enum in the installed SDK directly — the constraint still holds exactly as documented. This is NOT a reason to hold the grade at B: the reasoning is a genuine, unchanged real-API limitation (same treatment sql_ha.go's fabricated Tags field got — deleted, not migrated, in the prior pass), not an unaudited gap.
   - "RestoreImageFromRecycleBin (images.go): STALE ENTRY, already fixed before this deferred note was written. Commit 2d47b51d4 (2026-07-29, part of this same gopherstack-8pce ticket) rewrote the op to report InvalidAMIID.NotFound for an image genuinely absent from the bin and to re-create the AMI (guarding against clobbering a live image with the same ID) rather than unconditionally returning success — read directly in images.go:406-433 this pass, confirmed still correct. The deferred bullet describing it as a live disguised-stub bug was written into a later PARITY.md revision without re-checking the code and was wrong. FIXED this pass: added the test coverage that was missing (TestHandler_RestoreImageFromRecycleBin in handler_image_ops_test.go), since the fix had shipped with none."
@@ -495,10 +1007,59 @@ deferred:
   - NAT gateway private-connectivity mode (ConnectivityType=private, no AllocationId) and create-time PrivateIpAddress/SecondaryAllocationIds/SecondaryPrivateIpAddressCount/SecondaryPrivateIpAddresses — not modeled, no backing data; see nat_gateway note.
   - VPC Endpoint Service / VPC Endpoint DnsEntries, security groups, IP prefixes, policy documents, PrivateLink-managed-service fields — not modeled, no backing data; see vpc_endpoints note.
   - "EBS snapshot lineage, ENI attach/detach edge cases, pagination internals beyond tags/instances: AUDITED and FIXED (parity-5, 2026-07-30 pass) — see the ebs_snapshot_lineage/eni_attach_detach/pagination family notes above. Real, honestly-documented remaining gaps from that pass: Snapshot.DataEncryptionKeyId and AMI-backing-snapshot InvalidSnapshot.InUse protection (no backing data, see ebs_snapshot_lineage); per-ENI security-group tracking, a materially larger separate feature (see eni_attach_detach); MaxResults/NextToken truncation across ~12 newer op families that declare but never implement it, and SearchTransitGatewayRoutes's required-Filters not being enforced (see pagination and transit_gateway notes)."
-leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable leak). Re-verified the lifecycle-reconciler goroutine (store.go StartLifecycleReconciler/StopLifecycleReconciler) is ctx-parented AND has an explicit Stop channel, wired into provider.go/handler.go Shutdown — no leak. No other goroutines/tickers found in services/ec2 (grep for `go func\(`/`time.NewTicker`/`time.AfterFunc` — one hit, the reconciler above). Secondary indexes (instanceIDsByVPC/subnetIDsByVPC/routeTableIDsByVPC/sgIDsByVPC/natGatewayIDsByVPC) are correctly deindexed on every explicit per-resource delete; eniIDsByVPC is still correctly maintained but is now write-only (no reader) since DeleteVpc no longer cascades through it — not a leak (bounded, cleaned on ENI delete), just vestigial; left in place rather than risk a wider removal across network_interfaces.go/instances.go/spot_fleet.go/indexes.go for a non-functional cleanup.}
+leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable leak). Re-verified the lifecycle-reconciler goroutine (store.go StartLifecycleReconciler/StopLifecycleReconciler) is ctx-parented AND has an explicit Stop channel, wired into provider.go/handler.go Shutdown — no leak. No other goroutines/tickers found in services/ec2 (grep for `go func\(`/`time.NewTicker`/`time.AfterFunc` — one hit, the reconciler above). Secondary indexes (instanceIDsByVPC/subnetIDsByVPC/routeTableIDsByVPC/sgIDsByVPC/natGatewayIDsByVPC) are correctly deindexed on every explicit per-resource delete; eniIDsByVPC is still correctly maintained but is now write-only (no reader) since DeleteVpc no longer cascades through it — not a leak (bounded, cleaned on ENI delete), just vestigial; left in place rather than risk a wider removal across network_interfaces.go/instances.go/spot_fleet.go/indexes.go for a non-functional cleanup. NEW (2026-09-24): the six tombstone maps (tgwRouteTableTombstones, tgwVpcAttachmentTombstones, tgwPeeringAttachmentTombstones, natGatewayTombstones, fleetTombstones, vpnConnectionTombstones) never expired an entry — unbounded growth for a long-running emulator's terraform suites. Fixed: each tombstone now carries a deletedAt, describeWithTombstones stops returning one past ec2TombstoneTTL (1h, api_op_DescribeInstances.go's documented "usually less than one hour" terminated-instance visibility — no per-resource-type duration is documented for these six), and Janitor.sweepExpiredTombstones (added to SweepOnce) plus each Delete* op's own pruneExpiredTombstones call physically evict expired entries. See TestTombstones_ExpireAfterRetentionWindow, TestJanitor_SweepExpiredTombstones.}
 ---
 
 ## Notes
+
+### 2026-09-24: tombstone maps now expire (unbounded-growth fix)
+
+The six delete-waiter tombstone maps added by the ec2-compute-and-storage/12 and
+gopherstack-54bv0 passes below never removed an entry, so a long-running
+emulator whose terraform suites create/delete thousands of TGW route
+tables/VPC attachments/peering attachments, NAT gateways, Fleets, and VPN
+connections grew them without bound. Each tombstone now records deletedAt;
+describeWithTombstones stops surfacing one past ec2TombstoneTTL (1h, citing
+api_op_DescribeInstances.go's documented terminated-instance visibility
+window -- no duration is documented for these six specifically); a new
+Janitor.sweepExpiredTombstones (wired into SweepOnce, no new goroutine) and
+each Delete* op's own prune call physically evict expired entries. See
+TestTombstones_ExpireAfterRetentionWindow, TestJanitor_SweepExpiredTombstones.
+
+### 2026-09-24: ec2-networking-essentials/45 terraform coverage — 51 resources
+
+Fixed real gaps via terraform apply/destroy: wrong/missing wire states and
+enums (VPC CIDR assoc, instance-connect-endpoint, TGW connect/peering),
+missing Filters on 5+ Describe ops, no VPC IPv6 CIDR support, IPAM
+scope/pool and network-insights-analysis missing ARN fields (both crashed
+the provider), ModifyVpcEndpoint ignoring most of its own inputs, and
+AllocateAddress dropping tags. See items_still_open for 2 provider-side bugs.
+
+### 2026-09-23 (gopherstack-54bv0): VPN connection delete tombstone
+
+DeleteVpnConnection now keeps a tombstone (same pattern as TGW route
+tables/fleets) so a by-ID DescribeVpnConnections still sees "deleted" state.
+
+### 2026-09-19 ec2-compute-and-storage/12 terraform coverage: default-VPC route table/DHCP options, spot status, AMI root device, TGW/fleet delete tombstones
+
+Fixed real gaps found via terraform apply/destroy: seeded default VPC had no main route
+table or real default DHCP options record; RequestSpotInstances never echoed fulfillment
+status; RegisterImage dropped RootDeviceName/BlockDeviceMapping; ModifyTransitGateway
+couldn't set a default association/propagation route table; TransitGatewayVpcAttachment
+never echoed its Options sub-object; VpcPeeringConnectionOptions collapsed requester and
+accepter into one shared record (accepter side never applied); VpnConnection's
+StaticRoutesOnly was never read from CreateVpnConnection, forcing perpetual replacement;
+DeleteTransitGatewayRouteTable/DeleteTransitGatewayVpcAttachment/DeleteFleets hard-deleted
+immediately, so a delete waiter's by-ID Describe got NotFound/empty instead of a terminal
+"deleted" record and hung or errored -- added a small tombstone map for each so a by-ID
+Describe still finds the deleted resource (unfiltered Describes never see tombstones).
+See items_still_open for aws_spot_fleet_request and the remaining residual drift.
+
+### 2026-09-19 perf: batched tag/security-group/IAM-profile lookups in DescribeInstances/RunInstances
+
+Replaced one backend lock per instance (TagsForResource, DescribeSecurityGroups,
+DescribeIamInstanceProfileAssociations) with one batched call per request; wire
+output unchanged (golden test `TestDescribeInstances_WireOutputUnchanged`).
 
 ### 2026-09-18 zeroguard: ModifyInstancePlacement omitted-member fix
 
@@ -5815,3 +6376,174 @@ recorded to `items_still_open` (5 promoted from 2026-08-31 dated-Notes-only
 reasoning per gopherstack-anjf, 6 genuinely new). Gates all clean; 0
 `golangci-lint --new-from-rev=HEAD` issues; `snapshot_inventory.json` gained
 2 `FlowLog` rows by hand.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found under `-race`.
+
+## 2026-09-19: Ec2ComputeAndStorage fixture fixes -- fleet terminate-instances state machine, snapshot permission test flake
+
+`DeleteFleets(TerminateInstances=true)` skipped ENI/volume release, leaving fleet-instance
+ENIs stuck so `DeleteSubnet` looped on `DependencyViolation`; now shares `terminateInstanceLocked`
+and reports `deleted_terminating`/`deleted_running` until instances actually terminate.
+`DescribeSnapshotAttribute` itself was fine; the test's own `volume-id` filter also matched
+`aws_ebs_snapshot_copy`, flakily reading the wrong snapshot.
+
+## 2026-09-24: aws_eip_domain_name delete waiter fixed (root cause isolated)
+
+terraform-provider-aws's waitEIPDomainNameAttributeDeleted (internal/service/ec2/
+wait.go@v5.100.0) has an empty Target, which terraform-plugin-sdk's
+retry.StateChangeConf only treats as satisfied on a NotFound refresh result --
+findEIPDomainNameAttributeByAllocationID calls Attribute=domain-name scoped
+DescribeAddressesAttribute and AssertSingleValueResult's on the result, so a
+reset (or never-set) allocation must be ABSENT from that response, not present
+with an empty status. DescribeAddressesAttribute now excludes any allocation
+without a current non-empty domain name (elastic_ips.go), and
+ResetAddressAttribute deletes its attribute row instead of leaving a
+domain-less one. Verified via TestTerraform_Ec2NetworkingEssentials destroy (TF_LOG=trace):
+clean, no more logged error.
+
+## 2026-09-24: ec2-transit-gateway-multicast-route-server fixture fixes -- NetworkInterfacePermission state casing, ImportSnapshot backing record, TGW prefix list reference attachment ID
+
+`CreateNetworkInterfacePermission`'s `State` was written lowercase ("granted"),
+matching the Go SDK's `NetworkInterfacePermissionStateCode` constant name but
+not the real wire value: `terraform-provider-aws`'s
+`aws_network_interface_permission` create waiter polls for literal `GRANTED`
+(confirmed via the compiled provider binary's string table, which carries
+`GRANTED`/`REVOKING`/`REVOKED` uppercase alongside `PENDING`) and looped
+forever against the lowercase value. Now uppercase.
+
+`ImportSnapshot` completed its task with `Status: "completed"` but never
+created a backing `Snapshot` record and never set the task's `SnapshotId`, so
+`aws_ebs_snapshot_import`'s post-create `DescribeSnapshots` read always found
+nothing. Now synthesizes a real `Snapshot` (state `completed`, 8 GiB default,
+owner/encryption/KMS key carried through) and links it via
+`SnapshotImportTask.SnapshotID`.
+
+`CreateTransitGatewayPrefixListReference` silently dropped
+`TransitGatewayAttachmentId` -- never read from the request, never passed to
+the backend, never stored -- even though `ModifyTransitGatewayPrefixListReference`
+already threaded it correctly. `GetTransitGatewayPrefixListReferences` then
+always omitted the `transitGatewayAttachment` sub-object real AWS always
+includes when a reference targets an attachment, which is exactly what
+`aws_ec2_transit_gateway_prefix_list_reference`'s Read/Terraform diff checks.
+Now the handler reads and stores it like Modify does.
+
+## appmesh-shield-and-workspaces terraform coverage (2026-09-24)
+
+Three real bugs found while wiring up terraform fixtures for previously-uncovered
+resource types, all confirmed via `TF_LOG=debug` against a real
+terraform-provider-aws 5.100.0 client:
+
+- `AllocateIpamPoolCidr`'s `PreviewNextCidr` flag was silently ignored -- every
+  preview call recorded a real allocation, consuming pool space and leaking into
+  `GetIpamPoolAllocations` (`aws_vpc_ipam_preview_next_cidr`). Fixed:
+  `PreviewOnly` skips the write.
+- `CreateTransitGatewayConnectPeer` left `TransitGatewayAddress` empty when the
+  parent transit gateway had no `TransitGatewayCidrBlocks` configured; real
+  Connect peers always auto-assign one from `InsideCidrBlocks`. A peer without
+  it reads as incomplete to the provider's find function, which retries until
+  its create waiter times out.
+- `CancelSpotFleetRequests(terminateInstances=true)` flipped instance state
+  directly instead of calling `terminateInstanceLocked`, so the
+  `DeleteOnTermination` ENI created by `spawnFleetInstanceLocked` was never
+  released -- it lingers in the subnet and blocks `DeleteSubnet`'s dependency
+  check indefinitely. Fixed and covered by
+  `TestCancelSpotFleetRequests_WithTerminate_ReleasesNetworkInterfaces`, but
+  `aws_spot_fleet_request` was still dropped from the appmesh-shield-and-workspaces fixture:
+  even with the ENI leak fixed, terraform's own delete waiter ("waiting for
+  EC2 Spot Fleet Request ... active instance count to reach 0") never
+  converged within several minutes in local testing -- likely the async
+  instance-termination janitor doesn't sweep fast enough relative to the
+  provider's poll cadence. Left open for a follow-up rather than fixed here.
+
+Gates: `go build ./...`, `go vet ./services/ec2/...`, `go test -race -count=1
+./services/ec2/...`, `golangci-lint run ./services/ec2/...` -- all clean. No
+persisted-struct fields changed; no version bump.
+
+## gopherstack-zfrof: TGW Connect peer BgpConfigurations (2026-09-24)
+
+`aws_ec2_transit_gateway_connect_peer`'s create waiter never converged even
+though `DescribeTransitGatewayConnectPeers` returned the peer with
+`State=available` on every poll. Root cause, confirmed by reading the pinned
+provider source: terraform-provider-aws v5.100.0's
+`internal/service/ec2/find.go:findTransitGatewayConnectPeer` (line ~4602)
+runs `tfresource.AssertSingleValueResult` with a predicate requiring
+`len(ConnectPeerConfiguration.BgpConfigurations) > 0`; a zero-length slice
+makes the finder return `NewEmptyResultError`, which the waiter treats as
+not-found. Our wire response's `tgwConnectPeerConfigurationItem` had no
+`BgpConfigurations` field at all, so the predicate failed on every poll
+regardless of `State`.
+
+Fixed: `CreateTransitGatewayConnectPeer` now derives one
+`TransitGatewayBgpConfiguration` entry per `InsideCidrBlocks` entry (IPv4 and
+IPv6), per `api_op_CreateTransitGatewayConnectPeer.go`'s documented "the
+first address from the range must be configured on the appliance as the BGP
+IP address": the appliance/peer side takes the first host address, the
+transit gateway side the second. `PeerAsn` comes from the request's
+`BgpOptions.PeerAsn` when set, else a default of 64512 (undocumented by AWS,
+chosen to match this codebase's existing `tgwDefaultAmazonSideAsn`
+convention so a peer never reports a zero ASN). `TransitGatewayAsn` is the
+parent transit gateway's real `Options.AmazonSideAsn`. New persisted field
+`TransitGatewayConnectPeer.BgpConfigurations` (purely additive; golden
+snapshot inventory updated, no version bump).
+
+Verified against the real v5.100.0 provider binary end to end (`tofu apply`/
+`tofu destroy` against a locally run server): `aws_ec2_transit_gateway_connect_peer`
+now creates and destroys immediately instead of exhausting its retry budget,
+and the dependent `aws_networkmanager_transit_gateway_connect_peer_association`
+(already correctly implemented) creates/destroys cleanly once the peer
+exists. Files: `models.go`, `interfaces.go`, `transit_gateway_peering.go`,
+`handler_transit_gateway_peering.go`. New table-driven test:
+`transit_gateway_connect_peer_bgp_test.go`
+(`TestTransitGatewayConnectPeer_BgpConfigurations`), covering the default
+ASN, an explicit `BgpOptions.PeerAsn`, and a dual-stack (IPv4+IPv6)
+`InsideCidrBlocks` case, each re-deriving the same non-empty-BgpConfigurations
+check the provider's finder performs.
+
+Gates: `go build ./...`, `go vet ./services/ec2/...`, `go test -race
+-count=1 ./services/ec2/...`, `golangci-lint run ./services/ec2/...` --
+all clean. `go test ./pkgs/persistence/...` required `-update` to refresh
+`snapshot_inventory.json` (purely additive fields; no version bump needed).
+
+## 2026-09-25 -- CreateVpc no longer rejects cross-VPC CIDR overlap
+
+`CreateVpc` rejected any new VPC whose CIDR overlapped ANY existing VPC in
+the backend (`ErrCIDRConflict`/`InvalidVpc.Conflict`), which broke a
+Terraform CI shard: two fixtures sharing one emulator both used
+`10.250.0.0/16` in separate VPCs. Real AWS allows overlapping CIDR blocks
+across separate VPCs -- overlap is only rejected within a single VPC
+(`CreateSubnet`, `AssociateVpcCidrBlock`) or by operations that route
+between VPCs (peering, TGW routes), none of which is `CreateVpc`. Checked
+the real EC2 error-code reference (docs.aws.amazon.com/AWSEC2 errors-overview)
+directly: `InvalidVpc.Conflict` was never a real, documented AWS error code
+at all -- it was fabricated.
+
+Fixed: removed the cross-VPC overlap check from `CreateVpc` entirely.
+`CreateSubnet`'s existing same-VPC subnet-overlap rejection is real AWS
+behavior and was kept, but its error code was wrong too -- it also mapped to
+`InvalidVpc.Conflict`; real AWS uses `InvalidSubnet.Conflict` (confirmed
+documented). Renamed to `ErrSubnetCIDRConflict` ("InvalidSubnet.Conflict").
+`AssociateVpcCidrBlock` had no overlap validation at all; real AWS rejects a
+secondary CIDR overlapping the SAME VPC's existing CIDR blocks and enforces
+the documented `/16`-`/28` size range (vpc-cidr-blocks.html), both mapped to
+`InvalidVpc.Range` (the real, confirmed code for VPC CIDR range/conflict
+issues -- `InvalidVpc.Conflict` does not exist). Added both checks as
+`ErrVpcCIDRRange`. The full cross-RFC1918-family restriction matrix
+(vpc-cidr-blocks.html's "IPv4 CIDR block association restrictions" table)
+is NOT implemented -- left as an honest gap in items_still_open rather than
+half-modeled.
+
+`ErrCIDRConflict` removed (no longer referenced anywhere).
+
+Tests: `TestCreateVpc_OverlappingCIDRAllowed` (renamed from
+`TestCreateVpc_CIDRConflict`, now asserts success) replaces the pinned-wrong
+behavior; `TestCreateSubnet_CIDRConflict` now asserts `ErrSubnetCIDRConflict`;
+new `TestEC2Core_AssociateVpcCidrBlock_SameVPCRejections` covers the primary-
+CIDR overlap, secondary-association overlap, and oversized/undersized CIDR
+cases.
+
+Gates: `gofmt -l services/ec2`, `go build ./...`, `go vet
+./services/ec2/...`, `go test -race -count=1 ./services/ec2/...`,
+`golangci-lint run ./services/ec2/...`, `go run ./cmd/parityfmtcheck -dir
+services` -- all clean. No persisted-struct fields changed; no version bump.

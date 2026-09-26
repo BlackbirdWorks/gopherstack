@@ -58,6 +58,7 @@ func (b *InMemoryBackend) Reset() {
 		b.runtimeManagementConfigs = make(map[string]*RuntimeManagementConfig)
 		b.functionRecursionConfigs = make(map[string]*FunctionRecursionConfig)
 		b.functionScalingConfigs = make(map[string]*FunctionScalingConfig)
+		b.resourcePolicyOverrides = make(map[string]*ResourcePolicyOverride)
 		b.cscIDCounter = 0
 		b.durableExecs.reset()
 

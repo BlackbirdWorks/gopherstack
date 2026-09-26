@@ -59,6 +59,10 @@ const DefaultJanitorInterval = defaultSTSJanitorInterval
 // SessionEvictThreshold exposes the opportunistic-eviction threshold for tests.
 const SessionEvictThreshold = sessionEvictThreshold
 
+// SessionEvictSweepInterval exposes how many armed storeSession calls elapse
+// between opportunistic eviction sweeps for tests.
+const SessionEvictSweepInterval = sessionEvictSweepInterval
+
 // SessionCount returns the number of sessions currently stored in the backend.
 // Used in tests to verify janitor eviction.
 func (b *InMemoryBackend) SessionCount() int {

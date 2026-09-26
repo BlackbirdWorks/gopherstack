@@ -299,14 +299,7 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created processing job",
-		"name",
-		pj.ProcessingJobName,
-		"arn",
-		pj.ProcessingJobArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created processing job", "name", pj.ProcessingJobName)
 
 	return json.Marshal(map[string]string{keyProcessingJobArn: pj.ProcessingJobArn})
 }
@@ -415,8 +408,10 @@ type processingJobSummary struct {
 	ProcessingJobName   string  `json:"ProcessingJobName"`
 	ProcessingJobArn    string  `json:"ProcessingJobArn"`
 	ProcessingJobStatus string  `json:"ProcessingJobStatus"`
+	FailureReason       string  `json:"FailureReason,omitempty"`
 	CreationTime        float64 `json:"CreationTime"`
 	LastModifiedTime    float64 `json:"LastModifiedTime"`
+	ProcessingEndTime   float64 `json:"ProcessingEndTime,omitempty"`
 }
 
 type listProcessingJobsRequest struct {
@@ -451,13 +446,19 @@ func (h *Handler) handleListProcessingJobs(ctx context.Context, body []byte) ([]
 	})
 	summaries := make([]processingJobSummary, 0, len(jobs))
 	for _, pj := range jobs {
-		summaries = append(summaries, processingJobSummary{
+		summary := processingJobSummary{
 			ProcessingJobName:   pj.ProcessingJobName,
 			ProcessingJobArn:    pj.ProcessingJobArn,
 			ProcessingJobStatus: pj.ProcessingJobStatus,
 			CreationTime:        epochSeconds(pj.CreationTime),
 			LastModifiedTime:    epochSeconds(pj.LastModifiedTime),
-		})
+			FailureReason:       pj.FailureReason,
+		}
+		if pj.ProcessingEndTime != nil {
+			summary.ProcessingEndTime = epochSeconds(*pj.ProcessingEndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"ProcessingJobSummaries": summaries}

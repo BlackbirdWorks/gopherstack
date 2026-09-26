@@ -16,27 +16,36 @@ import (
 const (
 	kindLiteral      = "literal-value"
 	kindReuse        = "cross-enum-reuse"
-	kindAmbiguousKey = "ambiguous-key"
+	kindUnresolved   = "unresolved"
 	kindPhantomField = "phantom-field"
 )
 
 // finding is one enumcheck result. CONFIDENT findings (kindLiteral) show a
-// statically-resolved value that is provably not a member of the enum its
-// wire key deserializes into. NEEDS REVIEW findings come in three kinds:
+// statically-resolved value that is provably not a member of the ONE real
+// SDK enum its emitting field maps to. NEEDS REVIEW findings (kindReuse,
+// kindPhantomField) are real signal that can never be made confident.
+// kindUnresolved is not a finding at all, never counted toward either tier:
+// it is gopherstack-cpztm's bucket for a wire-key value this scan could not
+// pin down to one real SDK member -- either a map[string]any/index-assign
+// site whose bare wire key has 2+ real SDK enum candidates (or a Polymorphic
+// plain-string sighting) and no struct-field identity to disambiguate them,
+// or a named-struct-literal field whose struct has no real pinned-SDK
+// counterpart at all. Reported separately so a human can widen resolution
+// later, never printed as an accusation: comparing a value against every
+// enum that happens to share a bare wire key is exactly the false-positive
+// class this scan used to produce (services/eks/sagemaker/glue's 104
+// findings, 102 false).
+//
 // kindReuse shows the same dynamic value source feeding two wire keys whose
 // real SDK enums have different declared member sets -- structurally
 // suspicious, but the actual runtime values are never inspected, so this is
-// never promoted to confident. kindAmbiguousKey shows a statically-resolved
-// value under a wire key with 2+ real SDK enum candidates (or a Polymorphic
-// one, also a plain non-enum string somewhere) that fails membership in at
-// least one candidate -- real, but which candidate sense actually applies at
-// this emission site is unknown, so this can never be confident either.
-// kindPhantomField (gopherstack-7fps) shows a gopherstack response struct
-// field whose real same-named SDK type has NO field under this wire key at
-// all -- the enum a naive key-name match would apply belongs to some
-// entirely unrelated real operation, so this is never a "wrong value" claim
-// and never confident; Enum carries the struct type name (not an enum type)
-// for this kind. See scan.go's and structresp.go's doc comments for why.
+// never promoted to confident. kindPhantomField (gopherstack-7fps) shows a
+// gopherstack response struct field whose real same-named SDK type has NO
+// field under this wire key at all -- the enum a naive key-name match would
+// apply belongs to some entirely unrelated real operation, so this is never
+// a "wrong value" claim and never confident; Enum carries the struct type
+// name (not an enum type) for this kind. See scan.go's and structresp.go's
+// doc comments for why.
 type finding struct {
 	File      string `json:"file"`
 	Kind      string `json:"kind"`
@@ -549,23 +558,25 @@ func evalKeyValue(
 		return base, true
 	}
 
-	// Otherwise the key is ambiguous (2+ real enum candidates SDK-wide,
-	// e.g. inspector2's "status" spanning 13 unrelated *Status enums) or
-	// Polymorphic (also a plain, non-enum string somewhere) -- this scan
-	// cannot tell which sense applies at this emission site, so it is never
-	// CONFIDENT. But when the value fails membership in at least one
-	// candidate, at least one real sense of this key would reject it --
-	// worth a human's judgement even though the scan can't prove which sense
-	// is the true one. Confirmed live: inspector2's rescanDurationState
-	// reused statusEnabled ("ENABLED") under "status", valid only for
-	// Status/DelegatedAdminStatus, never for the EcrRescanDurationStatus
-	// (SUCCESS/PENDING/FAILED) actually in play there -- a real bug the
-	// prior all-or-nothing filter dropped silently.
+	// Otherwise the key is ambiguous (2+ real enum candidates SDK-wide, e.g.
+	// inspector2's "status" spanning 13 unrelated *Status enums) or
+	// Polymorphic (also a plain, non-enum string somewhere). A
+	// map[string]any/index-assignment site has no struct-field identity to
+	// resolve which candidate sense actually applies here (unlike the
+	// named-struct-literal path, resolveStructField in structresp.go, which
+	// pins this down precisely through the field's own real SDK type) --
+	// gopherstack-cpztm found comparing the value against every candidate
+	// this way was the dominant false-positive source (104 eks/sagemaker/
+	// glue findings, 102 false). A value valid under every candidate sense
+	// is still clean -- no candidate would reject it -- but a value failing
+	// at least one candidate can no longer be reported as a "needs review"
+	// finding: which sense actually applies here is unknown, so this lands
+	// in the UNRESOLVED bucket instead, never an accusation.
 	if reg.isMemberOfAll(val, fact.Enums) {
 		return finding{}, false
 	}
 
-	base.Kind = kindAmbiguousKey
+	base.Kind = kindUnresolved
 
 	return base, true
 }

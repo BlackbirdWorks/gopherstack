@@ -328,11 +328,12 @@ type Grant struct {
 // carries ID/DisplayName; a Group grantee (AllUsers / AuthenticatedUsers /
 // LogDelivery) carries URI instead.
 type Grantee struct {
-	XmlnsXsi    string `xml:"xmlns:xsi,attr"`
-	XsiType     string `xml:"xsi:type,attr"`
-	ID          string `xml:"ID,omitempty"`
-	DisplayName string `xml:"DisplayName,omitempty"`
-	URI         string `xml:"URI,omitempty"`
+	XmlnsXsi     string `xml:"xmlns:xsi,attr"`
+	XsiType      string `xml:"xsi:type,attr"`
+	ID           string `xml:"ID,omitempty"`
+	DisplayName  string `xml:"DisplayName,omitempty"`
+	URI          string `xml:"URI,omitempty"`
+	EmailAddress string `xml:"EmailAddress,omitempty"`
 }
 
 // ListMultipartUploadsResult is the XML response for ListMultipartUploads.

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 
@@ -89,6 +90,7 @@ func (b *InMemoryBackend) CreateBucket(
 		IsDirectoryBucket:       strings.HasSuffix(bucketName, "--x-s3"),
 		ObjectLockEnabled:       aws.ToBool(input.ObjectLockEnabledForBucket),
 		OwnershipControlsConfig: ownershipControls,
+		OwnerAccountID:          awsmeta.Account(ctx),
 	})
 
 	return &s3.CreateBucketOutput{

@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
-last_audit_commit: b1905140e                    # HEAD when this manifest was written
-last_audit_date: 2026-09-18
+last_audit_commit: f78c3b7c7  # 2026-09-24 terminal invitation unbounded-growth fix; prior: 2332c3128
+last_audit_date: 2026-09-24
 # 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
 # a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
 # ops whose Input/Output declare NextToken. Found genuinely clean: all 12 real paginated ops
@@ -97,13 +97,16 @@ ops:
   ListResourceTypes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static table of shareable resource types, matches AWS's documented list; FIXED (2026-09-18, gopherstack-xhu2t): ResourceRegionScope (documented ALL/GLOBAL/REGIONAL filter, api_op_ListResourceTypes.go:46-58) was never read at all -- the handler ignored its request body entirely. Now filters the static catalogue by the requested scope, ALL (the default) returning it unfiltered. MaxResults/NextToken remain deliberately unconsulted, see the 2026-08-30 cursor-population note above. Proven via TestListResourceTypes_ResourceRegionScopeFilter (real SDK client round trip)."}
   ListSourceAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-07-23) - wire-shape bug: response used a fabricated 'associations' key holding associationObject (principal/resource-association) shapes; the real deserializer reads 'sourceAssociations' holding AssociatedSource shapes (sourceId/sourceType/status/statusMessage/resourceShareArn). Fixed the shape; the list itself is correctly always empty -- confirmed by enumerating every api_op_*.go in the SDK module, there is no CreateSourceAssociation (or any) operation that could ever populate one via the RAM API, so an empty list is the only value this backend's public surface can ever produce, not a disguised stub"}
   GetResourcePolicies: {wire: ok, errors: ok, state: ok, persist: ok}
-  EnableSharingWithAwsOrganization: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "no organization/delegated-admin model exists in this backend; op is a pure ReturnValue:true ack, matches how the AWS docs describe the call (idempotent enablement, no other side effects observable via the RAM API)"}
+  EnableSharingWithAwsOrganization: {wire: ok, errors: ok, state: ok, persist: n/a, note: "no organization/delegated-admin model exists in this backend; op remains a ReturnValue:true ack over the RAM API surface itself. FIXED 2026-09-24: now also creates the real AWSServiceRoleForResourceAccessManager service-linked role in the IAM backend (cross_service.go, siblingServices pattern from services/grafana), the cross-service side effect terraform-provider-aws's aws_ram_sharing_with_organization Read depends on via iam:GetRole. Idempotent; a no-op when IAM isn't wired."}
 families:
   routing: {status: ok, note: "RouteMatcher / ExtractOperation path-prefix tables manually cross-checked against every op in GetSupportedOperations(); all prefix-collision cases (e.g. /listresourcesharepermissions vs /listresources, /createpermissionversion vs /createpermission, /associateresourcesharepermission vs /associateresourceshare) are already ordered longer-prefix-first correctly. No route-matcher bug found in this service."}
   wrapper_key_sweep_2026_08_19: {status: ok, note: "All 34 SDK ops swept (api_op_*.go count) against their own deserializers.go top-level-key switch AND their nested types' field-by-field switch (not generalized from siblings). 3 genuine bugs found and fixed (CreatePermissionVersion, ListPermissionVersions, ListPermissionAssociations -- see per-op notes above). 31 ops confirmed clean: ResourceShare/ResourceShareAssociation/ResourceShareInvitation/Principal/Resource/Tag/ServiceNameAndResourceType/AssociatedSource/ReplacePermissionAssociationsWork/ResourceSharePermissionSummary/ResourceSharePermissionDetail all verified field-for-field against their own deserializeDocument* function in deserializers.go@ram v1.39.4. No fabricated members found beyond the two Summary/Detail swaps. Layer-3 hunt (never-emitted members) was out of scope; resourceShareConfiguration/resourceGroupArn/receiverArn/resourceShareAssociations(on invitation) noted as genuine unfixed gaps below, not treated as bugs."}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore; versioned backendSnapshot (ramSnapshotVersion) with store.Registry-backed tables for resourceShares/permissions/invitations/replaceWorks plus raw sharePermissions/associations fields. The new replaceWorks table (ReplacePermissionAssociations work items) is registered like the other three 'clean' tables (identity-carrying ID field) and round-trips through the existing registry.SnapshotAll/RestoreAll machinery with no bespoke persistence.go changes needed. Confirmed via existing persistence_test.go coverage (unchanged, still green) -- did not add a dedicated persistence round-trip test for replaceWorks specifically since it's exercised through the same generic registry path as every other store.Table."}
 gaps: []
 items_still_open:
+  - "aws_ram_sharing_with_organization (2026-09-24): FIXED in code -- EnableSharingWithAwsOrganization (services/ram/cross_service.go) now also calls the Organizations backend's EnableAWSServiceAccess('ram.amazonaws.com'), matching real AWS's second side effect; when no organization exists, Organizations' ErrOrgNotFound (AWSOrganizationsNotInUseException) is mapped to ram's own ErrOperationNotPermitted, since that exception isn't declared on EnableSharingWithAwsOrganization (ram@v1.39.4 deserializers.go only declares OperationNotPermittedException/ServerInternalException/ServiceUnavailableException) -- see cross_service_test.go. STILL kept out of test/terraform/fixtures/elasticsearch-grafana-and-ram.tf: services/organizations' Organization is a per-backend singleton (CreateOrganization returns ErrOrgAlreadyExists if b.org != nil), organizations-and-appstream.tf's fixture already creates one, and every terraform-fixture test runs t.Parallel() against the same shared emulator (test/terraform/terraform_test.go) -- so elasticsearch-grafana-and-ram could not safely create its own aws_organizations_organization (would race/conflict with organizations-and-appstream's), nor safely depend on reading organizations-and-appstream's org via a data source (apply order between parallel tests is not guaranteed). Revisit only if the harness gains per-test emulator isolation."
+  - "aws_ram_resource_share_accepter destroy (2026-09-24, elasticsearch-grafana-and-ram): destroy logs 'waiting for RAM Resource Share (...) disassociate: unexpected state ACTIVE, wanted target ''' after DisassociateResourceShare succeeds -- a terraform-provider-aws bug, not a gopherstack gap (verified via TF_LOG=trace plus reading internal/service/ram/resource_share_accepter.go@v5.100.0): waitResourceShareOwnedBySelfDisassociated's Pending list is enum.Slice(types.ResourceShareAssociationStatusAssociated) = ['ASSOCIATED'], but its Refresh (statusResourceShareOwnerSelf) reports the resource SHARE's own Status field (a different enum: PENDING/ACTIVE/FAILED/DELETING/DELETED) -- 'ASSOCIATED' can never match a ResourceShareStatus value, so the waiter errors as soon as it polls an owner-still-ACTIVE share, which is exactly the state after only a principal disassociates (the owner's own share is untouched). This would misfire against real AWS identically; not something to emulate around. Same pattern as ec2/PARITY.md's aws_network_interface_permission entry."
+  - "FIXED (organizations-and-appstream/49, 2026-09-24): ramMaxResults was hardcoded to 100 for every paginated list op sharing ramPaginate; real ListResources (and siblings) document 'Valid Range: Minimum value of 1. Maximum value of 500.' A real client sending MaxResults:500 (e.g. terraform-provider-aws's aws_ram_resource_share_accepter, which always requests 500) 400'd with InvalidParameterException. Bumped to 500."
   - "gopherstack-kvyy (2026-09-11): Glue's PutResourcePolicy(EnableHybrid=TRUE) with any cross-account Principal.AWS grant is treated as the trigger for creating a RAM CREATED_FROM_POLICY resource share. Real AWS documents CREATED_FROM_POLICY generically as 'when you attach a resource-based policy to a resource', and the Glue/Lake-Formation-specific path is actually mediated by Lake Formation's own cross-account grant flow, not a literal 'any cross-account Glue policy triggers a RAM share' rule -- disclosed as broader than real Lake-Formation-mediated Glue sharing since Glue has no other concrete, emulatable wire path to the general mechanism. Revisit if a narrower, Lake-Formation-grant-shaped trigger becomes emulatable."
   - "gopherstack-kvyy (2026-09-11): PromoteResourceShareCreatedFromPolicy's UnmatchedPolicyPermissionException is not modeled -- it requires simulating 'no existing customer-managed permission exactly matches' the derived policy-based permission, out of scope for this pass."
 deferred:
@@ -268,6 +271,44 @@ Gates: `go build ./services/ram/...` clean; `golangci-lint run ./services/ram/..
 ones).
 
 ## Notes
+
+### 2026-09-24 (leak sweep #2) terminal invitations now evicted after 1h
+
+AcceptResourceShareInvitation/RejectResourceShareInvitation/
+expireInvitationLocked transitioned a PENDING invitation to a terminal status
+(ACCEPTED/REJECTED/EXPIRED) but kept the row in b.invitations forever, the
+same unbounded-memory-growth leak class as the DELETED resource share fix
+below. AWS documents no retention for ResourceShareInvitation history and
+has no DeleteInvitation op, so this reuses the 1h TTL convention established
+for this backend's other delete-waiter tombstones. Added
+`ramInvitationTerminalTTL` and `pruneTerminalInvitationsLocked`, called on
+every create/accept/reject/list path, evicting a terminal invitation past
+LastUpdatedTime (guarded against a zero LastUpdatedTime so a test-seeded
+invitation via AddInvitationInternal isn't pruned immediately). No new
+field, no persisted-field change, no version bump. Tests:
+`invitation_expiry_test.go` (synctest, evicted-after-TTL + kept-within-TTL).
+
+### 2026-09-24 (leak sweep) DELETED resource shares now evicted after 1h
+
+DeleteResourceShare/DeletePolicyBasedShare soft-delete a resource share
+(Status=DELETED) rather than removing it -- GetResourceShare/
+ListResourceShares already exclude Status==DELETED unconditionally, so
+nothing reads the tombstone back, but the row stayed in b.resourceShares
+forever, an unbounded-memory-growth leak in the same class ec2 (c254cd795),
+ecs (3fa9337a8), and medialive (gopherstack-f9w3k) fixed for their own
+delete-waiter tombstones. Added pruneDeletedResourceSharesLocked, called on
+every write path (Create/Update/Delete ResourceShare, Put/DeletePolicyBasedShare),
+evicting a DELETED share ramDeletedShareTTL (1h) past its LastUpdatedTime (no
+new field needed -- Delete already stamps it). No persisted-field change, no
+version bump. Tests: `deleted_resource_share_expiry_test.go` (synctest,
+evicted-after-TTL + kept-within-TTL).
+
+### 2026-09-24 (parity-sweep) EnableSharingWithAwsOrganization service-linked role
+
+Wired the elasticsearch-grafana-and-ram items_still_open gap: EnableSharingWithAwsOrganization
+now creates AWSServiceRoleForResourceAccessManager in the IAM backend via a
+new cross_service.go (grafana's siblingServices pattern). No cli.go changes
+needed -- ctx.Config is already generically wired for every provider.
 
 ### 2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1 sweep)
 
@@ -856,3 +897,24 @@ Gates: `go build ./...` clean (whole module). `go vet ./services/ram/...` clean.
 `golangci-lint run --new-from-rev=HEAD ./services/ram/...` 0 issues. No persisted struct
 fields added -- no `snapshot_inventory.json` change, no version bump. `items_still_open`
 unchanged (no listed gap was touched by this pass).
+
+## 2026-09-24 (organizations-and-appstream/49): ramMaxResults 100 -> 500
+
+`ramPaginate`'s shared MaxResults ceiling was capping every list op at 100;
+`ListResources`'s API reference documents a valid range up to 500, and
+terraform-provider-aws's `aws_ram_resource_share_accepter` sends exactly that,
+400'ing against the old cap. See `items_still_open` for the full note and the
+`aws_ram_sharing_with_organization` gap left out this pass.
+
+## 2026-09-24: EnableSharingWithAwsOrganization enables RAM in Organizations; resource_share_accepter destroy bug isolated
+
+cross_service.go's EnableSharingWithAwsOrganization now also enables
+"ram.amazonaws.com" in the wired Organizations backend (EnableAWSServiceAccess),
+mapping a no-organization ErrOrgNotFound to ram's own ErrOperationNotPermitted
+(the modeled fit on EnableSharingWithAwsOrganization's own declared error set).
+Kept out of elasticsearch-grafana-and-ram.tf: Organizations' org is a per-backend singleton and
+every terraform-fixture test runs t.Parallel() against one shared emulator, so a second
+fixture creating/depending on an org would race organizations-and-appstream's. Also isolated
+(not fixed, not a gopherstack gap): aws_ram_resource_share_accepter's destroy
+error is a terraform-provider-aws waiter bug (wrong enum in its Pending list).
+See items_still_open for both.

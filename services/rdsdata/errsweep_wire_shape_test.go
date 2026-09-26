@@ -30,6 +30,7 @@ func TestHandler_MalformedBodyCarriesTypedErrorCode(t *testing.T) {
 	t.Parallel()
 
 	backend := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := rdsdata.NewHandler(backend)
 
 	e := echo.New()

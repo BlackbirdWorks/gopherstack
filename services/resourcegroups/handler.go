@@ -176,13 +176,23 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this Resource Groups instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
-// isResourceTagsPath reports whether path matches the pattern /resources/{Arn}/tags.
-// The ARN segment must be non-empty, so the path must be longer than "/resources/" + "/tags".
+// isResourceTagsPath reports whether path matches the pattern /resources/{Arn}/tags
+// for a Resource Groups ARN specifically. Every AWS service tagged via this
+// same REST shape (QuickSight, S3 Control, ...) shares this URL pattern once
+// multiplexed onto one gopherstack host, so the ARN's own service segment
+// ("resource-groups") disambiguates ownership instead of a bare path check —
+// see gopherstack-101r-adjacent "RouteMatcher prefix collision" class: narrow
+// the match, never raise MatchPriority to steal it back from a sibling.
 func isResourceTagsPath(path string) bool {
 	const prefix = "/resources/"
 	const suffix = "/tags"
+	const arnService = "arn:aws:resource-groups:"
 
-	return strings.HasPrefix(path, prefix) && strings.HasSuffix(path, suffix) && len(path) > len(prefix)+len(suffix)
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) || len(path) <= len(prefix)+len(suffix) {
+		return false
+	}
+
+	return strings.HasPrefix(path[len(prefix):], arnService)
 }
 
 // arnFromResourceTagsPath extracts the ARN from a /resources/{Arn}/tags path.

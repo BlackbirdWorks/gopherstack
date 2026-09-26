@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: mediatailor
 sdk_module: aws-sdk-go-v2/service/mediatailor@v1.63.4   # version audited against
-last_audit_commit: a874b0df                              # HEAD when this manifest was written
-last_audit_date: 2026-08-29
+last_audit_commit: ed6ef1a53                              # HEAD when this manifest was written
+last_audit_date: 2026-09-19
                        # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose a
                        # record at a page boundary when two records tie on the sort key?). All 8
                        # paginated listings (ListChannels/ListSourceLocations/
@@ -124,6 +124,13 @@ leaks: {status: clean, note: "no goroutines, timers, or janitors in this service
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (eks/amplify/accessanalyzer) -- false positive
+
+Same census finding: all three winners' "/tags/" claims are gated by an
+ARN-service-segment check. Confirmed with a real mediatailor SDK client
+through a shared registry (tags_routing_cross_service_test.go): still
+succeeds via mediatailor's own handler. No code change.
 
 ### 2026-09-12 (typed coverage, gopherstack-n3zi)
 

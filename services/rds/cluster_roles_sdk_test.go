@@ -7,8 +7,6 @@ import (
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 // TestAddRoleToDBCluster_FeatureNameKeepsRolesSeparate_RealSDKClient drives
@@ -24,7 +22,7 @@ import (
 func TestAddRoleToDBCluster_FeatureNameKeepsRolesSeparate_RealSDKClient(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
@@ -98,7 +96,7 @@ func TestAddRoleToDBCluster_FeatureNameKeepsRolesSeparate_RealSDKClient(t *testi
 func TestAddRoleToDBCluster_OmittedFeatureNamePlaceholder_RealSDKClient(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
@@ -136,7 +134,7 @@ func TestAddRoleToDBCluster_OmittedFeatureNamePlaceholder_RealSDKClient(t *testi
 func TestAddRoleToDBCluster_SameFeatureNameReplaces_RealSDKClient(t *testing.T) {
 	t.Parallel()
 
-	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := newBatch2Handler(t)
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{

@@ -147,7 +147,7 @@ func resolveJobExecutionSubPathOps(path, method string) string {
 func resolveJobCrudOps(path, method string) string {
 	switch {
 	// GET /jobs → ListJobs
-	case path == "/jobs" && method == http.MethodGet:
+	case path == pathJobs && method == http.MethodGet:
 		return opListJobs
 	// PUT /jobs/{jobId} → CreateJob
 	case strings.HasPrefix(path, "/jobs/") && method == http.MethodPut:
@@ -530,7 +530,7 @@ func resolveJobExecutionPathOps(path, method string) string {
 		method == http.MethodGet:
 		return opListJobExecutionsForJob
 	case strings.HasPrefix(path, "/things/") &&
-		strings.HasSuffix(path, "/jobs") &&
+		strings.HasSuffix(path, pathJobs) &&
 		method == http.MethodGet:
 		return opListJobExecutionsForThing
 	}

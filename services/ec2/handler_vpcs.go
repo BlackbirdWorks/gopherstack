@@ -44,9 +44,17 @@ type modifyVpcPeeringConnectionOptionsResponse struct {
 // member on the response -- that name is only the ModifyAddressAttribute
 // request parameter, echoed back here as the resulting ptrRecord value.
 type addressAttributeItem struct {
-	AllocationID string `xml:"allocationId"`
-	PublicIP     string `xml:"publicIp"`
-	PtrRecord    string `xml:"ptrRecord,omitempty"`
+	PtrRecordUpdate *ptrRecordUpdateItem `xml:"ptrRecordUpdate,omitempty"`
+	AllocationID    string               `xml:"allocationId"`
+	PublicIP        string               `xml:"publicIp"`
+	PtrRecord       string               `xml:"ptrRecord,omitempty"`
+}
+
+// ptrRecordUpdateItem matches types.PtrUpdateStatus.
+type ptrRecordUpdateItem struct {
+	Status string `xml:"status,omitempty"`
+	Value  string `xml:"value,omitempty"`
+	Reason string `xml:"reason,omitempty"`
 }
 
 func (h *Handler) handleCreateDefaultVpc(_ url.Values, reqID string) (any, error) {
@@ -73,43 +81,67 @@ func (h *Handler) handleModifyVpcTenancy(vals url.Values, reqID string) (any, er
 	return &modifyVpcTenancyResponse{RequestID: reqID, Return: true}, nil
 }
 
+func parsePeeringConnectionOptions(vals url.Values, prefix string) (PeeringConnectionOptions, bool) {
+	dnsKey := prefix + ".AllowDnsResolutionFromRemoteVpc"
+	classicLinkKey := prefix + ".AllowEgressFromLocalClassicLinkToRemoteVpc"
+	vpcClassicLinkKey := prefix + ".AllowEgressFromLocalVpcToRemoteClassicLink"
+
+	_, hasDNS := vals[dnsKey]
+	_, hasClassicLink := vals[classicLinkKey]
+	_, hasVpcClassicLink := vals[vpcClassicLinkKey]
+
+	if !hasDNS && !hasClassicLink && !hasVpcClassicLink {
+		return PeeringConnectionOptions{}, false
+	}
+
+	return PeeringConnectionOptions{
+		AllowDNSResolutionFromRemoteVPC:            vals.Get(dnsKey) == ec2BooleanTrue,
+		AllowEgressFromLocalClassicLinkToRemoteVPC: vals.Get(classicLinkKey) == ec2BooleanTrue,
+		AllowEgressFromLocalVPCToRemoteClassicLink: vals.Get(vpcClassicLinkKey) == ec2BooleanTrue,
+	}, true
+}
+
+func toPeeringOptionsItem(opts PeeringConnectionOptions) peeringOptionsItem {
+	return peeringOptionsItem(opts)
+}
+
 func (h *Handler) handleModifyVpcPeeringConnectionOptions(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
 	peeringID := vals.Get("VpcPeeringConnectionId")
-	opts := PeeringConnectionOptions{
-		AllowDNSResolutionFromRemoteVPC: vals.Get(
-			"RequesterPeeringConnectionOptions.AllowDnsResolutionFromRemoteVpc",
-		) == ec2BooleanTrue,
-		AllowEgressFromLocalClassicLinkToRemoteVPC: vals.Get(
-			"RequesterPeeringConnectionOptions.AllowEgressFromLocalClassicLinkToRemoteVpc",
-		) == ec2BooleanTrue,
-		AllowEgressFromLocalVPCToRemoteClassicLink: vals.Get(
-			"RequesterPeeringConnectionOptions.AllowEgressFromLocalVpcToRemoteClassicLink",
-		) == ec2BooleanTrue,
-	}
-	if err := h.Backend.ModifyVpcPeeringConnectionOptions(peeringID, opts); err != nil {
-		return nil, err
-	}
 	resp := &modifyVpcPeeringConnectionOptionsResponse{RequestID: reqID}
-	resp.RequesterPeeringConnectionOptions.AllowDNSResolutionFromRemoteVPC = opts.AllowDNSResolutionFromRemoteVPC
-	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalClassicLinkToRemoteVPC = opts.AllowEgressFromLocalClassicLinkToRemoteVPC //nolint:lll // existing issue.
-	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalVPCToRemoteClassicLink = opts.AllowEgressFromLocalVPCToRemoteClassicLink //nolint:lll // existing issue.
+
+	if reqOpts, ok := parsePeeringConnectionOptions(vals, "RequesterPeeringConnectionOptions"); ok {
+		if err := h.Backend.ModifyVpcPeeringConnectionOptions(peeringID, false, reqOpts); err != nil {
+			return nil, err
+		}
+		resp.RequesterPeeringConnectionOptions = toPeeringOptionsItem(reqOpts)
+	}
+
+	if accOpts, ok := parsePeeringConnectionOptions(vals, "AccepterPeeringConnectionOptions"); ok {
+		if err := h.Backend.ModifyVpcPeeringConnectionOptions(peeringID, true, accOpts); err != nil {
+			return nil, err
+		}
+		resp.AccepterPeeringConnectionOptions = toPeeringOptionsItem(accOpts)
+	}
 
 	return resp, nil
 }
 
 // disassociateVpcCidrBlockResponse matches DisassociateVpcCidrBlockOutput
-// (ec2@v1.319.1 api_op_DisassociateVpcCidrBlock.go): cidrBlockAssociation
-// (nested associationId/cidrBlock/cidrBlockState>state) plus vpcId, no
-// Return member. Ipv6CidrBlockAssociation is never populated: this backend's
-// DisassociateVpcCidrBlock only tracks IPv4 secondary CIDR associations.
+// (ec2@v1.329.0 api_op_DisassociateVpcCidrBlock.go): cidrBlockAssociation or
+// ipv6CidrBlockAssociation (nested associationId/cidrBlock/cidrBlockState>state)
+// plus vpcId, no Return member. The two association fields are pointers so
+// only the one that actually matched is emitted -- an empty
+// ipv6CidrBlockAssociation wrapper on an IPv4 disassociation confuses real
+// clients that assume its presence means an IPv6 CIDR was disassociated.
 type disassociateVpcCidrBlockResponse struct {
-	XMLName              xml.Name              `xml:"DisassociateVpcCidrBlockResponse"`
-	RequestID            string                `xml:"requestId"`
-	VpcID                string                `xml:"vpcId,omitempty"`
-	CidrBlockAssociation vpcCidrBlockAssocItem `xml:"cidrBlockAssociation"`
+	CidrBlockAssociation     *vpcCidrBlockAssocItem         `xml:"cidrBlockAssociation,omitempty"`
+	Ipv6CidrBlockAssociation *vpcIpv6CidrBlockAssocRespItem `xml:"ipv6CidrBlockAssociation,omitempty"`
+	XMLName                  xml.Name                       `xml:"DisassociateVpcCidrBlockResponse"`
+	RequestID                string                         `xml:"requestId"`
+	VpcID                    string                         `xml:"vpcId,omitempty"`
 }
 
 type vpcCidrBlockAssocItem struct {
@@ -124,19 +156,33 @@ func (h *Handler) handleDisassociateVpcCidrBlock(vals url.Values, reqID string) 
 	assocID := vals.Get("AssociationId")
 
 	vpcID, assoc, err := h.Backend.DisassociateVpcCidrBlock(assocID)
-	if err != nil {
+	if err == nil {
+		resp := &disassociateVpcCidrBlockResponse{RequestID: reqID, VpcID: vpcID}
+		resp.CidrBlockAssociation = &vpcCidrBlockAssocItem{
+			AssociationID: assoc.AssociationID,
+			CidrBlock:     assoc.CidrBlock,
+		}
+		resp.CidrBlockAssociation.CidrBlockState.State = assoc.State
+
+		return resp, nil
+	}
+
+	vpcID, ipv6, ipv6Err := h.Backend.DisassociateVpcIpv6CidrBlock(assocID)
+	if ipv6Err != nil {
 		return nil, err
 	}
 
-	resp := &disassociateVpcCidrBlockResponse{
+	return &disassociateVpcCidrBlockResponse{
 		RequestID: reqID,
 		VpcID:     vpcID,
-	}
-	resp.CidrBlockAssociation.AssociationID = assoc.AssociationID
-	resp.CidrBlockAssociation.CidrBlock = assoc.CidrBlock
-	resp.CidrBlockAssociation.CidrBlockState.State = assoc.State
-
-	return resp, nil
+		Ipv6CidrBlockAssociation: &vpcIpv6CidrBlockAssocRespItem{
+			AssocID:            ipv6.AssociationID,
+			Ipv6CidrBlock:      ipv6.Ipv6CidrBlock,
+			State:              ipv6.State,
+			Ipv6Pool:           ipv6.Ipv6Pool,
+			NetworkBorderGroup: ipv6.NetworkBorderGroup,
+		},
+	}, nil
 }
 
 func (h *Handler) handleModifyVpcAttribute(vals url.Values, reqID string) (any, error) {
@@ -198,6 +244,8 @@ type transitGatewayOptionsItem struct {
 	MulticastSupport                string   `xml:"multicastSupport,omitempty"`
 	SecurityGroupReferencingSupport string   `xml:"securityGroupReferencingSupport,omitempty"`
 	VpnEcmpSupport                  string   `xml:"vpnEcmpSupport,omitempty"`
+	AssociationDefaultRouteTableID  string   `xml:"associationDefaultRouteTableId,omitempty"`
+	PropagationDefaultRouteTableID  string   `xml:"propagationDefaultRouteTableId,omitempty"`
 	TransitGatewayCidrBlocks        []string `xml:"transitGatewayCidrBlocks>item,omitempty"`
 	AmazonSideAsn                   int64    `xml:"amazonSideAsn,omitempty"`
 }
@@ -233,6 +281,8 @@ func toTransitGatewayItem(tgw *TransitGateway, tags map[string]string) transitGa
 			SecurityGroupReferencingSupport: tgw.Options.SecurityGroupReferencingSupport,
 			VpnEcmpSupport:                  tgw.Options.VpnEcmpSupport,
 			TransitGatewayCidrBlocks:        tgw.Options.TransitGatewayCidrBlocks,
+			AssociationDefaultRouteTableID:  tgw.Options.AssociationDefaultRouteTableID,
+			PropagationDefaultRouteTableID:  tgw.Options.PropagationDefaultRouteTableID,
 		},
 	}
 	if !tgw.CreationTime.IsZero() {
@@ -319,6 +369,7 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 		items = append(items, toVPCItem(
 			v, h.Backend.TagsForResource(v.ID), h.Backend.VpcTenancy(v.ID),
 			h.Backend.SecondaryCidrBlockAssociationsForVPC(v.ID),
+			h.Backend.SecondaryIpv6CidrBlockAssociationsForVPC(v.ID),
 		))
 	}
 
@@ -409,7 +460,7 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	return &createVpcResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Vpc:       toVPCItem(v, tags, tenancy, nil),
+		Vpc:       toVPCItem(v, tags, tenancy, nil, nil),
 	}, nil
 }
 
@@ -435,7 +486,13 @@ func (h *Handler) handleDeleteVpc(vals url.Values, reqID string) (any, error) {
 // (ec2@v1.329.0 types.Vpc.CidrBlockAssociationSet doc: "information about
 // the IPv4 CIDR blocks associated with the VPC"), so secondaryAssocs should
 // hold only the VPC's secondary associations, not the primary.
-func toVPCItem(v *VPC, tags map[string]string, tenancy string, secondaryAssocs []*VpcCidrBlockAssociation) vpcItem {
+func toVPCItem(
+	v *VPC,
+	tags map[string]string,
+	tenancy string,
+	secondaryAssocs []*VpcCidrBlockAssociation,
+	ipv6Assocs []*VpcIpv6CidrBlockAssociation,
+) vpcItem {
 	isDefault := ec2BooleanFalse
 	if v.IsDefault {
 		isDefault = ec2BooleanTrue
@@ -455,27 +512,40 @@ func toVPCItem(v *VPC, tags map[string]string, tenancy string, secondaryAssocs [
 		cidrSet = append(cidrSet, item)
 	}
 
+	ipv6Set := make([]vpcIpv6CidrBlockAssocRespItem, 0, len(ipv6Assocs))
+	for _, assoc := range ipv6Assocs {
+		ipv6Set = append(ipv6Set, vpcIpv6CidrBlockAssocRespItem{
+			AssocID:            assoc.AssociationID,
+			Ipv6CidrBlock:      assoc.Ipv6CidrBlock,
+			State:              assoc.State,
+			Ipv6Pool:           assoc.Ipv6Pool,
+			NetworkBorderGroup: assoc.NetworkBorderGroup,
+		})
+	}
+
 	return vpcItem{
-		VpcID:                   v.ID,
-		CIDRBlock:               v.CIDRBlock,
-		DhcpOptionsID:           v.DHCPOptionsID,
-		CidrBlockAssociationSet: cidrSet,
-		IsDefault:               isDefault,
-		State:                   stateAvailable,
-		TagSet:                  tagItemsFromMap(tags),
-		InstanceTenancy:         tenancy,
+		VpcID:                       v.ID,
+		CIDRBlock:                   v.CIDRBlock,
+		DhcpOptionsID:               v.DHCPOptionsID,
+		CidrBlockAssociationSet:     cidrSet,
+		Ipv6CidrBlockAssociationSet: ipv6Set,
+		IsDefault:                   isDefault,
+		State:                       stateAvailable,
+		TagSet:                      tagItemsFromMap(tags),
+		InstanceTenancy:             tenancy,
 	}
 }
 
 type vpcItem struct {
-	VpcID                   string                  `xml:"vpcId"`
-	CIDRBlock               string                  `xml:"cidrBlock"`
-	DhcpOptionsID           string                  `xml:"dhcpOptionsId,omitempty"`
-	CidrBlockAssociationSet []vpcCidrBlockAssocItem `xml:"cidrBlockAssociationSet>item,omitempty"`
-	IsDefault               string                  `xml:"isDefault"`
-	State                   string                  `xml:"state"`
-	InstanceTenancy         string                  `xml:"instanceTenancy,omitempty"`
-	TagSet                  []simpleTagItem         `xml:"tagSet>item"`
+	VpcID                       string                          `xml:"vpcId"`
+	CIDRBlock                   string                          `xml:"cidrBlock"`
+	DhcpOptionsID               string                          `xml:"dhcpOptionsId,omitempty"`
+	CidrBlockAssociationSet     []vpcCidrBlockAssocItem         `xml:"cidrBlockAssociationSet>item,omitempty"`
+	Ipv6CidrBlockAssociationSet []vpcIpv6CidrBlockAssocRespItem `xml:"ipv6CidrBlockAssociationSet>item,omitempty"`
+	IsDefault                   string                          `xml:"isDefault"`
+	State                       string                          `xml:"state"`
+	InstanceTenancy             string                          `xml:"instanceTenancy,omitempty"`
+	TagSet                      []simpleTagItem                 `xml:"tagSet>item"`
 }
 
 type vpcItemSet struct {

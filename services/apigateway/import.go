@@ -156,6 +156,89 @@ func parseOpenAPI(body []byte) (*openAPIDoc, error) {
 	return &doc, nil
 }
 
+// collectOpenAPIWarnings finds the deterministic, real import-warning
+// categories this backend can honestly detect against the raw document (not
+// just the fields openAPIDoc's typed decode happens to declare): an
+// x-amazon-apigateway-* vendor extension this importer doesn't interpret
+// (document-level or per-operation), and an operation with no operationId
+// (used to set Method.OperationName). Both are structural properties of the
+// document, independent of whether it otherwise parses cleanly.
+func collectOpenAPIWarnings(body []byte) ([]string, error) {
+	var raw map[string]any
+	if unmarshalErr := yaml.Unmarshal(body, &raw); unmarshalErr != nil {
+		return nil, unmarshalErr
+	}
+
+	// knownDocExtensions/knownOperationExtensions are the x-amazon-apigateway-*
+	// vendor extensions this importer actually interprets, at the document
+	// level and per-operation respectively. Any other x-amazon-apigateway-*
+	// key is a real, AWS-documented import-warning category.
+	knownDocExtensions := map[string]bool{
+		"x-amazon-apigateway-api-key-source":     true,
+		"x-amazon-apigateway-binary-media-types": true,
+	}
+	knownOperationExtensions := map[string]bool{
+		"x-amazon-apigateway-integration": true,
+	}
+
+	warnings := unsupportedExtensionWarnings(raw, knownDocExtensions, "")
+	warnings = append(warnings, openAPIOperationWarnings(raw, knownOperationExtensions)...)
+
+	return warnings, nil
+}
+
+// unsupportedExtensionWarnings returns one warning per x-amazon-apigateway-*
+// key in obj that known doesn't recognize. context, when non-empty, is
+// appended to each warning (e.g. "on GET /pets").
+func unsupportedExtensionWarnings(obj map[string]any, known map[string]bool, context string) []string {
+	var warnings []string
+	for _, key := range collections.SortedKeys(obj) {
+		if !strings.HasPrefix(key, "x-amazon-apigateway-") || known[key] {
+			continue
+		}
+		if context == "" {
+			warnings = append(warnings, fmt.Sprintf("Unsupported vendor extension %q ignored", key))
+
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("Unsupported vendor extension %q ignored %s", key, context))
+	}
+
+	return warnings
+}
+
+// openAPIOperationWarnings walks the document's paths for per-operation
+// warnings: an unrecognized x-amazon-apigateway-* extension, and a missing
+// operationId.
+func openAPIOperationWarnings(raw map[string]any, knownOperationExtensions map[string]bool) []string {
+	paths, _ := raw["paths"].(map[string]any)
+
+	var warnings []string
+	for _, path := range collections.SortedKeys(paths) {
+		item, itemOK := paths[path].(map[string]any)
+		if !itemOK {
+			continue
+		}
+		for _, verb := range collections.SortedKeys(item) {
+			httpMethod := strings.ToUpper(verb)
+			if !isHTTPVerb(httpMethod) {
+				continue
+			}
+			op, opOK := item[verb].(map[string]any)
+			if !opOK {
+				continue
+			}
+			warnings = append(warnings,
+				unsupportedExtensionWarnings(op, knownOperationExtensions, "on "+httpMethod+" "+path)...)
+			if opID, _ := op["operationId"].(string); opID == "" {
+				warnings = append(warnings, fmt.Sprintf("Missing operationId on %s %s", httpMethod, path))
+			}
+		}
+	}
+
+	return warnings
+}
+
 // schemaDefinitions returns the named schemas regardless of spec version.
 func (d *openAPIDoc) schemaDefinitions() map[string]json.RawMessage {
 	if len(d.Definitions) > 0 {
@@ -174,6 +257,10 @@ func (b *InMemoryBackend) ImportRestAPI(input ImportRestAPIInput) (*RestAPI, err
 	doc, err := parseOpenAPI(input.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if warnErr := failOnOpenAPIWarnings(input.Body, input.FailOnWarnings); warnErr != nil {
+		return nil, warnErr
 	}
 
 	b.mu.Lock("ImportRestAPI")
@@ -214,6 +301,30 @@ func (b *InMemoryBackend) ImportRestAPI(input ImportRestAPIInput) (*RestAPI, err
 	return &cp, nil
 }
 
+// failOnOpenAPIWarnings rejects the import/update before any mutation when
+// failOnWarnings is set and collectOpenAPIWarnings finds at least one
+// warning -- matching FailOnWarnings' doc comment ("indicate whether to
+// rollback the API creation/update ... when a warning is encountered").
+// When failOnWarnings is false (the default), warnings are silently
+// tolerated, matching real AWS: the import proceeds and the warnings are
+// not surfaced anywhere in ImportRestApiOutput/PutRestApiOutput, which carry
+// no warnings field.
+func failOnOpenAPIWarnings(body []byte, failOnWarnings bool) error {
+	if !failOnWarnings {
+		return nil
+	}
+
+	warnings, err := collectOpenAPIWarnings(body)
+	if err != nil {
+		return fmt.Errorf("%w: unable to parse OpenAPI document: %w", ErrInvalidParameter, err)
+	}
+	if len(warnings) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: import failed with warnings: %s", ErrInvalidParameter, strings.Join(warnings, "; "))
+}
+
 // PutRestAPI imports an OpenAPI/Swagger document into an existing API. mode
 // "overwrite" replaces the resource tree; "merge" (default) layers the imported
 // paths on top of the existing tree.
@@ -221,6 +332,10 @@ func (b *InMemoryBackend) PutRestAPI(input PutRestAPIInput) (*RestAPI, error) {
 	doc, err := parseOpenAPI(input.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if warnErr := failOnOpenAPIWarnings(input.Body, input.FailOnWarnings); warnErr != nil {
+		return nil, warnErr
 	}
 
 	mode := input.Mode

@@ -136,23 +136,53 @@ func TestCancelMaintenanceWindowExecution(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		body       string
+		makeBody   func(t *testing.T, b *ssm.InMemoryBackend) string
 		wantExecID string
 		wantStatus int
 	}{
 		{
-			name:       "returns_execution_id",
-			body:       `{"WindowExecutionId":"wex-0123456789abcdef0"}`,
+			// A real window's derived execution ID (mwExecID) is the only
+			// kind of WindowExecutionId this backend can honestly resolve --
+			// there is no real execution state machine backing it.
+			name: "known_window_execution_returns_execution_id",
+			makeBody: func(t *testing.T, b *ssm.InMemoryBackend) string {
+				t.Helper()
+
+				win, err := b.CreateMaintenanceWindow(context.Background(), &ssm.CreateMaintenanceWindowInput{
+					Name:     "cancel-mw-exec-window",
+					Schedule: "rate(7 days)",
+					Duration: 2,
+				})
+				require.NoError(t, err)
+
+				return `{"WindowExecutionId":"mwexec-` + win.WindowID + `"}`
+			},
 			wantStatus: http.StatusOK,
-			wantExecID: "wex-0123456789abcdef0",
+		},
+		{
+			// An execution ID that doesn't resolve to any known window
+			// (unknown window, or an ID never derived by mwExecID) is a
+			// real DoesNotExistException on real AWS -- previously
+			// fabricated a 200 success for any well-formed ID.
+			name: "unknown_execution_returns_not_found",
+			makeBody: func(t *testing.T, _ *ssm.InMemoryBackend) string {
+				t.Helper()
+
+				return `{"WindowExecutionId":"wex-0123456789abcdef0"}`
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			// WindowExecutionId is required on the real op
 			// (api_op_CancelMaintenanceWindowExecution.go) -- an empty body
 			// previously echoed an empty ID back with 200 instead of
 			// rejecting with ValidationException.
-			name:       "empty_execution_id",
-			body:       `{"WindowExecutionId":""}`,
+			name: "empty_execution_id",
+			makeBody: func(t *testing.T, _ *ssm.InMemoryBackend) string {
+				t.Helper()
+
+				return `{"WindowExecutionId":""}`
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -161,8 +191,14 @@ func TestCancelMaintenanceWindowExecution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newTestHandler(t)
-			rec := doRequest(t, h, "CancelMaintenanceWindowExecution", tt.body)
+			h, b := newTestHandler(t)
+			body := tt.makeBody(t, b)
+
+			var reqBody map[string]string
+			require.NoError(t, json.Unmarshal([]byte(body), &reqBody))
+			wantExecID := reqBody["WindowExecutionId"]
+
+			rec := doRequest(t, h, "CancelMaintenanceWindowExecution", body)
 
 			require.Equal(t, tt.wantStatus, rec.Code)
 
@@ -172,7 +208,7 @@ func TestCancelMaintenanceWindowExecution(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, tt.wantExecID, resp["WindowExecutionId"])
+			assert.Equal(t, wantExecID, resp["WindowExecutionId"])
 		})
 	}
 }

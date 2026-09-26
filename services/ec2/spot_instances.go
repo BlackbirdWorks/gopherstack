@@ -11,6 +11,12 @@ import (
 // ErrSpotRequestNotFound is returned when a spot instance request is not found.
 var ErrSpotRequestNotFound = errors.New("InvalidSpotInstanceRequestID.NotFound")
 
+// spotStatusFulfilled is the SpotInstanceStatus.Code this backend reports
+// once RequestSpotInstances immediately fulfils a request with a running
+// instance -- real AWS clients (including the Terraform provider's create
+// waiter) poll DescribeSpotInstanceRequests for this code, not State.
+const spotStatusFulfilled = "fulfilled"
+
 // SpotLaunchSpecification holds launch parameters for a spot instance request.
 type SpotLaunchSpecification struct {
 	ImageID      string `json:"imageID,omitempty"`
@@ -27,6 +33,8 @@ type SpotInstanceRequest struct {
 	ID                           string                  `json:"id,omitempty"`
 	InstanceID                   string                  `json:"instanceID,omitempty"`
 	State                        string                  `json:"state,omitempty"`
+	StatusCode                   string                  `json:"statusCode,omitempty"`
+	StatusMessage                string                  `json:"statusMessage,omitempty"`
 	SpotPrice                    string                  `json:"spotPrice,omitempty"`
 	Type                         string                  `json:"type,omitempty"`
 	AvailabilityZoneGroup        string                  `json:"availabilityZoneGroup,omitempty"`
@@ -108,6 +116,8 @@ func (b *InMemoryBackend) RequestSpotInstances(
 			ID:                           reqID,
 			InstanceID:                   instanceID,
 			State:                        stateActive,
+			StatusCode:                   spotStatusFulfilled,
+			StatusMessage:                "Your spot request is fulfilled.",
 			SpotPrice:                    spotPrice,
 			Type:                         "one-time",
 			CreateTime:                   time.Now(),

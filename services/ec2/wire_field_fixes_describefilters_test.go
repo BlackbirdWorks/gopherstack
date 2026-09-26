@@ -45,7 +45,10 @@ func TestDescribeDhcpOptions_Filters_RealClient(t *testing.T) {
 	require.NoError(t, err)
 
 	out, err := client.DescribeDhcpOptions(t.Context(), &ec2sdk.DescribeDhcpOptionsInput{
-		Filters: []types.Filter{filterOf("key", "domain-name")},
+		Filters: []types.Filter{
+			filterOf("key", "domain-name"),
+			filterOf("dhcp-options-id", want.DhcpOptionsID),
+		},
 	})
 	require.NoError(t, err)
 	require.Len(t, out.DhcpOptions, 1)

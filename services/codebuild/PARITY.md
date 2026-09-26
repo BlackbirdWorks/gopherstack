@@ -1,10 +1,10 @@
 ---
 service: codebuild
 sdk_module: aws-sdk-go-v2/service/codebuild@v1.72.4   # version audited against
-last_audit_commit: 0627d5d3                             # HEAD when the PRIOR manifest was written;
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash
-last_audit_date: 2026-09-04
+last_audit_date: 2026-09-19  # prior: 2026-09-04
 overall: A                # 2026-09-11 pass (gopherstack-9ckk, BuildBatch redesign): BuildBatch
                            # was previously a 7-field placeholder (see gopherstack-8mcb/-to8g class
                            # notes and bd memory) -- unmodeled capability, not a fixable field gap.
@@ -165,6 +165,10 @@ leaks: {status: clean, note: "janitor.Run selects on ctx.Done() and calls worker
 ---
 
 ## Notes
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-08-23 audit of `gopherstack-secp` (ImportSourceCredentials Username)
 

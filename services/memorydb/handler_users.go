@@ -45,6 +45,8 @@ func (h *Handler) handleDescribeUsers(ctx context.Context, c *echo.Context, body
 		return h.writeBackendError(c, err)
 	}
 
+	users = filterUsersByName(users, req.Filters)
+
 	users, nextToken := paginateItems(users, req.NextToken, req.MaxResults, func(u *User) string { return u.Name })
 
 	allACLs, _ := h.Backend.DescribeACLs(ctx, "")
@@ -57,6 +59,34 @@ func (h *Handler) handleDescribeUsers(ctx context.Context, c *echo.Context, body
 	}
 
 	return c.JSON(http.StatusOK, describeUserResponse{Users: objs, NextToken: nextToken})
+}
+
+// filterUsersByName applies DescribeUsersInput.Filters "UserName" entries;
+// multiple filter entries AND together, each entry's Values OR-match.
+func filterUsersByName(users []*User, filters []userFilterReq) []*User {
+	if len(filters) == 0 {
+		return users
+	}
+
+	filtered := users[:0:0]
+
+	for _, u := range users {
+		match := true
+
+		for _, f := range filters {
+			if f.Name == "UserName" && !slices.Contains(f.Values, u.Name) {
+				match = false
+
+				break
+			}
+		}
+
+		if match {
+			filtered = append(filtered, u)
+		}
+	}
+
+	return filtered
 }
 
 func (h *Handler) handleDeleteUser(ctx context.Context, c *echo.Context, body []byte) error {

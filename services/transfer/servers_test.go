@@ -67,8 +67,11 @@ func TestCreateServer(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, s.ServerID)
-			// AWS creates servers OFFLINE; StartServer is required to bring them ONLINE.
-			assert.Equal(t, "OFFLINE", s.State)
+			// A real server self-starts after CreateServer (no StartServer call
+			// needed) -- terraform-provider-aws only waits on CreateServer +
+			// DescribeServer for state ONLINE. It comes up STARTING then
+			// transitions asynchronously.
+			assert.Equal(t, "STARTING", s.State)
 
 			if len(tt.protocols) == 0 {
 				assert.Equal(t, []string{"SFTP"}, s.Protocols)
@@ -122,8 +125,8 @@ func TestDescribeServer(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, serverID, got.ServerID)
-			// AWS creates servers OFFLINE; StartServer is required to bring them ONLINE.
-			assert.Equal(t, "OFFLINE", got.State)
+			// A real server self-starts after CreateServer; see TestCreateServer.
+			assert.Equal(t, "STARTING", got.State)
 		})
 	}
 }
@@ -314,9 +317,13 @@ func TestAddServerInternal(t *testing.T) {
 	assert.Equal(t, "ONLINE", s.State)
 }
 
-// TestDeleteServerOnlineReturnsError verifies the backend-level
-// ErrServerOnline sentinel.
-func TestDeleteServerOnlineReturnsError(t *testing.T) {
+// TestDeleteServerOnlineSucceeds verifies DeleteServer has no state
+// precondition: real AWS lets you delete an ONLINE server directly
+// (terraform-provider-aws destroys aws_transfer_server via DescribeServer +
+// DeleteServer only, never StopServer -- confirmed via an actual Terraform
+// apply/destroy). A prior version of this backend rejected this with a
+// fabricated ErrServerOnline/ConflictException; removed.
+func TestDeleteServerOnlineSucceeds(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
@@ -324,7 +331,7 @@ func TestDeleteServerOnlineReturnsError(t *testing.T) {
 		s, err := b.CreateServer(nil, nil)
 		require.NoError(t, err)
 
-		// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
+		// A real server self-starts after CreateServer; see TestCreateServer.
 		require.NoError(t, b.StartServer(s.ServerID))
 		time.Sleep(serverTransitionWait)
 
@@ -332,10 +339,8 @@ func TestDeleteServerOnlineReturnsError(t *testing.T) {
 		require.NoError(t, derr)
 		require.Equal(t, "ONLINE", got.State)
 
-		err = b.DeleteServer(s.ServerID)
-		require.Error(t, err)
-		require.ErrorIs(t, err, awserr.ErrConflict)
-		require.ErrorIs(t, err, transfer.ErrServerOnline)
+		require.NoError(t, b.DeleteServer(s.ServerID))
+		assert.Equal(t, 0, transfer.ServerCount(b))
 	})
 }
 
@@ -400,8 +405,8 @@ func TestStartServerIdempotent(t *testing.T) {
 		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 		s, err := b.CreateServer(nil, nil)
 		require.NoError(t, err)
-		// AWS creates servers OFFLINE; bring it ONLINE first.
-		assert.Equal(t, "OFFLINE", s.State)
+		// A real server self-starts after CreateServer; see TestCreateServer.
+		assert.Equal(t, "STARTING", s.State)
 		require.NoError(t, b.StartServer(s.ServerID))
 		time.Sleep(serverTransitionWait)
 

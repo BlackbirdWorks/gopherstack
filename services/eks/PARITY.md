@@ -2,8 +2,8 @@
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
-last_audit_commit: b09a30f43  # 2026-09-18 enumcheck census (no code changes; all 38 findings false positive)
-last_audit_date: 2026-09-18  # gopherstack-21my: per-item field sweep of every List/Describe op's item shape (wrapper keys were already checked by an earlier pass) -- see Notes below
+last_audit_commit: 649ebb9aa
+last_audit_date: 2026-09-19  # route-audit not-found-code re-verification (see Notes below); gopherstack-21my: per-item field sweep of every List/Describe op's item shape (wrapper keys were already checked by an earlier pass)
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
 # N-of-N). Handler.handleError is one global 4-sentinel table applied to all
@@ -37,7 +37,7 @@ ops:
   RegisterCluster: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f (2026-09-11): fixed a real wire bug found while writing this pass's ClientRequestToken idempotency real-client test -- ConnectorConfig.ActivationExpiry was emitted as an RFC3339 string; real aws-sdk-go-v2/service/eks/types.ConnectorConfigResponse.ActivationExpiry (types.go:1165) is *time.Time, and its deserializer requires an epoch-seconds JSON number, so every real client's RegisterCluster/DescribeCluster/ListClusters(Include=all) call on a connected cluster failed to decode outright ('expected Timestamp to be a JSON Number, got string instead') -- gopherstack apparently never had a real-client test exercising RegisterCluster's response before this pass. Fixed: models.go's ConnectorConfig.ActivationExpiry retyped from string to a new activationExpiry wrapper (still time.Time-backed), connectorConfigToJSON (handler_clusters.go, new) emits .Time().Unix() like every other timestamp in this service. This retype did NOT bump eksSnapshotVersion: activationExpiry's own UnmarshalJSON decodes both the old bare-RFC3339-string shape and its own current shape, so a version-2 snapshot from before this fix still restores correctly (see persistence.go's doc comment and TestRestore_Version2Fixture_TolerantDecode). Now also enforces ResourceLimitExceededException for the real 'Registered clusters: 10'/account/region quota and has ClientRequestToken idempotency (item 3). was routed at /clusters/{placeholder}/register; real path is global POST /cluster-registrations (name comes from body, always did)"}
   DeregisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as POST /clusters/{name}/deregister; real path is DELETE /cluster-registrations/{name}"}
   DescribeClusterVersions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-g479 (2026-08-21): endOfStandardSupportDate/endOfExtendedSupportDate were static YYYY-MM-DD strings in a hand-built map[string]any table; real deserializers.go parses json.Number via ParseEpochSeconds. Confirmed against aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go; failed with 'expected Timestamp to be a JSON Number, got string instead' pre-fix. Found via a new go/types-based map-literal kind scanner (map[string]any{} literals had zero automated coverage before this pass)."}
-  AssociateEncryptionConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. gopherstack-g479 (2026-08-21): the returned Update.params was a hand-built {\"encryptionConfig\": ...} object; real Update.Params is an array of {type, value} pairs (deserializers.go's deserializeDocumentUpdate, case \"params\") with UpdateParamTypeEncryptionConfig = \"EncryptionConfig\". Failed with 'unexpected JSON type map[...]' pre-fix."}
+  AssociateEncryptionConfig: {wire: fixed, errors: ok, state: fixed, persist: fixed, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. gopherstack-g479 (2026-08-21): the returned Update.params was a hand-built {\"encryptionConfig\": ...} object; real Update.Params is an array of {type, value} pairs (deserializers.go's deserializeDocumentUpdate, case \"params\") with UpdateParamTypeEncryptionConfig = \"EncryptionConfig\". Failed with 'unexpected JSON type map[...]' pre-fix. gopherstack-yiy60 (2026-09-24): the returned Update.id was a fabricated random 8-hex-char string never persisted via storeUpdateLocked -- DescribeUpdate on it always 404'd. Same bug class and fix as Associate/DisassociateIdentityProviderConfig (gopherstack-mb53): now builds and stores a real *Update (InProgress -> Successful on the same 100ms transition), and AssociateEncryptionConfig's signature grew a *Update return value."}
   CreateNodegroup: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f (2026-09-11): now enforces ResourceLimitExceededException for the real 'Managed node groups per cluster: 30' quota (limits.go) and has ClientRequestToken idempotency (item 3). gopherstack-21my (2026-09-18, per-item sweep): Nodegroup.ModifiedAt (eks@v1.98.0 deserializers.go, case \"modifiedAt\") had no backing field at all -- now set to CreatedAt on create and advanced on UpdateNodegroupConfig/UpdateNodegroupVersion. NodegroupUpdateConfig.UpdateStrategy (case \"updateStrategy\") was accepted on neither Create nor Update and never echoed -- now threaded through both. See DescribeNodegroup/UpdateNodegroupConfig/UpdateNodegroupVersion notes (same fix, shared nodegroupToJSON)."}
   DescribeNodegroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateNodegroup's gopherstack-21my note -- same ModifiedAt/UpdateStrategy fix."}
   ListNodegroups: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
@@ -117,6 +117,19 @@ leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/add
 ---
 
 ## Notes
+
+### 2026-09-19: route-audit not-found-code re-verification -- already correct
+
+Re-derived every op's declared not-found code from deserializers.go: only
+TagResource/UntagResource/ListTagsForResource model NotFoundException (handleTagError already emits it); all other 55 ops model ResourceNotFoundException (handleError already emits it). No mismatch found; added TestDescribeCluster_UnknownName_ResourceNotFoundException to error_sentinel_fixes_test.go to cover the untested representative of the larger family.
+
+### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (amplify) -- false positive
+
+cmd/routecollisions flags amplify as an unguarded winner over eks's
+"/tags/" claim; amplify actually scopes by ARN service segment. Confirmed
+with a real eks SDK client through a shared registry
+(tags_routing_cross_service_test.go): still gets eks's own
+NotFoundException. No code change.
 
 ### 2026-09-18: enumcheck census
 
@@ -1208,3 +1221,39 @@ clean; `go test -race -count=1 -p 2 ./services/eks/...` and
 `./pkgs/persistence/...` both `ok`; `golangci-lint run --concurrency 2
 --new-from-rev=HEAD ./services/eks/...` 0 issues; `go run ./cmd/paritylint`
 0 FAIL.
+
+## 2026-09-24: ec2-transit-gateway-multicast-route-server fixture fix -- Associate/DisassociateIdentityProviderConfig never stored a real Update record (gopherstack-mb53)
+
+Both ops fabricated a random 8-hex-char `id` for the `update` object in their
+response and never persisted it via `storeUpdateLocked`/`scheduleUpdateTransition`
+(the pattern every other async EKS op -- `UpdateClusterVersion`,
+`AssociateEncryptionConfig`, addon/nodegroup updates -- already follows). A
+client polling `DescribeUpdate` on that ID (as `terraform-provider-aws`'s
+`aws_eks_identity_provider_config` create/delete waiter does) always got
+`ResourceNotFoundException` and never converged. Both ops now build and store
+a real `*Update` (`Type` = `AssociateIdentityProviderConfig` /
+`DisassociateIdentityProviderConfig`, `InProgress` -> `Successful` on the same
+100ms transition delay as every sibling op) and return its real ID.
+`AssociateIdentityProviderConfig`'s signature grew a `*Update` return value;
+the one non-test caller (`services/cloudformation/resources_eks.go`, owned by
+a different concurrent pass) was given the minimal 2-line fix to keep the
+module building -- see this session's report for that exception.
+
+Note: `AssociateEncryptionConfig` has the identical fabricated-ID bug and is
+NOT fixed here -- out of scope for this pass, left for a follow-up.
+
+## 2026-09-24: AssociateEncryptionConfig never stored a real Update record (gopherstack-yiy60)
+
+The follow-up flagged above. `AssociateEncryptionConfig` fabricated a random
+8-hex-char `id` for its `update` response object and never persisted it via
+`storeUpdateLocked`/`scheduleUpdateTransition`, so a client polling
+`DescribeUpdate` on that ID always got `ResourceNotFoundException` and never
+converged -- identical bug class to `ec2-transit-gateway-multicast-route-server`'s
+Associate/DisassociateIdentityProviderConfig fix. `AssociateEncryptionConfig`
+now builds and stores a real `*Update` (`Type` = `AssociateEncryptionConfig`,
+`InProgress` -> `Successful` on the same 100ms transition delay, `Params`
+carrying the applied `EncryptionConfig` as before) and returns its real ID.
+The backend method's signature grew a `*Update` return value; the only
+non-test caller is `handleAssociateEncryptionConfig`
+(`handler_updates.go`), updated in the same commit -- no CloudFormation
+call site exists for this op.

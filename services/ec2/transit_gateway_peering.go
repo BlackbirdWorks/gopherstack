@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -39,6 +40,12 @@ func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
 }
 
 // DeleteTransitGatewayPeeringAttachment removes a TGW peering attachment.
+// DeleteTransitGatewayPeeringAttachment removes a TGW peering attachment,
+// keeping a tombstone in state "deleted" so a subsequent by-ID Describe
+// still finds it (real AWS keeps a deleted attachment describable for a
+// period; terraform-provider-aws's delete waiter polls by ID and treats a
+// NotFound response as a fatal error instead of "done" -- see
+// nat_gateways.go's DeleteNatGateway for the same pattern).
 func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) (*TransitGatewayPeeringAttachment, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
@@ -55,26 +62,35 @@ func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) (*Tra
 	b.tgwPeeringAttachments.Delete(id)
 	delete(b.tags, id)
 
+	tombstoned := cp
+	tombstoned.State = tgwRouteStateDeleted
+	pruneExpiredTombstones(b.tgwPeeringAttachmentTombstones, time.Now())
+	b.tgwPeeringAttachmentTombstones[id] = tombstone[TransitGatewayPeeringAttachment]{
+		value:     &tombstoned,
+		deletedAt: time.Now(),
+	}
+
 	return &cp, nil
 }
 
 // DescribeTransitGatewayPeeringAttachments returns TGW peering attachments.
+// When ids are provided, a tombstone is returned for any of them that was
+// recently deleted (see DeleteTransitGatewayPeeringAttachment); an
+// unfiltered Describe never surfaces tombstones, matching real AWS's
+// list-vs-get behavior.
 func (b *InMemoryBackend) DescribeTransitGatewayPeeringAttachments(
 	ids []string,
 ) []*TransitGatewayPeeringAttachment {
 	b.mu.RLock("DescribeTransitGatewayPeeringAttachments")
 	defer b.mu.RUnlock()
 
-	filter := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		filter[id] = true
+	if len(ids) > 0 {
+		return describeWithTombstones(b.tgwPeeringAttachments.All(), b.tgwPeeringAttachmentTombstones, ids,
+			func(a *TransitGatewayPeeringAttachment) string { return a.TransitGatewayAttachmentID })
 	}
 
-	var out []*TransitGatewayPeeringAttachment
+	out := make([]*TransitGatewayPeeringAttachment, 0, b.tgwPeeringAttachments.Len())
 	for _, att := range b.tgwPeeringAttachments.All() {
-		if len(filter) > 0 && !filter[att.TransitGatewayAttachmentID] {
-			continue
-		}
 		cp := *att
 		out = append(out, &cp)
 	}
@@ -107,6 +123,8 @@ func (b *InMemoryBackend) CreateTransitGatewayConnect(
 		TransportTransitGatewayAttachmentID: transportAttachmentID,
 		TransitGatewayID:                    transitGatewayID,
 		State:                               stateAvailable,
+		Protocol:                            "gre",
+		CreationTime:                        time.Now().UTC(),
 	}
 	b.tgwConnects.Put(conn)
 
@@ -158,6 +176,20 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnects(ids []string) []*Transi
 	return out
 }
 
+// tgwConnectPeerDefaultBgpAsn is applied when a Connect peer is created
+// without BgpOptions.PeerAsn. AWS does not document an explicit default,
+// but this mirrors tgwDefaultAmazonSideAsn, this codebase's existing
+// default-ASN convention, so a Connect peer never surfaces a zero ASN.
+const tgwConnectPeerDefaultBgpAsn = 64512
+
+// Per api_op_CreateTransitGatewayConnectPeer.go, "The first address from
+// the range must be configured on the appliance as the BGP IP address";
+// the transit gateway side takes the next host address.
+const (
+	bgpAppliancePeerHostOffset  = 1
+	bgpTransitGatewayHostOffset = 2
+)
+
 // CreateTransitGatewayConnectPeer creates a TGW connect peer. When
 // transitGatewayAddress is empty, it is auto-assigned as the first host
 // address of the parent transit gateway's first CIDR block, matching the
@@ -167,6 +199,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnects(ids []string) []*Transi
 func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 	connectAttachmentID, peerAddress, transitGatewayAddress string,
 	insideCidrBlocks []string,
+	bgpAsn int64,
 ) (*TransitGatewayConnectPeer, error) {
 	if connectAttachmentID == "" || peerAddress == "" {
 		return nil, fmt.Errorf(
@@ -186,6 +219,20 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 	if transitGatewayAddress == "" {
 		transitGatewayAddress = b.firstTGWCidrHostAddressLocked(conn.TransitGatewayID)
 	}
+	if transitGatewayAddress == "" && len(insideCidrBlocks) > 0 {
+		// Real Connect peers auto-assign the GRE tunnel endpoint from InsideCidrBlocks when the
+		// TGW has no TransitGatewayCidrBlocks; terraform's find/waiter treats empty as incomplete.
+		transitGatewayAddress = firstCIDRHostAddress(insideCidrBlocks[0])
+	}
+
+	if bgpAsn == 0 {
+		bgpAsn = tgwConnectPeerDefaultBgpAsn
+	}
+
+	tgwAsn := int64(tgwDefaultAmazonSideAsn)
+	if tgw, foundTGW := b.transitGateways.Get(conn.TransitGatewayID); foundTGW {
+		tgwAsn = tgw.Options.AmazonSideAsn
+	}
 
 	id := "tgw-connect-peer-" + uuid.New().String()[:8]
 	peer := &TransitGatewayConnectPeer{
@@ -195,10 +242,34 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 		InsideCidrBlocks:            insideCidrBlocks,
 		PeerAddress:                 peerAddress,
 		TransitGatewayAddress:       transitGatewayAddress,
+		BgpConfigurations:           bgpConfigurationsForInsideCidrBlocks(insideCidrBlocks, bgpAsn, tgwAsn),
 	}
 	b.tgwConnectPeers.Put(peer)
 
 	return peer, nil
+}
+
+// bgpConfigurationsForInsideCidrBlocks derives one BGP peering session per
+// inside CIDR block: per api_op_CreateTransitGatewayConnectPeer.go, "The
+// first address from the range must be configured on the appliance as the
+// BGP IP address", so the appliance (PeerAddress) takes the first host and
+// the transit gateway takes the second.
+func bgpConfigurationsForInsideCidrBlocks(
+	insideCidrBlocks []string,
+	peerAsn, tgwAsn int64,
+) []TransitGatewayBgpConfiguration {
+	configs := make([]TransitGatewayBgpConfiguration, 0, len(insideCidrBlocks))
+	for _, cidr := range insideCidrBlocks {
+		configs = append(configs, TransitGatewayBgpConfiguration{
+			BgpStatus:             "up",
+			PeerAddress:           nthCIDRHostAddress(cidr, bgpAppliancePeerHostOffset),
+			PeerAsn:               peerAsn,
+			TransitGatewayAddress: nthCIDRHostAddress(cidr, bgpTransitGatewayHostOffset),
+			TransitGatewayAsn:     tgwAsn,
+		})
+	}
+
+	return configs
 }
 
 // firstTGWCidrHostAddressLocked returns the first host address of tgwID's
@@ -210,7 +281,13 @@ func (b *InMemoryBackend) firstTGWCidrHostAddressLocked(tgwID string) string {
 		return ""
 	}
 
-	_, network, err := net.ParseCIDR(tgw.Options.TransitGatewayCidrBlocks[0])
+	return firstCIDRHostAddress(tgw.Options.TransitGatewayCidrBlocks[0])
+}
+
+// firstCIDRHostAddress returns the first host address (network address + 1)
+// of an IPv4 CIDR block, or "" if cidr doesn't parse as IPv4.
+func firstCIDRHostAddress(cidr string) string {
+	_, network, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return ""
 	}
@@ -223,6 +300,30 @@ func (b *InMemoryBackend) firstTGWCidrHostAddressLocked(tgwID string) string {
 	host := make(net.IP, len(ip))
 	copy(host, ip)
 	host[len(host)-1]++
+
+	return host.String()
+}
+
+// nthCIDRHostAddress returns the address at network+n within cidr, or "" if
+// cidr doesn't parse. Unlike firstCIDRHostAddress it supports IPv6, needed
+// for Connect peers' optional /125 InsideCidrBlocks entry. Safe for the /29
+// (IPv4) and /125 (IPv6) blocks Connect peers require: n never overflows the
+// last byte since those prefixes align to a byte boundary of 8 or fewer
+// addresses.
+func nthCIDRHostAddress(cidr string, n byte) string {
+	_, network, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return ""
+	}
+
+	ip := network.IP
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+
+	host := make(net.IP, len(ip))
+	copy(host, ip)
+	host[len(host)-1] += n
 
 	return host.String()
 }
@@ -278,7 +379,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnectPeers(
 
 // CreateTransitGatewayPrefixListReference creates a TGW prefix list reference.
 func (b *InMemoryBackend) CreateTransitGatewayPrefixListReference(
-	routeTableID, prefixListID string,
+	routeTableID, prefixListID, attachmentID string,
 	blackhole bool,
 ) (*TransitGatewayPrefixListReference, error) {
 	if routeTableID == "" || prefixListID == "" {
@@ -294,6 +395,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPrefixListReference(
 	ref := &TransitGatewayPrefixListReference{
 		PrefixListID:               prefixListID,
 		TransitGatewayRouteTableID: routeTableID,
+		TransitGatewayAttachmentID: attachmentID,
 		State:                      stateAvailable,
 		Blackhole:                  blackhole,
 	}

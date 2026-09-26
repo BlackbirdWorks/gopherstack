@@ -35,17 +35,7 @@ type Handler struct {
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
 func NewHandler(backend StorageBackend) *Handler {
-	dedup := newFifoDeduplication()
-
-	// Start the periodic FIFO dedup sweep using the backend's lifecycle context
-	// when available so the goroutine is properly cleaned up on shutdown.
-	sweepCtx := context.Background()
-	if b, ok := backend.(*InMemoryBackend); ok {
-		sweepCtx = b.svcCtx
-	}
-	dedup.startPeriodicSweep(sweepCtx)
-
-	h := &Handler{Backend: backend, dedup: dedup}
+	h := &Handler{Backend: backend, dedup: newFifoDeduplication()}
 	h.actions = h.buildActions()
 
 	return h

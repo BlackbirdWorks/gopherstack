@@ -35,6 +35,8 @@ func (b *InMemoryBackend) CreateMultiplexProgram(
 		Settings: storedMultiplexProgramSettings{
 			ProgramNumber:            prog.ProgramNumber,
 			PreferredChannelPipeline: prog.PreferredChannelPipeline,
+			HasServiceDescriptor:     prog.HasServiceDescriptor,
+			VideoConstantBitrate:     prog.VideoConstantBitrate,
 			ServiceDescriptor: storedServiceDescriptor{
 				ProviderName: prog.ServiceDescriptor.ProviderName,
 				ServiceName:  prog.ServiceDescriptor.ServiceName,
@@ -88,6 +90,8 @@ func (b *InMemoryBackend) UpdateMultiplexProgram(
 	p.Settings = storedMultiplexProgramSettings{
 		ProgramNumber:            prog.ProgramNumber,
 		PreferredChannelPipeline: prog.PreferredChannelPipeline,
+		HasServiceDescriptor:     prog.HasServiceDescriptor,
+		VideoConstantBitrate:     prog.VideoConstantBitrate,
 		ServiceDescriptor: storedServiceDescriptor{
 			ProviderName: prog.ServiceDescriptor.ProviderName,
 			ServiceName:  prog.ServiceDescriptor.ServiceName,

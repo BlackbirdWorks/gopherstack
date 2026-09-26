@@ -111,7 +111,9 @@ func TestGetDistributionConfig_XMLDeclarationAppearsExactlyOnce(t *testing.T) {
 func TestListDistributions_RealSDKClient_ParsesSuccessfully(t *testing.T) {
 	t.Parallel()
 
-	h := cloudfront.NewHandler(cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"))
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
+	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
 	created, err := client.CreateDistribution(t.Context(), &cfsdk.CreateDistributionInput{
@@ -148,7 +150,9 @@ func TestListDistributions_RealSDKClient_ParsesSuccessfully(t *testing.T) {
 func TestGetDistribution_RealSDKClient_ErrorPathParses(t *testing.T) {
 	t.Parallel()
 
-	h := cloudfront.NewHandler(cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"))
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
+	h := cloudfront.NewHandler(backend)
 	client := newTestCloudFrontClient(t, h)
 
 	_, err := client.GetDistribution(t.Context(), &cfsdk.GetDistributionInput{

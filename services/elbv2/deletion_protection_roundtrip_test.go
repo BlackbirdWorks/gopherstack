@@ -37,6 +37,7 @@ func TestDeleteLoadBalancer_DeletionProtectionRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			backend := elbv2.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(backend.Close)
 			h := elbv2.NewHandler(backend)
 			client := newTestELBv2Client(t, h)
 			ctx := t.Context()

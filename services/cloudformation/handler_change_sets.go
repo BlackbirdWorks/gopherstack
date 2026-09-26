@@ -48,7 +48,11 @@ func (h *Handler) handleCreateChangeSet(form url.Values, c *echo.Context) error 
 	cs, err := h.Backend.CreateChangeSet(
 		c.Request().Context(), stackName, changeSetName, templateBody, description, params, capabilities,
 		parseTags(form),
-		CreateChangeSetOptions{ChangeSetType: form.Get("ChangeSetType")},
+		CreateChangeSetOptions{
+			ChangeSetType:     form.Get("ChangeSetType"),
+			ResourceTypes:     parseMemberList(form, "ResourceTypes."),
+			DisableValidation: strings.EqualFold(form.Get("DisableValidation"), "true"),
+		},
 	)
 	if err != nil {
 		if errors.Is(err, ErrChangeSetTypeMismatch) || errors.Is(err, ErrChangeSetTypeUnsupported) {

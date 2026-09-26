@@ -64,12 +64,19 @@ func (b *InMemoryBackend) buildSourceAssoc(
 		fmt.Sprintf("%s/%s", arnPathPrefix, assocID))
 
 	assoc := &SourceAPIAssociation{
-		AssociationID:              assocID,
-		AssociationARN:             assocARN,
-		SourceAPIID:                sourceAPIID,
-		MergedAPIID:                mergedAPIID,
-		Description:                description,
-		AssociationStatus:          SourceAPIAssociationStatusMergeScheduled,
+		AssociationID:  assocID,
+		AssociationARN: assocARN,
+		SourceAPIID:    sourceAPIID,
+		SourceAPIARN:   arn.Build("appsync", b.region, b.accountID, "apis/"+sourceAPIID),
+		MergedAPIID:    mergedAPIID,
+		MergedAPIARN:   arn.Build("appsync", b.region, b.accountID, "apis/"+mergedAPIID),
+		Description:    description,
+		// The real AssociateSourceGraphqlApi merges synchronously: the
+		// terraform-provider-aws waiter for this resource polls
+		// {MERGE_IN_PROGRESS, MERGE_SCHEDULED} -> MERGE_SUCCESS but never
+		// calls StartSchemaMerge itself, so a real association must already
+		// be MERGE_SUCCESS by the time Associate* returns.
+		AssociationStatus:          SourceAPIAssociationStatusMergeSuccess,
 		SourceAPIAssociationConfig: &SourceAPIAssociationConfig{MergeType: mergeType},
 	}
 

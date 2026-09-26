@@ -15,8 +15,12 @@ import (
 )
 
 // newSMHandler builds a handler backed by a fresh in-memory backend.
-func newSMHandler() *secretsmanager.Handler {
-	return secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend())
+func newSMHandler(t *testing.T) *secretsmanager.Handler {
+	t.Helper()
+	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
+
+	return secretsmanager.NewHandler(b)
 }
 
 // doR1Request invokes an SM handler via an X-Amz-Target action, setting the

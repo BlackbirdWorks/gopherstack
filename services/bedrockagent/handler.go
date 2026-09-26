@@ -111,7 +111,14 @@ const (
 	flowsBase   = "/flows"
 	promptsBase = "/prompts"
 	tagsBase    = "/tags/"
-	baService   = "bedrock-agent"
+	// bedrockArnMarker narrows the /tags/ claim below to bedrock-family ARNs.
+	// /tags/{arn} is a bare prefix ~30 services register (fis, accessanalyzer,
+	// amplify, ...); without this check any unsigned request (no SigV4 Authorization
+	// header, so ExtractServiceFromRequest returns "") fell through to a blanket
+	// HasPrefix match and swallowed every other service's /tags/ request
+	// (gopherstack-0y8bi).
+	bedrockArnMarker = ":bedrock:"
+	baService        = "bedrock-agent"
 	// baSigV4Service is the real aws-sdk-go-v2 SigV4 signing name for this
 	// service ("bedrock", not "bedrock-agent" -- confirmed via bedrockagent's
 	// own endpoints.go). RouteMatcher must check both: baService for
@@ -248,7 +255,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, kbBase) ||
 			strings.HasPrefix(path, flowsBase) ||
 			strings.HasPrefix(path, promptsBase) ||
-			strings.HasPrefix(path, tagsBase) ||
+			(strings.HasPrefix(path, tagsBase) && strings.Contains(path, bedrockArnMarker)) ||
 			strings.HasPrefix(path, resourcePolicyBase)
 	}
 }

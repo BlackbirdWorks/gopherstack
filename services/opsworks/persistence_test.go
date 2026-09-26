@@ -52,7 +52,7 @@ func newPersistenceTestBackend(t *testing.T) (*opsworks.InMemoryBackend, persist
 	require.NoError(t, err)
 
 	installUpdatesOnBoot := true
-	layer, err := b.CreateLayer(stack.StackID, "custom", "layer1", "layer1short", &installUpdatesOnBoot)
+	layer, err := b.CreateLayer(stack.StackID, "custom", "layer1", "layer1short", &installUpdatesOnBoot, nil)
 	require.NoError(t, err)
 
 	instance, err := b.CreateInstance(

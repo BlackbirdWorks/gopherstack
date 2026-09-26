@@ -217,6 +217,13 @@ type CidrCollection struct {
 	Version   int64               `json:"version"`
 }
 
+// CidrBlockEntry pairs a CIDR block with the collection location it belongs
+// to, as returned by ListCidrBlocks (route53@v1.65.6 types.CidrBlockSummary).
+type CidrBlockEntry struct {
+	CIDR         string
+	LocationName string
+}
+
 // CidrCollectionChange represents a single change in a ChangeCidrCollection request.
 type CidrCollectionChange struct {
 	LocationName string   `json:"locationName"`

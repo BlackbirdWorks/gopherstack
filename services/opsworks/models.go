@@ -85,20 +85,28 @@ func (s *storedStack) toStack() *Stack {
 
 // storedLayer holds a layer with all fields.
 type storedLayer struct {
-	CreatedAt            time.Time `json:"createdAt"`
-	InstallUpdatesOnBoot *bool     `json:"installUpdatesOnBoot,omitempty"`
-	StackID              string    `json:"stackId"`
-	LayerID              string    `json:"layerId"`
-	Arn                  string    `json:"arn"`
-	Type                 string    `json:"type"`
-	Name                 string    `json:"name"`
-	Shortname            string    `json:"shortname"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	InstallUpdatesOnBoot *bool             `json:"installUpdatesOnBoot,omitempty"`
+	Attributes           map[string]string `json:"attributes,omitempty"`
+	StackID              string            `json:"stackId"`
+	LayerID              string            `json:"layerId"`
+	Arn                  string            `json:"arn"`
+	Type                 string            `json:"type"`
+	Name                 string            `json:"name"`
+	Shortname            string            `json:"shortname"`
 }
 
 func (l *storedLayer) toLayer() *Layer {
+	var attrs map[string]string
+	if l.Attributes != nil {
+		attrs = make(map[string]string, len(l.Attributes))
+		maps.Copy(attrs, l.Attributes)
+	}
+
 	return &Layer{
 		CreatedAt:            l.CreatedAt,
 		InstallUpdatesOnBoot: l.InstallUpdatesOnBoot,
+		Attributes:           attrs,
 		StackID:              l.StackID,
 		LayerID:              l.LayerID,
 		Arn:                  l.Arn,

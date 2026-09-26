@@ -40,7 +40,7 @@ func TestSDK_StartStopMetricStreams(t *testing.T) {
 
 	got, err := client.GetMetricStream(ctx, &cwsdk.GetMetricStreamInput{Name: aws.String("jqh2-stream")})
 	require.NoError(t, err)
-	require.Equal(t, "RUNNING", *got.State)
+	require.Equal(t, "running", *got.State)
 
 	_, err = client.StopMetricStreams(ctx, &cwsdk.StopMetricStreamsInput{
 		Names: []string{"jqh2-stream"},
@@ -49,5 +49,5 @@ func TestSDK_StartStopMetricStreams(t *testing.T) {
 
 	got, err = client.GetMetricStream(ctx, &cwsdk.GetMetricStreamInput{Name: aws.String("jqh2-stream")})
 	require.NoError(t, err)
-	require.Equal(t, "STOPPED", *got.State)
+	require.Equal(t, "stopped", *got.State)
 }

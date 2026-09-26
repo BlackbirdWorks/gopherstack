@@ -164,19 +164,33 @@ func toSamlConfigWire(s *SamlConfiguration) *samlConfigurationWire {
 		out.IdpMetadata = &idpMetadataWire{URL: s.IdpMetadataURL, XML: s.IdpMetadataXML}
 	}
 
-	if s.AssertionAttributes != nil {
-		a := s.AssertionAttributes
-		out.AssertionAttributes = &assertionAttributesWire{
-			Email: a.Email, Groups: a.Groups, Login: a.Login,
-			Name: a.Name, Org: a.Org, Role: a.Role,
-		}
+	// Always present (never omitted): terraform-provider-aws's
+	// resourceWorkspaceSAMLConfigurationRead dereferences
+	// saml.Configuration.AssertionAttributes.Email etc. directly with no nil
+	// check, so an absent assertionAttributes key (this backend doesn't model
+	// per-attribute customization) panics the read. An all-empty object is a
+	// faithful "using Grafana's default attribute mapping" shape.
+	a := s.AssertionAttributes
+	if a == nil {
+		a = &AssertionAttributes{}
 	}
 
-	if s.RoleValues != nil {
-		out.RoleValues = &roleValuesWire{
-			Admin:  cloneStrs(s.RoleValues.Admin),
-			Editor: cloneStrs(s.RoleValues.Editor),
-		}
+	out.AssertionAttributes = &assertionAttributesWire{
+		Email: a.Email, Groups: a.Groups, Login: a.Login,
+		Name: a.Name, Org: a.Org, Role: a.Role,
+	}
+
+	// Always present, same reasoning as AssertionAttributes above:
+	// saml.Configuration.RoleValues.Admin/.Editor are also dereferenced with
+	// no nil check.
+	rv := s.RoleValues
+	if rv == nil {
+		rv = &RoleValues{}
+	}
+
+	out.RoleValues = &roleValuesWire{
+		Admin:  cloneStrs(rv.Admin),
+		Editor: cloneStrs(rv.Editor),
 	}
 
 	return out

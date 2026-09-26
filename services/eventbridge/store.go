@@ -19,6 +19,15 @@ const (
 	replayStateCancelling = "CANCELLING"
 	replayStateCancelled  = "CANCELLED"
 	replayStateCompleted  = "COMPLETED"
+
+	// replayTerminalTTL bounds how long a COMPLETED/CANCELLED replay stays in
+	// b.replays before pruneStaleReplaysLocked evicts it. AWS documents no
+	// specific retention for replay history and has no DeleteReplay op, but a
+	// long-running emulator still needs a bound on terraform-driven
+	// start/cancel churn; reuses the 1h window established for this
+	// backend's other delete-waiter tombstones (ram ramDeletedShareTTL, ec2
+	// c254cd795, ecs 3fa9337a8, medialive gopherstack-f9w3k).
+	replayTerminalTTL = time.Hour
 )
 
 // regionContextKey is the context key for the per-request AWS region.
@@ -67,6 +76,10 @@ var (
 	// that is owned/managed by an AWS service (Rule.ManagedBy is non-empty).
 	// Matches real AWS's ManagedRuleException.
 	ErrManagedRule = errors.New("ManagedRuleException")
+	// ErrPreconditionFailed is returned when PutResourcePolicy is called with
+	// a RevisionId that no longer matches the policy's current revision
+	// (schemas@v1.37.4 declares PreconditionFailedException for this op).
+	ErrPreconditionFailed = errors.New("PreconditionFailedException")
 )
 
 const (
@@ -265,6 +278,21 @@ type StorageBackend interface {
 		ctx context.Context,
 		registryName, schemaName, language, schemaVersion string,
 	) (string, error)
+	ExportSchema(ctx context.Context, input ExportSchemaInput) (*ExportedSchema, error)
+	CreateDiscoverer(ctx context.Context, input CreateDiscovererInput) (*Discoverer, error)
+	DescribeDiscoverer(ctx context.Context, discovererID string) (*Discoverer, error)
+	ListDiscoverers(
+		ctx context.Context,
+		discovererIDPrefix, sourceArnPrefix, nextToken string,
+		limit int,
+	) ([]Discoverer, string, error)
+	UpdateDiscoverer(ctx context.Context, input UpdateDiscovererInput) (*Discoverer, error)
+	DeleteDiscoverer(ctx context.Context, discovererID string) error
+	StartDiscoverer(ctx context.Context, discovererID string) (*Discoverer, error)
+	StopDiscoverer(ctx context.Context, discovererID string) (*Discoverer, error)
+	GetResourcePolicy(ctx context.Context, registryName string) (*ResourcePolicy, error)
+	PutResourcePolicy(ctx context.Context, input PutResourcePolicyInput) (*ResourcePolicy, error)
+	DeleteResourcePolicy(ctx context.Context, registryName string) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -310,8 +338,16 @@ type InMemoryBackend struct {
 	schemas        map[string]*store.Table[Schema]
 	schemaVersions map[string][]*SchemaVersion // "registryName/schemaName" → ordered versions
 	codeBindings   map[string]*CodeBinding     // "registryName/schemaName/language" → binding
-	workerSem      chan struct{}
-	ruleIndex      map[string]map[string]map[ruleIndexKey]map[string]*Rule
+	// discoverers is global (one per SourceArn), same shape as registries.
+	discoverers *store.Table[Discoverer]
+	// resourcePolicies is keyed by registry name (schemasDefaultRegistryName
+	// when RegistryName is omitted). ResourcePolicy carries no name of its
+	// own, so -- like busePolicies -- it cannot be a func(*V) string-keyed
+	// store.Table; it is NOT persisted, for the same reason registries and
+	// schemas above are not (see store_setup.go's package doc).
+	resourcePolicies map[string]*ResourcePolicy
+	workerSem        chan struct{}
+	ruleIndex        map[string]map[string]map[ruleIndexKey]map[string]*Rule
 	// targetsByARN indexes (region → ARN → set of "busKey/ruleName" targetKeys)
 	// for O(1) ListRuleNamesByTarget lookups. Kept consistent on PutTargets /
 	// RemoveTargets / DeleteRule / DeleteEventBus / Reset.
@@ -356,34 +392,35 @@ func NewInMemoryBackendWithContext(
 
 	ctx, cancel := context.WithCancel(svcCtx)
 	b := &InMemoryBackend{
-		accountID:       accountID,
-		region:          region,
-		registry:        store.NewRegistry(),
-		auxRegistry:     store.NewRegistry(),
-		buses:           make(map[string]*store.Table[EventBus]),
-		rules:           make(map[string]map[string]*store.Table[Rule]),
-		targets:         make(map[string]map[string]*store.Table[Target]),
-		eventSources:    make(map[string]*store.Table[EventSource]),
-		replays:         make(map[string]*store.Table[Replay]),
-		apiDestinations: make(map[string]*store.Table[APIDestination]),
-		archives:        make(map[string]*store.Table[Archive]),
-		archivedEvents:  make(map[string]map[string][]EventEntry),
-		connections:     make(map[string]*store.Table[Connection]),
-		endpoints:       make(map[string]*store.Table[Endpoint]),
-		partnerSources:  make(map[string]*store.Table[PartnerEventSource]),
-		busePolicies:    make(map[string]map[string]*EventBusPolicy),
-		schemas:         make(map[string]*store.Table[Schema]),
-		schemaVersions:  make(map[string][]*SchemaVersion),
-		codeBindings:    make(map[string]*CodeBinding),
-		deliveryTargets: &DeliveryTargets{},
-		mu:              lockmetrics.New("eventbridge"),
-		ctx:             ctx,
-		cancel:          cancel,
-		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
-		shutdownTimeout: defaultShutdownTimeout,
-		deliveryTimeout: defaultDeliveryTimeout,
-		ruleIndex:       make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
-		targetsByARN:    make(map[string]map[string]map[string]struct{}),
+		accountID:        accountID,
+		region:           region,
+		registry:         store.NewRegistry(),
+		auxRegistry:      store.NewRegistry(),
+		buses:            make(map[string]*store.Table[EventBus]),
+		rules:            make(map[string]map[string]*store.Table[Rule]),
+		targets:          make(map[string]map[string]*store.Table[Target]),
+		eventSources:     make(map[string]*store.Table[EventSource]),
+		replays:          make(map[string]*store.Table[Replay]),
+		apiDestinations:  make(map[string]*store.Table[APIDestination]),
+		archives:         make(map[string]*store.Table[Archive]),
+		archivedEvents:   make(map[string]map[string][]EventEntry),
+		connections:      make(map[string]*store.Table[Connection]),
+		endpoints:        make(map[string]*store.Table[Endpoint]),
+		partnerSources:   make(map[string]*store.Table[PartnerEventSource]),
+		busePolicies:     make(map[string]map[string]*EventBusPolicy),
+		schemas:          make(map[string]*store.Table[Schema]),
+		schemaVersions:   make(map[string][]*SchemaVersion),
+		codeBindings:     make(map[string]*CodeBinding),
+		resourcePolicies: make(map[string]*ResourcePolicy),
+		deliveryTargets:  &DeliveryTargets{},
+		mu:               lockmetrics.New("eventbridge"),
+		ctx:              ctx,
+		cancel:           cancel,
+		workerSem:        make(chan struct{}, defaultDeliveryWorkers),
+		shutdownTimeout:  defaultShutdownTimeout,
+		deliveryTimeout:  defaultDeliveryTimeout,
+		ruleIndex:        make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
+		targetsByARN:     make(map[string]map[string]map[string]struct{}),
 	}
 	// Create the default event bus in the backend's own region.
 	now := time.Now()
@@ -503,6 +540,8 @@ func (b *InMemoryBackend) Reset() {
 	b.schemas = make(map[string]*store.Table[Schema])
 	b.schemaVersions = make(map[string][]*SchemaVersion)
 	b.codeBindings = make(map[string]*CodeBinding)
+	b.discoverers = nil
+	b.resourcePolicies = make(map[string]*ResourcePolicy)
 	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
 	b.targetsByARN = make(map[string]map[string]map[string]struct{})
 	b.patternCache = sync.Map{}

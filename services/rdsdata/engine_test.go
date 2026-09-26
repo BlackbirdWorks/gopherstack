@@ -12,8 +12,12 @@ import (
 
 const engineARN = "arn:aws:rds:us-east-1:000000000000:cluster:engine-test"
 
-func newEngineBackend() *rdsdata.InMemoryBackend {
-	return rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+func newEngineBackend(t *testing.T) *rdsdata.InMemoryBackend {
+	t.Helper()
+	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+
+	return b
 }
 
 func int64Ptr(v int64) *int64 { return new(v) }
@@ -23,7 +27,7 @@ func int64Ptr(v int64) *int64 { return new(v) }
 func TestEngine_CreateInsertSelectRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE users (id INTEGER, name TEXT)", "")
@@ -51,7 +55,7 @@ func TestEngine_CreateInsertSelectRoundTrip(t *testing.T) {
 func TestEngine_SelectLiteral(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 
 	records, _, _, _, err := b.ExecuteStatement(context.Background(), engineARN, "SELECT 42", "")
 	require.NoError(t, err)
@@ -65,7 +69,7 @@ func TestEngine_SelectLiteral(t *testing.T) {
 func TestEngine_LenientFallbackOnError(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 
 	records, columns, updated, _, err := b.ExecuteStatement(
 		context.Background(), engineARN, "INSERT INTO missing_table VALUES (1)", "")
@@ -79,7 +83,7 @@ func TestEngine_LenientFallbackOnError(t *testing.T) {
 func TestEngine_ResourceIsolation(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 	const otherARN = "arn:aws:rds:us-east-1:000000000000:cluster:other"
 
@@ -98,7 +102,7 @@ func TestEngine_ResourceIsolation(t *testing.T) {
 func TestEngine_TransactionCommit(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE acct (n INTEGER)", "")
@@ -123,7 +127,7 @@ func TestEngine_TransactionCommit(t *testing.T) {
 func TestEngine_TransactionRollback(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE roll (n INTEGER)", "")
@@ -148,7 +152,7 @@ func TestEngine_TransactionRollback(t *testing.T) {
 func TestEngine_ExecuteStatementWithNamedParameters(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE people (id INTEGER, name TEXT)", "")
@@ -178,7 +182,7 @@ func TestEngine_ExecuteStatementWithNamedParameters(t *testing.T) {
 func TestEngine_BatchExecuteInsertsRows(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE nums (id INTEGER)", "")
@@ -205,7 +209,7 @@ func TestEngine_BatchExecuteInsertsRows(t *testing.T) {
 func TestEngine_SnapshotRestoreReplaysState(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE keep (id INTEGER)", "")
@@ -216,7 +220,7 @@ func TestEngine_SnapshotRestoreReplaysState(t *testing.T) {
 	snap := b.Snapshot(ctx)
 	require.NotNil(t, snap)
 
-	restored := newEngineBackend()
+	restored := newEngineBackend(t)
 	require.NoError(t, restored.Restore(ctx, snap))
 
 	records, _, _, _, err := restored.ExecuteStatement(ctx, engineARN, "SELECT id FROM keep", "")
@@ -229,7 +233,7 @@ func TestEngine_SnapshotRestoreReplaysState(t *testing.T) {
 func TestEngine_ResetClearsTables(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE gone (id INTEGER)", "")
@@ -268,7 +272,7 @@ func TestEngine_ColumnMetadata_TypeAffinity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newEngineBackend()
+			b := newEngineBackend(t)
 			ctx := context.Background()
 			arn := "arn:aws:rds:us-east-1:000000000000:cluster:coltype-" + tt.name
 
@@ -293,7 +297,7 @@ func TestEngine_ColumnMetadata_TypeAffinity(t *testing.T) {
 func TestEngine_ExecuteSQLUpdatesCount(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 
 	_, err := b.ExecuteSQL(ctx, engineARN, "CREATE TABLE legacy (id INTEGER)")
@@ -332,7 +336,7 @@ func TestEngine_ExecuteSQL_ResultFrame(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newEngineBackend()
+			b := newEngineBackend(t)
 			ctx := context.Background()
 
 			for _, stmt := range tt.setup {
@@ -409,7 +413,7 @@ func TestEngine_ExecuteSQL_ResultFrameNilForDML(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newEngineBackend()
+			b := newEngineBackend(t)
 			ctx := context.Background()
 
 			for _, stmt := range tt.setup {
@@ -434,7 +438,7 @@ func TestEngine_ExecuteSQL_ResultFrameNilForDML(t *testing.T) {
 func TestEngine_GeneratedFields_RowIDAlias(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 	arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-rowid"
 
@@ -487,7 +491,7 @@ func TestEngine_GeneratedFields_Empty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newEngineBackend()
+			b := newEngineBackend(t)
 			ctx := context.Background()
 			arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-empty-" + tt.name
 
@@ -508,7 +512,7 @@ func TestEngine_GeneratedFields_Empty(t *testing.T) {
 func TestEngine_GeneratedFields_UpdateStaysEmpty(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 	arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-update"
 
@@ -528,7 +532,7 @@ func TestEngine_GeneratedFields_UpdateStaysEmpty(t *testing.T) {
 func TestEngine_BatchExecuteStatement_GeneratedFields(t *testing.T) {
 	t.Parallel()
 
-	b := newEngineBackend()
+	b := newEngineBackend(t)
 	ctx := context.Background()
 	arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-batch"
 

@@ -48,7 +48,7 @@ func TestDeleteDynamoDBGlobalTable_RemovesReplicaTables(t *testing.T) {
 		require.NoErrorf(t, err, "precondition: replica table must exist in %s after create", region)
 	}
 
-	err = rc.Delete(t.Context(), "AWS::DynamoDB::GlobalTable", physID, props)
+	err = rc.Delete(t.Context(), "AWS::DynamoDB::GlobalTable", physID, props, nil)
 	require.NoError(t, err)
 
 	_, err = backends.DynamoDB.Backend.DescribeGlobalTable(t.Context(), &awsddb.DescribeGlobalTableInput{

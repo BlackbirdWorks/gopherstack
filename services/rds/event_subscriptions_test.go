@@ -16,7 +16,7 @@ import (
 func TestEventSubscription_CRUD(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	sub, err := b.CreateEventSubscription(
 		"sub1",
@@ -44,7 +44,7 @@ func TestEventSubscription_CRUD(t *testing.T) {
 func TestEventSubscription_ModifyToggle(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateEventSubscription(
 		"sub2",
 		"arn:aws:sns:us-east-1:123:topic",
@@ -66,7 +66,7 @@ func TestEventSubscription_ModifyToggle(t *testing.T) {
 func TestEventSubscription_AddRemoveSource(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateEventSubscription(
 		"sub3",
 		"arn:aws:sns:us-east-1:123:topic",
@@ -94,7 +94,7 @@ func TestEventSubscription_AddRemoveSource(t *testing.T) {
 func TestEventSubscription_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateEventSubscription("dup-sub", "arn:aws:sns:us-east-1:123:topic", "", nil, nil)
 	require.NoError(t, err)
 
@@ -106,7 +106,7 @@ func TestEventSubscription_Duplicate(t *testing.T) {
 func TestEventSubscription_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":           {"CreateEventSubscription"},
@@ -144,7 +144,7 @@ func TestEventSubscription_HTTP(t *testing.T) {
 func TestConcurrent_EventSubscription(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	var wg sync.WaitGroup
 	for i := range 10 {
@@ -172,7 +172,7 @@ func TestConcurrent_EventSubscription(t *testing.T) {
 func TestRDS_EventSubscriptions(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// CreateEventSubscription
 	rec := postRDSForm(t, h, url.Values{
@@ -283,6 +283,7 @@ func TestRemoveSourceIdentifierFromSubscription(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			sub, err := b.RemoveSourceIdentifierFromSubscription(tt.subscriptionName, tt.sourceIdentifier)
@@ -308,6 +309,7 @@ func TestAddSourceIdentifierToSubscription_DeduplicatesCode(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddEventSubscriptionInternal("sub1", "arn:aws:sns:us-east-1:000:my-topic")
 
 	sub1, err := b.AddSourceIdentifierToSubscription("sub1", "db-id-1")
@@ -325,6 +327,7 @@ func TestHTTP_RemoveSourceIdentifierFromSubscription(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	b.AddEventSubscriptionInternal("my-sub", "arn:aws:sns:us-east-1:000:my-topic")
 	_, _ = b.AddSourceIdentifierToSubscription("my-sub", "db-id-1")
 	h := rds.NewHandler(b)
@@ -431,6 +434,7 @@ func TestRDSBackend_AddSourceIdentifierToSubscription(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			sub, err := b.AddSourceIdentifierToSubscription(tt.subscriptionName, tt.sourceIdentifier)

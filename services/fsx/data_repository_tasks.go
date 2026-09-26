@@ -10,6 +10,8 @@ import (
 
 type storedDataRepositoryTask struct {
 	CreationTime time.Time         `json:"creationTime"`
+	DeadlineAt   time.Time         `json:"deadlineAt"`
+	EndTime      time.Time         `json:"endTime"`
 	Report       *CompletionReport `json:"report,omitempty"`
 	Tags         map[string]string `json:"tags"`
 	TaskID       string            `json:"taskId"`
@@ -21,7 +23,7 @@ type storedDataRepositoryTask struct {
 }
 
 func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
-	return &DataRepositoryTask{
+	pub := &DataRepositoryTask{
 		CreationTime: epochTime(t.CreationTime),
 		Report:       t.Report,
 		TaskID:       t.TaskID,
@@ -31,6 +33,37 @@ func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
 		ResourceARN:  t.ResourceARN,
 		Paths:        t.Paths,
 		Tags:         tagsMapToSlice(t.Tags),
+	}
+
+	if !t.EndTime.IsZero() {
+		end := epochTime(t.EndTime)
+		pub.EndTime = &end
+		pub.Status = t.status()
+	}
+
+	return pub
+}
+
+// status computes DataRepositoryTaskStatus from t's Paths and terminal
+// Lifecycle. TotalCount/SucceededCount/FailedCount are fully derived rather
+// than separately stored: a SUCCEEDED task processed everything it was
+// asked to (SucceededCount = TotalCount, FailedCount 0 -- this backend
+// models no per-file failures); a CANCELED task processed nothing (both 0).
+func (t *storedDataRepositoryTask) status() *DataRepositoryTaskStatus {
+	total := int64(len(t.Paths))
+	if total == 0 {
+		total = 1
+	}
+
+	var succeeded int64
+	if t.Lifecycle == drtLifecycleSucceeded {
+		succeeded = total
+	}
+
+	return &DataRepositoryTaskStatus{
+		TotalCount:      total,
+		SucceededCount:  succeeded,
+		LastUpdatedTime: epochTime(t.EndTime),
 	}
 }
 
@@ -63,6 +96,8 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 	b.mu.Lock("CreateDataRepositoryTask")
 	defer b.mu.Unlock()
 
+	b.sweepDataRepositoryTasksLocked(time.Now())
+
 	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
 	}
@@ -78,13 +113,14 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 
 	t := &storedDataRepositoryTask{
 		CreationTime: now,
+		DeadlineAt:   now.Add(dataRepositoryTaskCompletionDelay),
 		Report:       input.Report,
 		Tags:         tags,
 		Paths:        input.Paths,
 		TaskID:       id,
 		FileSystemID: input.FileSystemID,
 		Type:         input.Type,
-		Lifecycle:    "EXECUTING",
+		Lifecycle:    drtLifecycleExecuting,
 		ResourceARN:  arn,
 	}
 
@@ -100,7 +136,7 @@ func (b *InMemoryBackend) hasExecutingTaskLocked(fileSystemID string) bool {
 	found := false
 
 	b.dataRepositoryTasks.Range(func(t *storedDataRepositoryTask) bool {
-		if t.FileSystemID == fileSystemID && t.Lifecycle == "EXECUTING" {
+		if t.FileSystemID == fileSystemID && t.Lifecycle == drtLifecycleExecuting {
 			found = true
 
 			return false
@@ -112,17 +148,45 @@ func (b *InMemoryBackend) hasExecutingTaskLocked(fileSystemID string) bool {
 	return found
 }
 
-// CancelDataRepositoryTask marks a task as cancelled.
+// sweepDataRepositoryTasksLocked advances tasks past their modeled
+// deadline. This backend has no background timer or goroutine (see
+// PARITY.md's leaks note), so completion is lazily evaluated here at the
+// top of every op that reads or mutates task state -- the same pattern
+// services/swf/timeout_sweep.go and services/glue/reconciler.go use. An
+// EXECUTING task whose DeadlineAt has passed settles at SUCCEEDED; any task
+// left CANCELING settles at CANCELED on this, the next sweep after Cancel
+// was issued. Caller must hold the write lock.
+func (b *InMemoryBackend) sweepDataRepositoryTasksLocked(now time.Time) {
+	for _, t := range b.dataRepositoryTasks.All() {
+		switch t.Lifecycle {
+		case drtLifecycleExecuting:
+			if !now.Before(t.DeadlineAt) {
+				t.Lifecycle = drtLifecycleSucceeded
+				t.EndTime = now
+			}
+		case drtLifecycleCanceling:
+			t.Lifecycle = drtLifecycleCanceled
+			t.EndTime = now
+		}
+	}
+}
+
+// CancelDataRepositoryTask marks a task as cancelled. It settles at the
+// terminal CANCELED on the next sweep (the next Cancel/Create/Describe
+// call), matching the transient CANCELING window a real client observes
+// before AWS finishes tearing the task down.
 func (b *InMemoryBackend) CancelDataRepositoryTask(taskID string) error {
 	b.mu.Lock("CancelDataRepositoryTask")
 	defer b.mu.Unlock()
+
+	b.sweepDataRepositoryTasksLocked(time.Now())
 
 	t, ok := b.dataRepositoryTasks.Get(taskID)
 	if !ok {
 		return ErrDataRepositoryTaskNotFound
 	}
 
-	t.Lifecycle = "CANCELING"
+	t.Lifecycle = drtLifecycleCanceling
 
 	return nil
 }
@@ -134,14 +198,16 @@ func (b *InMemoryBackend) CancelDataRepositoryTask(taskID string) error {
 // recognized here -- CreateDataRepositoryTask never accepts an association or
 // file-cache reference to track, so those two have no honest value; matches
 // everything for them, same as an unset filter.
-func (b *InMemoryBackend) DescribeDataRepositoryTasks( //nolint:dupl // existing issue.
+func (b *InMemoryBackend) DescribeDataRepositoryTasks(
 	ids []string,
 	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*DataRepositoryTask, string, error) {
-	b.mu.RLock("DescribeDataRepositoryTasks")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeDataRepositoryTasks")
+	defer b.mu.Unlock()
+
+	b.sweepDataRepositoryTasksLocked(time.Now())
 
 	if maxResults <= 0 {
 		maxResults = maxResultsDefault

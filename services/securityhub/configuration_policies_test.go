@@ -11,6 +11,37 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
+// policyIDPlaceholder stands in for a policy ID a step's body needs but
+// won't know until an earlier step's "create policy" response returns one
+// (real config policy IDs are UUIDs, not a predictable sequence).
+// substitutePolicyID swaps it in before each request.
+const policyIDPlaceholder = "PLACEHOLDER_POLICY_ID"
+
+// substitutePolicyID replaces policyIDPlaceholder anywhere it appears as a
+// top-level map value in body with id. body is returned unmodified if it's
+// not a map[string]any or id is still empty (the step producing it hasn't
+// run yet).
+func substitutePolicyID(body any, id string) any {
+	m, ok := body.(map[string]any)
+	if !ok || id == "" {
+		return body
+	}
+
+	out := make(map[string]any, len(m))
+
+	for k, v := range m {
+		if s, isStr := v.(string); isStr && s == policyIDPlaceholder {
+			out[k] = id
+
+			continue
+		}
+
+		out[k] = v
+	}
+
+	return out
+}
+
 func TestBackend_GetConfigurationPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -278,7 +309,7 @@ func TestConfigurationPolicy(t *testing.T) {
 					method: http.MethodPost,
 					path:   "/configurationPolicyAssociation/associate",
 					body: map[string]any{
-						"ConfigurationPolicyIdentifier": "policy-1",
+						"ConfigurationPolicyIdentifier": policyIDPlaceholder,
 						"Target": map[string]any{
 							"AccountId": "123456789012",
 						},
@@ -350,7 +381,7 @@ func TestConfigurationPolicy(t *testing.T) {
 					method: http.MethodPost,
 					path:   "/configurationPolicyAssociation/disassociate",
 					body: map[string]any{
-						"ConfigurationPolicyIdentifier": "policy-1",
+						"ConfigurationPolicyIdentifier": policyIDPlaceholder,
 						"Target": map[string]any{
 							"AccountId": "123456789012",
 						},
@@ -385,12 +416,16 @@ func TestConfigurationPolicy(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 
+			var policyID string
+
 			for _, s := range tc.steps {
-				rec := doRequest(t, h, s.method, s.path, s.body)
+				rec := doRequest(t, h, s.method, s.path, substitutePolicyID(s.body, policyID))
 
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				s.check(t, rec.Code, resp)
+				if id := s.check(t, rec.Code, resp); id != "" {
+					policyID = id
+				}
 			}
 		})
 	}

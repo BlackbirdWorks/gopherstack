@@ -49,11 +49,13 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 	storeID := uuid.New().String()
 
 	b.customKeyStoresStore(region).Put(&CustomKeyStore{
-		CustomKeyStoreID:   storeID,
-		CustomKeyStoreName: input.CustomKeyStoreName,
-		ConnectionState:    ConnectionStateDisconnected,
-		CreationDate:       UnixTimeFloat(time.Now()),
-		CustomKeyStoreType: storeType,
+		CustomKeyStoreID:       storeID,
+		CustomKeyStoreName:     input.CustomKeyStoreName,
+		ConnectionState:        ConnectionStateDisconnected,
+		CreationDate:           UnixTimeFloat(time.Now()),
+		CustomKeyStoreType:     storeType,
+		CloudHsmClusterID:      input.CloudHsmClusterID,
+		TrustAnchorCertificate: input.TrustAnchorCertificate,
 	})
 
 	return &CreateCustomKeyStoreOutput{CustomKeyStoreID: storeID}, nil

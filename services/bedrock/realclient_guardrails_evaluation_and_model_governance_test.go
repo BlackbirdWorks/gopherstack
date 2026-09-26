@@ -468,6 +468,7 @@ func testMarketplaceModelEndpointsRealClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "Active", aws.ToString(registered.MarketplaceModelEndpoint.EndpointStatus))
+	assert.Equal(t, types.StatusRegistered, registered.MarketplaceModelEndpoint.Status)
 
 	got, err := client.GetMarketplaceModelEndpoint(
 		t.Context(),

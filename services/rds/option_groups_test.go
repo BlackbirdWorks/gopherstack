@@ -18,7 +18,7 @@ import (
 func TestCreateDBSnapshotOptionGroupName(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	// Create option group.
 	doAccuracyRDS(t, h, url.Values{
@@ -63,7 +63,7 @@ func TestCreateDBSnapshotOptionGroupName(t *testing.T) {
 func TestOptionGroup_ModifyAddRemove(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateOptionGroup("og1", "mysql", "8.0", "test og")
 	require.NoError(t, err)
 
@@ -84,7 +84,7 @@ func TestOptionGroup_ModifyAddRemove(t *testing.T) {
 func TestOptionGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateOptionGroup("dup-og", "mysql", "8.0", "first")
 	require.NoError(t, err)
 
@@ -96,7 +96,7 @@ func TestOptionGroup_Duplicate(t *testing.T) {
 func TestOptionGroup_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	err := b.DeleteOptionGroup("noexist")
 	require.Error(t, err)
@@ -106,7 +106,7 @@ func TestOptionGroup_DeleteNotFound(t *testing.T) {
 func TestOptionGroup_CopyPreservesOptions(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateOptionGroup("src-og", "mysql", "8.0", "source")
 	require.NoError(t, err)
 
@@ -126,7 +126,7 @@ func TestOptionGroup_CopyPreservesOptions(t *testing.T) {
 func TestOptionGroup_Concurrent(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.CreateOptionGroup("conc-og", "mysql", "8.0", "concurrent test")
 	require.NoError(t, err)
 
@@ -150,7 +150,7 @@ func TestOptionGroup_Concurrent(t *testing.T) {
 func TestOptionGroup_HTTP_CRUD(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                 {"CreateOptionGroup"},
@@ -189,7 +189,7 @@ func TestOptionGroup_HTTP_CRUD(t *testing.T) {
 func TestRDS_OptionGroups(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// CreateOptionGroup
 	rec := postRDSForm(t, h, url.Values{
@@ -280,6 +280,7 @@ func TestRDSBackend_CopyOptionGroup(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			og, err := b.CopyOptionGroup(tt.source, tt.target, tt.description)

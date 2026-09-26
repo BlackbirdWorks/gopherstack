@@ -18,7 +18,7 @@ import (
 func TestDescribeTrustStores_Pagination(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	client := newTestELBv2Client(t, h)
 	ctx := t.Context()
 
@@ -54,7 +54,7 @@ func TestDescribeTrustStores_Pagination(t *testing.T) {
 func TestDescribeTrustStoreRevocations_RevocationIDsFilter(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	client := newTestELBv2Client(t, h)
 	ctx := t.Context()
 
@@ -100,6 +100,7 @@ func TestDescribeListenerCertificates_Pagination(t *testing.T) {
 	t.Parallel()
 
 	backend := elbv2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := elbv2.NewHandler(backend)
 	client := newTestELBv2Client(t, h)
 	ctx := t.Context()

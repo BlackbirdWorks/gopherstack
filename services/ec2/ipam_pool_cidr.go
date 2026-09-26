@@ -191,6 +191,13 @@ func (b *InMemoryBackend) AllocateIpamPoolCidr(
 	if alloc.ResourceType == "" {
 		alloc.ResourceType = "custom"
 	}
+
+	if o.PreviewOnly {
+		cp := *alloc
+
+		return &cp, nil
+	}
+
 	b.ipamPoolAllocations.Put(alloc)
 	b.recordIpamResourceCidrLocked(pool, alloc)
 

@@ -1,6 +1,7 @@
 package kinesis
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -175,7 +176,16 @@ type Shard struct {
 	// ClosedAt is when this shard was closed (zero if still open). Populated
 	// alongside Closed by closeShard. omitempty has no effect on a struct
 	// field like time.Time, so it is intentionally omitted here.
-	ClosedAt              time.Time    `json:"closedAt"`
+	ClosedAt time.Time `json:"closedAt"`
+	// cachedHashRangeStart/End and cachedIdx memoize the parsed forms of
+	// HashKeyRangeStart/HashKeyRangeEnd/ID, computed once on first use
+	// (shardForHashKey/nextSequenceNumber, both only ever called from
+	// PutRecord under stream.mu.Lock, so no extra synchronization is
+	// needed) instead of re-parsing the decimal strings on every record.
+	// Never persisted; nil after Restore until first use repopulates them.
+	cachedHashRangeStart  *big.Int
+	cachedHashRangeEnd    *big.Int
+	cachedIdx             *int64
 	ID                    string       `json:"id"`
 	HashKeyRangeStart     string       `json:"hashKeyRangeStart"`
 	HashKeyRangeEnd       string       `json:"hashKeyRangeEnd"`
@@ -307,9 +317,20 @@ type ListStreamsInput struct {
 
 // ListStreamsOutput is the output for ListStreams.
 type ListStreamsOutput struct {
-	NextToken      string
-	StreamNames    []string
-	HasMoreStreams bool
+	NextToken       string
+	StreamNames     []string
+	StreamSummaries []StreamSummary
+	HasMoreStreams  bool
+}
+
+// StreamSummary is the optional, richer per-stream shape ListStreamsOutput
+// carries alongside the required StreamNames (types.StreamSummary).
+type StreamSummary struct {
+	StreamCreationTimestamp time.Time
+	StreamName              string
+	StreamARN               string
+	StreamStatus            string
+	StreamMode              string
 }
 
 // PutRecordInput is the input for PutRecord.
@@ -514,6 +535,7 @@ type UpdateShardCountInput struct {
 // UpdateShardCountOutput is the output for UpdateShardCount.
 type UpdateShardCountOutput struct {
 	StreamName        string
+	StreamARN         string
 	CurrentShardCount int
 	TargetShardCount  int
 }
@@ -653,13 +675,15 @@ type DescribeAccountSettingsOutput struct {
 
 // UpdateStreamModeInput is the input for UpdateStreamMode.
 type UpdateStreamModeInput struct {
-	StreamARN         string
-	StreamModeDetails StreamModeDetails
 	// WarmThroughputMiBps mirrors UpdateStreamModeInput's own field
-	// (kinesis@v1.46.4 api_op_UpdateStreamMode.go, "only valid when the
-	// stream mode is being updated to on-demand"). Zero means "not
-	// specified".
-	WarmThroughputMiBps int
+	// (kinesis@v1.53.0 api_op_UpdateStreamMode.go, "only valid when the
+	// stream mode is being updated to on-demand"). Optional on the real
+	// SDK (*int32, no "This member is required." doc) -- nil means
+	// "not specified" (preserve the stored value); a non-nil value,
+	// including 0, is applied.
+	WarmThroughputMiBps *int
+	StreamARN           string
+	StreamModeDetails   StreamModeDetails
 }
 
 // StreamModeDetails describes the mode of a Kinesis stream.

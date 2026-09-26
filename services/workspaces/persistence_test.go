@@ -21,7 +21,7 @@ func newPersistenceTestBackend(t *testing.T) *workspaces.InMemoryBackend {
 	b := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
 	ctx := t.Context()
 
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", []string{"subnet-1"}, nil))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", []string{"subnet-1"}, nil, ""))
 
 	ws, err := b.CreateWorkspace(ctx, &workspaces.WorkspaceCreationSpec{
 		DirectoryID: "d-1234567890",
@@ -152,7 +152,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "111111111111", links[0].TargetAccountID)
 
 	// dirSettings table.
-	dirs, _, err := fresh.DescribeWorkspaceDirectories(ctx, nil, "")
+	dirs, _, err := fresh.DescribeWorkspaceDirectories(ctx, nil, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, dirs, 1)
 	assert.Equal(t, "d-1234567890", dirs[0].DirectoryID)

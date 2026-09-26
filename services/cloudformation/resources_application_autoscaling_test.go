@@ -42,7 +42,7 @@ func TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete(t *testing.T
 	assert.Len(t, targets, 1)
 	assert.Equal(t, "service/my-cluster/my-service", targets[0].ResourceID)
 
-	err = rc.Delete(t.Context(), "AWS::ApplicationAutoScaling::ScalableTarget", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::ApplicationAutoScaling::ScalableTarget", physID, nil, nil)
 	require.NoError(t, err)
 
 	// Verify it is deregistered.
@@ -86,7 +86,7 @@ func TestResourceCreator_AppAutoScaling_ScalingPolicy_CreateDelete(t *testing.T)
 	assert.Len(t, policies, 1)
 	assert.Equal(t, "cfn-test-policy", policies[0].PolicyName)
 
-	err = rc.Delete(t.Context(), "AWS::ApplicationAutoScaling::ScalingPolicy", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::ApplicationAutoScaling::ScalingPolicy", physID, nil, nil)
 	require.NoError(t, err)
 
 	policies, _, _ = backends.AppAutoScaling.Backend.DescribeScalingPolicies(

@@ -84,8 +84,8 @@ func build() map[string]any {
 			// real shape: services/apigateway/export.go's OpenAPI "type"
 			// key, which collides in name only with API Gateway's own
 			// DocumentationPartType/AuthorizerType/IntegrationType. Neither
-			// candidate has DISSOCIATED, so this is needs-review, not clean.
-			name: "ambiguous key with non-universal value is needs review",
+			// candidate has DISSOCIATED, so this is unresolved, not clean.
+			name: "ambiguous key with non-universal value is unresolved",
 			src: `package svc
 func build() map[string]any {
 	return map[string]any{"DomainPackageStatus": "DISSOCIATED"}
@@ -93,7 +93,7 @@ func build() map[string]any {
 			wireKeys: map[string]wireKeyFact{
 				"DomainPackageStatus": {Enums: []string{"DomainPackageStatus", "OtherStatus"}},
 			},
-			wantKind:  kindAmbiguousKey,
+			wantKind:  kindUnresolved,
 			wantValue: "DISSOCIATED",
 		},
 		{
@@ -111,7 +111,7 @@ func build() map[string]any {
 		{
 			// real shape: comprehend's "ErrorCode", a plain *string on one
 			// struct and types.PageBasedErrorCode on an unrelated one.
-			name: "polymorphic key with non-member value is needs review",
+			name: "polymorphic key with non-member value is unresolved",
 			src: `package svc
 func build() map[string]any {
 	return map[string]any{"DomainPackageStatus": "DISSOCIATED"}
@@ -119,7 +119,7 @@ func build() map[string]any {
 			wireKeys: map[string]wireKeyFact{
 				"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}, Polymorphic: true},
 			},
-			wantKind:  kindAmbiguousKey,
+			wantKind:  kindUnresolved,
 			wantValue: "DISSOCIATED",
 		},
 		{
@@ -139,8 +139,10 @@ func build() map[string]any {
 			// of two of the key's candidates (Status, DelegatedAdminStatus)
 			// but not of the EcrRescanDurationStatus actually in play, so
 			// the all-or-nothing filter dropped this bug silently -- this is
-			// exactly the shape the ambiguous-key tier exists to catch.
-			name: "inspector2 rescanDurationState status reuse is needs review",
+			// exactly the shape the unresolved tier exists to surface (never
+			// as a confident finding: which candidate applies here is
+			// unknown without a struct-field identity to resolve through).
+			name: "inspector2 rescanDurationState status reuse is unresolved, not a confident finding",
 			src: `package svc
 const keyStatus = "status"
 const statusEnabled = "ENABLED"
@@ -150,7 +152,7 @@ func build() map[string]any {
 			wireKeys: map[string]wireKeyFact{
 				"status": {Enums: []string{"Status", "DelegatedAdminStatus", "EcrRescanDurationStatus"}},
 			},
-			wantKind:  kindAmbiguousKey,
+			wantKind:  kindUnresolved,
 			wantValue: "ENABLED",
 		},
 		{

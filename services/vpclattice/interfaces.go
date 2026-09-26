@@ -289,6 +289,7 @@ type ServiceNetwork struct {
 // ServiceNetworkSummary is a service network entry for list responses.
 type ServiceNetworkSummary struct {
 	CreatedAt                                time.Time
+	LastUpdatedAt                            time.Time
 	ARN                                      string
 	ID                                       string
 	Name                                     string
@@ -327,6 +328,7 @@ type ServiceNetworkServiceAssociationSummary struct {
 	ServiceNetworkID   string
 	ServiceNetworkName string
 	Status             string
+	CreatedBy          string
 	CustomDomainName   string
 	DNSName            string
 	HostedZoneID       string
@@ -361,6 +363,7 @@ type DNSOptions struct {
 type ServiceNetworkVpcAssociationSummary struct {
 	DNSOptions         *DNSOptions
 	CreatedAt          time.Time
+	LastUpdatedAt      time.Time
 	ARN                string
 	ID                 string
 	VpcID              string
@@ -368,6 +371,7 @@ type ServiceNetworkVpcAssociationSummary struct {
 	ServiceNetworkID   string
 	ServiceNetworkName string
 	Status             string
+	CreatedBy          string
 	PrivateDNSEnabled  bool
 }
 
@@ -702,12 +706,15 @@ type ServiceNetworkResourceAssociationSummary struct {
 	ServiceNetworkID          string
 	ServiceNetworkName        string
 	Status                    string
+	CreatedBy                 string
+	PrivateDNSEnabled         bool
 }
 
 // DomainVerification represents a custom domain ownership verification.
 type DomainVerification struct {
 	CreatedAt        time.Time
 	LastVerifiedTime *time.Time
+	Tags             map[string]string
 	ARN              string
 	ID               string
 	DomainName       string
@@ -718,6 +725,7 @@ type DomainVerification struct {
 type DomainVerificationSummary struct {
 	CreatedAt        time.Time
 	LastVerifiedTime *time.Time
+	Tags             map[string]string
 	ARN              string
 	ID               string
 	DomainName       string

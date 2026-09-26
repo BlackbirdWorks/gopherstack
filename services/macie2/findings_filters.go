@@ -150,8 +150,6 @@ func (b *InMemoryBackend) DeleteFindingsFilter(id string) error {
 }
 
 // ListFindingsFilters returns summaries of all findings filters.
-//
-//nolint:dupl // structurally identical to ListAllowLists but operates on a different type
 func (b *InMemoryBackend) ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error) {
 	return listPaginated(
 		b, "ListFindingsFilters", b.findingsFilters.All(),

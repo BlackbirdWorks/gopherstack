@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult><AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/golden-role/golden-session</Arn><AssumedRoleId>REDACTED</AssumedRoleId></AssumedRoleUser><Credentials><AccessKeyId>REDACTED</AccessKeyId><SecretAccessKey>REDACTED</SecretAccessKey><SessionToken>REDACTED</SessionToken><Expiration>REDACTED</Expiration></Credentials></AssumeRoleResult><ResponseMetadata><RequestId>REDACTED</RequestId></ResponseMetadata></AssumeRoleResponse>

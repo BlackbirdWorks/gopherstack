@@ -64,8 +64,16 @@ func (h *Handler) handleListReadSets(c *echo.Context, storeID string) error {
 		return h.mapError(c, err)
 	}
 
+	// Real ListReadSetsOutput's element (ReadSetListItem) has no files, tags
+	// or updateTime member -- narrower than GetReadSetMetadataOutput, so
+	// this doesn't marshal ReadSetMetadata directly (see ReadSetSummary).
+	summaries := make([]ReadSetSummary, 0, len(readSets))
+	for _, rs := range readSets {
+		summaries = append(summaries, newReadSetSummary(rs))
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"readSets":   readSets,
+		"readSets":   summaries,
 		keyNextToken: next,
 	})
 }
@@ -104,7 +112,15 @@ func (h *Handler) handleListReadSetActivationJobs(c *echo.Context, storeID strin
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"activationJobs": jobs, keyNextToken: next})
+	// Real ListReadSetActivationJobsOutput's element (ActivateReadSetJobItem)
+	// has no sources member -- narrower than GetReadSetActivationJobOutput,
+	// so this doesn't marshal ReadSetActivationJob directly.
+	summaries := make([]ReadSetActivationJobSummary, 0, len(jobs))
+	for _, j := range jobs {
+		summaries = append(summaries, newReadSetActivationJobSummary(j))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"activationJobs": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleStartReadSetExportJob(c *echo.Context, storeID string) error {
@@ -180,7 +196,15 @@ func (h *Handler) handleListReadSetImportJobs(c *echo.Context, storeID string) e
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
+	// Real ListReadSetImportJobsOutput's element (ImportReadSetJobItem) has
+	// no sources member -- narrower than GetReadSetImportJobOutput, so this
+	// doesn't marshal ReadSetImportJob directly.
+	summaries := make([]ReadSetImportJobSummary, 0, len(jobs))
+	for _, j := range jobs {
+		summaries = append(summaries, newReadSetImportJobSummary(j))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCreateMultipartReadSetUpload(c *echo.Context, storeID string) error {
@@ -273,7 +297,14 @@ func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadI
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"parts": parts, keyNextToken: next})
+	// ReadSetUploadPart's own json tags are its on-disk persistence keys, not
+	// the real wire keys -- see ReadSetUploadPartSummary's doc comment.
+	summaries := make([]ReadSetUploadPartSummary, 0, len(parts))
+	for _, p := range parts {
+		summaries = append(summaries, newReadSetUploadPartSummary(p))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"parts": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID string) error {

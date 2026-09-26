@@ -36,6 +36,8 @@ const splitSep = "\x00"
 const (
 	resTypeStepFunctionsStateMachine = "AWS::StepFunctions::StateMachine"
 	attrNameArn                      = "Arn"
+	attrNameName                     = "Name"
+	statusActive                     = "ACTIVE"
 	fnGetAtt                         = "Fn::GetAtt"
 	// yamlMappingContentStride is the step size when walking a yaml.Node's
 	// Content slice for a MappingNode, which interleaves key/value pairs
@@ -857,11 +859,18 @@ func resolveScalar(v any, params, physicalIDs map[string]string) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// ResolveValue resolves a CloudFormation property value, handling intrinsic functions.
+// ResolveValue resolves a CloudFormation property value, handling intrinsic
+// functions. It has no resourceTypes map of its own -- resolveGetAtt falls
+// back to the physIDResourceTypeKey side channel in physicalIDs instead (see
+// physIDResourceTypeKey), and accountID/region/stackName come from the same
+// side channel when present.
 func ResolveValue(v any, params map[string]string, physicalIDs map[string]string) string {
 	ctx := resolveCtx{
 		params:      params,
 		physicalIDs: physicalIDs,
+		accountID:   physicalIDs[physIDAccountIDKey],
+		region:      physicalIDs[physIDRegionKey],
+		stackName:   physicalIDs[physIDStackNameKey],
 	}
 
 	return resolveValueCtx(v, ctx)
@@ -1398,14 +1407,143 @@ func collectImportValuesFromValue(v any, params map[string]string, refs *[]strin
 	}
 }
 
+// Side-channel keys stashed into a plain physicalIDs map so property-time
+// resolution (ResolveValue, which has no resourceTypes map) can still find a
+// resource's declared type, account ID, region and stack name -- see
+// physIDResourceTypeKey and provisionResources/applyTemplateToStack, which
+// populate them before resources are created (gopherstack PARITY.md 2026-09-24
+// GetAtt-in-properties fix).
+const (
+	physIDResourceTypePrefix = "_Type/"
+	physIDAccountIDKey       = "_AccountId"
+	physIDRegionKey          = "_Region"
+	physIDStackNameKey       = "_StackName"
+)
+
+func physIDResourceTypeKey(logicalID string) string {
+	return physIDResourceTypePrefix + logicalID
+}
+
+// extractAttrStash filters a create/update-time physicalIDs map down to the
+// "<logicalID>/<Attr>" side-channel entries for resources still in
+// liveResourceTypes -- the values genuinely not derivable from a resource's
+// own PhysicalID+Type at delete time (e.g. CodeArtifact Domain's Name; see
+// the writers across resources_*.go). This is what gets persisted onto
+// Stack.ResourceAttrs; the plain logicalID->PhysicalID and "_Type/..."/
+// "_AccountId"/"_Region"/"_StackName" side-channel entries are dropped since
+// deleteResolveContext rebuilds those fresh from StackResource/the backend.
+func extractAttrStash(physicalIDs map[string]string, liveResourceTypes map[string]string) map[string]string {
+	stash := make(map[string]string)
+
+	for k, v := range physicalIDs {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+
+		logicalID, _, hasAttr := strings.Cut(k, "/")
+		if !hasAttr {
+			continue
+		}
+
+		if _, live := liveResourceTypes[logicalID]; live {
+			stash[k] = v
+		}
+	}
+
+	return stash
+}
+
+// resourceTypeFor returns logicalID's declared resource type, preferring
+// ctx.resourceTypes (Outputs/preview, always fully populated) and falling
+// back to the physIDResourceTypeKey side channel (property-time resolution,
+// which has no resourceTypes map -- see ResolveValue).
+func resourceTypeFor(logicalID string, ctx resolveCtx) string {
+	if resType := ctx.resourceTypes[logicalID]; resType != "" {
+		return resType
+	}
+
+	return ctx.physicalIDs[physIDResourceTypeKey(logicalID)]
+}
+
 // resolveGetAtt resolves Fn::GetAtt [logicalID, attributeName] using the ctx (#9).
 func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 	physID := ctx.physicalIDs[logicalID]
-	resType := ctx.resourceTypes[logicalID]
+	resType := resourceTypeFor(logicalID, ctx)
 
 	// Custom resource Data outputs are stored in physicalIDs as "logicalID/Key".
 	if resType == cfnTypeCustomResource || strings.HasPrefix(resType, "Custom::") {
 		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+			return v
+		}
+	}
+
+	// IAM::AccessKey's SecretAccessKey is only ever known at creation time
+	// (real AWS's own documented behavior); it is stashed the same way as
+	// custom-resource Data outputs -- see createIAMAccessKey.
+	if resType == resTypeIAMAccessKey && attrName == "SecretAccessKey" {
+		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+			return v
+		}
+	}
+
+	// ServiceDiscovery DNS namespaces' HostedZoneId and Service's Name are
+	// backend-computed values getExtraResourceAttribute (a pure function of
+	// physID/type) can't derive -- stashed the same way, see
+	// stashSDHostedZoneID / createSDService.
+	sdSideChannelAttr := (resType == resTypeSDPrivateDNSNamespace || resType == resTypeSDPublicDNSNamespace) &&
+		attrName == "HostedZoneId"
+	sdSideChannelAttr = sdSideChannelAttr || (resType == resTypeSDService && attrName == attrNameName)
+
+	if sdSideChannelAttr {
+		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+			return v
+		}
+	}
+
+	// EKS FargateProfile/Addon/AccessEntry/PodIdentityAssociation/IdentityProviderConfig
+	// ARNs (and PodIdentityAssociation's ExternalId) embed a backend-generated ID
+	// getResourceAttribute can't derive purely from physID -- stashed at create time,
+	// see createEKSFargateProfile et al.
+	if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+		switch resType {
+		case resTypeEKSFargateProfile, resTypeEKSAddon, resTypeEKSAccessEntry,
+			resTypeEKSPodIdentityAssociation, resTypeEKSIdentityProviderConfig,
+			resTypeKinesisStreamConsumer,
+			resTypeRDSDBProxyEndpoint, resTypeCWMetricStream, resTypeSSMResourcePolicy,
+			resTypeCFOriginRequestPolicy, resTypeCFKeyGroup, resTypeCFPublicKey,
+			resTypeCFOAI, resTypeCFKeyValueStore, resTypeCFContinuousDeploymentPolicy,
+			resTypeIoTThingType, resTypeIoTThingGroup, resTypeIoTBillingGroup,
+			resTypeIoTDomainConfiguration, resTypeIoTFleetMetric, resTypeIoTMitigationAction,
+			resTypeConfigConfigRule, resTypeConfigConfigurationAggregator, resTypeConfigConformancePack,
+			resTypeConfigStoredQuery,
+			resTypeSageMakerModel, resTypeSageMakerEndpointConfig, resTypeSageMakerEndpoint,
+			resTypeSageMakerNotebookInstance, resTypeSageMakerNotebookInstanceLifecycleConfig,
+			resTypeSageMakerCodeRepository, resTypeSageMakerDomain, resTypeSageMakerPipeline,
+			resTypeSageMakerModelPackageGroup, resTypeSageMakerFeatureGroup, resTypeSageMakerProject,
+			resTypeSageMakerWorkteam, resTypeSageMakerImage, resTypeSageMakerImageVersion,
+			resTypeAthenaNamedQuery, resTypeAthenaCapacityReservation,
+			resTypeMemoryDBCluster,
+			resTypeLambdaCodeSigningConfig, resTypeEventsEndpoint, resTypeSchedulerScheduleGroup,
+			resTypeAppSyncDomainName,
+			resTypeR53RResolverRuleAssoc, resTypeR53RFirewallDomainList, resTypeR53RFirewallRuleGroup,
+			resTypeR53RFirewallRGAssoc, resTypeR53RQueryLogConfig, resTypeR53RQueryLogConfigAssc,
+			resTypeR53ROutpostResolver,
+			resTypeCloudTrailEventDataStore,
+			resTypeLogsDelivery, resTypeLogsDeliveryDestination, resTypeLogsDeliverySource,
+			resTypeLogsIntegration, resTypeLogsAnomalyDetector, resTypeLogsScheduledQuery,
+			resTypeCodeArtifactDomain, resTypeCodeArtifactRepository, resTypeCodeArtifactPackageGroup,
+			resTypeGlueBlueprint,
+			resTypeDataSyncAgent, resTypeDataSyncLocationS3, resTypeDataSyncTask,
+			resTypeTransferProfile, resTypeTransferWorkflow,
+			resTypeAppConfigApplication, resTypeAppConfigEnvironment,
+			resTypeAppConfigConfigurationProfile, resTypeAppConfigDeploymentStrategy,
+			resTypeMacieAllowList, resTypeMacieFindingsFilter,
+			resTypeGuardDutyDetector,
+			resTypeAccessAnalyzerAnalyzer,
+			resTypeAmplifyApp, resTypeAmplifyBranch,
+			resTypeBatchSchedulingPolicy, resTypeBatchServiceEnvironment,
+			resTypeEFSAccessPoint,
+			resTypeRedshiftClusterSubnetGroup:
 			return v
 		}
 	}

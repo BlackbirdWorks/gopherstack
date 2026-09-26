@@ -196,7 +196,7 @@ func TestUpdateStandardsControlPath(t *testing.T) {
 
 	subs, _ := enableResp["StandardsSubscriptions"].([]any)
 	subArn, _ := subs[0].(map[string]any)["StandardsSubscriptionArn"].(string)
-	controlArn := subArn + "/control/1"
+	controlArn := subArn + "/1"
 
 	rec := doRequest(t, h, http.MethodPatch, "/standards/control/"+controlArn, map[string]any{
 		"ControlStatus":  "DISABLED",
@@ -380,7 +380,7 @@ func TestUpdateStandardsControl_StatusValidation(t *testing.T) {
 	subs, _ := enResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, subs)
 	subArn, _ := subs[0].(map[string]any)["StandardsSubscriptionArn"].(string)
-	controlArn := subArn + "/control/1"
+	controlArn := subArn + "/1"
 
 	tests := []struct {
 		body     map[string]any

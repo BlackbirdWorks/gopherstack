@@ -25,6 +25,8 @@ func (b *InMemoryBackend) CreateAnalysis(
 	b.mu.Lock("CreateAnalysis")
 	defer b.mu.Unlock()
 
+	b.pruneDeletedAnalysesLocked(time.Now().UTC())
+
 	key := analysisKey(accountID, analysisID)
 	if b.analyses.Has(key) {
 		return nil, ErrAnalysisAlreadyExists
@@ -95,19 +97,36 @@ func (b *InMemoryBackend) UpdateAnalysis(
 // documented default ("The default value is 30.").
 const defaultAnalysisRecoveryWindowDays = 30
 
+// pruneDeletedAnalysesLocked evicts analyses past their PermanentDeletionAt
+// deadline, matching real AWS: DeleteAnalysisOutput's DeletionTime is when
+// the analysis "will be permanently deleted." Previously this deadline was
+// computed and returned to the caller but never stored, so nothing ever
+// evicted the row -- an unbounded-memory-growth leak in the same class
+// ec2/ecs/medialive/ram/acmpca fixed for their own delete-waiter tombstones.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) pruneDeletedAnalysesLocked(now time.Time) {
+	for _, a := range b.analyses.All() {
+		if a.Status == statusDeleted && !a.PermanentDeletionAt.IsZero() && !now.Before(a.PermanentDeletionAt) {
+			b.analyses.Delete(analysisKey(b.accountID, a.AnalysisID))
+		}
+	}
+}
+
 // DeleteAnalysis soft-deletes analysisID (marking it statusDeleted) unless
 // forceDeleteWithoutRecovery, which purges it outright. It returns the time
 // the analysis is scheduled for permanent deletion -- DeleteAnalysisOutput's
 // real DeletionTime member, computed from recoveryWindowInDays (0 defaults
 // to 30, matching the documented default) -- or the zero time when force-
-// deleted, since there is no scheduled deletion in that case. DeletionTime
-// isn't itself persisted: no other op (DescribeAnalysis included) ever reads
-// it back, so it's a pure function of "now" at delete time, not stored state.
+// deleted, since there is no scheduled deletion in that case. The same
+// deadline is stored on the row so pruneDeletedAnalysesLocked can evict it
+// once that time passes, rather than keeping it forever.
 func (b *InMemoryBackend) DeleteAnalysis(
 	accountID, analysisID string, forceDeleteWithoutRecovery bool, recoveryWindowInDays int64,
 ) (time.Time, error) {
 	b.mu.Lock("DeleteAnalysis")
 	defer b.mu.Unlock()
+
+	b.pruneDeletedAnalysesLocked(time.Now().UTC())
 
 	key := analysisKey(accountID, analysisID)
 	a, ok := b.analyses.Get(key)
@@ -122,8 +141,6 @@ func (b *InMemoryBackend) DeleteAnalysis(
 		return time.Time{}, nil
 	}
 
-	a.Status = statusDeleted
-
 	days := recoveryWindowInDays
 	if days <= 0 {
 		days = defaultAnalysisRecoveryWindowDays
@@ -133,7 +150,12 @@ func (b *InMemoryBackend) DeleteAnalysis(
 		return time.Time{}, ErrValidation
 	}
 
-	return time.Now().UTC().AddDate(0, 0, int(days)), nil
+	deletionTime := time.Now().UTC().AddDate(0, 0, int(days))
+
+	a.Status = statusDeleted
+	a.PermanentDeletionAt = deletionTime
+
+	return deletionTime, nil
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types

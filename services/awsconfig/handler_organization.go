@@ -82,7 +82,10 @@ func (h *Handler) handleDeleteOrganizationConformancePack(
 
 // PutOrganizationConfigRule request/response types and handler.
 type putOrganizationConfigRuleInput struct {
-	OrganizationConfigRuleName string `json:"OrganizationConfigRuleName"`
+	OrganizationManagedRuleMetadata *OrganizationManagedRuleMetadata `json:"OrganizationManagedRuleMetadata,omitempty"`
+	OrganizationCustomRuleMetadata  *OrganizationCustomRuleMetadata  `json:"OrganizationCustomRuleMetadata,omitempty"`
+	OrganizationConfigRuleName      string                           `json:"OrganizationConfigRuleName"`
+	ExcludedAccounts                []string                         `json:"ExcludedAccounts,omitempty"`
 }
 
 type putOrganizationConfigRuleOutput struct {
@@ -92,7 +95,12 @@ type putOrganizationConfigRuleOutput struct {
 func (h *Handler) handlePutOrganizationConfigRule(
 	_ context.Context, in *putOrganizationConfigRuleInput,
 ) (*putOrganizationConfigRuleOutput, error) {
-	arnStr, err := h.Backend.PutOrganizationConfigRule(in.OrganizationConfigRuleName)
+	arnStr, err := h.Backend.PutOrganizationConfigRule(
+		in.OrganizationConfigRuleName,
+		in.ExcludedAccounts,
+		in.OrganizationManagedRuleMetadata,
+		in.OrganizationCustomRuleMetadata,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +123,9 @@ func (h *Handler) handlePutOrganizationConformancePack(
 
 // DescribeOrganizationConfigRules request/response types and handler.
 type describeOrganizationConfigRulesInput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Limit     int32  `json:"Limit,omitempty"`
+	NextToken                   string   `json:"NextToken,omitempty"`
+	OrganizationConfigRuleNames []string `json:"OrganizationConfigRuleNames,omitempty"`
+	Limit                       int32    `json:"Limit,omitempty"`
 }
 type describeOrganizationConfigRulesOutput struct {
 	NextToken               string                   `json:"NextToken,omitempty"`
@@ -127,7 +136,8 @@ func (h *Handler) handleDescribeOrganizationConfigRules(
 	_ context.Context, in *describeOrganizationConfigRulesInput,
 ) (*describeOrganizationConfigRulesOutput, error) {
 	p, err := paginate(
-		h.Backend.DescribeOrganizationConfigRules(), in.NextToken, in.Limit, organizationFamilyPageDefault,
+		h.Backend.DescribeOrganizationConfigRules(in.OrganizationConfigRuleNames),
+		in.NextToken, in.Limit, organizationFamilyPageDefault,
 	)
 	if err != nil {
 		return nil, err
@@ -138,8 +148,9 @@ func (h *Handler) handleDescribeOrganizationConfigRules(
 
 // DescribeOrganizationConformancePacks request/response types and handler.
 type describeOrganizationConformancePacksInput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Limit     int32  `json:"Limit,omitempty"`
+	NextToken                        string   `json:"NextToken,omitempty"`
+	OrganizationConformancePackNames []string `json:"OrganizationConformancePackNames,omitempty"`
+	Limit                            int32    `json:"Limit,omitempty"`
 }
 type describeOrganizationConformancePacksOutput struct {
 	NextToken                    string                        `json:"NextToken,omitempty"`
@@ -150,7 +161,8 @@ func (h *Handler) handleDescribeOrganizationConformancePacks(
 	_ context.Context, in *describeOrganizationConformancePacksInput,
 ) (*describeOrganizationConformancePacksOutput, error) {
 	p, err := paginate(
-		h.Backend.DescribeOrganizationConformancePacks(), in.NextToken, in.Limit, organizationFamilyPageDefault,
+		h.Backend.DescribeOrganizationConformancePacks(in.OrganizationConformancePackNames),
+		in.NextToken, in.Limit, organizationFamilyPageDefault,
 	)
 	if err != nil {
 		return nil, err

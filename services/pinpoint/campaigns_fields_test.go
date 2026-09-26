@@ -646,7 +646,7 @@ func TestPagination_Campaigns_NextToken(t *testing.T) {
 	for i := range 5 {
 		doPinpointRequest(t, h, http.MethodPost,
 			"/v1/apps/"+appID+"/campaigns",
-			map[string]any{"Name": fmt.Sprintf("camp-%02d", i)})
+			map[string]any{"Name": fmt.Sprintf("camp-%02d", i), "SegmentId": "seg-1"})
 	}
 
 	// Page 1: page-size=2 → 2 items, NextToken set.
@@ -699,7 +699,7 @@ func TestPagination_Campaigns_NoToken_ReturnsAll(t *testing.T) {
 	for i := range 3 {
 		doPinpointRequest(t, h, http.MethodPost,
 			"/v1/apps/"+appID+"/campaigns",
-			map[string]any{"Name": fmt.Sprintf("c-%d", i)})
+			map[string]any{"Name": fmt.Sprintf("c-%d", i), "SegmentId": "seg-1"})
 	}
 
 	// No page-size → default 100 → all 3 returned without NextToken.
@@ -724,7 +724,7 @@ func TestPagination_TokenEncoding(t *testing.T) {
 	for i := range 5 {
 		doPinpointRequest(t, h, http.MethodPost,
 			"/v1/apps/"+appID+"/campaigns",
-			map[string]any{"Name": fmt.Sprintf("c-%d", i)})
+			map[string]any{"Name": fmt.Sprintf("c-%d", i), "SegmentId": "seg-1"})
 	}
 
 	rec := doPinpointRequest(t, h, http.MethodGet,
@@ -774,7 +774,7 @@ func TestGetCampaignVersions_CrossAppIsolation(t *testing.T) {
 	otherAppID := createTestApp(t, h, "other-app")
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+ownerAppID+"/campaigns",
-		map[string]any{"Name": "campaign-a"})
+		map[string]any{"Name": "campaign-a", "SegmentId": "seg-1"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any

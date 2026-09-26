@@ -85,6 +85,11 @@ const stateCompleted = "COMPLETED"
 
 const reconcilerTickDivisor = 5
 
+// runHistoryRetention is how long completed job runs and crawls are kept
+// before being pruned, matching AWS Glue's documented 90-day job run and
+// crawler run history retention.
+const runHistoryRetention = 90 * 24 * time.Hour
+
 const stateAvailable = "AVAILABLE"
 
 const stateDeleting = "DELETING"

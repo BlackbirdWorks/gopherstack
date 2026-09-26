@@ -215,11 +215,12 @@ type StorageBackend interface {
 
 	// Serverless collection operations
 	CreateServerlessCollection(
-		name, collectionType, description, kmsKeyArn string,
+		name, collectionType, description, kmsKeyArn, collectionGroupName string,
 		tags map[string]string,
 	) (*ServerlessCollection, error)
 	BatchGetServerlessCollections(ids, names []string) []*ServerlessCollection
 	DeleteServerlessCollection(id string) (*ServerlessCollection, error)
+	UpdateServerlessCollection(id, description string) (*ServerlessCollection, error)
 
 	// Serverless resource tagging (collections only; see serverless.go's
 	// findServerlessCollectionByARNLocked)
@@ -262,6 +263,64 @@ type StorageBackend interface {
 	CreateServerlessNetworkPolicy(policyType, name, description, policy string) (*ServerlessNetworkPolicy, error)
 	ListServerlessNetworkPolicies(policyType string) []*ServerlessNetworkPolicy
 	DeleteServerlessNetworkPolicy(policyType, name string) error
+
+	// Serverless lifecycle (retention) policy operations
+	CreateServerlessLifecyclePolicy(policyType, name, description, policy string) (*ServerlessLifecyclePolicy, error)
+	UpdateServerlessLifecyclePolicy(
+		policyType, name, description, policy, policyVersion string,
+	) (*ServerlessLifecyclePolicy, error)
+	DeleteServerlessLifecyclePolicy(policyType, name string) error
+	ListServerlessLifecyclePolicies(policyType string, resources []string) []*ServerlessLifecyclePolicy
+	BatchGetServerlessLifecyclePolicies(
+		identifiers []serverlessLifecyclePolicyIdentifier,
+	) ([]*ServerlessLifecyclePolicy, []ServerlessLifecyclePolicyError)
+	BatchGetServerlessEffectiveLifecyclePolicies(
+		identifiers []serverlessLifecyclePolicyIdentifier,
+	) ([]ServerlessEffectiveLifecyclePolicyResult, []ServerlessEffectiveLifecyclePolicyErr)
+
+	// Serverless collection group operations
+	CreateServerlessCollectionGroup(
+		name, standbyReplicas, description, generation string,
+		capacityLimits *CollectionGroupCapacityLimits,
+		tagMap map[string]string,
+	) (*ServerlessCollectionGroup, error)
+	UpdateServerlessCollectionGroup(
+		id, description string, capacityLimits *CollectionGroupCapacityLimits,
+	) (*ServerlessCollectionGroup, error)
+	DeleteServerlessCollectionGroup(id string) error
+	ListServerlessCollectionGroups() []*ServerlessCollectionGroup
+	BatchGetServerlessCollectionGroups(
+		ids, names []string,
+	) ([]*ServerlessCollectionGroup, []ServerlessCollectionGroupError)
+
+	// Serverless VPC endpoint batch-read (resolved against the AOSS-native
+	// store first, then the classic-domain one, vpc_endpoints.go)
+	BatchGetServerlessVpcEndpoints(ids []string) ([]ServerlessVpcEndpointResult, []ServerlessVpcEndpointError)
+
+	// Serverless VPC endpoint operations (AOSS-native)
+	CreateServerlessVpcEndpoint(
+		name, vpcID string, subnetIDs, securityGroupIDs []string,
+	) (*ServerlessVpcEndpoint, error)
+	UpdateServerlessVpcEndpoint(
+		id string,
+		addSubnetIDs, removeSubnetIDs, addSecurityGroupIDs, removeSecurityGroupIDs []string,
+	) (*ServerlessVpcEndpoint, error)
+	DeleteServerlessVpcEndpoint(id string) (*ServerlessVpcEndpoint, error)
+	ListServerlessVpcEndpoints(statusFilter string) []*ServerlessVpcEndpoint
+
+	// Serverless index operations (a collection's document-plane index CRUD)
+	CreateServerlessIndex(collectionID, indexName string, indexSchema map[string]any) (*ServerlessIndex, error)
+	GetServerlessIndex(collectionID, indexName string) (*ServerlessIndex, error)
+	UpdateServerlessIndex(collectionID, indexName string, indexSchema map[string]any) (*ServerlessIndex, error)
+	DeleteServerlessIndex(collectionID, indexName string) error
+
+	// Serverless collection-group membership count
+	CountServerlessCollectionsInGroup(groupName string) int
+
+	// Serverless account settings and policy stats
+	GetServerlessAccountSettings() ServerlessCapacityLimits
+	UpdateServerlessAccountSettings(capacityLimits ServerlessCapacityLimits) (ServerlessCapacityLimits, error)
+	GetServerlessPoliciesStats() ServerlessPoliciesStats
 
 	// Lifecycle
 	Reset()

@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: textract
 sdk_module: aws-sdk-go-v2/service/textract@v1.43.4   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
-last_audit_commit: a8a59e4273e                        # HEAD as of the 2026-08-20 pass; see provenance note below
-last_audit_date: 2026-08-20
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pattern-(a) fixes
                       # (AnalyzeIDDetections.Geometry fabricated field removed; Extraction.IdentityDocument
                       # missing field added), both latent/never-emitted in current mock data -- see the
@@ -457,3 +457,28 @@ default 200ms delay would otherwise leave a freshly started job
 IN_PROGRESS at Get time, a setup mistake in this pass, not a product bug).
 Zero bugs -- confirms the `ops:` table's existing verdicts, all previously
 backed by raw-body/unit tests but never a full typed-client round trip.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found.
+
+## 2026-09-24: unbounded-map audit (gopherstack parity-sweep)
+
+**leaks:** `clientTokenToJobID`/`adapterClientTokenToID`/`expenseClientTokenToJobID`/
+`lendingClientTokenToJobID` (store.go) recorded ClientRequestToken idempotency state
+for their respective Start*/CreateAdapter ops with no expiry at all -- entries
+outlived even the job/adapter they pointed at (maxJobHistory evicts the job, not
+its token entry), so a long-running backend fed unique tokens leaked memory
+forever across all four maps. AWS's docs don't state an explicit
+ClientRequestToken retention window for Textract, so this now uses the repo's 24h
+default (`clientTokenTTL`). Fixed: each Start*/CreateAdapter read path now calls
+the new `clientTokenFresh` helper, and each write path calls `touchClientToken`,
+which sweeps expired entries (flat-keyed by domain+region+token in the new
+`clientTokenCreatedAt` map) on every write (lazy prune-on-write, no new
+goroutine). All four maps are persisted; added the additive
+`backendSnapshot.ClientTokenCreatedAt` field rather than changing the existing
+maps' value type, so an older snapshot decodes unaffected (no version bump; `go
+test ./pkgs/persistence/ -update` diff reviewed and applied). Regression test:
+`TestClientTokenMaps_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go),
+proves a replay is kept inside the window and a stale token creates a fresh job
+after it.

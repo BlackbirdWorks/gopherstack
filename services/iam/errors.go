@@ -81,4 +81,15 @@ var (
 	// device that is already enabled. EnableMFADevice's own deserializeOpError
 	// switch (iam@v1.58.1) models EntityAlreadyExists, not InvalidAction.
 	ErrMFADeviceAlreadyEnabled = errors.New("EntityAlreadyExists: virtual MFA device already enabled")
+	// ErrRoleTemplateNotFound is returned when GetRoleTemplateVersion/AcquireRole
+	// reference a TemplateArn (or TemplateArn+minor version) this backend has no
+	// record of. iam@v1.63.0's own deserializeOpError switches for both ops model
+	// NoSuchEntity, not InvalidInput.
+	ErrRoleTemplateNotFound = errors.New("NoSuchEntity: role template")
+	// ErrRoleTemplateDisabled is returned when AcquireRole targets a role
+	// template version whose Enabled field is false ("When a template is
+	// disabled, you cannot create roles from it" -- api_op_AcquireRole.go).
+	// AcquireRole's own deserializeOpError switch (iam@v1.63.0) models
+	// RoleTemplateDisabled as its own distinct exception code.
+	ErrRoleTemplateDisabled = errors.New("RoleTemplateDisabled")
 )

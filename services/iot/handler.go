@@ -93,7 +93,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return svc == "" || svc == iotServiceName
 		}
 
-		return matchIoTPath(path)
+		return matchIoTPath(c.Request().Method, path, httputils.ExtractServiceFromRequest(c.Request()))
 	}
 }
 

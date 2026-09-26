@@ -49,6 +49,20 @@ func validateResourceARNs(resourceARNs []string) error {
 	return nil
 }
 
+// pruneDeletedResourceSharesLocked evicts resource shares that have sat
+// DELETED past ramDeletedShareTTL, so terraform-driven create/delete churn
+// doesn't grow b.resourceShares unbounded in a long-running emulator.
+// GetResourceShare/ListResourceShares already exclude Status==statusDeleted
+// unconditionally, so eviction here changes no observable read behavior.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) pruneDeletedResourceSharesLocked(now time.Time) {
+	for _, rs := range b.resourceShares.All() {
+		if rs.Status == statusDeleted && now.Sub(rs.LastUpdatedTime) >= ramDeletedShareTTL {
+			b.resourceShares.Delete(rs.ARN)
+		}
+	}
+}
+
 // CreateResourceShare creates a new resource share.
 func (b *InMemoryBackend) CreateResourceShare(
 	name string,
@@ -58,6 +72,8 @@ func (b *InMemoryBackend) CreateResourceShare(
 ) (*ResourceShare, error) {
 	b.mu.Lock("CreateResourceShare")
 	defer b.mu.Unlock()
+
+	b.pruneDeletedResourceSharesLocked(time.Now())
 
 	// Check for name collision.
 	for _, rs := range b.resourceShares.All() {
@@ -241,6 +257,8 @@ func (b *InMemoryBackend) UpdateResourceShare(
 	b.mu.Lock("UpdateResourceShare")
 	defer b.mu.Unlock()
 
+	b.pruneDeletedResourceSharesLocked(time.Now())
+
 	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
@@ -285,6 +303,8 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 	b.mu.Lock("DeleteResourceShare")
 	defer b.mu.Unlock()
 
+	b.pruneDeletedResourceSharesLocked(time.Now())
+
 	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
@@ -300,8 +320,11 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 		}
 	}
 
-	// Soft-delete: mark as DELETED but keep in the map so callers can still
-	// retrieve it with a DELETED status filter (matches real AWS behaviour).
+	// Soft-delete: mark as DELETED so a re-Describe within
+	// ramDeletedShareTTL still reflects the transition, then
+	// pruneDeletedResourceSharesLocked evicts it from the map -- see that
+	// function's doc comment for why nothing depends on the tombstone
+	// staying forever.
 	rs.Status = statusDeleted
 	rs.LastUpdatedTime = now
 

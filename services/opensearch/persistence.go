@@ -64,6 +64,13 @@ import (
 // erroring, same as every other table-addition case above) -- an accepted,
 // one-time restore-time loss for this internal-only, deliberately-disclosed
 // data-plane feature, not a wire-shape regression for any real client.
+// Also left at 4 despite this pass (2026-09-19) registering two new "clean"
+// tables (slIndexes, slVpcEndpoints -- the AOSS Index and native VPC-endpoint
+// families) and adding one new scalar counter (SlVpcEndpointCounter): purely
+// additive by the same reasoning as the tier-1 pass above -- an older
+// snapshot simply has no entry for either table (RestoreAll resets them
+// empty) or the new counter key (decodes as its zero value, matching a
+// backend that never created one).
 const opensearchSnapshotVersion = 4
 
 // dryRunSnapshot, dataSourceSnapshot, and domainIndexSnapshot are DTOs used
@@ -373,6 +380,7 @@ var dirtyTableNames = struct {
 // mechanical conversion -- see the per-map persistence audit in the Phase 3.3
 // conversion notes.
 type backendSnapshot struct {
+	AccountCapacityLimits ServerlessCapacityLimits         `json:"accountCapacityLimits"`
 	Tables                map[string]json.RawMessage       `json:"tables"`
 	VpcAuthorizations     map[string][]AuthorizedPrincipal `json:"vpcAuthorizations"`
 	ScheduledActions      map[string][]*ScheduledAction    `json:"scheduledActions"`
@@ -390,6 +398,8 @@ type backendSnapshot struct {
 	ReservedCounter       int                              `json:"reservedCounter"`
 	SlCollCounter         int                              `json:"slCollCounter"`
 	SlSecConfigCounter    int                              `json:"slSecConfigCounter"`
+	SlCollGroupCounter    int                              `json:"slCollGroupCounter"`
+	SlVpcEndpointCounter  int                              `json:"slVpcEndpointCounter"`
 	WorkspaceCounter      int                              `json:"workspaceCounter"`
 	Version               int                              `json:"version"`
 }
@@ -484,6 +494,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AccountID:             b.accountID,
 		Region:                b.region,
 		DefaultApplicationArn: b.defaultApplicationArn,
+		AccountCapacityLimits: b.accountCapacityLimits,
 		AppIDCounter:          b.appIDCounter,
 		ConnCounter:           b.connCounter,
 		VpcEndpointCounter:    b.vpcEndpointCounter,
@@ -492,6 +503,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ReservedCounter:       b.reservedCounter,
 		SlCollCounter:         b.slCollCounter,
 		SlSecConfigCounter:    b.slSecConfigCounter,
+		SlCollGroupCounter:    b.slCollGroupCounter,
+		SlVpcEndpointCounter:  b.slVpcEndpointCounter,
 		WorkspaceCounter:      b.workspaceCounter,
 	}
 
@@ -540,6 +553,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.upgradeHistory = make(map[string][]*UpgradeHistory)
 		b.domainPackages = make(map[string]map[string]bool)
 		b.defaultApplicationArn = ""
+		b.accountCapacityLimits = ServerlessCapacityLimits{}
 
 		return nil
 	}
@@ -564,6 +578,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.accountCapacityLimits = snap.AccountCapacityLimits
 	b.appIDCounter = snap.AppIDCounter
 	b.connCounter = snap.ConnCounter
 	b.vpcEndpointCounter = snap.VpcEndpointCounter
@@ -572,6 +587,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.reservedCounter = snap.ReservedCounter
 	b.slCollCounter = snap.SlCollCounter
 	b.slSecConfigCounter = snap.SlSecConfigCounter
+	b.slCollGroupCounter = snap.SlCollGroupCounter
+	b.slVpcEndpointCounter = snap.SlVpcEndpointCounter
 	b.workspaceCounter = snap.WorkspaceCounter
 
 	fixNilDomainTags(b)

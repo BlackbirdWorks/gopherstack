@@ -17,7 +17,7 @@ import (
 func TestPerformanceInsightsEnabledPersisted(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyRDSHandler()
+	h := newAccuracyRDSHandler(t)
 
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":                    {"CreateDBInstance"},
@@ -45,7 +45,7 @@ func TestPerformanceInsightsEnabledPersisted(t *testing.T) {
 func TestPerformanceInsights_ReturnsDataPoints(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 	now := time.Now().UTC()
 	b.SetPerformanceInsightsData(
 		"db-instance-1",
@@ -72,7 +72,7 @@ func TestPerformanceInsights_ReturnsDataPoints(t *testing.T) {
 func TestPerformanceInsights_ViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 	h.Backend.SetPerformanceInsightsData(
 		"my-db-instance",
 		"db.load.avg",

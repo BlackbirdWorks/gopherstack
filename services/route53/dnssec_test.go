@@ -2,6 +2,7 @@ package route53_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -123,7 +124,7 @@ func TestEnableDNSSEC_RequiresActiveKSK(t *testing.T) {
 	require.NoError(t, err)
 
 	// No KSK — should fail.
-	err = b.EnableHostedZoneDNSSEC(hz.ID)
+	_, err = b.EnableHostedZoneDNSSEC(hz.ID)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "KeySigningKeyWithActiveStatusNotFound")
 
@@ -133,13 +134,17 @@ func TestEnableDNSSEC_RequiresActiveKSK(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = b.EnableHostedZoneDNSSEC(hz.ID)
+	_, err = b.EnableHostedZoneDNSSEC(hz.ID)
 	require.Error(t, err)
 
 	// Activate KSK — now should succeed.
 	_, err = b.ActivateKeySigningKey(hz.ID, "my-ksk")
 	require.NoError(t, err)
 
-	err = b.EnableHostedZoneDNSSEC(hz.ID)
+	changeID, err := b.EnableHostedZoneDNSSEC(hz.ID)
 	require.NoError(t, err)
+	assert.NotEmpty(t, changeID)
+
+	_, err = b.GetChange(strings.TrimPrefix(changeID, "/change/"))
+	require.NoError(t, err, "the returned change ID must actually be retrievable via GetChange")
 }

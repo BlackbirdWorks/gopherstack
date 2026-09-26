@@ -35,7 +35,15 @@ func TestTGWPeeringAttachment(t *testing.T) { //nolint:paralleltest // existing 
 		require.NoError(t, err)
 		assert.Equal(t, attID, deleted.TransitGatewayAttachmentID)
 		atts := b.DescribeTransitGatewayPeeringAttachments(nil)
-		assert.Empty(t, atts)
+		assert.Empty(t, atts, "an unfiltered describe must not surface tombstones")
+
+		// A by-ID describe should still find the deleted attachment as a
+		// tombstone in state "deleted" -- terraform-provider-aws's delete
+		// waiter polls by ID and treats NotFound as a fatal error instead
+		// of "done".
+		tombstoned := b.DescribeTransitGatewayPeeringAttachments([]string{attID})
+		require.Len(t, tombstoned, 1)
+		assert.Equal(t, "deleted", tombstoned[0].State)
 	})
 
 	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -67,7 +75,7 @@ func TestTGWConnect(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("create connect peer", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		peer, err := b.CreateTransitGatewayConnectPeer(connectID, "1.2.3.4", "", []string{"169.254.6.0/29"})
+		peer, err := b.CreateTransitGatewayConnectPeer(connectID, "1.2.3.4", "", []string{"169.254.6.0/29"}, 0)
 		require.NoError(t, err)
 		assert.NotEmpty(t, peer.TransitGatewayConnectPeerID)
 		assert.Equal(t, "1.2.3.4", peer.PeerAddress)
@@ -99,10 +107,62 @@ func TestTGWConnect(t *testing.T) { //nolint:paralleltest // existing issue.
 	t.Run( //nolint:paralleltest // existing issue.
 		"create peer for non-existent connect returns error",
 		func(t *testing.T) {
-			_, err := b.CreateTransitGatewayConnectPeer("nonexistent", "1.2.3.4", "", nil)
+			_, err := b.CreateTransitGatewayConnectPeer("nonexistent", "1.2.3.4", "", nil, 0)
 			require.Error(t, err)
 		},
 	)
+}
+
+// TestTGWConnectPeer_TransitGatewayAddressFallback verifies TransitGatewayAddress falls back to the
+// first host address of InsideCidrBlocks when the transit gateway has no TransitGatewayCidrBlocks.
+func TestTGWConnectPeer_TransitGatewayAddressFallback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                    string
+		explicitAddress         string
+		tgwCidrBlocks           []string
+		insideCidrBlocks        []string
+		wantTransitGatewayEmpty bool
+	}{
+		{
+			name:             "no_tgw_cidr_falls_back_to_inside_cidr",
+			insideCidrBlocks: []string{"169.254.100.0/29"},
+		},
+		{
+			name:             "explicit_address_wins",
+			explicitAddress:  "169.254.50.1",
+			insideCidrBlocks: []string{"169.254.100.0/29"},
+		},
+		{
+			name:                    "no_tgw_cidr_no_inside_cidr_stays_empty",
+			wantTransitGatewayEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			conn, err := b.CreateTransitGatewayConnect("tgw-attach-transport-"+tt.name, "tgw-"+tt.name)
+			require.NoError(t, err)
+
+			peer, err := b.CreateTransitGatewayConnectPeer(
+				conn.TransitGatewayAttachmentID, "1.2.3.4", tt.explicitAddress, tt.insideCidrBlocks, 0,
+			)
+			require.NoError(t, err)
+
+			switch {
+			case tt.explicitAddress != "":
+				assert.Equal(t, tt.explicitAddress, peer.TransitGatewayAddress)
+			case tt.wantTransitGatewayEmpty:
+				assert.Empty(t, peer.TransitGatewayAddress)
+			default:
+				assert.Equal(t, "169.254.100.1", peer.TransitGatewayAddress)
+			}
+		})
+	}
 }
 
 // ---- TransitGatewayPrefixListReference ----.
@@ -112,11 +172,16 @@ func TestTGWPrefixListReference(t *testing.T) { //nolint:paralleltest // existin
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	t.Run("create reference", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", false)
+		ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", "tgw-attach-111", false)
 		require.NoError(t, err)
 		assert.Equal(t, "pl-abc123", ref.PrefixListID)
 		assert.Equal(t, "available", ref.State)
 		assert.False(t, ref.Blackhole)
+		// gopherstack-mb53: TransitGatewayAttachmentId was silently dropped on
+		// create (never read from the request, never stored), so
+		// aws_ec2_transit_gateway_prefix_list_reference's TransitGatewayAttachment
+		// sub-object never appeared on the wire.
+		assert.Equal(t, "tgw-attach-111", ref.TransitGatewayAttachmentID)
 	})
 
 	t.Run("get references for route table", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -222,7 +287,7 @@ func TestTGW_ConnectCRUD(t *testing.T) {
 
 	// add a connect peer
 	peer, err := b.CreateTransitGatewayConnectPeer(
-		conn.TransitGatewayAttachmentID, "1.2.3.4", "", []string{"169.254.6.0/29"},
+		conn.TransitGatewayAttachmentID, "1.2.3.4", "", []string{"169.254.6.0/29"}, 0,
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, peer.TransitGatewayConnectPeerID)
@@ -246,7 +311,7 @@ func TestTGW_PrefixListRefCRUD(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", false)
+	ref, err := b.CreateTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "pl-abc123", ref.PrefixListID)
 	assert.Equal(t, "tgw-rtb-111", ref.TransitGatewayRouteTableID)

@@ -879,3 +879,68 @@ func TestHandler_PutMultiRegionAccessPointPolicy_MRAPExistence(t *testing.T) {
 		assert.JSONEq(t, policy, out.Policy.Established.Policy)
 	})
 }
+
+// TestHandler_PutMultiRegionAccessPointPolicy_AsyncOperationResolves locks
+// in a real bug: the RequestTokenARN PutMultiRegionAccessPointPolicy
+// returned was fabricated inline ("async-request/mrap/put_policy/1",
+// underscored and never stored) rather than a real, tracked async request,
+// so a client that polls DescribeMultiRegionAccessPointOperation with that
+// exact ARN (as the real terraform-provider-aws resource does after every
+// mutation) got NoSuchMultiRegionAccessPoint even though the policy write
+// itself had already succeeded.
+func TestHandler_PutMultiRegionAccessPointPolicy_AsyncOperationResolves(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	h.Backend.CreateMultiRegionAccessPoint("acct1", "mymrap", "")
+
+	putRec := doS3Request(t, h, http.MethodPost, "/v20180820/async-requests/mrap/put-policy/token1",
+		"<PutMultiRegionAccessPointPolicyRequest>"+
+			`<Details><Name>mymrap</Name><Policy>{"Version":"2012-10-17"}</Policy></Details>`+
+			"</PutMultiRegionAccessPointPolicyRequest>",
+	)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	var putOut struct {
+		XMLName         xml.Name `xml:"PutMultiRegionAccessPointPolicyResult"`
+		RequestTokenARN string   `xml:"RequestTokenARN"`
+	}
+	require.NoError(t, xml.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NotEmpty(t, putOut.RequestTokenARN)
+	assert.Contains(t, putOut.RequestTokenARN, "async-request/mrap/put-policy/")
+
+	describeRec := doS3Request(t, h, http.MethodGet,
+		"/v20180820/async-requests/mrap/"+putOut.RequestTokenARN, "")
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	assert.Contains(t, describeRec.Body.String(), "SUCCEEDED")
+}
+
+// TestHandler_DeleteMultiRegionAccessPoint_AsyncOperationResolves is the
+// delete-side counterpart of the put-policy fix above: the delete handler
+// fabricated the same kind of untracked token ("async-request/mrap/delete/1").
+func TestHandler_DeleteMultiRegionAccessPoint_AsyncOperationResolves(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	h.Backend.CreateMultiRegionAccessPoint("acct1", "mymrap", "")
+
+	deleteRec := doS3Request(t, h, http.MethodPost, "/v20180820/async-requests/mrap/delete",
+		"<DeleteMultiRegionAccessPointRequest>"+
+			`<Details><Name>mymrap</Name></Details>`+
+			"</DeleteMultiRegionAccessPointRequest>",
+	)
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+
+	var deleteOut struct {
+		XMLName         xml.Name `xml:"DeleteMultiRegionAccessPointResult"`
+		RequestTokenARN string   `xml:"RequestTokenARN"`
+	}
+	require.NoError(t, xml.Unmarshal(deleteRec.Body.Bytes(), &deleteOut))
+	require.NotEmpty(t, deleteOut.RequestTokenARN)
+	assert.Contains(t, deleteOut.RequestTokenARN, "async-request/mrap/delete/")
+
+	describeRec := doS3Request(t, h, http.MethodGet,
+		"/v20180820/async-requests/mrap/"+deleteOut.RequestTokenARN, "")
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	assert.Contains(t, describeRec.Body.String(), "SUCCEEDED")
+}

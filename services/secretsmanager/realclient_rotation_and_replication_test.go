@@ -8,8 +8,6 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
 const (
@@ -32,7 +30,7 @@ func TestRealClient_RotationAndReplication(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				h := secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend())
+				h := newSMHandler(t)
 				client := newTestSecretsManagerClient(t, h)
 				ctx := t.Context()
 
@@ -65,7 +63,7 @@ func TestRealClient_RotationAndReplication(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				h := secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend())
+				h := newSMHandler(t)
 				client := newTestSecretsManagerClient(t, h)
 				ctx := t.Context()
 
@@ -106,7 +104,7 @@ func TestRealClient_RotationAndReplication(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				h := secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend())
+				h := newSMHandler(t)
 				client := newTestSecretsManagerClient(t, h)
 				ctx := t.Context()
 
@@ -142,7 +140,7 @@ func TestRealClient_RotationAndReplication(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				h := secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend())
+				h := newSMHandler(t)
 				primary := newTestSMClientWithRegion(t, h, testPrimaryRegion)
 				replica := newTestSMClientWithRegion(t, h, testReplicaRegion)
 				ctx := t.Context()
@@ -189,7 +187,7 @@ func TestRealClient_RotationAndReplication(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				h := secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend())
+				h := newSMHandler(t)
 				primary := newTestSMClientWithRegion(t, h, testPrimaryRegion)
 				replica := newTestSMClientWithRegion(t, h, testReplicaRegion)
 				ctx := t.Context()

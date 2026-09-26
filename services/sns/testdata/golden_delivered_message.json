@@ -1,0 +1,11 @@
+{
+  "Message": "golden delivered body",
+  "MessageId": "REDACTED",
+  "Signature": "REDACTED",
+  "SignatureVersion": "1",
+  "SigningCertURL": "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem",
+  "Timestamp": "REDACTED",
+  "TopicArn": "arn:aws:sns:us-east-1:000000000000:golden-delivery-topic",
+  "Type": "Notification",
+  "UnsubscribeURL": "REDACTED"
+}

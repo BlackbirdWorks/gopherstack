@@ -187,14 +187,16 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 		return m
 	}
 
+	accessKeyID, region, service := httputils.SigV4RequestFields(r, defaultRegion)
+
 	m := &Metadata{
 		Account:       DefaultAccount,
-		Region:        httputils.ExtractRegionFromRequest(r, defaultRegion),
+		Region:        region,
 		Partition:     DefaultPartition,
 		RequestID:     httputils.SanitizeHeaderString(r.Header.Get("X-Amz-Request-Id")),
-		AccessKeyID:   httputils.ExtractAccessKeyFromRequest(r),
+		AccessKeyID:   accessKeyID,
 		SecurityToken: httputils.ExtractSecurityTokenFromRequest(r),
-		Service:       httputils.ExtractServiceFromRequest(r),
+		Service:       service,
 	}
 
 	if v := r.Header.Get("X-Amz-Account-Id"); v != "" {

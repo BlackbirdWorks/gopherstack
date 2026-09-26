@@ -114,7 +114,7 @@ func TestELBv2_SetRulePriorities(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			vals := tt.setup(t, h)
 
 			rec := doELBv2(t, h, vals)
@@ -131,7 +131,7 @@ func TestELBv2_SetRulePriorities(t *testing.T) {
 func TestDefaultRuleDeletionProtected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "default-rule-lb")
 	tgArn := mustCreateTG(t, h, "default-rule-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -197,7 +197,7 @@ func TestCreateRulePriorityValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			lbArn := mustCreateLB(t, h, "prio-lb")
 			tgArn := mustCreateTG(t, h, "prio-tg")
 			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -221,7 +221,7 @@ func TestCreateRulePriorityValidation(t *testing.T) {
 func TestRuleCounterAfterDelete(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "rule-counter-lb")
 	tgArn := mustCreateTG(t, h, "rule-counter-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -295,7 +295,7 @@ func TestRuleCounterAfterDelete(t *testing.T) {
 func TestDuplicateRulePriorityErrorCode(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "dup-prio-lb")
 	tgArn := mustCreateTG(t, h, "dup-prio-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -339,7 +339,7 @@ func TestDuplicateRulePriorityErrorCode(t *testing.T) {
 func TestCreateRulePriorityRequired(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "priority-req-lb")
 	tgArn := mustCreateTG(t, h, "priority-req-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -358,7 +358,7 @@ func TestCreateRulePriorityRequired(t *testing.T) {
 func TestSetRulePrioritiesDefaultRuleRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "srp-default-lb")
 	tgArn := mustCreateTG(t, h, "srp-default-tg")
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
@@ -404,7 +404,7 @@ func TestSetRulePrioritiesDefaultRuleRejected(t *testing.T) {
 func TestSetRulePriorities(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "set-prio-lb")
 	tgArn := b1CreateTG(t, h, "set-prio-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -450,7 +450,7 @@ func TestSetRulePriorities(t *testing.T) {
 func TestCreateRule_InvalidPriority_Zero(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "rule-prio-zero-lb")
 	tgArn := b1CreateTG(t, h, "rule-prio-zero-tg")
 	lArn := b1CreateListener(t, h, lbArn, tgArn)
@@ -504,7 +504,7 @@ func TestSetRulePriorities_CollisionWithExisting(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newParityBHandler()
+			h := newParityBHandler(t)
 			lbArn := pbCreateLB(t, h, "srp-lb")
 			tgArn := pbCreateTG(t, h, "srp-tg")
 			lArn := pbCreateListener(t, h, lbArn, tgArn)

@@ -51,12 +51,23 @@ func TestModifyVpcPeeringConnectionOptions(t *testing.T) { //nolint:paralleltest
 	vpc2, _ := b.CreateVpc("10.0.0.0/16", "default")
 	pc, _ := b.CreateVpcPeeringConnection("vpc-default", vpc2.ID, "", "")
 
-	t.Run("stores options", func(t *testing.T) {
+	t.Run("stores requester options", func(t *testing.T) { //nolint:paralleltest // shares b/pc with the next subtest.
 		opts := ec2.PeeringConnectionOptions{AllowDNSResolutionFromRemoteVPC: true}
-		require.NoError(t, b.ModifyVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID, opts))
+		require.NoError(t, b.ModifyVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID, false, opts))
 		stored := b.GetVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID)
 		require.NotNil(t, stored)
-		assert.True(t, stored.AllowDNSResolutionFromRemoteVPC)
+		assert.True(t, stored.Requester.AllowDNSResolutionFromRemoteVPC)
+		assert.False(t, stored.Accepter.AllowDNSResolutionFromRemoteVPC)
+	})
+
+	//nolint:paralleltest // depends on the previous subtest's state.
+	t.Run("stores accepter options independently", func(t *testing.T) {
+		opts := ec2.PeeringConnectionOptions{AllowDNSResolutionFromRemoteVPC: true}
+		require.NoError(t, b.ModifyVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID, true, opts))
+		stored := b.GetVpcPeeringConnectionOptions(pc.VpcPeeringConnectionID)
+		require.NotNil(t, stored)
+		assert.True(t, stored.Requester.AllowDNSResolutionFromRemoteVPC)
+		assert.True(t, stored.Accepter.AllowDNSResolutionFromRemoteVPC)
 	})
 }
 
@@ -318,14 +329,66 @@ func TestAssociateVpcCidrBlock_ResponseShape(t *testing.T) {
 				"AssociateVpcCidrBlock must return a vpc-cidr-assoc- prefixed ID")
 			assert.Contains(t, assocResp, tt.cidr,
 				"AssociateVpcCidrBlock must echo the requested CIDR")
-			assert.Contains(t, assocResp, "available",
-				"AssociateVpcCidrBlock state must be available")
+			assert.Contains(t, assocResp, "associated",
+				"AssociateVpcCidrBlock state must be a valid VpcCidrBlockStateCode (associated)")
 		})
 	}
 }
 
 // TestDisassociateVpcCidrBlock_RemovesAssociation verifies that
 // DisassociateVpcCidrBlock removes the association so it cannot be disassociated again.
+
+// TestAssociateVpcIpv6CidrBlock_ResponseShapeAndDescribe verifies that
+// requesting an Amazon-provided IPv6 CIDR block returns an
+// ipv6CidrBlockAssociation wrapper (never an empty one alongside it, which
+// previously nil-derefed the real terraform-provider-aws plugin reading
+// resourceVPCIPv6CIDRBlockAssociationCreate's response), that the
+// association shows up in DescribeVpcs, and that disassociating it removes it.
+func TestAssociateVpcIpv6CidrBlock_ResponseShapeAndDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	vpcResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":    {"CreateVpc"},
+		"CidrBlock": {"10.0.0.0/16"},
+	})
+	require.NoError(t, err)
+	vpcID := extractXMLTag(vpcResp, "vpcId")
+	require.NotEmpty(t, vpcID)
+
+	assocResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                      {"AssociateVpcCidrBlock"},
+		"VpcId":                       {vpcID},
+		"AmazonProvidedIpv6CidrBlock": {"true"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, assocResp, "ipv6CidrBlockAssociation")
+	assert.NotContains(t, assocResp, "<cidrBlockAssociation>",
+		"an IPv6-only association must not also emit an empty ipv4 cidrBlockAssociation wrapper")
+	assocID := extractXMLTag(assocResp, "associationId")
+	require.NotEmpty(t, assocID)
+
+	describeResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":  {"DescribeVpcs"},
+		"VpcId.1": {vpcID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, describeResp, "ipv6CidrBlockAssociationSet")
+	assert.Contains(t, describeResp, assocID)
+
+	_, err = ec2.ExportDispatch(h, url.Values{
+		"Action":        {"DisassociateVpcCidrBlock"},
+		"AssociationId": {assocID},
+	})
+	require.NoError(t, err)
+
+	describeResp2, err := ec2.ExportDispatch(h, url.Values{
+		"Action":  {"DescribeVpcs"},
+		"VpcId.1": {vpcID},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, describeResp2, assocID, "disassociated IPv6 CIDR block should no longer be listed")
+}
 
 // TestVpcPeeringConnectionExpirationTime verifies ExpirationTime is set.
 func TestVpcPeeringConnectionExpirationTime(t *testing.T) {

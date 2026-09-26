@@ -153,6 +153,11 @@ type InFlightMessage struct {
 	// Used to detect stale receipt handles when a message is re-received after
 	// a visibility timeout expires and the generation counter advances.
 	Generation uint64 `json:"generation"`
+	// sliceIdx is this message's current offset in Queue.inFlightMessages,
+	// kept in sync on every append/swap-remove/compaction so a single delete
+	// no longer needs an O(n) scan to find it. Unexported, so encoding/json
+	// never persists it; restore recomputes it from slice position.
+	sliceIdx int
 }
 
 // receiveAttemptEntry caches the result of a ReceiveRequestAttemptID request

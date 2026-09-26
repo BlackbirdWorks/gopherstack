@@ -43,9 +43,20 @@ func (h *S3Handler) putBucketACL(
 
 	body, _ := httputils.ReadBody(r)
 
-	// Only validate the canned value when no explicit body was supplied; an
-	// AccessControlPolicy body is authoritative and needs no canned name.
-	if len(body) == 0 {
+	// x-amz-grant-* headers (s3@v1.111.0 serializers.go: GrantFullControl,
+	// GrantRead, GrantReadACP, GrantWrite, GrantWriteACP) are a third,
+	// header-only way to specify grants; synthesize the AccessControlPolicy
+	// XML AWS itself would build from them and store it the same way a
+	// client-supplied body is stored.
+	grantXML := ""
+	if len(body) == 0 && canned == "" {
+		grantXML = aclXMLFromGrantHeaders(r.Header, gopherstackName, gopherstackName, true)
+	}
+
+	// Only validate the canned value when no explicit body or grant headers
+	// were supplied; an AccessControlPolicy body is authoritative and needs
+	// no canned name.
+	if len(body) == 0 && grantXML == "" {
 		if canned == "" {
 			canned = "private"
 		}
@@ -58,11 +69,19 @@ func (h *S3Handler) putBucketACL(
 	}
 
 	acl := canned
-	if len(body) > 0 {
+	switch {
+	case len(body) > 0:
 		acl = string(body)
+	case grantXML != "":
+		acl = grantXML
 	}
 
-	if err := h.enforceACLPolicy(ctx, bucketName, canned, string(body)); err != nil {
+	xmlBodyACL := string(body)
+	if xmlBodyACL == "" {
+		xmlBodyACL = grantXML
+	}
+
+	if err := h.enforceACLPolicy(ctx, bucketName, canned, xmlBodyACL); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -152,6 +171,12 @@ func (h *S3Handler) putBucketPolicy(
 
 	if pabErr := h.enforceBucketPolicyAgainstPAB(ctx, bucket, string(body)); pabErr != nil {
 		WriteError(ctx, w, r, pabErr)
+
+		return
+	}
+
+	if checksumErr := verifyRequestBodyChecksum(r, body); checksumErr != nil {
+		WriteError(ctx, w, r, checksumErr)
 
 		return
 	}

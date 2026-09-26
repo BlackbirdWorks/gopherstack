@@ -599,8 +599,6 @@ func matchesAssociationFilter(a Association, f AssociationFilterEntry) bool {
 // input.AssociationFilterList and paginated by input.MaxResults/NextToken --
 // real, optional ListAssociationsInput members (api_op_ListAssociations.go)
 // a literal struct{} input previously discarded from every request.
-//
-//nolint:dupl // mirrors ListOpsMetadata's filter/sort/paginate shape inherently, not by copy-paste
 func (b *InMemoryBackend) ListAssociations(
 	ctx context.Context,
 	input *ListAssociationsInput,

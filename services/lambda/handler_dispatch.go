@@ -557,6 +557,8 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 		return true, h.handleESMRoute(c, path, method)
 	case strings.HasPrefix(path, lambdaTagsPathPrefix):
 		return true, h.handleTagsRoute(c, method)
+	case strings.HasPrefix(path, lambdaResourcePolicyPathPrefix):
+		return true, h.handleResourcePolicyRoute(c, path, method)
 	case strings.HasPrefix(path, lambdaLayersPathPrefix):
 		return true, h.handleLayersRoute(c, path, method)
 	case path == lambdaAccountSettingsPath:

@@ -3,6 +3,7 @@ package dms
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -74,7 +75,62 @@ func (b *InMemoryBackend) findResourceTags(region, resourceArn string) *tags.Tag
 		return rc.Tags
 	}
 
+	if cert, ok := lookupUnique(b.certificatesByARN, regionKey(region, resourceArn)); ok {
+		return cert.Tags
+	}
+
+	// Fallback: terraform-provider-aws builds the tag-lookup ARN for some DMS
+	// resources (e.g. replication subnet groups, event subscriptions) using
+	// its own notion of account id, which is empty under
+	// skip_requesting_account_id=true and so can differ from the account id
+	// this emulator embeds in ARNs it hands back from Create/Describe --
+	// same "type:id" suffix, different (or missing) account segment. Resolve
+	// by that suffix instead of failing the whole lookup on a segment the
+	// caller never got from us in the first place.
+	return b.findResourceTagsBySuffix(region, resourceArn)
+}
+
+// findResourceTagsBySuffix resolves resourceArn by its "type:id" suffix
+// alone, ignoring the account-id segment. See ListTagsForResource's fallback
+// comment for why this is needed. Must be called with b.mu held.
+func (b *InMemoryBackend) findResourceTagsBySuffix(region, resourceArn string) *tags.Tags {
+	suffix, hasSuffix := arnResourceSuffix(resourceArn)
+	if !hasSuffix {
+		return nil
+	}
+
+	if sgID, isSubnetGroup := strings.CutPrefix(suffix, "subgrp:"); isSubnetGroup {
+		sg, found := b.replicationSubnetGroups.Get(regionKey(region, sgID))
+		if !found {
+			return nil
+		}
+
+		return sg.Tags
+	}
+
+	if esID, isEventSub := strings.CutPrefix(suffix, "es:"); isEventSub {
+		es, found := b.eventSubscriptions.Get(regionKey(region, esID))
+		if !found {
+			return nil
+		}
+
+		return es.Tags
+	}
+
 	return nil
+}
+
+// arnResourceSuffix returns the "<type>:<id>" (or "<type>/<id>") suffix of a
+// 6-field ARN (arn:partition:service:region:account:resource) -- the part
+// after the account-id field -- or "", false if resourceArn doesn't have
+// that shape.
+func arnResourceSuffix(resourceArn string) (string, bool) {
+	parts := strings.SplitN(resourceArn, ":", 6) //nolint:mnd // arn:partition:service:region:account:resource
+	if len(parts) != 6 {                         //nolint:mnd // same
+		return "", false
+	}
+
+	return parts[5], true
 }
 
 // RemoveTagsFromResource removes tags from a DMS resource by ARN.

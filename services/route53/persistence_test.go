@@ -207,7 +207,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	blocks, err := fresh.ListCidrBlocks(col.ID, "loc-1", "", 0)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"192.0.2.0/24"}, blocks.Data)
+	assert.Equal(t, []string{"192.0.2.0/24"}, cidrValues(blocks.Data))
 
 	// query logging configs (verified via the byZone-indexed accessor).
 	gotQLC, err := fresh.GetQueryLoggingConfig(qlc.ID)

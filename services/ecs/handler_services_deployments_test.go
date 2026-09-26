@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,8 +113,21 @@ func TestECS_ListServices(t *testing.T) {
 	}
 }
 
+// pastServiceDrainDelay is strictly greater than the modeled 1s
+// serviceDrainDelay, so sweepServiceTransitionsLocked always settles a
+// DRAINING service at INACTIVE by the time it fires.
+const pastServiceDrainDelay = 2 * time.Second
+
 func TestECS_DeleteService_CleansUpTaskSets(t *testing.T) {
 	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		testECSDeleteServiceCleansUpTaskSets(t)
+	})
+}
+
+func testECSDeleteServiceCleansUpTaskSets(t *testing.T) {
+	t.Helper()
 
 	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
 
@@ -144,6 +159,11 @@ func TestECS_DeleteService_CleansUpTaskSets(t *testing.T) {
 	// the desiredCount/runningCount guard since this test isn't exercising it.
 	_, err = backend.DeleteService("svccleanup-cluster", "svccleanup-svc", true)
 	require.NoError(t, err)
+
+	// A same-named CreateService is refused while the deleted service is
+	// still DRAINING (api_op_DeleteService.go); wait past the modeled drain
+	// window so it settles at INACTIVE and recreation is allowed.
+	time.Sleep(pastServiceDrainDelay)
 
 	// Recreate the service with the same name — no stale task sets.
 	svc2, err := backend.CreateService(ecs.CreateServiceInput{

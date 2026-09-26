@@ -1,7 +1,6 @@
 package sqs
 
 import (
-	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -146,7 +145,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO)
 
-	maps.Copy(attrs, input.Attributes)
+	mergeQueueAttributes(attrs, input.Attributes)
 
 	scheme := input.Scheme
 	if scheme == "" {

@@ -123,6 +123,7 @@ type describeMacModificationTasksResponse struct {
 func (h *Handler) handleDescribeMacHosts(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "HostId")
 	hosts := h.Backend.DescribeMacHosts(ids)
+	hosts = applyMacHostFilters(hosts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeMacHostsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, hst := range hosts {

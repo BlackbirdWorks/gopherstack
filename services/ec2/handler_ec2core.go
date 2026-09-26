@@ -151,14 +151,30 @@ type replaceRouteTableAssociationResponse struct {
 // deserializers.go's awsEc2query_deserializeOpDocumentAssociateVpcCidrBlockOutput,
 // case strings.EqualFold("cidrBlockAssociation", ...). The wrong wrapper name
 // left AssociateVpcCidrBlockOutput.CidrBlockAssociation nil for every real
-// client regardless of what the backend actually associated.
+// client regardless of what the backend actually associated. Ipv6CidrBlockAssociation
+// is a pointer so it's omitted entirely for an IPv4-only association (a
+// present-but-empty wrapper made the provider's own resourceVPCIPv6CIDRBlockAssociationCreate
+// nil-deref reading its state, since real AWS never sends an empty wrapper).
 type associateVpcCidrBlockResponse struct {
-	XMLName   xml.Name `xml:"AssociateVpcCidrBlockResponse"`
-	RequestID string   `xml:"requestId"`
-	VpcID     string   `xml:"vpcId"`
-	AssocID   string   `xml:"cidrBlockAssociation>associationId"`
-	CidrBlock string   `xml:"cidrBlockAssociation>cidrBlock"`
-	State     string   `xml:"cidrBlockAssociation>cidrBlockState>state"`
+	CidrBlockAssociation     *vpcCidrBlockAssocRespItem     `xml:"cidrBlockAssociation,omitempty"`
+	Ipv6CidrBlockAssociation *vpcIpv6CidrBlockAssocRespItem `xml:"ipv6CidrBlockAssociation,omitempty"`
+	XMLName                  xml.Name                       `xml:"AssociateVpcCidrBlockResponse"`
+	RequestID                string                         `xml:"requestId"`
+	VpcID                    string                         `xml:"vpcId"`
+}
+
+type vpcCidrBlockAssocRespItem struct {
+	AssocID   string `xml:"associationId,omitempty"`
+	CidrBlock string `xml:"cidrBlock,omitempty"`
+	State     string `xml:"cidrBlockState>state,omitempty"`
+}
+
+type vpcIpv6CidrBlockAssocRespItem struct {
+	AssocID            string `xml:"associationId,omitempty"`
+	Ipv6CidrBlock      string `xml:"ipv6CidrBlock,omitempty"`
+	State              string `xml:"ipv6CidrBlockState>state,omitempty"`
+	Ipv6Pool           string `xml:"ipv6Pool,omitempty"`
+	NetworkBorderGroup string `xml:"networkBorderGroup,omitempty"`
 }
 
 type tgwRouteTableItem struct {
@@ -445,9 +461,31 @@ func (h *Handler) handleReplaceRouteTableAssociation(vals url.Values, reqID stri
 
 func (h *Handler) handleAssociateVpcCidrBlock(vals url.Values, reqID string) (any, error) {
 	vpcID := vals.Get("VpcId")
-	cidr := vals.Get("CidrBlock")
 
-	assoc, err := h.Backend.AssociateVpcCidrBlock(vpcID, cidr)
+	wantIpv6 := vals.Get("AmazonProvidedIpv6CidrBlock") == ec2BooleanTrue ||
+		vals.Get("Ipv6Pool") != "" || vals.Get("Ipv6CidrBlock") != ""
+	if wantIpv6 {
+		ipv6, err := h.Backend.AssociateVpcIpv6CidrBlock(
+			vpcID, vals.Get("Ipv6Pool"), vals.Get("Ipv6CidrBlock"), vals.Get("Ipv6CidrBlockNetworkBorderGroup"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &associateVpcCidrBlockResponse{
+			RequestID: reqID,
+			VpcID:     vpcID,
+			Ipv6CidrBlockAssociation: &vpcIpv6CidrBlockAssocRespItem{
+				AssocID:            ipv6.AssociationID,
+				Ipv6CidrBlock:      ipv6.Ipv6CidrBlock,
+				State:              ipv6.State,
+				Ipv6Pool:           ipv6.Ipv6Pool,
+				NetworkBorderGroup: ipv6.NetworkBorderGroup,
+			},
+		}, nil
+	}
+
+	assoc, err := h.Backend.AssociateVpcCidrBlock(vpcID, vals.Get("CidrBlock"))
 	if err != nil {
 		return nil, err
 	}
@@ -455,9 +493,11 @@ func (h *Handler) handleAssociateVpcCidrBlock(vals url.Values, reqID string) (an
 	return &associateVpcCidrBlockResponse{
 		RequestID: reqID,
 		VpcID:     vpcID,
-		AssocID:   assoc.AssociationID,
-		CidrBlock: assoc.CidrBlock,
-		State:     assoc.State,
+		CidrBlockAssociation: &vpcCidrBlockAssocRespItem{
+			AssocID:   assoc.AssociationID,
+			CidrBlock: assoc.CidrBlock,
+			State:     assoc.State,
+		},
 	}, nil
 }
 

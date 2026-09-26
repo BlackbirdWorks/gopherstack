@@ -1,6 +1,7 @@
 package cloudfront
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -23,6 +24,31 @@ func (h *Handler) handleWebACLAssociationError(c *echo.Context, err error) error
 	return h.handleError(c, err)
 }
 
+// backfillOriginGroups inserts an empty <OriginGroups> container into a
+// <DistributionConfig> document if the client's request omitted it. Real AWS
+// always populates OriginGroups (Quantity 0, empty Items) in every
+// GetDistribution/CreateDistribution response even though the SDK models it
+// as optional (types.DistributionConfig.OriginGroups, no "required" doc
+// comment) -- unlike this repo, the request client (terraform-provider-aws
+// v5.100.0 distribution.go resourceDistributionRead) relies on that real-AWS
+// guarantee and nil-derefs distributionConfig.OriginGroups.Quantity with no
+// nil check, unlike every other optional DistributionConfig member it reads.
+// Storing the client's request bytes verbatim as RawConfig (matching real
+// AWS's request/response type reuse) otherwise omits OriginGroups whenever
+// the caller didn't configure one, crashing that client.
+func backfillOriginGroups(rawConfig []byte) []byte {
+	if bytes.Contains(rawConfig, []byte("<OriginGroups>")) || bytes.Contains(rawConfig, []byte("<OriginGroups/>")) {
+		return rawConfig
+	}
+
+	return bytes.Replace(
+		rawConfig,
+		[]byte("</DistributionConfig>"),
+		[]byte("<OriginGroups><Quantity>0</Quantity><Items></Items></OriginGroups></DistributionConfig>"),
+		1,
+	)
+}
+
 type distributionConfigMinimal struct {
 	CallerReference string `xml:"CallerReference"`
 	Comment         string `xml:"Comment"`
@@ -32,25 +58,36 @@ type distributionConfigMinimal struct {
 	Enabled         bool   `xml:"Enabled"`
 }
 
+// Fallback blobs used when RawConfig has no such child element at all (e.g.
+// the minimal test-only DistributionConfig bodies that omit Origins/
+// DefaultCacheBehavior/CacheBehaviors/CustomErrorResponses entirely) -- these
+// keep the wire element present with an honest zero-quantity/empty shape
+// rather than dropping it, since all four are required on DistributionSummary
+// (cloudfront@v1.67.4 types.go).
+const (
+	emptyOriginsXML              = "<Origins><Quantity>0</Quantity><Items></Items></Origins>"
+	emptyDefaultCacheBehaviorXML = "<DefaultCacheBehavior></DefaultCacheBehavior>"
+	emptyCacheBehaviorsXML       = "<CacheBehaviors><Quantity>0</Quantity></CacheBehaviors>"
+	emptyCustomErrorResponsesXML = "<CustomErrorResponses><Quantity>0</Quantity></CustomErrorResponses>"
+)
+
 type distributionSummaryXML struct {
-	XMLName xml.Name `xml:"DistributionSummary"`
-	Origins struct {
-		Inner    string `xml:",innerxml"`
-		Quantity int    `xml:"Quantity"`
-	} `xml:"Origins"`
-	DefaultCacheBehavior struct {
-		Inner string `xml:",innerxml"`
-	} `xml:"DefaultCacheBehavior"`
-	Status           string `xml:"Status"`
-	LastModifiedTime string `xml:"LastModifiedTime"`
-	DomainName       string `xml:"DomainName"`
-	Comment          string `xml:"Comment"`
-	ARN              string `xml:"ARN"`
-	ID               string `xml:"Id"`
-	PriceClass       string `xml:"PriceClass"`
-	HTTPVersion      string `xml:"HttpVersion"`
-	ETag             string `xml:"ETag,omitempty"`
-	Restrictions     struct {
+	XMLName                 xml.Name `xml:"DistributionSummary"`
+	Status                  string   `xml:"Status"`
+	LastModifiedTime        string   `xml:"LastModifiedTime"`
+	DomainName              string   `xml:"DomainName"`
+	Comment                 string   `xml:"Comment"`
+	ARN                     string   `xml:"ARN"`
+	ID                      string   `xml:"Id"`
+	PriceClass              string   `xml:"PriceClass"`
+	HTTPVersion             string   `xml:"HttpVersion"`
+	ETag                    string   `xml:"ETag,omitempty"`
+	WebACLID                string   `xml:"WebACLId"`
+	OriginsXML              string   `xml:",innerxml"`
+	DefaultCacheBehaviorXML string   `xml:",innerxml"`
+	CacheBehaviorsXML       string   `xml:",innerxml"`
+	CustomErrorResponsesXML string   `xml:",innerxml"`
+	Restrictions            struct {
 		GeoRestriction struct {
 			RestrictionType string `xml:"RestrictionType"`
 			Quantity        int    `xml:"Quantity"`
@@ -65,6 +102,7 @@ type distributionSummaryXML struct {
 		CloudFrontDefaultCertificate bool `xml:"CloudFrontDefaultCertificate"`
 	} `xml:"ViewerCertificate"`
 	IsIPV6Enabled bool `xml:"IsIPV6Enabled"`
+	Staging       bool `xml:"Staging"`
 }
 
 // toDistributionSummaryXML builds the DistributionSummary item shape shared by
@@ -75,18 +113,41 @@ type distributionSummaryXML struct {
 // variants' own minimal item shape even though both are backed by real state
 // (d.ETag; h.Backend.ListAliases) -- the ByX list ops disagreed with this
 // service's own ListDistributions about the same DistributionSummary shape.
+//
+// Origins/DefaultCacheBehavior/CacheBehaviors/CustomErrorResponses/WebACLId/
+// Staging were FIXED (gopherstack over-wide-response census, 2026-09-18):
+// Origins and DefaultCacheBehavior were declared on this struct but never
+// populated (always emitted empty regardless of the distribution's real
+// config), and CacheBehaviors/CustomErrorResponses/WebACLId/Staging -- all
+// required except WebACLId -- were missing as struct members entirely. Now
+// projected verbatim from RawConfig (the same byte-passthrough convention
+// GetDistributionConfig already uses for the whole document) via
+// rawConfigChildElementXML, and from the backend's own WebACL association
+// index / Staging flag for the two fields RawConfig doesn't carry.
 func (h *Handler) toDistributionSummaryXML(d *Distribution) distributionSummaryXML {
 	aliases := h.Backend.ListAliases(d.ID)
+	defaultCacheBehaviorXML := rawConfigChildOrDefault(
+		d.RawConfig, "DefaultCacheBehavior", emptyDefaultCacheBehaviorXML,
+	)
+	customErrorResponsesXML := rawConfigChildOrDefault(
+		d.RawConfig, "CustomErrorResponses", emptyCustomErrorResponsesXML,
+	)
 	s := distributionSummaryXML{
-		ID:               d.ID,
-		ARN:              d.ARN,
-		Status:           d.Status,
-		DomainName:       d.DomainName,
-		Comment:          d.Comment,
-		ETag:             d.ETag,
-		Enabled:          d.Enabled,
-		IsIPV6Enabled:    distributionSummaryIsIPV6(d),
-		LastModifiedTime: d.LastModifiedTime,
+		ID:                      d.ID,
+		ARN:                     d.ARN,
+		Status:                  d.Status,
+		DomainName:              d.DomainName,
+		Comment:                 d.Comment,
+		ETag:                    d.ETag,
+		Enabled:                 d.Enabled,
+		IsIPV6Enabled:           distributionSummaryIsIPV6(d),
+		LastModifiedTime:        d.LastModifiedTime,
+		WebACLID:                h.Backend.DistributionWebACLID(d.ID),
+		Staging:                 d.Staging,
+		OriginsXML:              rawConfigChildOrDefault(d.RawConfig, "Origins", emptyOriginsXML),
+		DefaultCacheBehaviorXML: defaultCacheBehaviorXML,
+		CacheBehaviorsXML:       rawConfigChildOrDefault(d.RawConfig, "CacheBehaviors", emptyCacheBehaviorsXML),
+		CustomErrorResponsesXML: customErrorResponsesXML,
 	}
 	s.Aliases.Items = aliases
 	s.Aliases.Quantity = len(aliases)
@@ -96,6 +157,17 @@ func (h *Handler) toDistributionSummaryXML(d *Distribution) distributionSummaryX
 	s.HTTPVersion = distributionSummaryHTTPVersion(d)
 
 	return s
+}
+
+// rawConfigChildOrDefault extracts a named child element from RawConfig,
+// falling back to def when RawConfig has no such element (see
+// rawConfigChildElementXML).
+func rawConfigChildOrDefault(raw []byte, name, def string) string {
+	if v := rawConfigChildElementXML(raw, name); v != "" {
+		return v
+	}
+
+	return def
 }
 
 // distributionResponseXML builds the full Distribution XML response.
@@ -136,7 +208,7 @@ func (h *Handler) handleCreateDistribution(c *echo.Context) error {
 		cfg.CallerReference,
 		cfg.Comment,
 		cfg.Enabled,
-		body,
+		backfillOriginGroups(body),
 	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
@@ -206,7 +278,7 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 		)
 	}
 
-	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, body)
+	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, backfillOriginGroups(body))
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -549,8 +621,20 @@ func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID s
 }
 
 type distributionConfigWithTagsXML struct {
-	XMLName            xml.Name                  `xml:"DistributionConfigWithTags"`
-	DistributionConfig distributionConfigMinimal `xml:"DistributionConfig"`
+	XMLName xml.Name `xml:"DistributionConfigWithTags"`
+	// DistributionConfig captures only the inner XML verbatim (encoding/xml
+	// rejects two fields bound to the same "DistributionConfig" path), which is
+	// then parsed a second time into distributionConfigMinimal below and
+	// reassembled as the real RawConfig -- NOT re-marshaled from
+	// distributionConfigMinimal, which drops nearly every field
+	// (Origins/DefaultCacheBehavior/CacheBehaviors/Restrictions/ViewerCertificate/
+	// Staging/etc.) and emits the wrong root element name (Go's zero-value
+	// XMLName default, "distributionConfigMinimal", not "DistributionConfig"),
+	// breaking every client that parses GetDistribution's DistributionConfig,
+	// including the real aws-sdk-go-v2 CloudFront client's own deserializer.
+	DistributionConfig struct {
+		Inner string `xml:",innerxml"`
+	} `xml:"DistributionConfig"`
 	// Tags is *types.Tags on the wire: Items wraps the Tag list (cloudfront@v1.67.4
 	// serializers.go awsRestxml_serializeDocumentTags), not a bare Tags>Tag path.
 	Tags []tagXML `xml:"Tags>Items>Tag"`
@@ -571,16 +655,22 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfigWithTags XML"))
 	}
 
-	// Marshal the inner DistributionConfig to pass as raw config.
-	rawConfig, marshalErr := xml.Marshal(req.DistributionConfig)
-	if marshalErr != nil {
-		rawConfig = body
+	// Reconstruct the original <DistributionConfig> element verbatim from its
+	// captured inner XML, then parse the shallow fields CreateDistribution needs
+	// out of that same reconstruction -- see the struct's doc comment above.
+	rawConfig := backfillOriginGroups(
+		[]byte("<DistributionConfig>" + req.DistributionConfig.Inner + "</DistributionConfig>"),
+	)
+
+	var cfg distributionConfigMinimal
+	if xmlErr := xml.Unmarshal(rawConfig, &cfg); xmlErr != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfig XML"))
 	}
 
 	d, createErr := h.Backend.CreateDistribution(
-		req.DistributionConfig.CallerReference,
-		req.DistributionConfig.Comment,
-		req.DistributionConfig.Enabled,
+		cfg.CallerReference,
+		cfg.Comment,
+		cfg.Enabled,
 		rawConfig,
 	)
 	if createErr != nil {

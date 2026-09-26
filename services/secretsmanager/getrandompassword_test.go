@@ -177,6 +177,7 @@ func TestGetRandomPassword_Constraints(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			out, err := b.GetRandomPassword(tt.input)
 
 			if tt.wantErr {
@@ -337,6 +338,7 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 
 			input := &secretsmanager.GetRandomPasswordInput{}
 			if tt.setup != nil {
@@ -427,6 +429,7 @@ func TestGetRandomPassword_Handler(t *testing.T) {
 
 			e := echo.New()
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			h := secretsmanager.NewHandler(backend)
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
@@ -485,6 +488,7 @@ func TestGetRandomPassword_RandomRunesOptimized(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			h := secretsmanager.NewHandler(b)
 			rec := doR1Request(t, h, "secretsmanager.GetRandomPassword", tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)

@@ -66,12 +66,42 @@ type createIdentitySourceInput struct {
 }
 
 type identitySourceOutput struct {
-	IdentitySourceID    string                    `json:"identitySourceId"`
-	PolicyStoreID       string                    `json:"policyStoreId"`
-	PrincipalEntityType string                    `json:"principalEntityType"`
-	Configuration       *identitySourceConfigJSON `json:"configuration,omitempty"`
-	CreatedDate         string                    `json:"createdDate"`
-	LastUpdatedDate     string                    `json:"lastUpdatedDate"`
+	IdentitySourceID    string                     `json:"identitySourceId"`
+	PolicyStoreID       string                     `json:"policyStoreId"`
+	PrincipalEntityType string                     `json:"principalEntityType"`
+	Configuration       *identitySourceConfigJSON  `json:"configuration,omitempty"`
+	Details             *identitySourceDetailsJSON `json:"details,omitempty"`
+	CreatedDate         string                     `json:"createdDate"`
+	LastUpdatedDate     string                     `json:"lastUpdatedDate"`
+}
+
+// identitySourceDetailsJSON mirrors types.IdentitySourceDetails/
+// IdentitySourceItemDetails -- both deprecated in favor of Configuration,
+// but still real wire members (GetIdentitySource/ListIdentitySources both
+// return them). Per their doc comment, openIdIssuer's "only valid value is
+// cognito", so it (and discoveryUrl/userPoolArn) are only ever populated for
+// a Cognito-backed identity source; an OIDC-backed one leaves Details unset,
+// matching real AWS.
+type identitySourceDetailsJSON struct {
+	DiscoveryURL string   `json:"discoveryUrl,omitempty"`
+	OpenIDIssuer string   `json:"openIdIssuer,omitempty"`
+	UserPoolArn  string   `json:"userPoolArn,omitempty"`
+	ClientIDs    []string `json:"clientIds,omitempty"`
+}
+
+func identitySourceToDetailsJSON(is *IdentitySource) *identitySourceDetailsJSON {
+	if is.UserPoolArn == "" {
+		return nil
+	}
+
+	issuer := cognitoIssuerFromUserPoolArn(is.UserPoolArn)
+
+	return &identitySourceDetailsJSON{
+		ClientIDs:    is.ClientIDs,
+		DiscoveryURL: issuer + "/.well-known/openid-configuration",
+		OpenIDIssuer: "COGNITO",
+		UserPoolArn:  is.UserPoolArn,
+	}
 }
 
 func identitySourceToConfigJSON(is *IdentitySource) *identitySourceConfigJSON {
@@ -140,6 +170,7 @@ func identitySourceToOutput(is *IdentitySource) *identitySourceOutput {
 		PolicyStoreID:       is.PolicyStoreID,
 		PrincipalEntityType: is.PrincipalEntityType,
 		Configuration:       identitySourceToConfigJSON(is),
+		Details:             identitySourceToDetailsJSON(is),
 		CreatedDate:         is.CreatedDate.UTC().Format(timeFormat),
 		LastUpdatedDate:     is.LastUpdated.UTC().Format(timeFormat),
 	}

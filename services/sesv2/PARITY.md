@@ -1,11 +1,12 @@
 ---
 items_still_open:
+  - "GetDeliverabilityTestReportOutput.OverallPlacement (api_op_GetDeliverabilityTestReport.go: required *types.PlacementStatistics) is never emitted -- handleGetDeliverabilityTestReport (handler_deliverability.go) only sends DeliverabilityTestReport/IspPlacements (the latter a real, disclosed always-empty list). OverallPlacement's InboxPercentage/SpamPercentage/etc. are real AWS's own predictive-inbox-placement-test results, computed by sending the test message to seed mailboxes at several ISPs and measuring where it landed -- this backend has no such per-ISP delivery simulation to honestly derive a placement percentage from, so a synthesized value would be fabricated. Found 2026-09-24 (requiredoutputfields census). Not synthesized."
   - "PutConfigurationSetSuppressionOptionsInput.ValidationOptions (predictive-suppression mailbox-validation confidence threshold, api_op_PutConfigurationSetSuppressionOptions.go: SuppressionValidationOptions{ConditionThreshold{ConditionThresholdEnabled, OverallConfidenceThreshold{ConfidenceVerdictThreshold}}}) is unmodeled -- this backend has no mailbox-validation engine to derive a confidence verdict from, and echoing back only the client's own submitted threshold (with no verdict ever computed against it) would look enforced without being real. Found and disclosed 2026-09-18 (per-item field sweep, gopherstack-21my) alongside the sibling SuppressionScope bug, which WAS fixed this pass."
   - "GetMessageInsightsOutput.EmailTags (api_op_GetMessageInsights.go: []types.MessageTag{Name, Value}) is unmodeled end to end -- SendEmailInput/SendBulkEmailInput's own EmailTags member isn't read either, so there is nothing stored to echo back. Found 2026-09-18 (per-item field sweep, gopherstack-21my); fixing it means threading EmailTags through SendEmail/SendBulkEmail's Email model first, not just GetMessageInsights's response, so left disclosed rather than half-wired."
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
-last_audit_commit: d4dc4a723                      # HEAD after the 2026-09-18 invented-field census (acceptguard)
-last_audit_date: 2026-09-18
+last_audit_commit: ed6ef1a53                      # HEAD after the 2026-09-18 invented-field census (acceptguard)
+last_audit_date: 2026-09-19
 overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -333,6 +334,15 @@ discarded. Leaves genuinely inert where there's no backend engine behind them
 itself) -- documented per-field in the `ops:` notes, not silently dropped.
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/v2" prefix shadow (ecr) -- false positive
+
+cmd/routecollisions flags ecr's Docker Registry v2 claim (registry
+enabled) as an unguarded winner over sesv2's "/v2/email/..." endpoints;
+isRegistryPath requires a manifests/blobs/tags-list marker sesv2's paths
+never have. Confirmed with a real sesv2 SDK client through a shared
+registry (v2_routing_cross_service_test.go): still succeeds via sesv2's
+own handler. No code change.
 
 **Root-cause bug class (fixed in the original pass, ~15 ops):** most of the
 "extended" GET/List handlers (contact lists, contacts, suppressed

@@ -290,6 +290,56 @@ func (c *EvaluationConfig) JobType() string {
 	}
 }
 
+// TaskTypes reports the real, required ListEvaluationJobsOutput
+// EvaluationSummary.EvaluationTaskTypes -- the set of distinct TaskType
+// values across whichever variant's DatasetMetricConfigs the caller
+// supplied on Create (types/types.go's EvaluationSummary requires this;
+// GetEvaluationJobOutput has no such field at all, so this is derived only
+// for the List summary, never stored).
+func (c *EvaluationConfig) TaskTypes() []string {
+	if c == nil {
+		return nil
+	}
+
+	var configs []EvaluationDatasetMetricConfig
+	if c.Automated != nil {
+		configs = c.Automated.DatasetMetricConfigs
+	} else if c.Human != nil {
+		configs = c.Human.DatasetMetricConfigs
+	}
+
+	seen := make(map[string]bool, len(configs))
+	types := make([]string, 0, len(configs))
+
+	for _, cfg := range configs {
+		if cfg.TaskType == "" || seen[cfg.TaskType] {
+			continue
+		}
+
+		seen[cfg.TaskType] = true
+		types = append(types, cfg.TaskType)
+	}
+
+	return types
+}
+
+// EvaluatorModelIdentifiers reports ListEvaluationJobsOutput
+// EvaluationSummary.EvaluatorModelIdentifiers -- the Bedrock evaluator model
+// ARNs from an Automated job's EvaluatorModelConfig. Empty for Human jobs
+// (no evaluator model concept applies there).
+func (c *EvaluationConfig) EvaluatorModelIdentifiers() []string {
+	if c == nil || c.Automated == nil || c.Automated.EvaluatorModelConfig == nil {
+		return nil
+	}
+
+	ids := make([]string, 0, len(c.Automated.EvaluatorModelConfig.BedrockEvaluatorModels))
+	for _, m := range c.Automated.EvaluatorModelConfig.BedrockEvaluatorModels {
+		ids = append(ids, m.ModelIdentifier)
+	}
+
+	return ids
+}
+
 // RAGConfig models bedrock's ragConfigs union member (types.RAGConfig,
 // bedrock@v1.66.4 types/types.go:5979-5996): a single-key object naming
 // "knowledgeBaseConfig" or "precomputedRagSourceConfig". Both variants are
@@ -456,8 +506,8 @@ type ModelCopyJob struct {
 	TargetModelArn   string    `json:"targetModelArn"`
 	// TargetModelName is the caller's real input (CreateModelCopyJobInput's
 	// required targetModelName, bedrock@v1.66.4 serializers.go:1720-1750) --
-	// not surfaced by GetModelCopyJobOutput itself, but kept as real backing
-	// state rather than discarded now that TargetModelArn is built from it.
+	// also a real optional Get/ListModelCopyJobs member (deserializers.go),
+	// previously not surfaced on either response.
 	TargetModelName string `json:"targetModelName,omitempty"`
 	Status          string `json:"status"`
 	FailureMessage  string `json:"failureMessage,omitempty"`

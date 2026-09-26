@@ -41,6 +41,14 @@ type GlueMetadataSource interface {
 	GetDatabases() []*GlueDatabase
 	GetTable(dbName, tableName string) (*GlueTable, error)
 	GetTables(dbName string) ([]*GlueTable, error)
+	// CreateDatabase and DeleteDatabase let Athena's CREATE/DROP DATABASE DDL
+	// mutate the real Glue catalog for a GLUE-type DataCatalog, matching the
+	// read side above -- without these, a database created by DDL against a
+	// glue-backed catalog was invisible to GetDatabase/ListDatabases (both
+	// glue-routed), since the DDL path wrote only to Athena's own simulated
+	// store.
+	CreateDatabase(name, description string) error
+	DeleteDatabase(name string) error
 }
 
 // StorageBackend is the interface for the Athena in-memory store.
@@ -137,7 +145,7 @@ type StorageBackend interface {
 	GetSessionEndpoint(id string) (url, authToken string, authTokenExpiration float64, err error)
 	TerminateSession(id string) (string, error)
 	ListSessions(workGroup, stateFilter string) ([]SessionSummary, error)
-	ListNotebookSessions(notebookID string) ([]SessionSummary, error)
+	ListNotebookSessions(notebookID string) ([]NotebookSessionSummary, error)
 
 	// Calculations
 	StartCalculationExecution(sessionID, description, codeBlock string) (string, string, error)

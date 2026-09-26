@@ -79,6 +79,15 @@ func interruptibleCRAllocationsKeyFn(v *InterruptibleCapacityReservationAllocati
 }
 func ipamAsnAssociationsKeyFn(v *IpamAsnAssociation) string { return v.Asn + "|" + v.Cidr }
 func ipamByoasnsKeyFn(v *IpamByoasn) string                 { return v.Asn }
+func ipamInternetRegistryAssociationsKeyFn(v *IpamInternetRegistryAssociation) string {
+	return v.IpamInternetRegistryAssociationID
+}
+func ipamRoutingPolicyRegistrationsKeyFn(v *IpamRoutingPolicyRegistration) string {
+	return v.IpamInternetRegistryAssociationID + "|" + v.Cidr
+}
+func ipamRoutingPolicyRegistrationDeltasKeyFn(v *IpamRoutingPolicyRegistrationDelta) string {
+	return v.DeltaID
+}
 func ipamPoliciesKeyFn(v *IpamPolicy) string                { return v.IpamPolicyID }
 func ipamPoolAllocationsKeyFn(v *IpamPoolAllocation) string { return v.IpamPoolAllocationID }
 func ipamPoolsKeyFn(v *IpamPool) string                     { return v.IpamPoolID }
@@ -471,6 +480,27 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.ipamByoasns = store.Register(b.registry, "ipamByoasns", store.New(ipamByoasnsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.ipamInternetRegistryAssociations = store.Register(
+			b.registry,
+			"ipamInternetRegistryAssociations",
+			store.New(ipamInternetRegistryAssociationsKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.ipamRoutingPolicyRegistrations = store.Register(
+			b.registry,
+			"ipamRoutingPolicyRegistrations",
+			store.New(ipamRoutingPolicyRegistrationsKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.ipamRoutingPolicyRegistrationDeltas = store.Register(
+			b.registry,
+			"ipamRoutingPolicyRegistrationDeltas",
+			store.New(ipamRoutingPolicyRegistrationDeltasKeyFn),
+		)
 	},
 	func(b *InMemoryBackend) {
 		b.ipamPolicies = store.Register(b.registry, "ipamPolicies", store.New(ipamPoliciesKeyFn))

@@ -15,8 +15,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
-func newAccuracyRDSHandler() *rds.Handler {
+func newAccuracyRDSHandler(t *testing.T) *rds.Handler {
+	t.Helper()
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	t.Cleanup(b.Close)
 
 	return rds.NewHandler(b)
 }
@@ -49,20 +51,32 @@ func mustCreateAccuracyRDSInstance(t *testing.T, h *rds.Handler, id string) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 }
 
-func newBatch2Backend() *rds.InMemoryBackend {
-	return rds.NewInMemoryBackend("000000000000", "us-east-1")
+func newBatch2Backend(t *testing.T) *rds.InMemoryBackend {
+	t.Helper()
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+
+	return b
 }
 
-func newBatch2Handler() *rds.Handler {
-	return rds.NewHandler(newBatch2Backend())
+func newBatch2Handler(t *testing.T) *rds.Handler {
+	t.Helper()
+
+	return rds.NewHandler(newBatch2Backend(t))
 }
 
-func newBatch3Backend() *rds.InMemoryBackend {
-	return rds.NewInMemoryBackend("123456789012", "us-east-1")
+func newBatch3Backend(t *testing.T) *rds.InMemoryBackend {
+	t.Helper()
+	b := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
+
+	return b
 }
 
-func newBatch3Handler() *rds.Handler {
-	return rds.NewHandler(newBatch3Backend())
+func newBatch3Handler(t *testing.T) *rds.Handler {
+	t.Helper()
+
+	return rds.NewHandler(newBatch3Backend(t))
 }
 
 func newAccOps2Handler(t *testing.T) *rds.Handler {
@@ -118,6 +132,7 @@ func TestExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	assert.Equal(t, 0, rds.InstanceCount(b))
 	assert.Equal(t, 0, rds.ClusterCount(b))
@@ -144,6 +159,7 @@ func TestSeedHelpers(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 
 	cluster := b.AddClusterInternal("c1", "aurora-mysql")
 	require.NotNil(t, cluster)
@@ -166,8 +182,12 @@ func TestSeedHelpers(t *testing.T) {
 	assert.Equal(t, "sg1", sg.DBSecurityGroupName)
 }
 
-func newRDSHandler() *rds.Handler {
-	return rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+func newRDSHandler(t *testing.T) *rds.Handler {
+	t.Helper()
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+
+	return rds.NewHandler(b)
 }
 
 func postRDSForm(t *testing.T, h *rds.Handler, body string) *httptest.ResponseRecorder {

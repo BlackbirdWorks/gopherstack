@@ -160,7 +160,7 @@ func (h *Handler) handleGetNamespace(_ context.Context, body []byte) ([]byte, er
 	}
 
 	return json.Marshal(map[string]any{
-		"Namespace": namespaceToMap(ns),
+		"Namespace": namespaceToMap(ns, h.Backend.AccountID()),
 	})
 }
 
@@ -216,9 +216,11 @@ func (h *Handler) handleListNamespaces(_ context.Context, body []byte) ([]byte, 
 		resolveMaxResults(req.MaxResults),
 	)
 
+	accountID := h.Backend.AccountID()
+
 	items := make([]map[string]any, 0, len(page))
 	for i := range page {
-		items = append(items, namespaceToMap(&page[i]))
+		items = append(items, namespaceToMap(&page[i], accountID))
 	}
 
 	return marshalPagedResponse("Namespaces", items, nextToken)
@@ -261,15 +263,16 @@ func namespacePropertiesToMap(ns *Namespace) map[string]any {
 // types.Namespace (returned by GetNamespace) and types.NamespaceSummary
 // (returned by ListNamespaces) both omit Tags -- tags are only retrievable via
 // ListTagsForResource.
-func namespaceToMap(ns *Namespace) map[string]any {
+func namespaceToMap(ns *Namespace, accountID string) map[string]any {
 	m := map[string]any{
-		"Id":           ns.ID,
-		keyArn:         ns.ARN,
-		"Name":         ns.Name,
-		keyType:        ns.Type,
-		"Description":  ns.Description,
-		keyCreateDate:  awstime.Epoch(ns.CreatedAt),
-		"ServiceCount": ns.ServiceCount,
+		"Id":             ns.ID,
+		keyArn:           ns.ARN,
+		"Name":           ns.Name,
+		keyType:          ns.Type,
+		"Description":    ns.Description,
+		keyCreateDate:    awstime.Epoch(ns.CreatedAt),
+		"ServiceCount":   ns.ServiceCount,
+		keyResourceOwner: accountID,
 	}
 
 	if props := namespacePropertiesToMap(ns); props != nil {

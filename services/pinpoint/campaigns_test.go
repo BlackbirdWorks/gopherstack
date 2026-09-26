@@ -570,7 +570,7 @@ func TestCreateCampaignAppNotFound(t *testing.T) {
 	h := newHandlerForTest(t)
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/nonexistent/campaigns",
-		map[string]any{"Name": "orphan-campaign"})
+		map[string]any{"Name": "orphan-campaign", "SegmentId": "seg-1"})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
@@ -600,8 +600,10 @@ func TestHandler_CreateCampaign(t *testing.T) {
 			wantID:     true,
 		},
 		{
-			name:       "creates_campaign_with_tags",
-			body:       map[string]any{"Name": "tagged-campaign", "tags": map[string]string{"env": "prod"}},
+			name: "creates_campaign_with_tags",
+			body: map[string]any{
+				"Name": "tagged-campaign", "SegmentId": "seg-1", "tags": map[string]string{"env": "prod"},
+			},
 			wantStatus: http.StatusCreated,
 			wantID:     true,
 		},

@@ -5,15 +5,16 @@ import (
 	"sort"
 )
 
-// EnableHostedZoneDNSSEC enables DNSSEC for a hosted zone.
+// EnableHostedZoneDNSSEC enables DNSSEC for a hosted zone, returning the
+// wire ID of a newly registered change (see registerChange).
 // Requires at least one ACTIVE KSK; returns ErrKeySigningKeyWithActiveStatusNF otherwise.
-func (b *InMemoryBackend) EnableHostedZoneDNSSEC(zoneID string) error {
+func (b *InMemoryBackend) EnableHostedZoneDNSSEC(zoneID string) (string, error) {
 	b.mu.Lock("EnableHostedZoneDNSSEC")
 	defer b.mu.Unlock()
 
 	zd, ok := b.zones.Get(zoneID)
 	if !ok {
-		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+		return "", fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
 	hasActiveKSK := false
@@ -27,7 +28,7 @@ func (b *InMemoryBackend) EnableHostedZoneDNSSEC(zoneID string) error {
 	}
 
 	if !hasActiveKSK {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"%w: hosted zone %s has no ACTIVE key signing key",
 			ErrKeySigningKeyWithActiveStatusNF, zoneID,
 		)
@@ -35,22 +36,23 @@ func (b *InMemoryBackend) EnableHostedZoneDNSSEC(zoneID string) error {
 
 	zd.dnssecEnabled = true
 
-	return nil
+	return b.registerChange(), nil
 }
 
-// DisableHostedZoneDNSSEC disables DNSSEC for a hosted zone.
-func (b *InMemoryBackend) DisableHostedZoneDNSSEC(zoneID string) error {
+// DisableHostedZoneDNSSEC disables DNSSEC for a hosted zone, returning the
+// wire ID of a newly registered change (see registerChange).
+func (b *InMemoryBackend) DisableHostedZoneDNSSEC(zoneID string) (string, error) {
 	b.mu.Lock("DisableHostedZoneDNSSEC")
 	defer b.mu.Unlock()
 
 	zd, ok := b.zones.Get(zoneID)
 	if !ok {
-		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+		return "", fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
 	zd.dnssecEnabled = false
 
-	return nil
+	return b.registerChange(), nil
 }
 
 // GetDNSSEC returns the DNSSEC status and key signing keys for a hosted zone.

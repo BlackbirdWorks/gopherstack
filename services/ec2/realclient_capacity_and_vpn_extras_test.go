@@ -469,7 +469,7 @@ func runClientVpnExtras(t *testing.T, backend *ec2.InMemoryBackend, client *ec2s
 
 	require.NoError(
 		t,
-		backend.CreateClientVpnRoute(ep.ClientVpnEndpointID, "10.1.0.0/24", "test route"),
+		backend.CreateClientVpnRoute(ep.ClientVpnEndpointID, "10.1.0.0/24", "", "test route"),
 	)
 	require.NoError(
 		t,

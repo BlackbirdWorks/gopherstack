@@ -132,6 +132,20 @@ func (b *InMemoryBackend) ListWorkflows(
 	return result, outToken, nil
 }
 
+// newWorkflowSummary converts a persisted workflow record into the real
+// ListWorkflowsOutput element shape (see WorkflowSummary's doc comment for
+// why List and Get differ).
+func newWorkflowSummary(wf *Workflow) WorkflowSummary {
+	return WorkflowSummary{
+		CreationTime: wf.CreationTime,
+		Arn:          wf.Arn,
+		ID:           wf.ID,
+		Name:         wf.Name,
+		Status:       wf.Status,
+		Type:         wf.Type,
+	}
+}
+
 // UpdateWorkflow updates a workflow.
 func (b *InMemoryBackend) UpdateWorkflow(id, name, description, storageType string, storageCapacity *int) error {
 	b.mu.Lock("UpdateWorkflow")
@@ -294,6 +308,21 @@ func (b *InMemoryBackend) ListWorkflowVersions(
 	)
 
 	return result, outToken, nil
+}
+
+// newWorkflowVersionSummary converts a persisted workflow version record
+// into the real ListWorkflowVersionsOutput element shape (see
+// WorkflowVersionSummary's doc comment for why List and Get differ).
+func newWorkflowVersionSummary(wv *WorkflowVersion) WorkflowVersionSummary {
+	return WorkflowVersionSummary{
+		CreationTime: wv.CreationTime,
+		Arn:          wv.Arn,
+		WorkflowID:   wv.WorkflowID,
+		VersionName:  wv.VersionName,
+		Description:  wv.Description,
+		Status:       wv.Status,
+		Type:         wv.Type,
+	}
 }
 
 // UpdateWorkflowVersion updates a workflow version.

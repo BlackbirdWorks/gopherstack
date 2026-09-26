@@ -35,6 +35,7 @@ type backendSnapshot struct {
 	Tables                     map[string]json.RawMessage       `json:"tables"`
 	PolicyAttachments          map[string]policyAttachmentRefs  `json:"policyAttachments,omitempty"`
 	DeletedV1Policies          map[string]bool                  `json:"deletedV1Policies,omitempty"`
+	AccountProperties          map[string]string                `json:"accountProperties,omitempty"`
 	Comprehensive              *comprehensiveSnapshot           `json:"comprehensive,omitempty"`
 	OutboundFederationEnabled  *bool                            `json:"outboundFederationEnabled,omitempty"`
 	AccountID                  string                           `json:"accountID,omitempty"`
@@ -88,6 +89,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		RoleByARN:                  b.roleByARN,
 		PolicyAttachments:          b.policyAttachments,
 		DeletedV1Policies:          b.deletedV1Policies,
+		AccountProperties:          b.accountProperties,
 		PasswordPolicy:             b.passwordPolicy,
 		CurrentPassword:            b.currentPassword,
 		CurrentPasswordHistory:     b.currentPasswordHistory,
@@ -166,6 +168,11 @@ func (b *InMemoryBackend) restoreSnapshotLocked(ctx context.Context, snap *backe
 		b.deletedV1Policies = snap.DeletedV1Policies
 	} else {
 		b.deletedV1Policies = make(map[string]bool)
+	}
+	if snap.AccountProperties != nil {
+		b.accountProperties = snap.AccountProperties
+	} else {
+		b.accountProperties = make(map[string]string)
 	}
 	b.passwordPolicy = snap.PasswordPolicy
 	b.currentPassword = snap.CurrentPassword

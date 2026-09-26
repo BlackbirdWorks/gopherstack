@@ -92,7 +92,7 @@ func TestResolverDnssecConfig_StatusValues(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				cfg := resp["ResolverDNSSECConfig"].(map[string]any)
-				assert.Equal(t, tt.wantStatus, cfg["Validation"])
+				assert.Equal(t, tt.wantStatus, cfg["ValidationStatus"])
 			}
 		})
 	}
@@ -745,8 +745,14 @@ func TestListResolverDnssecConfigs_Pagination(t *testing.T) {
 	}
 }
 
-// TestParity_ResolverDnssecConfig_ValidationField verifies the DNSSEC config response
-// uses the "Validation" field name (not "ValidationStatus") matching the real AWS API.
+// TestResolverDnssecConfig_ValidationField verifies the DNSSEC config response
+// uses the "ValidationStatus" field name, matching the real AWS API
+// (route53resolver@v1.48.4 deserializers.go's
+// awsAwsjson11_deserializeDocumentResolverDnssecConfig, case "ValidationStatus").
+// A prior version of this test asserted the opposite ("Validation", not
+// "ValidationStatus") and was itself wrong -- found via an actual Terraform
+// apply of aws_route53_resolver_dnssec_config, whose waiter read an empty
+// status and timed out because the real field was never emitted.
 func TestResolverDnssecConfig_ValidationField(t *testing.T) {
 	t.Parallel()
 
@@ -764,6 +770,6 @@ func TestResolverDnssecConfig_ValidationField(t *testing.T) {
 
 	_, hasValidation := cfg["Validation"]
 	_, hasValidationStatus := cfg["ValidationStatus"]
-	assert.True(t, hasValidation, "response must have Validation field (not ValidationStatus)")
-	assert.False(t, hasValidationStatus, "response must not have ValidationStatus field")
+	assert.False(t, hasValidation, "response must not have a Validation field")
+	assert.True(t, hasValidationStatus, "response must have ValidationStatus field")
 }

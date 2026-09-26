@@ -72,7 +72,7 @@ func TestDeleteBackupSelection_RemovesSelection(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, before, 1)
 
-	err = rc.Delete(t.Context(), "AWS::Backup::BackupSelection", physID, props)
+	err = rc.Delete(t.Context(), "AWS::Backup::BackupSelection", physID, props, nil)
 	require.NoError(t, err)
 
 	after, _, err := backends.Backup.Backend.ListBackupSelections(plan.BackupPlanID, 0, "")

@@ -68,7 +68,7 @@ func TestCreateTargetGroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -141,7 +141,7 @@ func TestDescribeTargetGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -168,7 +168,7 @@ func TestDescribeTargetGroups(t *testing.T) {
 func TestDeleteTargetGroup(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "delete-tg")
 
 	rec := doELBv2(t, h, url.Values{
@@ -239,7 +239,7 @@ func TestDeleteTargetGroup_LifecycleMapsCleaned(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			tgArn := mustCreateTG(t, h, "leak-tg-"+tc.field)
 
 			tc.setup(t, h, tgArn)
@@ -272,7 +272,7 @@ func TestDeleteTargetGroup_LifecycleMapsCleaned(t *testing.T) {
 func TestModifyTargetGroup(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "mod-tg")
 
 	rec := doELBv2(t, h, url.Values{
@@ -294,7 +294,7 @@ func TestModifyTargetGroup(t *testing.T) {
 func TestDescribeTargetGroupAttributes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "desc-attrs-tg")
 
 	tests := []struct {
@@ -334,7 +334,7 @@ func TestDescribeTargetGroupAttributes(t *testing.T) {
 func TestModifyTargetGroupPersistsFields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "modify-tg-persist")
 
 	rec := doELBv2(t, h, url.Values{
@@ -384,7 +384,7 @@ func TestModifyTargetGroupPersistsFields(t *testing.T) {
 func TestDescribeTargetGroupsWithLBFilter(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "lb-filter-tgs-lb")
 	tg1Arn := mustCreateTG(t, h, "lb-filter-tg1")
 	tg2Arn := mustCreateTG(t, h, "lb-filter-tg2")
@@ -436,7 +436,7 @@ func TestDescribeTargetGroupsWithLBFilter(t *testing.T) {
 func TestTargetGroupLoadBalancerArns(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "tg-lb-arns-lb")
 	tgArn := mustCreateTG(t, h, "tg-lb-arns-tg")
 
@@ -501,7 +501,7 @@ func TestTargetGroupLoadBalancerArns(t *testing.T) {
 func TestTargetGroupLoadBalancerArnsAfterListener(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	lbArn := mustCreateLB(t, h, "tg-lb-arns-lb")
 	tgArn := mustCreateTG(t, h, "tg-lb-arns-tg")
 	_ = mustCreateListener(t, h, lbArn, tgArn)
@@ -536,7 +536,7 @@ func TestTargetGroupLoadBalancerArnsAfterListener(t *testing.T) {
 func TestDescribeTargetGroupsPagination(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	for _, name := range []string{"tg-a", "tg-b", "tg-c"} {
 		mustCreateTG(t, h, name)
 	}
@@ -593,7 +593,7 @@ func TestDescribeTargetGroupsPagination(t *testing.T) {
 func TestCreateTG_InstanceType(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":     {"CreateTargetGroup"},
 		"Version":    {"2015-12-01"},
@@ -626,7 +626,7 @@ func TestCreateTG_InstanceType(t *testing.T) {
 func TestCreateTG_IPType(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":     {"CreateTargetGroup"},
 		"Version":    {"2015-12-01"},
@@ -643,7 +643,7 @@ func TestCreateTG_IPType(t *testing.T) {
 func TestCreateTG_LambdaType(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":     {"CreateTargetGroup"},
 		"Version":    {"2015-12-01"},
@@ -657,7 +657,7 @@ func TestCreateTG_LambdaType(t *testing.T) {
 func TestCreateTG_ALBType(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	rec := doELBv2(t, h, url.Values{
 		"Action":     {"CreateTargetGroup"},
 		"Version":    {"2015-12-01"},
@@ -674,7 +674,7 @@ func TestCreateTG_ALBType(t *testing.T) {
 func TestDescribeTGs_ByArn(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "describe-tg-arn")
 	b1CreateTG(t, h, "other-tg")
 
@@ -702,7 +702,7 @@ func TestDescribeTGs_ByArn(t *testing.T) {
 func TestDeleteTG_Success(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "del-tg-batch1")
 
 	rec := doELBv2(t, h, url.Values{
@@ -716,7 +716,7 @@ func TestDeleteTG_Success(t *testing.T) {
 func TestDescribeTGs_Pagination(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	for i := range 4 {
 		b1CreateTG(t, h, "pag-tg-"+string(rune('a'+i)))
 	}

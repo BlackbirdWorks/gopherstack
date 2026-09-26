@@ -204,7 +204,7 @@ func TestResourceCreator_NetworkAndKMSTypes_NilBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props))
+			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props, nil))
 		})
 	}
 }
@@ -249,7 +249,7 @@ func TestResourceCreator_NetworkAndKMSTypes_RealBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}
@@ -286,8 +286,8 @@ func TestResourceCreator_EC2NetworkAcl(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, entryPhys)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::EC2::NetworkAclEntry", entryPhys, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::EC2::NetworkAcl", aclPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::EC2::NetworkAclEntry", entryPhys, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::EC2::NetworkAcl", aclPhys, nil, nil))
 }
 
 // KMSReplicaKey validates ReplicaKey round-trip with a real KMS key.
@@ -316,5 +316,5 @@ func TestResourceCreator_KMSReplicaKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, replicaPhys)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::KMS::ReplicaKey", replicaPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::KMS::ReplicaKey", replicaPhys, nil, nil))
 }

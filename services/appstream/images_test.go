@@ -175,7 +175,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:   "CreateImageBuilder returns builder in STOPPED state",
+			name:   "CreateImageBuilder returns builder in RUNNING state",
 			action: "CreateImageBuilder",
 			body: map[string]any{
 				"Name":         "my-ib",
@@ -187,14 +187,21 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
 				ib := resp["ImageBuilder"].(map[string]any)
-				assert.Equal(t, "STOPPED", ib["State"])
+				// Real CreateImageBuilder launches the build instance
+				// immediately -- terraform-provider-aws's resource waits
+				// Pending->Running, never Stopped, after a create.
+				assert.Equal(t, "RUNNING", ib["State"])
 			},
 		},
 		{
 			name:   "StartImageBuilder transitions to RUNNING",
 			action: "StartImageBuilder",
 			setup: func(h *appstream.Handler) {
+				// Already RUNNING immediately after create -- stop it first
+				// so there is something for Start to legitimately act on.
 				createImageBuilder(t, h, "start-ib")
+				rec := doRequest(t, h, "StopImageBuilder", map[string]any{"Name": "start-ib"})
+				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body:     map[string]any{"Name": "start-ib"},
 			wantCode: http.StatusOK,
@@ -213,9 +220,9 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			name:   "StopImageBuilder transitions to STOPPED",
 			action: "StopImageBuilder",
 			setup: func(h *appstream.Handler) {
+				// Already RUNNING immediately after create -- no separate
+				// StartImageBuilder call needed before stopping it.
 				createImageBuilder(t, h, "stop-ib")
-				rec := doRequest(t, h, "StartImageBuilder", map[string]any{"Name": "stop-ib"})
-				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body:     map[string]any{"Name": "stop-ib"},
 			wantCode: http.StatusOK,

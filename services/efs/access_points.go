@@ -39,7 +39,7 @@ func (b *InMemoryBackend) CreateAccessPoint(
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, req.FileSystemID)
 	}
-	if err := checkFileSystemAvailable(fs); err != nil {
+	if err := b.checkFileSystemAvailable(fs); err != nil {
 		return nil, err
 	}
 

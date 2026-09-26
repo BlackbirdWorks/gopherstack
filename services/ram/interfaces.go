@@ -68,6 +68,13 @@ type StorageBackend interface {
 	// Resource policy operations
 	GetResourcePolicies(resourceARNs []string) []string
 
+	// EnableSharingWithAwsOrganization creates the RAM service-linked role
+	// (AWSServiceRoleForResourceAccessManager) in the IAM backend, mirroring
+	// real AWS's side effect of the call. A no-op (not an error) when the
+	// IAM backend isn't wired -- e.g. unit tests that construct
+	// InMemoryBackend directly, with no sibling registry.
+	EnableSharingWithAwsOrganization() error
+
 	// Persistence
 	Snapshot(ctx context.Context) []byte
 	Restore(ctx context.Context, data []byte) error

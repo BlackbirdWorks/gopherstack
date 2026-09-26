@@ -142,10 +142,25 @@ func (b *InMemoryBackend) recordClientToken(op, token, fingerprint, resourceID s
 		return
 	}
 
+	now := time.Now()
+	b.sweepClientTokensLocked(now)
+
 	b.clientTokens[op+":"+token] = idempotencyEntry{
 		fingerprint: fingerprint,
 		resourceID:  resourceID,
-		createdAt:   time.Now(),
+		createdAt:   now,
+	}
+}
+
+// sweepClientTokensLocked deletes clientTokens entries past idempotencyWindow so the
+// map does not grow unbounded across a long-running backend. checkClientToken already
+// treats an expired entry as absent; this just reclaims its memory. Caller must hold
+// the write lock.
+func (b *InMemoryBackend) sweepClientTokensLocked(now time.Time) {
+	for k, e := range b.clientTokens {
+		if now.Sub(e.createdAt) >= idempotencyWindow {
+			delete(b.clientTokens, k)
+		}
 	}
 }
 

@@ -57,6 +57,7 @@ func TestStopRotationScheduler(t *testing.T) {
 			_ = t.Context()
 
 			b := NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 
 			if tc.start {
 				b.ensureRotationScheduler()

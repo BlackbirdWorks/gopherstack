@@ -12,14 +12,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
-func newFISRDSHandler() *rds.Handler {
-	return rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
+func newFISRDSHandler(t *testing.T) *rds.Handler {
+	t.Helper()
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+
+	return rds.NewHandler(b)
 }
 
 func TestRDS_FISActions(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 	actions := h.FISActions()
 
 	ids := make([]string, len(actions))
@@ -34,7 +38,7 @@ func TestRDS_FISActions(t *testing.T) {
 func TestRDS_FISActions_TargetTypes(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 
 	tests := []struct {
 		name       string
@@ -99,7 +103,7 @@ func TestRDS_ExecuteFISAction_RebootInstances(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newFISRDSHandler()
+			h := newFISRDSHandler(t)
 
 			// Create a test instance if needed.
 			if len(tt.targets) > 0 && !tt.wantErr {
@@ -162,7 +166,7 @@ func TestRDS_ExecuteFISAction_FailoverDBCluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newFISRDSHandler()
+			h := newFISRDSHandler(t)
 
 			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 				ActionID: "aws:rds:failover-db-cluster",
@@ -191,7 +195,7 @@ func TestRDS_ExecuteFISAction_FailoverDBCluster(t *testing.T) {
 func TestRDS_ExecuteFISAction_Unknown(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 
 	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:rds:unknown-action",
@@ -204,7 +208,7 @@ func TestRDS_ExecuteFISAction_Unknown(t *testing.T) {
 func TestRDS_FISActions_FailoverHasDurationParam(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 
 	actions := h.FISActions()
 
@@ -227,7 +231,7 @@ func TestRDS_FISActions_FailoverHasDurationParam(t *testing.T) {
 func TestRDS_ExecuteFISAction_FailoverDBCluster_CtxCancel(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
@@ -255,7 +259,7 @@ func TestRDS_ExecuteFISAction_FailoverDBCluster_CtxCancel(t *testing.T) {
 func TestRDS_IsClusterFailoverActive_LazyEviction(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 
 	// Inject an already-expired entry directly (no goroutine, guaranteed expired).
 	const clusterID = "lazy-evict-cluster"
@@ -276,7 +280,7 @@ func TestRDS_IsClusterFailoverActive_LazyEviction(t *testing.T) {
 func TestRDS_IsClusterFailoverActive_NotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 
 	// Never activated — must return false.
 	assert.False(t, h.Backend.IsClusterFailoverActive("nonexistent-cluster"))
@@ -285,7 +289,7 @@ func TestRDS_IsClusterFailoverActive_NotFound(t *testing.T) {
 func TestRDS_ScheduleFailoverFaultCleanup_MissingEntry_Continue(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler()
+	h := newFISRDSHandler(t)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // already cancelled so cleanup fires synchronously

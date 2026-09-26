@@ -99,6 +99,10 @@ func (b *InMemoryBackend) UpdateAlias(ctx context.Context, input *UpdateAliasInp
 		return ErrAliasNotFound
 	}
 
+	if strings.HasPrefix(input.AliasName, awsManagedKeyAliasPrefix) {
+		return errAWSManagedKeyInvalidState("UpdateAlias", alias.AliasArn)
+	}
+
 	// UpdateAlias's deserializeOpError does not recognize InvalidArnException
 	// (gopherstack-qxaj) -- a malformed TargetKeyID ARN falls back to NotFoundException.
 	targetID, _, err := b.resolveKeyID(ctx, input.TargetKeyID, ErrKeyNotFound)
@@ -139,6 +143,10 @@ func (b *InMemoryBackend) DeleteAlias(ctx context.Context, input *DeleteAliasInp
 	alias, exists := b.aliasesStore(region).Get(input.AliasName)
 	if !exists {
 		return ErrAliasNotFound
+	}
+
+	if strings.HasPrefix(input.AliasName, awsManagedKeyAliasPrefix) {
+		return errAWSManagedKeyInvalidState("DeleteAlias", alias.AliasArn)
 	}
 
 	// Prevent deleting an alias that targets a key scheduled for deletion.

@@ -110,7 +110,7 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["instanceProfileArn"] = ip.InstanceProfileArn
 
-	cert, err := b.ImportCertificate(ctx, "cert-1", "-----BEGIN CERTIFICATE-----")
+	cert, err := b.ImportCertificate(ctx, "cert-1", "-----BEGIN CERTIFICATE-----", nil)
 	require.NoError(t, err)
 	ids["certificateArn"] = cert.CertificateArn
 

@@ -19,6 +19,7 @@ func Test_Restore_InvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := NewInMemoryBackend(persistTestAccountID, persistTestRegion)
+	t.Cleanup(b.Close)
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
@@ -32,6 +33,7 @@ func Test_Restore_VersionMismatch(t *testing.T) {
 	ctx := rdsdataCtxRegion(persistTestRegion)
 
 	b := NewInMemoryBackend(persistTestAccountID, persistTestRegion)
+	t.Cleanup(b.Close)
 	_, err := b.BeginTransaction(ctx, "arn:aws:rds:us-east-1:000000000000:cluster:seed")
 	require.NoError(t, err)
 
@@ -53,6 +55,7 @@ func Test_Restore_OldSnapshotDecodesAsZero(t *testing.T) {
 	ctx := rdsdataCtxRegion(persistTestRegion)
 
 	b := NewInMemoryBackend(persistTestAccountID, persistTestRegion)
+	t.Cleanup(b.Close)
 	_, err := b.BeginTransaction(ctx, "arn:aws:rds:us-east-1:000000000000:cluster:seed")
 	require.NoError(t, err)
 
@@ -154,6 +157,7 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	ctxWest := rdsdataCtxRegion(regionWest)
 
 	b := NewInMemoryBackend(persistTestAccountID, regionEast)
+	t.Cleanup(b.Close)
 
 	eastSeed := seedPersistRegion(ctxEast, t, b, regionEast, "t_east")
 	westSeed := seedPersistRegion(ctxWest, t, b, regionWest, "t_west")
@@ -162,6 +166,7 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	require.NotEmpty(t, data)
 
 	restored := NewInMemoryBackend("", "")
+	t.Cleanup(restored.Close)
 	require.NoError(t, restored.Restore(t.Context(), data))
 
 	assert.Equal(t, persistTestAccountID, restored.AccountID())
@@ -189,10 +194,12 @@ func Test_SnapshotRestore_EmptyBackend(t *testing.T) {
 	ctx := rdsdataCtxRegion(persistTestRegion)
 
 	b := NewInMemoryBackend(persistTestAccountID, persistTestRegion)
+	t.Cleanup(b.Close)
 	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	restored := NewInMemoryBackend("", "")
+	t.Cleanup(restored.Close)
 	require.NoError(t, restored.Restore(t.Context(), data))
 
 	assert.Empty(t, restored.ListTransactions(ctx))
@@ -233,6 +240,7 @@ func Test_Restore_V1SnapshotBackfillsTransactionTimestamps(t *testing.T) {
 			t.Parallel()
 
 			b := NewInMemoryBackend("", "")
+			t.Cleanup(b.Close)
 			require.NoError(t, b.Restore(t.Context(), []byte(tt.data)))
 
 			regions := []string{"us-east-1", "us-west-2"}
@@ -264,6 +272,7 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	ctx := rdsdataCtxRegion(persistTestRegion)
 
 	backend := NewInMemoryBackend(persistTestAccountID, persistTestRegion)
+	t.Cleanup(backend.Close)
 	h := NewHandler(backend)
 
 	txID, err := backend.BeginTransaction(ctx, "arn:aws:rds:us-east-1:000000000000:cluster:handler")
@@ -273,6 +282,7 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	require.NotEmpty(t, data)
 
 	restoredBackend := NewInMemoryBackend("", "")
+	t.Cleanup(restoredBackend.Close)
 	restoredHandler := NewHandler(restoredBackend)
 	require.NoError(t, restoredHandler.Restore(t.Context(), data))
 

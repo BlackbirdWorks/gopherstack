@@ -31,6 +31,16 @@ const openSearchServerlessJSONContentType = "application/x-amz-json-1.0"
 // AccessPolicy/SecurityPolicy/SecurityConfig JSON-RPC request and response.
 const jsonKeyPolicyTypeJR = "type"
 
+// JSON-RPC field keys shared across several serverless response shapes
+// (lifecycle policies, collection groups, account settings, VPC endpoints).
+const (
+	jsonKeyCreatedDateJR      = "createdDate"
+	jsonKeyLastModifiedDateJR = "lastModifiedDate"
+	jsonKeyCapacityLimitsJR   = "capacityLimits"
+	jsonKeyErrorCodeJR        = "errorCode"
+	jsonKeyErrorMessageJR     = "errorMessage"
+)
+
 // serverlessJSONRPCOpFunc is a real-transport handler for one AOSS op. It
 // receives the JSON-RPC request body already decoded to a generic map --
 // unlike the fabricated REST path, the resource identifier always travels
@@ -117,8 +127,14 @@ func serverlessInternalError() awserr.APIError {
 // real already-exists exception is ConflictException).
 func serverlessErrorTable() map[error]awserr.APIError {
 	return map[error]awserr.APIError{
-		ErrInvalidParameter:         {Code: "ValidationException", HTTPStatus: http.StatusBadRequest},
-		ErrApplicationNotFound:      {Code: "ResourceNotFoundException", HTTPStatus: http.StatusNotFound},
+		ErrInvalidParameter: {
+			Code:       "ValidationException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrApplicationNotFound: {
+			Code:       "ResourceNotFoundException",
+			HTTPStatus: http.StatusNotFound,
+		},
 		ErrApplicationAlreadyExists: {Code: "ConflictException", HTTPStatus: http.StatusConflict},
 		// DeleteServerlessCollection (serverless.go) reuses the shared
 		// domain-not-found sentinel; without this entry it fell through to
@@ -128,36 +144,67 @@ func serverlessErrorTable() map[error]awserr.APIError {
 		// TagResource's own 50-tag-per-resource cap (deserializers.go
 		// awsAwsjson10_deserializeOpErrorTagResource declares
 		// ServiceQuotaExceededException; List/UntagResource do not).
-		ErrServerlessTagLimitExceeded: {Code: "ServiceQuotaExceededException", HTTPStatus: http.StatusPaymentRequired},
+		ErrServerlessTagLimitExceeded: {
+			Code:       "ServiceQuotaExceededException",
+			HTTPStatus: http.StatusPaymentRequired,
+		},
+		ErrServerlessPolicyVersionConflict: {
+			Code:       "ConflictException",
+			HTTPStatus: http.StatusConflict,
+		},
 	}
 }
 
-// serverlessJSONRPCOps returns the dispatch table for all 19 real AOSS ops
+// serverlessJSONRPCOps returns the dispatch table for every real AOSS op
 // this Handler advertises (serverlessOperations() in handler_operations.go).
 func (h *Handler) serverlessJSONRPCOps() map[string]serverlessJSONRPCOpFunc {
 	return map[string]serverlessJSONRPCOpFunc{
-		"BatchGetCollection":   h.jrBatchGetCollection,
-		"CreateAccessPolicy":   h.jrCreateAccessPolicy,
-		"CreateCollection":     h.jrCreateCollection,
-		"CreateSecurityConfig": h.jrCreateSecurityConfig,
-		"CreateSecurityPolicy": h.jrCreateSecurityPolicy,
-		"DeleteAccessPolicy":   h.jrDeleteAccessPolicy,
-		"DeleteCollection":     h.jrDeleteCollection,
-		"DeleteSecurityConfig": h.jrDeleteSecurityConfig,
-		"DeleteSecurityPolicy": h.jrDeleteSecurityPolicy,
-		"GetAccessPolicy":      h.jrGetAccessPolicy,
-		"GetSecurityConfig":    h.jrGetSecurityConfig,
-		"GetSecurityPolicy":    h.jrGetSecurityPolicy,
-		"ListAccessPolicies":   h.jrListAccessPolicies,
-		"ListCollections":      h.jrListCollections,
-		"ListSecurityConfigs":  h.jrListSecurityConfigs,
-		"ListSecurityPolicies": h.jrListSecurityPolicies,
-		"ListTagsForResource":  h.jrListTagsForResource,
-		"TagResource":          h.jrTagResource,
-		"UntagResource":        h.jrUntagResource,
-		"UpdateAccessPolicy":   h.jrUpdateAccessPolicy,
-		"UpdateSecurityConfig": h.jrUpdateSecurityConfig,
-		"UpdateSecurityPolicy": h.jrUpdateSecurityPolicy,
+		"BatchGetCollection":               h.jrBatchGetCollection,
+		"CreateAccessPolicy":               h.jrCreateAccessPolicy,
+		"CreateCollection":                 h.jrCreateCollection,
+		"CreateSecurityConfig":             h.jrCreateSecurityConfig,
+		"CreateSecurityPolicy":             h.jrCreateSecurityPolicy,
+		"DeleteAccessPolicy":               h.jrDeleteAccessPolicy,
+		"DeleteCollection":                 h.jrDeleteCollection,
+		"DeleteSecurityConfig":             h.jrDeleteSecurityConfig,
+		"DeleteSecurityPolicy":             h.jrDeleteSecurityPolicy,
+		"GetAccessPolicy":                  h.jrGetAccessPolicy,
+		"GetSecurityConfig":                h.jrGetSecurityConfig,
+		"GetSecurityPolicy":                h.jrGetSecurityPolicy,
+		"ListAccessPolicies":               h.jrListAccessPolicies,
+		"ListCollections":                  h.jrListCollections,
+		"ListSecurityConfigs":              h.jrListSecurityConfigs,
+		"ListSecurityPolicies":             h.jrListSecurityPolicies,
+		"ListTagsForResource":              h.jrListTagsForResource,
+		"TagResource":                      h.jrTagResource,
+		"UntagResource":                    h.jrUntagResource,
+		"UpdateAccessPolicy":               h.jrUpdateAccessPolicy,
+		"UpdateSecurityConfig":             h.jrUpdateSecurityConfig,
+		"UpdateSecurityPolicy":             h.jrUpdateSecurityPolicy,
+		"CreateLifecyclePolicy":            h.jrCreateLifecyclePolicy,
+		"UpdateLifecyclePolicy":            h.jrUpdateLifecyclePolicy,
+		"DeleteLifecyclePolicy":            h.jrDeleteLifecyclePolicy,
+		"ListLifecyclePolicies":            h.jrListLifecyclePolicies,
+		"BatchGetLifecyclePolicy":          h.jrBatchGetLifecyclePolicy,
+		"BatchGetEffectiveLifecyclePolicy": h.jrBatchGetEffectiveLifecyclePolicy,
+		"CreateCollectionGroup":            h.jrCreateCollectionGroup,
+		"UpdateCollectionGroup":            h.jrUpdateCollectionGroup,
+		"DeleteCollectionGroup":            h.jrDeleteCollectionGroup,
+		"ListCollectionGroups":             h.jrListCollectionGroups,
+		"BatchGetCollectionGroup":          h.jrBatchGetCollectionGroup,
+		"BatchGetVpcEndpoint":              h.jrBatchGetVpcEndpoint,
+		"GetAccountSettings":               h.jrGetAccountSettings,
+		"UpdateAccountSettings":            h.jrUpdateAccountSettings,
+		"GetPoliciesStats":                 h.jrGetPoliciesStats,
+		"UpdateCollection":                 h.jrUpdateCollection,
+		opCreateIndex:                      h.jrCreateIndex,
+		opGetIndex:                         h.jrGetIndex,
+		opUpdateIndex:                      h.jrUpdateIndex,
+		opDeleteIndex:                      h.jrDeleteIndex,
+		opCreateVpcEndpoint:                h.jrCreateVpcEndpoint,
+		opListVpcEndpoints:                 h.jrListVpcEndpoints,
+		opUpdateVpcEndpoint:                h.jrUpdateVpcEndpoint,
+		opDeleteVpcEndpoint:                h.jrDeleteVpcEndpoint,
 	}
 }
 
@@ -179,6 +226,7 @@ func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, erro
 	name, _ := input["name"].(string)
 	typ, _ := input[jsonKeyPolicyTypeJR].(string)
 	desc, _ := input["description"].(string)
+	collectionGroupName, _ := input["collectionGroupName"].(string)
 	tags := tagListToMapJR(input["tags"])
 
 	var kmsKeyArn string
@@ -186,12 +234,48 @@ func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, erro
 		kmsKeyArn, _ = enc["kmsKeyArn"].(string)
 	}
 
-	coll, err := h.Backend.CreateServerlessCollection(name, typ, desc, kmsKeyArn, tags)
+	coll, err := h.Backend.CreateServerlessCollection(name, typ, desc, kmsKeyArn, collectionGroupName, tags)
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]any{"createCollectionDetail": toWireServerlessCollection(coll)}, nil
+}
+
+// updateCollectionDetailJR mirrors types.UpdateCollectionDetail
+// (types.go:921-955): arn, createdDate, deletionProtection, description, id,
+// lastModifiedDate, name, status, type, vectorOptions. deletionProtection
+// and vectorOptions are omitted -- neither is modeled on ServerlessCollection
+// (see UpdateServerlessCollection's doc comment); the real deserializer
+// tolerates a missing key for either, leaving the SDK struct's zero value.
+func updateCollectionDetailJR(c *ServerlessCollection) map[string]any {
+	m := map[string]any{
+		jsonKeyAppArn:             c.Arn,
+		"id":                      c.ID,
+		jsonKeyAppName:            c.Name,
+		jsonKeyStatusLower:        c.Status,
+		jsonKeyPolicyTypeJR:       c.Type,
+		jsonKeyCreatedDateJR:      c.CreatedDate,
+		jsonKeyLastModifiedDateJR: c.LastModifiedDate,
+	}
+
+	if c.Description != "" {
+		m["description"] = c.Description
+	}
+
+	return m
+}
+
+func (h *Handler) jrUpdateCollection(input map[string]any) (map[string]any, error) {
+	id, _ := input["id"].(string)
+	desc, _ := input["description"].(string)
+
+	c, err := h.Backend.UpdateServerlessCollection(id, desc)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"updateCollectionDetail": updateCollectionDetailJR(c)}, nil
 }
 
 func (h *Handler) jrDeleteCollection(input map[string]any) (map[string]any, error) {
@@ -350,12 +434,16 @@ func (h *Handler) serverlessSecurityPolicyCRUD(policyType string) serverlessPoli
 			},
 			get: func(_, name string) (any, error) {
 				return nil, fmt.Errorf(
-					"%w: network security policy %s: retrieval not supported", ErrInvalidParameter, name,
+					"%w: network security policy %s: retrieval not supported",
+					ErrInvalidParameter,
+					name,
 				)
 			},
 			update: func(_, name, _, _, _ string) (any, error) {
 				return nil, fmt.Errorf(
-					"%w: network security policy %s: update not supported", ErrInvalidParameter, name,
+					"%w: network security policy %s: update not supported",
+					ErrInvalidParameter,
+					name,
 				)
 			},
 			deleteByName: h.Backend.DeleteServerlessNetworkPolicy,
@@ -420,7 +508,9 @@ func (h *Handler) jrDeleteSecurityPolicy(input map[string]any) (map[string]any, 
 func (h *Handler) jrListSecurityPolicies(input map[string]any) (map[string]any, error) {
 	typ, _ := input[jsonKeyPolicyTypeJR].(string)
 
-	return map[string]any{"securityPolicySummaries": h.serverlessSecurityPolicyCRUD(typ).list(typ)}, nil
+	return map[string]any{
+		"securityPolicySummaries": h.serverlessSecurityPolicyCRUD(typ).list(typ),
+	}, nil
 }
 
 // --- Security configs ---
@@ -576,11 +666,11 @@ func policyDetailJR(v any) map[string]any {
 	pl := toPolicyLikeJR(v)
 
 	m := map[string]any{
-		jsonKeyAppName:      pl.Name,
-		jsonKeyPolicyTypeJR: pl.Type,
-		"policyVersion":     pl.PolicyVersion,
-		"createdDate":       pl.CreatedDate,
-		"lastModifiedDate":  pl.LastModifiedDate,
+		jsonKeyAppName:            pl.Name,
+		jsonKeyPolicyTypeJR:       pl.Type,
+		"policyVersion":           pl.PolicyVersion,
+		jsonKeyCreatedDateJR:      pl.CreatedDate,
+		jsonKeyLastModifiedDateJR: pl.LastModifiedDate,
 	}
 	if pl.Description != "" {
 		m["description"] = pl.Description
@@ -603,6 +693,10 @@ func toPolicyLikeJR(v any) policyLikeJR {
 			p.Description, p.Name, p.Policy, p.PolicyVersion, p.Type, p.CreatedDate, p.LastModifiedDate,
 		}
 	case *ServerlessNetworkPolicy:
+		return policyLikeJR{
+			p.Description, p.Name, p.Policy, p.PolicyVersion, p.Type, p.CreatedDate, p.LastModifiedDate,
+		}
+	case *ServerlessLifecyclePolicy:
 		return policyLikeJR{
 			p.Description, p.Name, p.Policy, p.PolicyVersion, p.Type, p.CreatedDate, p.LastModifiedDate,
 		}

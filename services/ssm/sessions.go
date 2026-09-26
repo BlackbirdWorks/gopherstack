@@ -69,7 +69,7 @@ func sessionMatchesFilter(s *Session, f SessionFilter) bool {
 		return s.SessionID == f.Value
 	case "AccessType":
 		return s.AccessType == f.Value
-	case "Status":
+	case filterKeyStatus:
 		return s.Status == f.Value
 	case "InvokedAfter":
 		return sessionTimestampCompare(s.StartDate, f.Value) >= 0

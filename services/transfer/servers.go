@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -134,7 +135,12 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	b.mu.Lock("CreateServer")
 	defer b.mu.Unlock()
 
-	serverID := "s-" + uuid.NewString()[:20]
+	// Real server IDs are "s-" + 17 lowercase hex chars, no hyphens --
+	// terraform-provider-aws validates server_id client-side against that
+	// exact shape (regexp on every aws_transfer_user/_access/etc. server_id
+	// argument) and rejects a UUID-with-hyphens id outright. Found via an
+	// actual Terraform apply of aws_transfer_user.
+	serverID := "s-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:17]
 
 	protocols, err := validateAndDefaultServerProtocols(in.Protocols)
 	if err != nil {
@@ -163,11 +169,16 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	merged := make(map[string]string, len(in.Tags))
 	maps.Copy(merged, in.Tags)
 
-	// AWS creates servers OFFLINE; StartServer is required to bring them
-	// ONLINE. See https://docs.aws.amazon.com/transfer/latest/userguide/create-server.html.
+	// A real server comes up on its own after CreateServer -- the pinned
+	// terraform-provider-aws only calls CreateServer then DescribeServer while
+	// waiting for state ONLINE, never StartServer, so a permanent initial
+	// OFFLINE (previously modeled here) fails that wait immediately. Found via
+	// an actual Terraform apply of aws_transfer_server (TF_LOG=trace showed
+	// exactly those two ops, no StartServer). StartServer/StopServer remain
+	// for a caller pausing/resuming an existing server later.
 	s := &Server{
 		ServerID:                      serverID,
-		State:                         serverStatusOffline,
+		State:                         serverStatusStarting,
 		Endpoint:                      fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
 		Protocols:                     protocols,
 		Domain:                        domain,
@@ -193,6 +204,15 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	}
 	b.servers.Put(s)
 	b.initTagsStore(serverARN(b.accountID, b.region, serverID), merged)
+
+	b.work.After("CreateServerTransition", startServerTransitionDelay, func() {
+		b.mu.Lock("CreateServer-async")
+		defer b.mu.Unlock()
+
+		if sv, found := b.servers.Get(serverID); found && sv.State == serverStatusStarting {
+			sv.State = serverStatusOnline
+		}
+	})
 
 	return cloneServer(s), nil
 }
@@ -238,21 +258,19 @@ func (b *InMemoryBackend) ListServers() []Server {
 	return out
 }
 
-// DeleteServer removes a server and all of its associated resources (users, accesses, agreements,
-// SSH keys, and host keys). The server must be OFFLINE; returns ErrServerOnline otherwise.
+// DeleteServer removes a server and all of its associated resources (users,
+// accesses, agreements, SSH keys, and host keys). Real DeleteServer has no
+// state precondition -- terraform-provider-aws destroys aws_transfer_server
+// by calling only DescribeServer then DeleteServer (confirmed via TF_LOG=trace
+// on an actual apply/destroy), never StopServer, and would never be able to
+// destroy a normal (ONLINE) server if AWS required OFFLINE first. A prior
+// version of this backend invented that requirement; removed.
 func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	b.mu.Lock("DeleteServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.servers.Get(serverID)
-	if !ok {
+	if !b.servers.Has(serverID) {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
-	}
-
-	// AWS requires the server to be OFFLINE before deletion.
-	// STOPPING is also accepted — server is already transitioning offline.
-	if s.State == serverStatusOnline || s.State == serverStatusStarting {
-		return fmt.Errorf("%w: server %s is in state %s", ErrServerOnline, serverID, s.State)
 	}
 
 	b.servers.Delete(serverID)

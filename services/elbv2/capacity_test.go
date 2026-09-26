@@ -43,7 +43,7 @@ func TestELBv2_DescribeCapacityReservation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			lbArn := tt.setup(t, h)
 
 			vals := url.Values{
@@ -63,7 +63,7 @@ func TestELBv2_DescribeCapacityReservation(t *testing.T) {
 func TestDescribeCapacityReservation(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "cap-res-lb")
 
 	rec := doELBv2(t, h, url.Values{
@@ -77,7 +77,7 @@ func TestDescribeCapacityReservation(t *testing.T) {
 func TestModifyCapacityReservation(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch1Handler()
+	h := newBatch1Handler(t)
 	lbArn := b1CreateLB(t, h, "mod-cap-res-lb")
 
 	rec := doELBv2(t, h, url.Values{

@@ -22,7 +22,7 @@ func TestDescribeListeners_AllLoadBalancersPaginationDoesNotDropListeners(t *tes
 
 	const numLBs = 8
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "pag-tg")
 
 	want := make(map[string]bool, numLBs)

@@ -522,6 +522,83 @@ func (b *InMemoryBackend) maybeUpdateSchemaAfterVersionDelete(
 	schema.VersionCreatedDate = latest.CreatedDate
 }
 
+// ExportSchema returns a schema's stored content. schemas@v1.37.4 currently
+// only supports exporting as JSONSchemaDraft4; a request for any other Type
+// is rejected the same way CreateSchema rejects an unsupported Type. Content
+// is returned exactly as stored -- cross-format conversion between the
+// registry's own Type (OpenApi3 or JSONSchemaDraft4) and the requested
+// export Type is not performed, since no real conversion logic can exist
+// in-process without fabricating schema data.
+func (b *InMemoryBackend) ExportSchema(
+	ctx context.Context, //nolint:revive // existing issue.
+	input ExportSchemaInput,
+) (*ExportedSchema, error) {
+	if input.RegistryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if input.SchemaName == "" {
+		return nil, fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	if input.Type != schemaTypeJSONSchemaDraft4 {
+		return nil, fmt.Errorf(
+			"%w: Type must be %s, got %s",
+			ErrInvalidParameter,
+			schemaTypeJSONSchemaDraft4,
+			input.Type,
+		)
+	}
+
+	b.mu.RLock("ExportSchema")
+	defer b.mu.RUnlock()
+
+	if !b.registriesTable().Has(input.RegistryName) {
+		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
+	}
+
+	schema, ok := b.getSchema(input.RegistryName, input.SchemaName)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: schema %s not found in registry %s",
+			ErrNotFound,
+			input.SchemaName,
+			input.RegistryName,
+		)
+	}
+
+	content := schema.Content
+	version := schema.SchemaVersion
+
+	if input.SchemaVersion != "" && input.SchemaVersion != schema.SchemaVersion {
+		versionKey := b.schemaVersionKey(input.RegistryName, input.SchemaName)
+
+		found := false
+
+		for _, sv := range b.schemaVersions[versionKey] {
+			if sv.SchemaVersion == input.SchemaVersion {
+				content = sv.Content
+				version = sv.SchemaVersion
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return nil, fmt.Errorf("%w: schema version %s not found", ErrNotFound, input.SchemaVersion)
+		}
+	}
+
+	return &ExportedSchema{
+		Content:       content,
+		SchemaArn:     schema.SchemaArn,
+		SchemaName:    schema.SchemaName,
+		SchemaVersion: version,
+		Type:          input.Type,
+	}, nil
+}
+
 // GetDiscoveredSchema generates a schema skeleton from one or more event JSON strings.
 // Returns a minimal OpenApi3 schema template (real schema inference is out of scope).
 func (b *InMemoryBackend) GetDiscoveredSchema(

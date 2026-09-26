@@ -98,14 +98,7 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: created training job (full)",
-		"name",
-		tj.TrainingJobName,
-		"arn",
-		tj.TrainingJobArn,
-	)
+	log.InfoContext(ctx, "sagemaker: created training job (full)", "name", tj.TrainingJobName)
 
 	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn})
 }
@@ -271,13 +264,19 @@ func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byt
 
 	summaries := make([]trainingJobSummary, 0, len(jobs))
 	for _, tj := range jobs {
-		summaries = append(summaries, trainingJobSummary{
+		summary := trainingJobSummary{
 			TrainingJobName:   tj.TrainingJobName,
 			TrainingJobArn:    tj.TrainingJobArn,
 			TrainingJobStatus: tj.TrainingJobStatus,
+			SecondaryStatus:   tj.SecondaryStatus,
 			CreationTime:      epochSeconds(tj.CreationTime),
 			LastModifiedTime:  epochSeconds(tj.LastModifiedTime),
-		})
+		}
+		if tj.TrainingEndTime != nil {
+			summary.TrainingEndTime = epochSeconds(*tj.TrainingEndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{keyTrainingJobSummaries: summaries}
@@ -292,12 +291,17 @@ func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byt
 // TrainingJob handlers
 // ---------------------------------------------------------------------------
 
+// trainingJobSummary mirrors types.TrainingJobSummary (types.go:22613-22656).
+// TrainingPlanArn/WarmPoolStatus are not emitted: neither has a source on
+// the TrainingJob model (see PARITY.md items_still_open).
 type trainingJobSummary struct {
 	TrainingJobName   string  `json:"TrainingJobName"`
 	TrainingJobArn    string  `json:"TrainingJobArn"`
 	TrainingJobStatus string  `json:"TrainingJobStatus"`
+	SecondaryStatus   string  `json:"SecondaryStatus,omitempty"`
 	CreationTime      float64 `json:"CreationTime"`
 	LastModifiedTime  float64 `json:"LastModifiedTime"`
+	TrainingEndTime   float64 `json:"TrainingEndTime,omitempty"`
 }
 
 // deleteTrainingJobInput mirrors DeleteTrainingJobInput (api_op_DeleteTrainingJob.go:34-42).

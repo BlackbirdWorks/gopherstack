@@ -41,7 +41,8 @@ func (b *InMemoryBackend) CreateApplication(
 	}
 
 	if opt.ClientToken != "" {
-		if appID, tokenOK := b.applicationTokens[opt.ClientToken]; tokenOK {
+		if appID, tokenOK := b.applicationTokens[opt.ClientToken]; tokenOK &&
+			b.clientTokenFresh("application", "", opt.ClientToken, time.Now()) {
 			if app, appOK := b.applications.Get(appID); appOK {
 				return cloneApplication(app), nil
 			}
@@ -76,6 +77,7 @@ func (b *InMemoryBackend) CreateApplication(
 	b.applications.Put(app)
 
 	if opt.ClientToken != "" {
+		b.touchClientToken("application", "", opt.ClientToken, b.applicationTokens, now)
 		b.applicationTokens[opt.ClientToken] = id
 	}
 
@@ -182,8 +184,24 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	}
 
 	b.applications.Delete(id)
+
+	for tok := range b.sessionTokens[id] {
+		delete(b.clientTokenCreatedAt, clientTokenKey("session", id, tok))
+	}
+
+	for tok := range b.jobRunTokens[id] {
+		delete(b.clientTokenCreatedAt, clientTokenKey("jobrun", id, tok))
+	}
+
 	delete(b.sessionTokens, id)
 	delete(b.jobRunTokens, id)
+
+	for tok, appID := range b.applicationTokens {
+		if appID == id {
+			delete(b.applicationTokens, tok)
+			delete(b.clientTokenCreatedAt, clientTokenKey("application", "", tok))
+		}
+	}
 
 	return nil
 }

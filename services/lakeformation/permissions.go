@@ -110,6 +110,20 @@ func (b *InMemoryBackend) RevokePermissions(ctx context.Context, entry *Permissi
 // partial revoke (some permissions remain), lastUpdatedBy stamps
 // PermissionEntry.LastUpdatedBy on the surviving entry. Caller must hold b.mu
 // for writing.
+//
+// Revoking a principal/resource/permission combination that doesn't
+// currently exist is a real AWS InvalidInputException ("No permissions
+// revoked. Grantee has no ... permissions"), not a silent no-op --
+// terraform-provider-aws's resourcePermissionsDelete deliberately calls
+// RevokePermissions a second time after the real revoke and treats getting
+// this exact error as confirmation the delete completed (its own comment:
+// "we'll retry until we get the right error"). Returning nil here instead
+// left that second call looking like ANOTHER successful revoke, which its
+// retry loop can't tell apart from "still not deleted yet" -- so it called
+// helper/retry's RetryableError(nil), a documented terraform-plugin-sdk
+// misuse that surfaces as "empty retryable error received. This is a bug
+// with the Terraform AWS Provider", hanging every aws_lakeformation_permissions
+// destroy for the provider's full delete-retry timeout.
 func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry, lastUpdatedBy string) error {
 	if entry == nil || entry.Principal == nil || entry.Resource == nil {
 		return fmt.Errorf("invalid entry: %w", ErrValidation)
@@ -117,14 +131,31 @@ func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry, lastUp
 	key := permissionKey(entry)
 	p, ok := b.permissionsMap.Get(key)
 	if !ok {
-		return nil
+		return fmt.Errorf(
+			"%w: No permissions revoked. Grantee has no matching permissions for this resource",
+			ErrValidation,
+		)
 	}
 	remaining := make([]string, 0, len(p.Permissions))
+	revokedAny := false
+
 	for _, perm := range p.Permissions {
-		if !slices.Contains(entry.Permissions, perm) {
-			remaining = append(remaining, perm)
+		if slices.Contains(entry.Permissions, perm) {
+			revokedAny = true
+
+			continue
 		}
+
+		remaining = append(remaining, perm)
 	}
+
+	if !revokedAny {
+		return fmt.Errorf(
+			"%w: No permissions revoked. Grantee has no matching permissions for this resource",
+			ErrValidation,
+		)
+	}
+
 	if len(remaining) > 0 {
 		p.Permissions = remaining
 		now := time.Now()

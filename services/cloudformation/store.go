@@ -120,7 +120,7 @@ type StorageBackend interface {
 	RegisterType(typeName, schemaHandlerPackage string) (string, error)
 	DeregisterType(typeName, typeArn, versionID string) error
 	PublishType(typeName string) (string, error)
-	SetTypeDefaultVersion(arn, version string) error
+	SetTypeDefaultVersion(arn, typeName, version string) error
 	SetTypeConfiguration(typeName, configuration string) (string, error)
 	BatchDescribeTypeConfigurations(
 		identifiers []TypeConfigurationIdentifier,
@@ -134,7 +134,7 @@ type StorageBackend interface {
 	ListTypeRegistrations(
 		typeName, typeFilter, registrationStatusFilter string, maxResults int, nextToken string,
 	) (page.Page[string], error)
-	DescribeTypeRegistration(registrationToken string) (status, typeArn string, err error)
+	DescribeTypeRegistration(registrationToken string) (status, typeArn, typeVersionArn string, err error)
 	DescribeType(typeName, arn, versionID string) (*TypeDetails, error)
 	TestType(typeName, arn, versionID string) (string, error)
 	RegisterPublisher(connectionArn string) (string, error)

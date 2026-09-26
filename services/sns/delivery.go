@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -138,12 +137,14 @@ func (b *InMemoryBackend) logDeliveryStatus(
 	}
 }
 
+// buildHTTPDeliveryPayload wraps d.body in the SNS Notification JSON envelope
+// sent to HTTP/HTTPS subscribers. Timestamp/Signature/SigningCertURL are read
+// from d, precomputed once per publish by Publish (see httpDelivery's doc
+// comment) rather than recomputed here per delivery.
 func buildHTTPDeliveryPayload(d httpDelivery) string {
 	body := d.body
 
 	if !d.rawDelivery && d.messageID != "" {
-		timestamp := time.Now().UTC().Format(time.RFC3339)
-
 		const (
 			arnFieldCount   = 6
 			arnRegionIndex  = 3
@@ -154,18 +155,15 @@ func buildHTTPDeliveryPayload(d httpDelivery) string {
 			parts[arnRegionIndex] != "" {
 			topicRegion = parts[arnRegionIndex]
 		}
-		certURL := fmt.Sprintf(
-			"https://sns.%s.amazonaws.com/SimpleNotificationService.pem",
-			topicRegion,
-		)
-		sigVersion := resolveSignatureVersion(d.signatureVersion)
-		signature := "MOCK-SIGNATURE"
-		if d.signer != nil {
-			certURL = d.signer.certURL()
-			canonical := canonicalNotificationString(
-				d.messageID, d.topicARN, d.subject, d.body, timestamp,
+
+		certURL := d.certURL
+		signature := d.signature
+		if d.signer == nil {
+			certURL = fmt.Sprintf(
+				"https://sns.%s.amazonaws.com/SimpleNotificationService.pem",
+				topicRegion,
 			)
-			signature = d.signer.signWithVersion(canonical, sigVersion)
+			signature = "MOCK-SIGNATURE"
 		}
 
 		env := snsHTTPNotification{
@@ -173,8 +171,8 @@ func buildHTTPDeliveryPayload(d httpDelivery) string {
 			MessageID:        d.messageID,
 			TopicArn:         d.topicARN,
 			Message:          d.body,
-			Timestamp:        timestamp,
-			SignatureVersion: sigVersion,
+			Timestamp:        d.timestamp,
+			SignatureVersion: resolveSignatureVersion(d.signatureVersion),
 			Signature:        signature,
 			SigningCertURL:   certURL,
 			UnsubscribeURL: "https://sns." + topicRegion +

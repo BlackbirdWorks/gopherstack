@@ -1,6 +1,7 @@
 package route53_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -55,6 +56,47 @@ func TestListCidrBlocks_WireShape(t *testing.T) {
 	assert.Equal(t, "office", aws.ToString(out.CidrBlocks[0].LocationName))
 }
 
+// TestListCidrBlocks_NoLocationFilter covers gopherstack-101r:
+// ListCidrBlocksInput.LocationName is optional (api_op_ListCidrBlocks.go has
+// no "required" doc comment on it), so omitting it must list every location's
+// blocks in the collection. The backend previously looked up
+// col.Locations[""] directly, always returning an empty result when the
+// caller omitted LocationName -- exactly what aws_route53_cidr_location's
+// own read path (and this repo's cloudfront-and-route53 fixture) does.
+func TestListCidrBlocks_NoLocationFilter(t *testing.T) {
+	t.Parallel()
+
+	h := route53.NewHandler(route53.NewInMemoryBackend())
+	client := newTestRoute53Client(t, h)
+
+	col, err := client.CreateCidrCollection(t.Context(), &route53sdk.CreateCidrCollectionInput{
+		Name:            aws.String("no-filter-cidrs"),
+		CallerReference: aws.String("cidr-caller-ref-nofilter"),
+	})
+	require.NoError(t, err)
+	colID := aws.ToString(col.Collection.Id)
+
+	_, err = client.ChangeCidrCollection(t.Context(), &route53sdk.ChangeCidrCollectionInput{
+		Id: aws.String(colID),
+		Changes: []types.CidrCollectionChange{
+			{
+				Action:       types.CidrCollectionChangeActionPut,
+				LocationName: aws.String("mb14-location"),
+				CidrList:     []string{"10.114.32.0/24"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListCidrBlocks(t.Context(), &route53sdk.ListCidrBlocksInput{
+		CollectionId: aws.String(colID),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.CidrBlocks, 1)
+	assert.Equal(t, "10.114.32.0/24", aws.ToString(out.CidrBlocks[0].CidrBlock))
+	assert.Equal(t, "mb14-location", aws.ToString(out.CidrBlocks[0].LocationName))
+}
+
 func TestListCidrLocations_WireShape(t *testing.T) {
 	t.Parallel()
 
@@ -94,6 +136,13 @@ func TestListCidrLocations_WireShape(t *testing.T) {
 // awsRestxml_deserializeDocumentHostedZoneSummary) is a distinct type whose
 // id element is "HostedZoneId" and which also carries a required nested
 // Owner. A real client decoded HostedZoneId and Owner to nil on every zone.
+//
+// HostedZoneSummary.HostedZoneId is bare, unlike HostedZone.Id elsewhere in
+// this API which carries a "/hostedzone/" prefix (gopherstack-101r):
+// terraform-provider-aws's findZoneAssociationByThreePartKey (zone_association.go)
+// compares this value directly against its unprefixed zone_id attribute with
+// no CleanZoneID() step, so a prefixed value here breaks every
+// aws_route53_zone_association read.
 func TestListHostedZonesByVPC_WireShape(t *testing.T) {
 	t.Parallel()
 
@@ -108,7 +157,7 @@ func TestListHostedZonesByVPC_WireShape(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	wantZoneID := aws.ToString(zone.HostedZone.Id)
+	wantZoneID := strings.TrimPrefix(aws.ToString(zone.HostedZone.Id), "/hostedzone/")
 
 	_, err = client.AssociateVPCWithHostedZone(t.Context(), &route53sdk.AssociateVPCWithHostedZoneInput{
 		HostedZoneId: zone.HostedZone.Id,

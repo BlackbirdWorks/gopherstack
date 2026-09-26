@@ -122,11 +122,13 @@ type MemberConfiguration struct {
 
 // AccountStatusResponse holds Enable/Disable/BatchGetAccountStatus output.
 type AccountStatusResponse struct {
-	AccountID    string `json:"accountId"`
-	Status       string `json:"status"`
-	Ec2Status    string `json:"ec2Status"`
-	EcrStatus    string `json:"ecrStatus"`
-	LambdaStatus string `json:"lambdaStatus"`
+	AccountID            string `json:"accountId"`
+	Status               string `json:"status"`
+	Ec2Status            string `json:"ec2Status"`
+	EcrStatus            string `json:"ecrStatus"`
+	LambdaStatus         string `json:"lambdaStatus"`
+	LambdaCodeStatus     string `json:"lambdaCodeStatus"`
+	CodeRepositoryStatus string `json:"codeRepositoryStatus"`
 }
 
 // Member represents an Inspector2 member account.

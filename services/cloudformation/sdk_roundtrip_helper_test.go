@@ -38,6 +38,18 @@ func newTestHandlerAndClientWithBackend(t *testing.T) (*cloudformation.InMemoryB
 	t.Helper()
 
 	backend := cloudformation.NewInMemoryBackend()
+	client := newTestClientForBackend(t, backend)
+
+	return backend, client
+}
+
+// newTestClientForBackend wires a real aws-sdk-go-v2 client against an
+// already-constructed backend, for tests that need to both drive backend
+// setup directly (no corresponding SDK call) and inspect the typed client's
+// decoded response against that same state.
+func newTestClientForBackend(t *testing.T, backend *cloudformation.InMemoryBackend) *cfnsdk.Client {
+	t.Helper()
+
 	h := cloudformation.NewHandler(backend)
 
 	e := echo.New()
@@ -61,5 +73,5 @@ func newTestHandlerAndClientWithBackend(t *testing.T) (*cloudformation.InMemoryB
 		o.BaseEndpoint = aws.String(srv.URL)
 	})
 
-	return backend, client
+	return client
 }

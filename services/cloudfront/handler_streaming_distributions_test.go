@@ -381,6 +381,7 @@ func TestInMemoryBackend_StreamingDistribution(t *testing.T) {
 			t.Parallel()
 
 			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.run(t, b)
 		})
 	}
@@ -392,7 +393,7 @@ func TestStreamingDistributionSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-
+	t.Cleanup(b.Close)
 	sd, err := b.CreateStreamingDistribution(cloudfront.StreamingDistributionConfig{
 		CallerReference: "cr-snap",
 		Comment:         "snapshot me",
@@ -406,6 +407,7 @@ func TestStreamingDistributionSnapshotRestore(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.GetStreamingDistribution(sd.ID)

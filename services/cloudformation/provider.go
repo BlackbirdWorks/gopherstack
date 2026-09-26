@@ -4,20 +4,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
+	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -30,12 +38,14 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
@@ -44,8 +54,10 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
@@ -132,6 +144,16 @@ type BackendsProvider interface {
 	GetELBv2Handler() service.Registerable
 	GetBackupHandler() service.Registerable
 	GetResilienceHubHandler() service.Registerable
+	GetServiceDiscoveryHandler() service.Registerable
+	GetAWSConfigHandler() service.Registerable
+	GetSageMakerHandler() service.Registerable
+	GetAthenaHandler() service.Registerable
+	GetDataSyncHandler() service.Registerable
+	GetAppConfigHandler() service.Registerable
+	GetMacie2Handler() service.Registerable
+	GetGuardDutyHandler() service.Registerable
+	GetAccessAnalyzerHandler() service.Registerable
+	GetAmplifyHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -171,6 +193,18 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.Backup, _ = getHandler[*backupbackend.Handler](bp.GetBackupHandler())
 	backends.BedrockRuntime, _ = getHandler[*bedrockruntime.Handler](bp.GetBedrockRuntimeHandler())
 	backends.ResilienceHub, _ = getHandler[ResilienceHubBackend](bp.GetResilienceHubHandler())
+	backends.ServiceDiscovery, _ = getHandler[*servicediscoverybackend.Handler](bp.GetServiceDiscoveryHandler())
+	backends.CodeDeploy, _ = getHandler[*codedeploybackend.Handler](bp.GetCodeDeployHandler())
+	backends.AWSConfig, _ = getHandler[*awsconfigbackend.Handler](bp.GetAWSConfigHandler())
+	backends.SageMaker, _ = getHandler[*sagemakerbackend.Handler](bp.GetSageMakerHandler())
+	backends.Athena, _ = getHandler[*athenabackend.Handler](bp.GetAthenaHandler())
+	backends.CodeArtifact, _ = getHandler[*codeartifactbackend.Handler](bp.GetCodeArtifactHandler())
+	backends.DataSync, _ = getHandler[*datasyncbackend.Handler](bp.GetDataSyncHandler())
+	backends.AppConfig, _ = getHandler[*appconfigbackend.Handler](bp.GetAppConfigHandler())
+	backends.Macie2, _ = getHandler[*macie2backend.Handler](bp.GetMacie2Handler())
+	backends.GuardDuty, _ = getHandler[*guarddutybackend.Handler](bp.GetGuardDutyHandler())
+	backends.AccessAnalyzer, _ = getHandler[*accessanalyzerbackend.Handler](bp.GetAccessAnalyzerHandler())
+	backends.Amplify, _ = getHandler[*amplifybackend.Handler](bp.GetAmplifyHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

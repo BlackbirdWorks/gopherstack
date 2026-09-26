@@ -195,6 +195,10 @@ func (b *InMemoryBackend) resourceExistsLocked(resourceID string) bool {
 		return true
 	}
 
+	if b.resourcePolicy != nil && b.resourcePolicy.ID == resourceID {
+		return true
+	}
+
 	return false
 }
 

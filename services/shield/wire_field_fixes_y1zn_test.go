@@ -18,7 +18,7 @@ func TestDescribeProtectionGroup_NoCreationTimeKey(t *testing.T) {
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
-	pg, err := b.CreateProtectionGroup("y1zn-group", shield.AggregationSum, shield.PatternAll, "", nil)
+	pg, err := b.CreateProtectionGroup("y1zn-group", shield.AggregationSum, shield.PatternAll, "", nil, nil)
 	require.NoError(t, err)
 
 	h := shield.NewHandler(b)

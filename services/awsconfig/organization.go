@@ -8,7 +8,19 @@ const orgRuleStatusCreateSuccessful = "CREATE_SUCCESSFUL"
 // returning its ARN. The ARN is generated once on create and preserved on
 // update, mirroring putConfigRuleLocked's config-rule ARN convention
 // (config_rules.go) with the "organization-config-rule" resource type.
-func (b *InMemoryBackend) PutOrganizationConfigRule(name string) (string, error) {
+// managed/custom carry the OrganizationManagedRuleMetadata/
+// OrganizationCustomRuleMetadata the caller set (at most one, real
+// PutOrganizationConfigRuleInput's own mutually-exclusive metadata members)
+// -- terraform-provider-aws's find helpers for aws_config_organization_
+// managed_rule/aws_config_organization_custom_rule filter
+// DescribeOrganizationConfigRules results on exactly this field being
+// non-nil, so an empty echo makes both resources read back as not found.
+func (b *InMemoryBackend) PutOrganizationConfigRule(
+	name string,
+	excludedAccounts []string,
+	managed *OrganizationManagedRuleMetadata,
+	custom *OrganizationCustomRuleMetadata,
+) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("%w: OrganizationConfigRuleName is required", ErrValidation)
 	}
@@ -19,8 +31,11 @@ func (b *InMemoryBackend) PutOrganizationConfigRule(name string) (string, error)
 	arnStr := b.organizationConfigRuleArnLocked(name)
 
 	b.orgConfigRules.Put(&OrganizationConfigRule{
-		OrganizationConfigRuleName: name,
-		OrganizationConfigRuleArn:  arnStr,
+		OrganizationConfigRuleName:      name,
+		OrganizationConfigRuleArn:       arnStr,
+		ExcludedAccounts:                excludedAccounts,
+		OrganizationManagedRuleMetadata: managed,
+		OrganizationCustomRuleMetadata:  custom,
 	})
 
 	return arnStr, nil
@@ -98,31 +113,60 @@ func (b *InMemoryBackend) DeleteOrganizationConformancePack(name string) error {
 	return nil
 }
 
-// DescribeOrganizationConfigRules returns all organization config rules.
-func (b *InMemoryBackend) DescribeOrganizationConfigRules() []OrganizationConfigRule {
+// DescribeOrganizationConfigRules returns organization config rules, filtered
+// to names when non-empty -- matching DescribeOrganizationConfigRulesInput's
+// own doc comment ("If you do not specify any names, Config returns details
+// for all your organization Config rules.").
+func (b *InMemoryBackend) DescribeOrganizationConfigRules(names []string) []OrganizationConfigRule {
 	b.mu.RLock("DescribeOrganizationConfigRules")
 	defer b.mu.RUnlock()
 
-	all := b.orgConfigRules.All()
-	out := make([]OrganizationConfigRule, 0, len(all))
+	if len(names) == 0 {
+		all := b.orgConfigRules.All()
+		out := make([]OrganizationConfigRule, 0, len(all))
 
-	for _, r := range all {
-		out = append(out, *r)
+		for _, r := range all {
+			out = append(out, *r)
+		}
+
+		return out
+	}
+
+	out := make([]OrganizationConfigRule, 0, len(names))
+
+	for _, name := range names {
+		if r, ok := b.orgConfigRules.Get(name); ok {
+			out = append(out, *r)
+		}
 	}
 
 	return out
 }
 
-// DescribeOrganizationConformancePacks returns all organization conformance packs.
-func (b *InMemoryBackend) DescribeOrganizationConformancePacks() []OrganizationConformancePack {
+// DescribeOrganizationConformancePacks returns organization conformance
+// packs, filtered to names when non-empty (same optional-filter shape as
+// DescribeOrganizationConfigRules).
+func (b *InMemoryBackend) DescribeOrganizationConformancePacks(names []string) []OrganizationConformancePack {
 	b.mu.RLock("DescribeOrganizationConformancePacks")
 	defer b.mu.RUnlock()
 
-	all := b.orgConformancePacks.All()
-	out := make([]OrganizationConformancePack, 0, len(all))
+	if len(names) == 0 {
+		all := b.orgConformancePacks.All()
+		out := make([]OrganizationConformancePack, 0, len(all))
 
-	for _, p := range all {
-		out = append(out, *p)
+		for _, p := range all {
+			out = append(out, *p)
+		}
+
+		return out
+	}
+
+	out := make([]OrganizationConformancePack, 0, len(names))
+
+	for _, name := range names {
+		if p, ok := b.orgConformancePacks.Get(name); ok {
+			out = append(out, *p)
+		}
 	}
 
 	return out

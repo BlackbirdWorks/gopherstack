@@ -21,6 +21,7 @@ func TestCancelRotateSecret_RemovesAWSPENDING(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "cancel-rot", SecretString: "v1"},
@@ -54,6 +55,7 @@ func TestCancelRotateSecret_SetsRotationDisabled(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "cancel-enabled", SecretString: "v"},
@@ -84,6 +86,7 @@ func TestCancelRotateSecret_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CancelRotateSecret(context.Background(), &secretsmanager.CancelRotateSecretInput{SecretID: "missing"})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
@@ -162,6 +165,7 @@ func TestCancelRotateSecret_HTTP(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			if tt.setup != nil {
 				tt.setup(t, backend)
 			}
@@ -190,6 +194,7 @@ func TestCancelRotateSecret_RotationConfigPreserved(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -225,6 +230,7 @@ func TestCancelRotateSecret_NoRotation(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "norot", SecretString: "v"})
 	require.NoError(t, err)
 
@@ -248,6 +254,7 @@ func TestCancelRotateSecret_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "rot-cancel", SecretString: "v"},
@@ -276,6 +283,7 @@ func TestCancelRotateSecret_BackendEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(b.StopRotationScheduler)
 		_, err := b.CancelRotateSecret(
 			context.Background(),
 			&secretsmanager.CancelRotateSecretInput{SecretID: "nonexistent"},

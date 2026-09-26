@@ -53,6 +53,7 @@ func toCollaborationIDNamespaceAssociationSummary(
 		CollaborationID:          a.CollaborationID,
 		CreatorAccountID:         creatorAccountID,
 		Name:                     a.Name,
+		Description:              a.Description,
 		ID:                       a.ID,
 		CreateTime:               a.CreateTime,
 		UpdateTime:               a.UpdateTime,

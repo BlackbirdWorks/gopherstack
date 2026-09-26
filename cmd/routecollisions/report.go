@@ -27,10 +27,10 @@ type overlapPair struct {
 	Loser   svcInfo
 }
 
-func printCollisionReport(results []svcInfo) {
+func printCollisionReport(results []svcInfo, why bool) {
 	pairs := findOverlapPairs(results)
 	sortOverlapPairs(pairs)
-	renderOverlapPairs(results, pairs)
+	renderOverlapPairs(results, pairs, why)
 }
 
 // findOverlapPairs walks every pair of services in router evaluation order
@@ -81,7 +81,7 @@ func sortOverlapPairs(pairs []overlapPair) {
 	})
 }
 
-func renderOverlapPairs(results []svcInfo, pairs []overlapPair) {
+func renderOverlapPairs(results []svcInfo, pairs []overlapPair, why bool) {
 	var withClaims, immune int
 
 	for _, r := range results {
@@ -107,6 +107,30 @@ func renderOverlapPairs(results []svcInfo, pairs []overlapPair) {
 			p.Winner.Dir, p.WinnerC.KindStr, p.WinnerC.Literal, p.Winner.Priority, p.Winner.RegOrder,
 			p.Loser.Dir, p.LoserC.KindStr, p.LoserC.Literal, p.Loser.Priority, p.Loser.RegOrder,
 			riskLabel(p))
+
+		if why {
+			printWhy(p)
+		}
+	}
+}
+
+// printWhy prints the guard evidence (file:line + recognized construct)
+// behind a pair's winner and loser, so -why lets a future audit confirm a
+// "guarded" tag without re-reading the matcher source.
+func printWhy(p overlapPair) {
+	printGuardEvidence(p.Winner)
+	printGuardEvidence(p.Loser)
+}
+
+func printGuardEvidence(svc svcInfo) {
+	if len(svc.GuardEvidence) == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stdout, "    %s guard:\n", svc.Dir)
+
+	for _, ev := range svc.GuardEvidence {
+		fmt.Fprintf(os.Stdout, "      %s\n", ev.String())
 	}
 }
 

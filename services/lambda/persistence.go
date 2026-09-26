@@ -168,9 +168,14 @@ type backendSnapshot struct {
 	LayerVersionCounters  map[string]int64                                       `json:"layerVersionCounters"`
 	LayerPolicies         map[string]map[int64]map[string]*LayerVersionStatement `json:"layerPolicies"`
 	FunctionConcurrencies map[string]int                                         `json:"functionConcurrencies"`
-	AccountID             string                                                 `json:"accountID"`
-	Region                string                                                 `json:"region"`
-	Version               int                                                    `json:"version"`
+	// ResourcePolicyOverrides holds every PutResourcePolicy-set policy
+	// document (keyed by permissionMapKey(FunctionName, Qualifier)), same
+	// as EventInvokeConfigs above: no pure func(*V) string identity of its
+	// own to key a store.Table by, but real state that must survive Restore.
+	ResourcePolicyOverrides map[string]*ResourcePolicyOverride `json:"resourcePolicyOverrides,omitempty"`
+	AccountID               string                             `json:"accountID"`
+	Region                  string                             `json:"region"`
+	Version                 int                                `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -229,17 +234,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	tables["functions"] = funcTables["functions"]
 
 	snap := backendSnapshot{
-		Version:               lambdaSnapshotVersion,
-		Tables:                tables,
-		EventInvokeConfigs:    b.eventInvokeConfigs,
-		Versions:              b.versions,
-		VersionCounters:       b.versionCounters,
-		Layers:                b.layers,
-		LayerVersionCounters:  b.layerVersionCounters,
-		LayerPolicies:         b.layerPolicies,
-		FunctionConcurrencies: b.functionConcurrencies,
-		AccountID:             b.accountID,
-		Region:                b.region,
+		Version:                 lambdaSnapshotVersion,
+		Tables:                  tables,
+		EventInvokeConfigs:      b.eventInvokeConfigs,
+		Versions:                b.versions,
+		VersionCounters:         b.versionCounters,
+		Layers:                  b.layers,
+		LayerVersionCounters:    b.layerVersionCounters,
+		LayerPolicies:           b.layerPolicies,
+		FunctionConcurrencies:   b.functionConcurrencies,
+		ResourcePolicyOverrides: b.resourcePolicyOverrides,
+		AccountID:               b.accountID,
+		Region:                  b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -285,6 +291,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.permissions.Reset()
 		b.functions.Reset()
+		b.resourcePolicyOverrides = make(map[string]*ResourcePolicyOverride)
 
 		return nil
 	}
@@ -308,6 +315,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.layerVersionCounters = snap.LayerVersionCounters
 	b.layerPolicies = snap.LayerPolicies
 	b.functionConcurrencies = snap.FunctionConcurrencies
+	b.resourcePolicyOverrides = snap.ResourcePolicyOverrides
+	if b.resourcePolicyOverrides == nil {
+		b.resourcePolicyOverrides = make(map[string]*ResourcePolicyOverride)
+	}
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

@@ -84,7 +84,7 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: created model", "name", m.ModelName, "arn", m.ModelARN)
+	log.InfoContext(ctx, "sagemaker: created model", "name", m.ModelName)
 
 	return json.Marshal(map[string]string{"ModelArn": m.ModelARN})
 }

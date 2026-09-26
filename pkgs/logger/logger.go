@@ -22,6 +22,16 @@ import (
 // middleware that wants raw ctxval access can reuse it.
 var Key = ctxval.NewKey[*slog.Logger]("logger") //nolint:gochecknoglobals // existing issue.
 
+// serviceTagKey records the service name WithService attached.
+var serviceTagKey = ctxval.NewKey[string]("logger.serviceTag") //nolint:gochecknoglobals // existing issue.
+
+// HasService reports whether WithService already tagged ctx's logger with name.
+func HasService(ctx context.Context, name string) bool {
+	tagged, ok := serviceTagKey.Get(ctx)
+
+	return ok && tagged == name
+}
+
 // Save stores logger in ctx and returns the child context.
 func Save(ctx context.Context, logger *slog.Logger) context.Context {
 	if logger == nil {
@@ -60,7 +70,9 @@ func AddAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
 // emitted via Load(ctx) are uniformly tagged. The service tag persists across
 // AddAttrs calls because slog.Logger.With layers attributes.
 func WithService(ctx context.Context, name string) context.Context {
-	return AddAttrs(ctx, slog.String("service", name))
+	ctx = AddAttrs(ctx, slog.String("service", name))
+
+	return serviceTagKey.Set(ctx, name)
 }
 
 // WithWorker returns a child context whose logger carries service=<service>

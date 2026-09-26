@@ -23,7 +23,7 @@ func TestUpdateSecret_PreservesOmittedDescription(t *testing.T) {
 
 	client := newTestSMClientWithRegion(
 		t,
-		secretsmanager.NewHandler(secretsmanager.NewInMemoryBackend()),
+		newSMHandler(t),
 		wireFixesRegion,
 	)
 
@@ -79,6 +79,7 @@ func TestUpdateSecret_PreservesOmittedType(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	ctx := context.Background()
 
 	_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{

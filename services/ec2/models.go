@@ -43,11 +43,23 @@ type NetworkInterfacePermission struct {
 	State              string `json:"state,omitempty"`
 }
 
-// PeeringConnectionOptions holds DNS/routing options for a VPC peering connection.
+// PeeringConnectionOptions holds DNS/routing options for one side (requester
+// or accepter) of a VPC peering connection.
 type PeeringConnectionOptions struct {
 	AllowDNSResolutionFromRemoteVPC            bool `json:"allowDnsResolutionFromRemoteVpc,omitempty"`
 	AllowEgressFromLocalClassicLinkToRemoteVPC bool `json:"allowEgressFromLocalClassicLinkToRemoteVpc,omitempty"`
 	AllowEgressFromLocalVPCToRemoteClassicLink bool `json:"allowEgressFromLocalVpcToRemoteClassicLink,omitempty"`
+}
+
+// PeeringConnectionOptionsBoth aggregates requester- and accepter-side
+// options for GetVpcPeeringConnectionOptions callers. Real AWS tracks these
+// independently (RequesterVpcInfo.PeeringOptions / AccepterVpcInfo.PeeringOptions);
+// it is not itself persisted -- the backend stores each side in its own map
+// (see InMemoryBackend.vpcPeeringOptions / vpcPeeringAccepterOptions) so an
+// older snapshot missing the accepter side still decodes cleanly.
+type PeeringConnectionOptionsBoth struct {
+	Requester PeeringConnectionOptions
+	Accepter  PeeringConnectionOptions
 }
 
 // AddressAttribute holds domain-name attributes for an Elastic IP.
@@ -55,6 +67,11 @@ type AddressAttribute struct {
 	AllocationID string `json:"allocationID,omitempty"`
 	PublicIP     string `json:"publicIP,omitempty"`
 	DomainName   string `json:"domainName,omitempty"`
+	// PtrRecordUpdated controls whether the wire response's ptrRecordUpdate
+	// wrapper is present. This backend applies PTR changes synchronously, so
+	// PtrRecordUpdate.Status is always empty (the settled value
+	// terraform-provider-aws's aws_eip_domain_name create waiter polls for).
+	PtrRecordUpdated bool `json:"ptrRecordUpdated,omitempty"`
 }
 
 // InstanceMetadataDefaults holds account-level IMDS defaults.
@@ -81,12 +98,13 @@ const (
 
 // Misc formerly-batch2 constants.
 const (
-	defaultEBSKmsKeyAlias    = "alias/aws/ebs"
-	stateImageUnblocked      = "unblocked"
-	stateImageBlockNew       = "block-new-sharing"
-	stateDefaultCredit       = "standard"
-	addressTransferOfferDays = 3
-	addressFamilyIPv4        = "ipv4"
+	defaultEBSKmsKeyAlias          = "alias/aws/ebs"
+	defaultImportedSnapshotSizeGiB = 8
+	stateImageUnblocked            = "unblocked"
+	stateImageBlockNew             = "block-new-sharing"
+	stateDefaultCredit             = "standard"
+	addressTransferOfferDays       = 3
+	addressFamilyIPv4              = "ipv4"
 )
 
 // VpcEndpointConnectionNotification tracks a VPC endpoint connection notification.
@@ -314,20 +332,39 @@ type ClientVpnConnection struct {
 
 // TransitGatewayConnect represents a TGW connect attachment.
 type TransitGatewayConnect struct {
-	TransitGatewayAttachmentID          string `json:"transitGatewayAttachmentId,omitempty"`
-	TransportTransitGatewayAttachmentID string `json:"transportTransitGatewayAttachmentId,omitempty"`
-	TransitGatewayID                    string `json:"transitGatewayId,omitempty"`
-	State                               string `json:"state,omitempty"`
+	CreationTime                        time.Time `json:"creationTime"`
+	TransitGatewayAttachmentID          string    `json:"transitGatewayAttachmentId,omitempty"`
+	TransportTransitGatewayAttachmentID string    `json:"transportTransitGatewayAttachmentId,omitempty"`
+	TransitGatewayID                    string    `json:"transitGatewayId,omitempty"`
+	State                               string    `json:"state,omitempty"`
+	// Protocol is always "gre", the only ProtocolValue real AWS supports for
+	// TGW Connect attachments.
+	Protocol string `json:"protocol,omitempty"`
 }
 
 // TransitGatewayConnectPeer represents a TGW connect peer.
 type TransitGatewayConnectPeer struct {
-	TransitGatewayConnectPeerID string   `json:"transitGatewayConnectPeerId,omitempty"`
-	TransitGatewayAttachmentID  string   `json:"transitGatewayAttachmentId,omitempty"`
-	PeerAddress                 string   `json:"peerAddress,omitempty"`
-	TransitGatewayAddress       string   `json:"transitGatewayAddress,omitempty"`
-	State                       string   `json:"state,omitempty"`
-	InsideCidrBlocks            []string `json:"insideCidrBlocks,omitempty"`
+	TransitGatewayConnectPeerID string                           `json:"transitGatewayConnectPeerId,omitempty"`
+	TransitGatewayAttachmentID  string                           `json:"transitGatewayAttachmentId,omitempty"`
+	PeerAddress                 string                           `json:"peerAddress,omitempty"`
+	TransitGatewayAddress       string                           `json:"transitGatewayAddress,omitempty"`
+	State                       string                           `json:"state,omitempty"`
+	InsideCidrBlocks            []string                         `json:"insideCidrBlocks,omitempty"`
+	BgpConfigurations           []TransitGatewayBgpConfiguration `json:"bgpConfigurations,omitempty"`
+}
+
+// TransitGatewayBgpConfiguration is one BGP peering session for a TGW
+// Connect peer (real AWS: TransitGatewayAttachmentBgpConfiguration),
+// derived from one entry of the peer's InsideCidrBlocks. Terraform's
+// find/waiter (internal/service/ec2/find.go:findTransitGatewayConnectPeer)
+// treats a peer with no BgpConfigurations as not-found, so this must never
+// be empty once the peer exists.
+type TransitGatewayBgpConfiguration struct {
+	BgpStatus             string `json:"bgpStatus,omitempty"`
+	PeerAddress           string `json:"peerAddress,omitempty"`
+	TransitGatewayAddress string `json:"transitGatewayAddress,omitempty"`
+	PeerAsn               int64  `json:"peerAsn,omitempty"`
+	TransitGatewayAsn     int64  `json:"transitGatewayAsn,omitempty"`
 }
 
 // TransitGatewayPrefixListReference represents a TGW prefix list reference.
@@ -383,6 +420,14 @@ const (
 	// (ec2@v1.329.0 types/enums.go:3057), the default policy under which a
 	// capacity decrease terminates the excess instances.
 	fleetExcessTerminationPolicy = "termination"
+	// fleetStateDeletedTerminating and fleetStateDeletedRunning are
+	// FleetStateCodeDeletedTerminatingInstances/FleetStateCodeDeletedRunning
+	// (ec2@v1.329.0 types/enums.go:3196-3197): DeleteFleets' immediate
+	// post-call state depends on TerminateInstances -- "deleted_terminating"
+	// until every launched instance reaches terminated, "deleted_running"
+	// when instances are left running.
+	fleetStateDeletedTerminating = "deleted_terminating"
+	fleetStateDeletedRunning     = "deleted_running"
 )
 
 type TrafficMirrorFilter struct {
@@ -487,10 +532,12 @@ type NetworkInsightsPath struct {
 // NetworkInsightsAnalysis holds a network insights analysis.
 
 type NetworkInsightsAnalysis struct {
-	NetworkInsightsAnalysisID string `json:"networkInsightsAnalysisId,omitempty"`
-	NetworkInsightsPathID     string `json:"networkInsightsPathId,omitempty"`
-	Status                    string `json:"status,omitempty"`
-	NetworkPathFound          bool   `json:"networkPathFound,omitempty"`
+	StartDate                  time.Time `json:"startDate"`
+	NetworkInsightsAnalysisID  string    `json:"networkInsightsAnalysisId,omitempty"`
+	NetworkInsightsAnalysisARN string    `json:"networkInsightsAnalysisArn,omitempty"`
+	NetworkInsightsPathID      string    `json:"networkInsightsPathId,omitempty"`
+	Status                     string    `json:"status,omitempty"`
+	NetworkPathFound           bool      `json:"networkPathFound,omitempty"`
 }
 
 // NetworkInsightsAccessScope holds a network insights access scope.

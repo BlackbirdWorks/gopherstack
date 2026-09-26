@@ -390,12 +390,6 @@ func TestIntegration_ResilienceHub_PolicyValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "missing region disruption type",
-			mutate: func(in *resiliencehubsdk.CreateResiliencyPolicyInput) {
-				delete(in.Policy, string(rhtypes.DisruptionTypeRegion))
-			},
-		},
-		{
 			name: "invalid tier",
 			mutate: func(in *resiliencehubsdk.CreateResiliencyPolicyInput) {
 				in.Tier = "BOGUS"

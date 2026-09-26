@@ -25,6 +25,7 @@ func TestUpdateSecret_Description(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "upd-desc", SecretString: "v"},
@@ -46,6 +47,7 @@ func TestUpdateSecret_KmsKeyIDBasic(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "upd-kms", SecretString: "v"},
@@ -67,6 +69,7 @@ func TestUpdateSecret_ValueCreatesNewVersion(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "upd-val",
 		SecretString:       "v1",
@@ -91,6 +94,7 @@ func TestUpdateSecret_DeletedFails(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "upd-del", SecretString: "v"},
@@ -110,6 +114,7 @@ func TestUpdateSecret_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID:    "missing",
 		Description: aws.String("d"),
@@ -175,6 +180,7 @@ func TestUpdateSecret_ValueAndMeta(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			ctx := context.Background()
 
 			_, err := b.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -208,6 +214,7 @@ func TestUpdateSecret_KmsKeyID(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	// Create a secret.
@@ -238,6 +245,7 @@ func TestUpdateSecret_ClientRequestTokenIdempotency(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
@@ -275,6 +283,7 @@ func TestUpdateSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "updatable", SecretString: "original"},
@@ -299,6 +308,7 @@ func TestUpdateSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, _ = backend.CreateSecret(
 			context.Background(),
 			&secretsmanager.CreateSecretInput{Name: "with-value", SecretString: "v1"},
@@ -316,6 +326,7 @@ func TestUpdateSecret_BackendScenarios(t *testing.T) {
 		t.Parallel()
 
 		backend := secretsmanager.NewInMemoryBackend()
+		t.Cleanup(backend.StopRotationScheduler)
 		_, err := backend.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{SecretID: "missing"})
 		require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 	})
@@ -331,6 +342,7 @@ func TestUpdateSecret_FailedValueUpdate_LeavesDescriptionAndKmsKeyIDUnchanged(t 
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	fake := &fakeKMSEncryptor{}
 	b.SetKMSEncryptor(fake)
 

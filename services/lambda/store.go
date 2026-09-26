@@ -134,11 +134,14 @@ type InMemoryBackend struct {
 	// permissions is keyed by permissionKeyFn (permissionMapKey(FunctionName,
 	// Qualifier)+"|"+StatementID); permissionsByTarget indexes it by
 	// permissionMapKey(FunctionName, Qualifier) for GetPolicy.
-	permissions          *store.Table[FunctionPermission]
-	permissionsByTarget  *store.Index[FunctionPermission]
-	codeSigningConfigs   *store.Table[CodeSigningConfig]
-	fnCodeSigningConfigs map[string]string
-	capacityProviders    *store.Table[CapacityProvider]
+	permissions         *store.Table[FunctionPermission]
+	permissionsByTarget *store.Index[FunctionPermission]
+	// resourcePolicyOverrides is keyed by permissionMapKey(FunctionName,
+	// Qualifier), same as permissionsByTarget -- see effectivePolicyLocked.
+	resourcePolicyOverrides map[string]*ResourcePolicyOverride
+	codeSigningConfigs      *store.Table[CodeSigningConfig]
+	fnCodeSigningConfigs    map[string]string
+	capacityProviders       *store.Table[CapacityProvider]
 	// registry holds every table that was already persisted before this
 	// refactor (see backendSnapshot in persistence.go); ephemeralRegistry
 	// holds tables with a pure key function that were NOT previously
@@ -239,6 +242,7 @@ func NewInMemoryBackendWithContext(
 		runtimeManagementConfigs: make(map[string]*RuntimeManagementConfig),
 		functionRecursionConfigs: make(map[string]*FunctionRecursionConfig),
 		functionScalingConfigs:   make(map[string]*FunctionScalingConfig),
+		resourcePolicyOverrides:  make(map[string]*ResourcePolicyOverride),
 		durableExecs:             newDurableExecutionStore(),
 		asyncEnqueueWaiters:      make(chan struct{}, maxAsyncEnqueueWaiters),
 		shutdown:                 make(chan struct{}),

@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -188,10 +189,40 @@ func TestCancelSpotFleetRequests_WithTerminate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ec2.SpotFleetStateCancelled, results[0].CurrentSpotFleetRequestState)
 
-	// Instances should be terminated.
+	// Instances transition through "shutting-down" immediately (real async lifecycle;
+	// the background janitor later sweeps them to "terminated"), not straight to "terminated".
 	instances := b.DescribeInstances(instanceIDs, "")
 	for _, inst := range instances {
-		assert.Equal(t, "terminated", inst.State.Name)
+		assert.Equal(t, "shutting-down", inst.State.Name)
+	}
+}
+
+// TestCancelSpotFleetRequests_WithTerminate_ReleasesNetworkInterfaces verifies the ENI created for
+// each fleet-spawned instance is actually removed, not just the instance's state flag.
+func TestCancelSpotFleetRequests_WithTerminate_ReleasesNetworkInterfaces(t *testing.T) {
+	t.Parallel()
+	b := newSpotFleetBackend()
+	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
+	require.NoError(t, err)
+	instanceIDs := fleet.InstanceIDs
+	require.NotEmpty(t, instanceIDs)
+
+	before := b.DescribeNetworkInterfaces(nil)
+	var beforeCount int
+	for _, eni := range before {
+		if slices.Contains(instanceIDs, eni.InstanceID) {
+			beforeCount++
+		}
+	}
+	require.Positive(t, beforeCount, "fleet-spawned instances must have a primary ENI recorded")
+
+	_, err = b.CancelSpotFleetRequests([]string{fleet.SpotFleetRequestID}, true)
+	require.NoError(t, err)
+
+	after := b.DescribeNetworkInterfaces(nil)
+	for _, eni := range after {
+		assert.NotContains(t, instanceIDs, eni.InstanceID,
+			"terminated instance %s must not still own an ENI", eni.InstanceID)
 	}
 }
 

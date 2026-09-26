@@ -29,9 +29,18 @@ type authenticationModeReq struct {
 }
 
 type describeUserRequest struct {
-	MaxResults *int32 `json:"MaxResults,omitempty"`
-	UserName   string `json:"UserName,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int32          `json:"MaxResults,omitempty"`
+	UserName   string          `json:"UserName,omitempty"`
+	NextToken  string          `json:"NextToken,omitempty"`
+	Filters    []userFilterReq `json:"Filters,omitempty"`
+}
+
+// userFilterReq is a DescribeUsersInput.Filters entry (types.Filter doc
+// comment: "The property being filtered. For example, UserName", value
+// example "user-123" -- UserName is the only stored field it can name).
+type userFilterReq struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
 }
 
 type deleteUserRequest struct {

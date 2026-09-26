@@ -403,6 +403,7 @@ func (h *Handler) handleDescribeTransitGatewayMulticastDomains(
 ) (any, error) {
 	ids := parseMemberList(vals, "TransitGatewayMulticastDomainIds")
 	domains := h.Backend.DescribeTransitGatewayMulticastDomains(ids)
+	domains = applyTGWMulticastDomainFilters(domains, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -517,6 +518,7 @@ func (h *Handler) handleGetTransitGatewayMulticastDomainAssociations(
 ) (any, error) {
 	domainID := vals.Get("TransitGatewayMulticastDomainId")
 	assocs := h.Backend.GetTransitGatewayMulticastDomainAssociations(domainID)
+	assocs = applyTGWMulticastDomainAssociationFilters(assocs, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

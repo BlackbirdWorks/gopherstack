@@ -398,11 +398,21 @@ const (
 	opListDlpSettings    = "ListDlpSettings"
 
 	// limits profile ops.
-	opCreateLimitsProfile   = "CreateLimitsProfile"
-	opDescribeLimitsProfile = "DescribeLimitsProfile"
-	opUpdateLimitsProfile   = "UpdateLimitsProfile"
-	opDeleteLimitsProfile   = "DeleteLimitsProfile"
-	opListLimitsProfiles    = "ListLimitsProfiles"
+	opCreateLimitsProfile     = "CreateLimitsProfile"
+	opDescribeLimitsProfile   = "DescribeLimitsProfile"
+	opUpdateLimitsProfile     = "UpdateLimitsProfile"
+	opDeleteLimitsProfile     = "DeleteLimitsProfile"
+	opListLimitsProfiles      = "ListLimitsProfiles"
+	opBatchDescribeUserLimits = "BatchDescribeUserLimits"
+
+	// Q App ops. Real AWS has no CreateApp -- apps are console-only (see
+	// AddAppInternal, app.go).
+	opDescribeApp            = "DescribeApp"
+	opDeleteApp              = "DeleteApp"
+	opListApps               = "ListApps"
+	opSearchApps             = "SearchApps"
+	opDescribeAppPermissions = "DescribeAppPermissions"
+	opUpdateAppPermissions   = "UpdateAppPermissions"
 
 	// path segment indices.
 	segAccountID   = 1
@@ -458,6 +468,10 @@ const (
 	keyIdentityStore        = "IdentityStore"
 	keyNamespace            = "Namespace"
 	keyMemberName           = "MemberName"
+	keyAppID                = "AppId"
+	keyApp                  = "App"
+	keyAppSummaryList       = "AppSummaryList"
+	keyVisibility           = "Visibility"
 
 	// request ID placeholder.
 	reqIDPlaceholder = "request-id"
@@ -552,13 +566,16 @@ const (
 	pathSegQuickIndex           = "quick-index"
 	pathSegUserCapacity         = "user-capacity"
 	pathSegBatchDelete          = "batch-delete"
+	pathSegApps                 = "apps"
 
-	// governance path segments (ApprovalPolicy, DLP setting, LimitsProfile).
+	// governance path segments (ApprovalPolicy, DLP setting, LimitsProfile,
+	// BatchDescribeUserLimits).
 	pathSegGovernance         = "governance"
 	pathSegApprovalWorkflows  = "approvalworkflows"
 	pathSegPolicies           = "policies"
 	pathSegLimits             = "limits"
 	pathSegProfiles           = "profiles"
+	pathSegUserLimits         = "user-limits"
 	pathSegDataLossPrevention = "data-loss-prevention"
 
 	// error codes.
@@ -680,6 +697,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		approvalPolicyOps(),
 		dlpSettingOps(),
 		limitsProfileOps(),
+		userLimitsOps(),
+		appOps(),
 	}
 
 	var ops []string
@@ -1177,6 +1196,21 @@ func limitsProfileOps() []string {
 		opUpdateLimitsProfile,
 		opDeleteLimitsProfile,
 		opListLimitsProfiles,
+	}
+}
+
+func userLimitsOps() []string {
+	return []string{opBatchDescribeUserLimits}
+}
+
+func appOps() []string {
+	return []string{
+		opDescribeApp,
+		opDeleteApp,
+		opListApps,
+		opSearchApps,
+		opDescribeAppPermissions,
+		opUpdateAppPermissions,
 	}
 }
 

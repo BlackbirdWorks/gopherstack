@@ -45,7 +45,12 @@ func (b *InMemoryBackend) DescribeResourcePolicy() (*ResourcePolicy, error) {
 }
 
 // PutResourcePolicy creates or replaces the organization resource policy.
-func (b *InMemoryBackend) PutResourcePolicy(content string) (*ResourcePolicy, error) {
+// tags is only honored on initial creation (PutResourcePolicyInput doc
+// comment: "Calls with tags apply to the initial creation of the resource
+// policy, otherwise an exception is thrown" -- a subsequent Put reusing the
+// same ID doesn't re-tag, matching real AWS since ListTagsForResource/
+// TagResource are the documented way to change tags afterward).
+func (b *InMemoryBackend) PutResourcePolicy(content string, tags []Tag) (*ResourcePolicy, error) {
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -58,6 +63,13 @@ func (b *InMemoryBackend) PutResourcePolicy(content string) (*ResourcePolicy, er
 	}
 
 	rpID := "p-rp-default"
+	creating := b.resourcePolicy == nil
+
+	if creating {
+		if err := validateNewTags(nil, tags); err != nil {
+			return nil, err
+		}
+	}
 
 	rp := &ResourcePolicy{
 		ID:      rpID,
@@ -66,6 +78,15 @@ func (b *InMemoryBackend) PutResourcePolicy(content string) (*ResourcePolicy, er
 	}
 
 	b.resourcePolicy = rp
+
+	if creating {
+		tagMap := make(map[string]string, len(tags))
+		for _, t := range tags {
+			tagMap[t.Key] = t.Value
+		}
+
+		b.tags[rpID] = tagMap
+	}
 
 	cp := *rp
 

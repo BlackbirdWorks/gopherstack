@@ -297,19 +297,36 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 	// always indexed).
 	filters := parseEC2Filters(vals)
 
-	groupIDs := filters["group-id"]
-	if len(groupIDs) == 0 {
-		groupIDs = []string{""}
-	}
+	// aws_vpc_security_group_ingress_rule/egress_rule read a single rule
+	// back by ID alone (SecurityGroupRuleId.N, or the equivalent
+	// security-group-rule-id filter) with no GroupId -- requiring GroupId
+	// unconditionally broke that read with "GroupId is required".
+	ruleIDs := parseMemberList(vals, "SecurityGroupRuleId")
+	ruleIDs = append(ruleIDs, filters["security-group-rule-id"]...)
 
 	var rules []*SecurityGroupRuleDetail
-	for _, groupID := range groupIDs {
-		groupRules, err := h.Backend.DescribeSecurityGroupRules(groupID)
+
+	if len(ruleIDs) > 0 {
+		var err error
+
+		rules, err = h.Backend.DescribeSecurityGroupRulesByIDs(ruleIDs)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		groupIDs := filters["group-id"]
+		if len(groupIDs) == 0 {
+			groupIDs = []string{""}
+		}
 
-		rules = append(rules, groupRules...)
+		for _, groupID := range groupIDs {
+			groupRules, err := h.Backend.DescribeSecurityGroupRules(groupID)
+			if err != nil {
+				return nil, err
+			}
+
+			rules = append(rules, groupRules...)
+		}
 	}
 
 	maxResults, offset, err := parseEC2Pagination(
@@ -409,8 +426,28 @@ type launchTemplateVersionSet struct {
 	Items []launchTemplateVersionItem `xml:"item"`
 }
 
+type validateSecurityGroupQuotasForInterfaceResponse struct {
+	XMLName   xml.Name `xml:"ValidateSecurityGroupQuotasForInterfaceResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Valid     bool     `xml:"valid"`
+}
+
+func (h *Handler) handleValidateSecurityGroupQuotasForInterface(vals url.Values, reqID string) (any, error) {
+	groupIDs := parseMemberList(vals, "SecurityGroupId")
+
+	if err := h.Backend.ValidateSecurityGroupQuotasForInterface(groupIDs); err != nil {
+		return nil, err
+	}
+
+	return &validateSecurityGroupQuotasForInterfaceResponse{
+		Xmlns: ec2XMLNS, RequestID: reqID, Valid: true,
+	}, nil
+}
+
 // registerSecurityGroupsOps registers the SecurityGroups operation handlers.
 func registerSecurityGroupsOps(h *Handler, ops map[string]ec2ActionFn) {
+	ops["ValidateSecurityGroupQuotasForInterface"] = h.handleValidateSecurityGroupQuotasForInterface
 	ops["AssociateSecurityGroupVpc"] = h.handleAssociateSecurityGroupVpc
 	ops["DisassociateSecurityGroupVpc"] = h.handleDisassociateSecurityGroupVpc
 	ops["DescribeSecurityGroupReferences"] = h.handleDescribeSecurityGroupReferences
@@ -427,6 +464,7 @@ func registerSecurityGroupsOps(h *Handler, ops map[string]ec2ActionFn) {
 // registerSecurityGroupsOps, for GetSupportedOperations().
 func securityGroupsSupportedOperations() []string {
 	return []string{
+		"ValidateSecurityGroupQuotasForInterface",
 		"AssociateSecurityGroupVpc",
 		"DisassociateSecurityGroupVpc",
 		"DescribeSecurityGroupReferences",

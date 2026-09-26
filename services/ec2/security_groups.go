@@ -520,6 +520,57 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(
 	return out, nil
 }
 
+// securityGroupIDFromRuleID extracts the owning security group ID from a
+// "sgr-<groupID>-{in,out}-<index>" rule ID without needing to already know
+// the group. Security group IDs are lowercase hex ("sg-" + [0-9a-f]+), which
+// never contains the letters i/n/o/u/t, so the last "-in-"/"-out-" occurrence
+// unambiguously marks the split point.
+func securityGroupIDFromRuleID(ruleID string) (string, bool) {
+	rest, ok := strings.CutPrefix(ruleID, "sgr-")
+	if !ok {
+		return "", false
+	}
+
+	if idx := strings.LastIndex(rest, "-in-"); idx >= 0 {
+		return rest[:idx], true
+	}
+
+	if idx := strings.LastIndex(rest, "-out-"); idx >= 0 {
+		return rest[:idx], true
+	}
+
+	return "", false
+}
+
+// DescribeSecurityGroupRulesByIDs returns the security group rules matching
+// ruleIDs, looking up each rule's owning group from its ID
+// (DescribeSecurityGroupRules requires a GroupId, but
+// aws_vpc_security_group_ingress_rule/egress_rule read back by
+// SecurityGroupRuleId alone).
+func (b *InMemoryBackend) DescribeSecurityGroupRulesByIDs(ruleIDs []string) ([]*SecurityGroupRuleDetail, error) {
+	var out []*SecurityGroupRuleDetail
+
+	for _, ruleID := range ruleIDs {
+		groupID, ok := securityGroupIDFromRuleID(ruleID)
+		if !ok {
+			continue
+		}
+
+		groupRules, err := b.DescribeSecurityGroupRules(groupID)
+		if err != nil {
+			continue
+		}
+
+		for _, r := range groupRules {
+			if r.SecurityGroupRuleID == ruleID {
+				out = append(out, r)
+			}
+		}
+	}
+
+	return out, nil
+}
+
 // ModifySecurityGroupRules updates one or more rules (by position index) within a security group.
 // Only protocol, IPRange, and port range can be mutated; egress/ingress direction is immutable.
 // parseSecurityGroupRuleID decodes the deterministic "sgr-<groupID>-{in,out}-<index>"
@@ -739,6 +790,67 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 	b.securityGroups.Delete(id)
 	delete(b.tags, id)
 	delete(b.sgVpcAssociations, id)
+
+	return nil
+}
+
+// maxSecurityGroupsPerNetworkInterface and maxRulesPerSecurityGroupPerInterface are AWS's
+// default VPC quotas (docs.aws.amazon.com/vpc/latest/userguide/amazon-vpc-limits.html#vpc-limits-security-groups):
+// up to 5 security groups per network interface, and the sum of inbound + outbound rules
+// across all of them capped at 60.
+const (
+	maxSecurityGroupsPerNetworkInterface = 5
+	maxRulesPerSecurityGroupPerInterface = 60
+)
+
+// ValidateSecurityGroupQuotasForInterface checks whether the given security groups can be
+// associated with a single network interface without exceeding the per-interface quotas
+// (api_op_ValidateSecurityGroupQuotasForInterface.go). Returns nil if they fit; otherwise the
+// specific quota violation, mapped to the generic InvalidParameterValue code -- no dedicated
+// typed exception for either quota is confirmed in the pinned SDK.
+func (b *InMemoryBackend) ValidateSecurityGroupQuotasForInterface(groupIDs []string) error {
+	if len(groupIDs) == 0 {
+		return fmt.Errorf("%w: SecurityGroupId is required", ErrInvalidParameter)
+	}
+
+	seen := make(map[string]bool, len(groupIDs))
+	for _, id := range groupIDs {
+		if seen[id] {
+			return fmt.Errorf("%w: duplicate security group id %s", ErrInvalidParameter, id)
+		}
+
+		seen[id] = true
+	}
+
+	if len(groupIDs) > maxSecurityGroupsPerNetworkInterface {
+		return fmt.Errorf(
+			"%w: cannot associate more than %d security groups with a single network interface",
+			ErrInvalidParameter, maxSecurityGroupsPerNetworkInterface,
+		)
+	}
+
+	b.mu.RLock("ValidateSecurityGroupQuotasForInterface")
+	defer b.mu.RUnlock()
+
+	totalRules := 0
+
+	for _, id := range groupIDs {
+		sg, ok := b.securityGroups.Get(id)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, id)
+		}
+
+		totalRules += len(sg.IngressRules) + len(sg.EgressRules)
+	}
+
+	if totalRules > maxRulesPerSecurityGroupPerInterface {
+		return fmt.Errorf(
+			"%w: the %d combined rules across the specified security groups exceed the %d allowed per network interface",
+			ErrInvalidParameter,
+			totalRules,
+			maxRulesPerSecurityGroupPerInterface,
+		)
+	}
 
 	return nil
 }

@@ -200,6 +200,67 @@ func TestGetTraceSummaries_AvailabilityZonesAndInstanceIds_RealClient(t *testing
 	assert.ElementsMatch(t, []string{"i-0b5a4678fc325bg98", "i-0999888877776666a"}, gotInstances)
 }
 
+// TestGetTraceSummaries_ServiceAndDurationFilters_RealClient covers two
+// previously unsupported clauses of X-Ray's filter expression language
+// (docs.aws.amazon.com/xray/latest/devguide/xray-console-filters.html):
+// `service("NAME")` (matches a trace with a participating service of that
+// name) and `duration OP N.N` (the trace's total wall-clock duration,
+// distinct from `responsetime`, which evaluateFilter already supported).
+// Both fell through evaluateFilter's final `return false` (traces.go),
+// so a real client filtering by either clause always got an empty result
+// set regardless of what PutTraceSegments had actually stored.
+func TestGetTraceSummaries_ServiceAndDurationFilters_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestXRayClient(t)
+	ctx := t.Context()
+
+	const shortID = "1-aaaaaaaa-1111111111111111aaaaaaaa"
+	const longID = "1-bbbbbbbb-2222222222222222bbbbbbbb"
+
+	short := fmt.Sprintf(
+		`{"trace_id":%q,"id":"s1","name":"svc-a","start_time":1700000000,"end_time":1700000001}`, shortID,
+	)
+	long := fmt.Sprintf(
+		`{"trace_id":%q,"id":"s2","name":"svc-b","start_time":1700000000,"end_time":1700000003}`, longID,
+	)
+
+	_, err := client.PutTraceSegments(ctx, &xraysdk.PutTraceSegmentsInput{
+		TraceSegmentDocuments: []string{short, long},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		filter string
+		want   []string
+	}{
+		{name: "service name match", filter: `service("svc-a")`, want: []string{shortID}},
+		{name: "service name no match", filter: `service("svc-c")`, want: nil},
+		{name: "duration greater than", filter: "duration > 2", want: []string{longID}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, getErr := client.GetTraceSummaries(ctx, &xraysdk.GetTraceSummariesInput{
+				StartTime:        aws.Time(time.Unix(1699999999, 0)),
+				EndTime:          aws.Time(time.Unix(1700000100, 0)),
+				FilterExpression: aws.String(tt.filter),
+			})
+			require.NoError(t, getErr)
+
+			gotIDs := make([]string, 0, len(out.TraceSummaries))
+			for _, ts := range out.TraceSummaries {
+				gotIDs = append(gotIDs, aws.ToString(ts.Id))
+			}
+
+			assert.ElementsMatch(t, tt.want, gotIDs)
+		})
+	}
+}
+
 // TestGetServiceGraph_GroupFilterExpression_RealClient covers a discarded-filter
 // bug sibling to gopherstack-6flj's GetInsightSummaries fix: GetServiceGraphInput's
 // optional GroupName/GroupARN (api_op_GetServiceGraph.go: "The name of a group

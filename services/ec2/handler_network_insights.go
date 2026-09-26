@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"time"
 )
 
 type createNetworkInsightsPathResponse struct {
@@ -20,10 +21,12 @@ type describeNetworkInsightsPathsResponse struct {
 }
 
 type networkInsightsAnalysisItem struct {
-	NetworkInsightsAnalysisID string `xml:"networkInsightsAnalysisId"`
-	NetworkInsightsPathID     string `xml:"networkInsightsPathId,omitempty"`
-	Status                    string `xml:"status,omitempty"`
-	NetworkPathFound          bool   `xml:"networkPathFound,omitempty"`
+	NetworkInsightsAnalysisID  string `xml:"networkInsightsAnalysisId"`
+	NetworkInsightsAnalysisARN string `xml:"networkInsightsAnalysisArn,omitempty"`
+	NetworkInsightsPathID      string `xml:"networkInsightsPathId,omitempty"`
+	Status                     string `xml:"status,omitempty"`
+	StartDate                  string `xml:"startDate,omitempty"`
+	NetworkPathFound           bool   `xml:"networkPathFound,omitempty"`
 }
 
 type startNetworkInsightsAnalysisResponse struct {
@@ -165,6 +168,7 @@ func (h *Handler) handleDeleteNetworkInsightsPath(vals url.Values, reqID string)
 func (h *Handler) handleDescribeNetworkInsightsPaths(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsPathId")
 	paths := h.Backend.DescribeNetworkInsightsPaths(ids)
+	paths = applyNetworkInsightsPathFilters(paths, parseEC2Filters(vals))
 
 	resp := &describeNetworkInsightsPathsResponse{RequestID: reqID}
 	for _, p := range paths {
@@ -180,12 +184,18 @@ func (h *Handler) handleDescribeNetworkInsightsPaths(vals url.Values, reqID stri
 // ---- Network Insights Analysis handlers ----
 
 func toNetworkInsightsAnalysisItem(a *NetworkInsightsAnalysis) networkInsightsAnalysisItem {
-	return networkInsightsAnalysisItem{
-		NetworkInsightsAnalysisID: a.NetworkInsightsAnalysisID,
-		NetworkInsightsPathID:     a.NetworkInsightsPathID,
-		Status:                    a.Status,
-		NetworkPathFound:          a.NetworkPathFound,
+	item := networkInsightsAnalysisItem{
+		NetworkInsightsAnalysisID:  a.NetworkInsightsAnalysisID,
+		NetworkInsightsAnalysisARN: a.NetworkInsightsAnalysisARN,
+		NetworkInsightsPathID:      a.NetworkInsightsPathID,
+		Status:                     a.Status,
+		NetworkPathFound:           a.NetworkPathFound,
 	}
+	if !a.StartDate.IsZero() {
+		item.StartDate = a.StartDate.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleStartNetworkInsightsAnalysis(vals url.Values, reqID string) (any, error) {
@@ -226,6 +236,7 @@ func (h *Handler) handleDescribeNetworkInsightsAnalyses(
 ) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsAnalysisId")
 	analyses := h.Backend.DescribeNetworkInsightsAnalyses(ids, vals.Get("NetworkInsightsPathId"))
+	analyses = applyNetworkInsightsAnalysisFilters(analyses, parseEC2Filters(vals))
 
 	resp := &describeNetworkInsightsAnalysesResponse{RequestID: reqID}
 	for _, a := range analyses {

@@ -186,6 +186,15 @@ func TestDeleteServer_ClearsCascadedTags(t *testing.T) {
 	require.Equal(t, map[string]string{"team": "data"}, b.ListTagsForResource(userARN))
 	require.NotEmpty(t, u.ServerID) // sanity: user really belongs to this server
 
+	// A real server self-starts after CreateServer, so it must be stopped
+	// again before DeleteServer (which requires OFFLINE).
+	require.NoError(t, b.StopServer(s.ServerID))
+	require.Eventually(t, func() bool {
+		got, derr := b.DescribeServer(s.ServerID)
+
+		return derr == nil && got.State == "OFFLINE"
+	}, 2*time.Second, 10*time.Millisecond, "server must reach OFFLINE after StopServer")
+
 	require.NoError(t, b.DeleteServer(s.ServerID))
 
 	assert.Empty(t, b.ListTagsForResource(serverARN))

@@ -435,6 +435,17 @@ type SessionSummary struct {
 	Status          SessionStatus  `json:"Status,omitzero"`
 }
 
+// NotebookSessionSummary is the list view of a session returned by
+// ListNotebookSessions, field-diffed against types.NotebookSessionSummary
+// (athena@v1.60.4) -- CreationTime and SessionId only. It is a distinct,
+// narrower real shape from SessionSummary (ListSessions/StartSession):
+// previously ListNotebookSessions marshaled SessionSummary directly,
+// leaking Description/EngineVersion/NotebookVersion/Status onto the wire.
+type NotebookSessionSummary struct {
+	SessionID    string  `json:"SessionId"`
+	CreationTime float64 `json:"CreationTime,omitempty"`
+}
+
 // CalculationStatistics holds calculation runtime stats. Progress is a
 // string on the real shape (types.go), not a number -- the deserializer's
 // case "Progress" type-switches on value.(string), so a numeric Progress

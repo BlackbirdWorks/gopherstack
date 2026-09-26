@@ -7,11 +7,47 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// matchIoTPath reports whether path belongs to the IoT control-plane.
-func matchIoTPath(path string) bool {
+// matchIoTPath reports whether (method, path) belongs to the IoT
+// control-plane. svc is the SigV4 signing service extracted from the
+// request's Authorization header ("" when absent/unparseable, e.g. a
+// handler-level test with no auth headers -- treated permissively, matching
+// this file's existing shadow-path/policies convention).
+//
+// The "/jobs" and "/jobs/{jobId}" families are gated by svc because Macie2's
+// DescribeClassificationJob (GET /jobs/{jobId}) and CreateClassificationJob
+// (POST /jobs) are byte-for-byte identical (method, path) shapes to IoT's
+// own GetJob/ListJobs -- real AWS disambiguates by host, which this
+// single-port emulator doesn't have, so SigV4's service segment is the only
+// remaining signal. A method-or-path-only match here swallowed those Macie2
+// requests (RouteMatcher prefix collision, see
+// .claude/memories/route-matcher-prefix-collision.md).
+func matchIoTPath(method, path, svc string) bool {
+	if isJobsFamilyPath(path) {
+		return matchIoTJobsShape(method, path) && (svc == "" || svc == iotServiceName)
+	}
+
 	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) ||
 		matchFinalOpsPath(path) || matchTaggableResourcePath(path) || matchCACertPath(path) ||
 		matchPolicyPrincipalPath(path) || matchCertificateTransferPath(path) || matchMiscUnroutedPath(path)
+}
+
+// isJobsFamilyPath reports whether path is IoT's bare "/jobs" or any
+// "/jobs/{jobId}..." subpath -- the path family that collides with Macie2's
+// classification-job routes (see matchIoTPath).
+func isJobsFamilyPath(path string) bool {
+	return path == pathJobs || strings.HasPrefix(path, pathJobs+"/")
+}
+
+// matchIoTJobsShape reports whether (method, path) is a real IoT jobs-family
+// shape: GET /jobs (ListJobs) or any method under /jobs/{jobId}... (CreateJob
+// PUT, DescribeJob GET, UpdateJob PATCH, DeleteJob DELETE, and the
+// sub-resource routes in resolveJobExecutionSubPathOps).
+func matchIoTJobsShape(method, path string) bool {
+	if path == pathJobs {
+		return method == http.MethodGet
+	}
+
+	return true
 }
 
 // matchMiscUnroutedPath reports whether path belongs to one of eight
@@ -179,8 +215,9 @@ func matchCoreIoTPathPrimary(path string) bool {
 		path == pathPolicies ||
 		path == "/endpoint" ||
 		strings.HasPrefix(path, "/accept-certificate-transfer/") ||
-		strings.HasPrefix(path, "/packages/") ||
-		strings.HasPrefix(path, "/jobs/")
+		strings.HasPrefix(path, "/packages/")
+	// "/jobs/" is handled by matchIoTPath's isJobsFamilyPath gate, not here
+	// (it needs the SigV4 svc check to disambiguate from Macie2).
 }
 
 // matchCoreIoTPathSecondary covers the job-template, security-profile,
@@ -196,9 +233,29 @@ func matchCoreIoTPathSecondary(path string) bool {
 		strings.HasPrefix(path, "/security-profiles/") ||
 		path == "/security-profiles" ||
 		path == "/security-profiles-for-target" ||
-		strings.HasPrefix(path, "/audit/") ||
+		matchIoTAuditPath(path) ||
 		strings.HasPrefix(path, "/mitigationactions/") ||
 		matchDeviceDefenderPath(path)
+}
+
+// matchIoTAuditPath matches IoT Device Defender's own /audit/* paths
+// (tasks, suppressions, findings, scheduledaudits, configuration,
+// relatedResources, mitigationactions). A blanket HasPrefix(path, "/audit/")
+// here swallowed Backup's /audit/frameworks and /audit/report-plans (a
+// RouteMatcher prefix collision, see .claude/memories/route-matcher-prefix-
+// collision.md) -- IoT never routes those, only Backup does.
+func matchIoTAuditPath(path string) bool {
+	return path == pathAuditTasks ||
+		strings.HasPrefix(path, "/audit/tasks/") ||
+		path == "/audit/suppressions" ||
+		strings.HasPrefix(path, "/audit/suppressions/") ||
+		path == "/audit/findings" ||
+		strings.HasPrefix(path, "/audit/findings/") ||
+		path == "/audit/scheduledaudits" ||
+		strings.HasPrefix(path, "/audit/scheduledaudits/") ||
+		path == pathAuditConfiguration ||
+		path == "/audit/relatedResources" ||
+		strings.HasPrefix(path, "/audit/mitigationactions/")
 }
 
 // matchJobAndTemplatePath reports whether path is one of ListJobs (GET
@@ -208,8 +265,9 @@ func matchCoreIoTPathSecondary(path string) bool {
 // the same previously-undiscovered unreachable-op bug class as
 // "/mitigationactions/" above. Fixed this pass.
 func matchJobAndTemplatePath(path string) bool {
-	return path == "/jobs" ||
-		path == "/job-templates" ||
+	// "/jobs" is handled by matchIoTPath's isJobsFamilyPath gate, not here
+	// (it needs the SigV4 svc check to disambiguate from Macie2).
+	return path == "/job-templates" ||
 		strings.HasPrefix(path, "/job-templates/")
 }
 
@@ -338,7 +396,7 @@ func resolveThingsPathOperation(path, method string) string {
 
 		return opListThingGroupsForThing
 	case strings.HasPrefix(path, "/things/") &&
-		strings.HasSuffix(path, "/jobs") &&
+		strings.HasSuffix(path, pathJobs) &&
 		method == http.MethodGet:
 
 		return opListJobExecutionsForThing

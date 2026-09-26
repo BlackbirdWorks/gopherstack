@@ -235,7 +235,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "ENABLED", gotResolverCfg.AutodefinedReverse)
 
 	gotDnssecCfg := fresh.GetResolverDnssecConfig(ctx, "vpc-3")
-	assert.Equal(t, "ENABLING", gotDnssecCfg.ValidationStatus)
+	assert.Equal(t, "ENABLED", gotDnssecCfg.ValidationStatus)
 
 	assert.Equal(t, "policy-doc-frg", fresh.GetFirewallRuleGroupPolicy(ctx, grp.ARN))
 	assert.Equal(t, "policy-doc-qlc", fresh.GetResolverQueryLogConfigPolicy(ctx, qlc.ARN))

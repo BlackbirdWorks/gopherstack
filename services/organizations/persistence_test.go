@@ -158,7 +158,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 
 	original.AddHandshakeInternal(&organizations.Handshake{Action: "INVITE", State: "OPEN"})
 
-	_, err = original.PutResourcePolicy(`{"Version":"2012-10-17"}`)
+	_, err = original.PutResourcePolicy(`{"Version":"2012-10-17"}`, nil)
 	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())

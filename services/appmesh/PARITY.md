@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appmesh
 sdk_module: aws-sdk-go-v2/service/appmesh@v1.38.4
-last_audit_commit: e4139790
-last_audit_date: 2026-08-29
+last_audit_commit: a83673c4a
+last_audit_date: 2026-09-19
 overall: A            # zero wire bugs this pass (2026-08-19); every single-resource CRUD op's flat
                        # (unwrapped) body reconfirmed correct against the SDK's actually
                        # invoked per-op deserializer, not the dead OpDocument helper.
@@ -77,6 +77,15 @@ leaks: {status: clean, note: "single coarse lockmetrics.RWMutex per backend (mat
 ---
 
 ## Notes
+
+**2026-09-19 required-output-members reverification**: re-read all 36 required
+output fields across the 36 census ops (`cmd/requiredoutputfields`) end to
+end against the current handlers — every Create/Describe/Update/Delete op's
+`*ToWire` helper (`meshToWire`, `vnToWire`, etc.) is called unconditionally
+on every code path including Delete, and every `List*`/`ListTagsForResource`
+builds its array with `make(...)` so the key is always present even empty.
+Confirms the r80d batch-13 verdict still holds; no regressions. 0 fixed, 0
+false positives this pass. No code changed.
 
 **2026-08-19 sweep: corrected a false "wrapper-key bug" recorded by a prior pass — the
 flat (unwrapped) body is, and always was, correct.** This file previously claimed (with
@@ -492,3 +501,17 @@ had encoded the wrong (body-based) shape as correct and were updated to send
 
 Gates: `go build ./services/appmesh/...`, `go vet`, `go test -race -count=1` (clean),
 `golangci-lint run --new-from-rev=HEAD` (0 issues).
+
+## 2026-09-18 over-wide response class census check (gopherstack, structfielddiff)
+
+`cmd/overwidecandidates` flagged all 8 List ops as over-wide-response
+candidates (name-pattern heuristic). Member-by-member diff against
+aws-sdk-go-v2/service/appmesh@v1.38.4 types.go's `MeshRef`/`VirtualNodeRef`/
+`VirtualRouterRef`/`VirtualServiceRef`/`VirtualGatewayRef`/`GatewayRouteRef`/
+`RouteRef`/`TagRef`: every flagged op already emits the narrow `*Summary`
+wire struct (`meshSummaryToWire`, `vnSummaryToWire`, `vrSummaryToWire`,
+`vsSummaryToWire`, `vgSummaryToWire`, `grSummaryToWire`,
+`routeSummaryToWire`, `handleListTags`), field set matches exactly, no
+Describe-only leaks, no missing Summary members. All false positives —
+this service was already fixed for this bug class in the 2026-09-12
+typed-client sweep (gopherstack-n3zi) above. No code changed.

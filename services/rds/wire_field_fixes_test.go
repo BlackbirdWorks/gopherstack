@@ -23,7 +23,7 @@ import (
 func TestDescribeDBInstances_OptionGroupMemberships_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
@@ -58,7 +58,7 @@ func TestDescribeDBInstances_OptionGroupMemberships_RealClient(t *testing.T) {
 func TestDescribeDBClusters_HTTPEndpointEnabled_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBCluster(ctx, &rdssdk.CreateDBClusterInput{
@@ -100,7 +100,7 @@ func TestDescribeDBClusters_HTTPEndpointEnabled_RealClient(t *testing.T) {
 func TestDescribeEvents_SourceArn_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	createOut, err := client.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
@@ -134,7 +134,7 @@ func TestDescribeEvents_SourceArn_RealClient(t *testing.T) {
 func TestDescribeEventSubscriptions_CustomerAwsId_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateEventSubscription(ctx, &rdssdk.CreateEventSubscriptionInput{
@@ -165,7 +165,7 @@ func TestDescribeEventSubscriptions_CustomerAwsId_RealClient(t *testing.T) {
 func TestCreateDBProxy_VpcConfig_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBProxy(ctx, &rdssdk.CreateDBProxyInput{
@@ -205,7 +205,7 @@ func TestCreateDBProxy_VpcConfig_RealClient(t *testing.T) {
 func TestRegisterDBProxyTargets_TargetHealth_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBProxy(ctx, &rdssdk.CreateDBProxyInput{
@@ -247,7 +247,7 @@ func TestRegisterDBProxyTargets_TargetHealth_RealClient(t *testing.T) {
 func TestModifyDBProxyTargetGroup_SessionPinningFilters_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBProxy(ctx, &rdssdk.CreateDBProxyInput{
@@ -292,7 +292,7 @@ func TestModifyDBProxyTargetGroup_SessionPinningFilters_RealClient(t *testing.T)
 func TestDescribeDBClusterSnapshotAttributes_WrapperItemName_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBCluster(ctx, &rdssdk.CreateDBClusterInput{
@@ -340,7 +340,7 @@ func TestDescribeDBClusterSnapshotAttributes_WrapperItemName_RealClient(t *testi
 func TestModifyDBSnapshotAttribute_ValuesToAddWireKey_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
@@ -386,7 +386,7 @@ func TestModifyDBSnapshotAttribute_ValuesToAddWireKey_RealClient(t *testing.T) {
 func TestCreateDBProxyEndpoint_VpcConfig_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	_, err := client.CreateDBProxy(ctx, &rdssdk.CreateDBProxyInput{
@@ -429,7 +429,7 @@ func TestCreateDBProxyEndpoint_VpcConfig_RealClient(t *testing.T) {
 func TestDescribeAccountAttributes_QuotaFields_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 	ctx := t.Context()
 
 	out, err := client.DescribeAccountAttributes(ctx, &rdssdk.DescribeAccountAttributesInput{})

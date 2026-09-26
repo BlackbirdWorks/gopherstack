@@ -25,6 +25,7 @@ func TestListSecretVersionIds_Basic(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "lvid-basic",
 		SecretString:       "v1",
@@ -52,6 +53,7 @@ func TestListSecretVersionIds_MaxResultsInvalid(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "lvid-mr", SecretString: "v"},
@@ -70,6 +72,7 @@ func TestListSecretVersionIds_IncludeDeprecated(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "lvid-depr",
 		SecretString:       "v1",
@@ -106,6 +109,7 @@ func TestListSecretVersionIds_SortedNewestFirst(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "lvid-sort",
 		SecretString:       "v1",
@@ -136,6 +140,7 @@ func TestListSecretVersionIds_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.ListSecretVersionIDs(
 		context.Background(),
 		&secretsmanager.ListSecretVersionIDsInput{SecretID: "missing"},
@@ -147,6 +152,7 @@ func TestListSecretVersionIds_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "lvid-pages",
 		SecretString:       "v1",
@@ -188,6 +194,7 @@ func TestListSecretVersionIds_EntryIncludesLastAccessedDate(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackendWithConfig("000000000001", "us-east-1")
+	t.Cleanup(b.StopRotationScheduler)
 
 	_, err := b.CreateSecret(
 		context.Background(),
@@ -216,6 +223,7 @@ func TestListSecretVersionIds_DeletedSecret(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "del-ver", SecretString: "v"},
@@ -291,6 +299,7 @@ func TestListSecretVersionIds_HTTPDispatchTable(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			if tt.setup != nil {
 				tt.setup(t, backend)
 			}
@@ -415,6 +424,7 @@ func TestListSecretVersionIds_BackendScenarios(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			tt.setup(t, b)
 
 			out, err := b.ListSecretVersionIDs(context.Background(), &tt.input)
@@ -445,6 +455,7 @@ func TestListSecretVersionIds_ViaHandler(t *testing.T) {
 
 	e := echo.New()
 	backend := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(backend.StopRotationScheduler)
 	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(

@@ -57,7 +57,7 @@ func TestResourceCreator_SSMParameter(t *testing.T) {
 			assert.Equal(t, tt.wantPhysID, physID)
 
 			if tt.doDelete {
-				err = rc.Delete(t.Context(), "AWS::SSM::Parameter", physID, tt.props)
+				err = rc.Delete(t.Context(), "AWS::SSM::Parameter", physID, tt.props, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -93,7 +93,7 @@ func TestResourceCreator_KMSKey(t *testing.T) {
 			assert.NotEmpty(t, physID)
 
 			if tt.doDelete {
-				err = rc.Delete(t.Context(), "AWS::KMS::Key", physID, tt.props)
+				err = rc.Delete(t.Context(), "AWS::KMS::Key", physID, tt.props, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -147,7 +147,7 @@ func TestResourceCreator_SecretsManagerSecret(t *testing.T) {
 			assert.Contains(t, physID, tt.wantContains)
 
 			if tt.doDelete {
-				err = rc.Delete(t.Context(), "AWS::SecretsManager::Secret", physID, tt.props)
+				err = rc.Delete(t.Context(), "AWS::SecretsManager::Secret", physID, tt.props, nil)
 				require.NoError(t, err)
 			}
 		})
@@ -216,7 +216,7 @@ func TestResourceCreator_IAMResources(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, tt.props)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, tt.props, nil)
 			require.NoError(t, err)
 		})
 	}

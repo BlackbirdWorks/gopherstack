@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
-last_audit_commit: 302aa4e3c   # zeroguard: UpdateCluster/UpdateSubnetGroup omitted-member fix
-last_audit_date: 2026-09-18
+last_audit_commit: 0b11fe635  # 2026-09-19 goroutine-launch fix (gopherstack-1x2u0 Part 2 follow-up); prior: d522d763f
+last_audit_date: 2026-09-19  # prior: 2026-09-19
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
                       # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
                       # 2026-08-10: control-plane sweep (gopherstack-mmqd). Fixed state-mutated-before-validation in UpdateCluster and UpdateParameterGroup, a wrong error fault code on 6 required-field checks, a fabricated Tags field on the Cluster wire response, 3 unvalidated @required fields (TagResource.Tags, UntagResource.TagKeys, UpdateParameterGroup.ParameterNameValues), and a missing per-subnet SupportedNetworkTypes field. See Notes.
@@ -66,10 +66,20 @@ items_still_open:
   - "InsufficientClusterCapacityFault / ServiceLinkedRoleNotFoundFault (types.InsufficientClusterCapacityFault, types.ServiceLinkedRoleNotFoundFault) are real CreateCluster error types not modeled. Reason: both are account/infrastructure-state faults (missing DAX service-linked role; opportunistic hardware capacity shortage) with no deterministic, request-shape-driven trigger condition -- gopherstack tracks neither IAM service-linked-role state nor a hardware capacity pool. Inventing an arbitrary trigger (e.g. erroring above some ReplicationFactor) would itself be exactly the kind of fabricated, non-AWS-accurate behavior this audit exists to prevent. Left unmodeled; would need a deliberate design decision (e.g. a backend flag simulating SLR presence) before implementing."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - dataplane/ (binary DAX client protocol server, separate from the HTTP control-plane API audited here)
-leaks: {status: clean, note: "CreateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode each spawn a one-shot 1s-delay goroutine to simulate AWS's async state transition; every goroutine re-acquires b.mu, checks the resource still exists/is in the expected transient state, and exits -- no retry loop, no leaked goroutine. CreateCluster/DeleteCluster short-circuit synchronously under DAX_TEST_SYNC=1 for deterministic tests; Increase/Decrease/RebootNode intentionally do NOT (see Notes) and existing tests (TestRebootNodeRecovery) depend on the async path even under DAX_TEST_SYNC=1. DecreaseReplicationFactor's async goroutine now also clears the transient Cluster.NodeIDsToRemove list it sets (2026-07-24) -- verified no residual state after recovery via TestDecreaseReplicationFactorNodeIDsToRemoveClearsOnRecovery."}
+leaks: {status: clean, note: "CreateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode no longer spawn goroutines at all (fixed 2026-09-19, gopherstack-1x2u0) -- each sets a TransitionDeadline/RebootDeadline field instead, lazily applied by sweepClusterTransitionsLocked at the top of every op that reads or gates on cluster/node status (DescribeClusters, UpdateCluster, DeleteCluster, Increase/DecreaseReplicationFactor, RebootNode, TagResource/UntagResource/ListTags/TaggedResources), same pattern as services/fsx's sweepDataRepositoryTasksLocked. leak_main_test.go added (testleak.VerifyTestMain); go test -race -count=1 clean. See Notes."}
 ---
 
 ## Notes
+
+### 2026-09-19 goroutine-launch fix (gopherstack-1x2u0 Part 2 follow-up)
+
+Replaced the 6 untracked `go func(){ time.Sleep(1s); ... }()` transition goroutines (clusters.go,
+persistence.go) with a lazy `sweepClusterTransitionsLocked` (TransitionDeadline/RebootDeadline
+fields), enabling `leak_main_test.go`; removed the `DAX_TEST_SYNC` env-var test switch entirely.
+
+### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
+
+Audited the method-value goroutine launch site(s) here; added `leak_main_test.go` and `go test -race -count=1` passes clean with no code change (false alarm).
 
 ### 2026-09-18 zeroguard: UpdateCluster/UpdateSubnetGroup omitted-member fix
 

@@ -43,6 +43,7 @@ type StorageBackend interface {
 	) (*DBInstance, error)
 	PromoteReadReplica(id string) (*DBInstance, error)
 	DescribeDBInstanceAutomatedBackups(instanceID string) []DBInstanceAutomatedBackup
+	DescribeDBInstanceAutomatedBackupsByArn(backupsArn string) []DBInstanceAutomatedBackup
 	DescribeValidDBInstanceModifications(id string) (*DBInstance, error)
 
 	// DB snapshot operations

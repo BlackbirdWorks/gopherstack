@@ -264,22 +264,22 @@ type UpdateFunctionCodeInput struct {
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.
 type UpdateFunctionConfigurationInput struct {
-	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
-	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
+	Description       *string                 `json:"Description,omitempty"`
+	Handler           *string                 `json:"Handler,omitempty"`
 	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
 	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
 	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
-	Runtime           string                  `json:"Runtime,omitempty"`
-	Description       *string                 `json:"Description,omitempty"`
-	Handler           *string                 `json:"Handler,omitempty"`
+	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
+	Timeout           *int32                  `json:"Timeout,omitempty"`
 	Role              *string                 `json:"Role,omitempty"`
+	MemorySize        *int32                  `json:"MemorySize,omitempty"`
 	RevisionID        string                  `json:"RevisionId,omitempty"`
+	Runtime           string                  `json:"Runtime,omitempty"`
 	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	Layers            []string                `json:"Layers,omitempty"`
-	MemorySize        int                     `json:"MemorySize,omitempty"`
-	Timeout           int                     `json:"Timeout,omitempty"`
 }
 
 // GetFunctionOutput is the response for GetFunction.
@@ -670,6 +670,24 @@ type AddPermissionOutput struct {
 type GetPolicyOutput struct {
 	Policy     *string `json:"Policy,omitempty"`
 	RevisionID *string `json:"RevisionId,omitempty"`
+}
+
+// ResourcePolicyOverride is the raw resource-based policy document set via
+// PutResourcePolicy, replacing any statement-based (AddPermission) policy for
+// the same function/qualifier target -- see PutResourcePolicy's own SDK doc:
+// this operation replaces any existing policy, and a previously-added
+// AddPermission statement is overwritten entirely.
+type ResourcePolicyOverride struct {
+	Policy     string `json:"Policy"`
+	RevisionID string `json:"RevisionId"`
+}
+
+// ResourcePolicyOutput is the shared response shape for GetResourcePolicy and
+// PutResourcePolicy (both return Policy + RevisionId; DeleteResourcePolicy
+// returns neither).
+type ResourcePolicyOutput struct {
+	Policy     string `json:"Policy,omitempty"`
+	RevisionID string `json:"RevisionId,omitempty"`
 }
 
 // AllowedPublishers holds the signing profile version ARNs allowed for code signing.

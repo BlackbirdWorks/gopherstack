@@ -79,6 +79,8 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 
 	now := time.Now().UTC()
 
+	b.pruneExpiredCertificateAuthoritiesLocked(now)
+
 	if cached, ok := b.lookupIdempotentCA(region, o.idempotencyToken, now); ok {
 		return cached, nil
 	}
@@ -594,6 +596,8 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(
 	b.mu.Lock("DeleteCertificateAuthority")
 	defer b.mu.Unlock()
 
+	b.pruneExpiredCertificateAuthoritiesLocked(time.Now().UTC())
+
 	ca, ok := b.caGet(region, caARN)
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
@@ -798,6 +802,8 @@ func (b *InMemoryBackend) RestoreCertificateAuthority(ctx context.Context, caARN
 
 	b.mu.Lock("RestoreCertificateAuthority")
 	defer b.mu.Unlock()
+
+	b.pruneExpiredCertificateAuthoritiesLocked(time.Now().UTC())
 
 	ca, ok := b.caGet(region, caARN)
 	if !ok {

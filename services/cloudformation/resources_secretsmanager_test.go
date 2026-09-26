@@ -31,7 +31,7 @@ func TestResourceCreator_Extra_SecretsManagerResourcePolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, secretPhys, policyPhys)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::SecretsManager::ResourcePolicy", policyPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::SecretsManager::ResourcePolicy", policyPhys, nil, nil))
 }
 
 // TestResourceCreator_SecretsManager_RotationSchedule_CreateDelete verifies
@@ -83,7 +83,7 @@ func TestResourceCreator_SecretsManager_RotationSchedule_CreateDelete(t *testing
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil, nil)
 			require.NoError(t, err)
 		})
 	}

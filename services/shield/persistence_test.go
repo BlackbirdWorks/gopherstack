@@ -131,7 +131,7 @@ func TestBackend_SnapshotRestoreNewFields(t *testing.T) {
 	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
 	require.NoError(t, b.AssociateDRTLogBucket("my-bucket"))
 
-	_, err := b.CreateProtectionGroup("grp-1", "MAX", "ALL", "", nil)
+	_, err := b.CreateProtectionGroup("grp-1", "MAX", "ALL", "", nil, nil)
 	require.NoError(t, err)
 
 	b.AddAttackInternal("atk-1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1")
@@ -236,7 +236,9 @@ func newFullPersistenceTestBackend(t *testing.T) (*shield.InMemoryBackend, *shie
 
 	require.NoError(t, b.EnableApplicationLayerAutomaticResponse(resourceARN, "BLOCK"))
 
-	_, err = b.CreateProtectionGroup("grp1", shield.AggregationSum, shield.PatternArbitrary, "", []string{resourceARN})
+	_, err = b.CreateProtectionGroup(
+		"grp1", shield.AggregationSum, shield.PatternArbitrary, "", []string{resourceARN}, nil,
+	)
 	require.NoError(t, err)
 
 	b.AddAttackInternal("attack1", resourceARN)
@@ -275,7 +277,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "full-protection", restored.Name)
 	assert.Equal(t, "test", restored.Tags["env"])
-	assert.Equal(t, []string{"arn:aws:route53:::healthcheck/hc1"}, restored.HealthCheckIDs)
+	assert.Equal(t, []string{"hc1"}, restored.HealthCheckIDs)
 
 	// protectionsByResourceARN index.
 	byARN, err := fresh.DescribeProtection("", p.ResourceARN)

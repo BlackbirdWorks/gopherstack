@@ -2,8 +2,8 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
-last_audit_commit: 302aa4e3c  # zeroguard: UpdateDomainConfig.AccessPolicies omitted-member fix
-last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit.
+last_audit_commit: 0c1472972  # terraform-coverage pass: VPC-domain Endpoints[] wire fix, SAML Idp nesting fix; prior: 0fea9ecf1
+last_audit_date: 2026-09-23  # prior: 2026-09-19, gopherstack-dv4s: over-wide-response List census.
                               # 5 tier-1 findings: 4 real gaps fixed (CreateApplication.KmsKeyArn,
                               # CreateDomain.AdvancedOptions, UpdateDomainConfig.AdvancedOptions,
                               # UpdateDirectQueryDataSource.DataSourceAccessPolicy); 1 already
@@ -68,7 +68,7 @@ ops:
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomains: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added cascade-cleanup of inbound/outbound connections owned by the domain (see cross_cluster_connections)"}
-  ListDomainNames: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed wire key EngineVersion->EngineType and value shape (full version string -> engine family); engineType filter param/logic was already correct"}
+  ListDomainNames: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed wire key EngineVersion->EngineType and value shape (full version string -> engine family); engineType filter param/logic was already correct. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): DomainInfo member set exact against v1.75.4, see list_summary_shapes_test.go."}
   UpdateDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key; added DryRun=true support (previously always mutated even when DryRun requested). FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (see above), since both share domainJSON for request decoding. NOT fixed (see gaps): EngineMode (a real, distinct optional UpdateDomainConfigRequest field) is entirely absent -- no established backend concept to hook it into. FIXED 2026-09-18 (reqfielddiff tier-1): AdvancedOptions was parsed nowhere; SnapshotOptions was already correctly applied via applyReqToUpdateInput (reqfielddiff false positive -- its heuristic doesn't associate domainJSON with this op's handleConfigPostRoute handler by name). Proven end-to-end via TestDomain_AdvancedOptions_RealClient (CreateDomain+UpdateDomainConfig+DescribeDomainConfig round trip)."}
   DescribeDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key. FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (domainConfigFields shares the response shape). FIXED 2026-09-18: AdvancedOptions previously hardcoded to an empty map regardless of domain state; now echoes the real persisted value."}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /2021-01-01/tags?arn=; not-found ARN returns empty TagList (no ResourceNotFoundException in SDK op docs) -- verified intentional, not a bug"}
@@ -78,6 +78,11 @@ ops:
   StartServiceSoftwareUpdate: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelServiceSoftwareUpdate: {wire: ok, errors: ok, state: ok, persist: ok}
   RollbackServiceSoftwareUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "new op this pass (SDK bump to v1.75.0). Operates on the same Domain.ServiceSoftware state Start/CancelServiceSoftwareUpdate already track rather than an invented parallel history: rolling back a PENDING_UPDATE install cancels it (identical transition to Cancel) and reports RollbackAvailable=true; with no update ever performed, or none currently pending, RollbackAvailable is honestly reported false rather than erroring, matching the response shape's documented purpose. Response field-diffed against types.RollbackServiceSoftwareOptions (CurrentVersion/NewVersion/Description/RollbackAvailable, PascalCase wire keys). Notable finding: the live AWS API reference documents ResourceNotFoundException at HTTP 409 for this op -- NOT the classic domain-family 404 CancelServiceSoftwareUpdate uses -- confirmed against the doc page directly (not derivable from the Go SDK's generated code, which carries no HTTP status metadata for exceptions) and cross-checked against 3 other newly-added ops (AttachDataSource, RegisterCapability, StartMigration) which document the identical 409 convention. Implemented as documented; flagged here since it's a real, non-obvious behavioral split within one service."}
+  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-19 (gopherstack-dv4s over-wide-response census): ApplicationSummary member set exact against v1.75.4 (id/name/arn/status/endpoint/createdAt/lastUpdatedAt), see list_summary_shapes_test.go."}
+  ListDataSourceAttachments: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-19 (gopherstack-dv4s over-wide-response census): DataSourceAttachmentSummary member set exact against v1.75.4 (attachmentId/dataSourceArn/status), see list_summary_shapes_test.go."}
+  ListMigrations: {wire: ok, errors: partial, state: ok, persist: ok, note: "2026-09-19 (gopherstack-dv4s over-wide-response census): MigrationSummary's real Error member (deserializers.go) is never emitted -- this backend's migration state machine (migrations.go) only ever transitions PENDING->IN_PROGRESS->SUCCEEDED, never a failure state, so there is genuinely nothing to report; correct-by-absence, not fabricated. Recorded in items_still_open rather than fixed since it is unsourced. See list_summary_shapes_test.go."}
+  ListVpcEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-19 (gopherstack-dv4s over-wide-response census): VpcEndpointSummary member set exact against v1.75.4 (DomainArn/Status/VpcEndpointId/VpcEndpointOwner), see list_summary_shapes_test.go."}
+  ListVpcEndpointsForDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-19 (gopherstack-dv4s over-wide-response census): same exact VpcEndpointSummary shape as ListVpcEndpoints, see list_summary_shapes_test.go."}
 families:
   cross_cluster_connections:
     status: ok
@@ -269,8 +274,58 @@ families:
       on GetDirectQueryDataSource only (GetDirectQueryDataSourceOutput has this member;
       ListDirectQueryDataSources' plain types.DirectQueryDataSource does not).
   serverless:
-    status: deferred
+    status: ok
     note: >
+      UPDATE (2026-09-19, finish-the-surface pass): implemented the 9 ops left on
+      sdk_completeness_test.go's notImplemented list by the prior same-day pass --
+      it is now empty; no opensearchserverless.Client operation remains unimplemented.
+      CreateIndex/GetIndex/UpdateIndex/DeleteIndex (collection-scoped document-plane
+      index CRUD: id+indexName+indexSchema, schema validated as a JSON object and
+      stored verbatim, own ServerlessIndex store -- a distinct resource from the
+      classic-domain DomainIndex family, which already existed and is unaffected).
+      CreateVpcEndpoint/ListVpcEndpoints/UpdateVpcEndpoint/DeleteVpcEndpoint: AOSS
+      got its own ServerlessVpcEndpoint store (serverless_vpc_endpoints.go) rather
+      than overloading the classic-domain VpcEndpoint store, which lacks the
+      Name/CreatedDate fields the real VpcEndpointDetail requires; BatchGetVpcEndpoint
+      now reads the AOSS-native store first, falling back to the classic-domain one
+      for backward compatibility. UpdateCollection updates a collection's real fields
+      (Description; DeletionProtection/VectorOptions are accepted-but-unmodeled, same
+      posture as ClientToken elsewhere). Collection-group membership is assigned via
+      CreateCollectionInput.CollectionGroupName (verified against the pinned SDK --
+      UpdateCollectionInput has NO such member, correcting the prior pass's
+      speculation that it would; membership is immutable once set) and validated
+      against a real existing group (ValidationException otherwise, since
+      CreateCollection's declared exception set has no ResourceNotFoundException);
+      CollectionGroupSummary/Detail's numberOfCollections is now a live count
+      (CountServerlessCollectionsInGroup) instead of the previous pass's honest-but-
+      static 0. CreateIndex/CreateCollection/CreateVpcEndpoint conflicts and
+      not-founds are mapped per each op's own declared exception set from
+      deserializers.go (UpdateVpcEndpoint/UpdateCollection notably declare no
+      ResourceNotFoundException at all -- an unknown Id surfaces as ValidationException
+      on both, not a 404). Eight of the nine ops (everything except UpdateCollection)
+      share their exact name with a real, already-implemented classic opensearch.Client
+      operation; see sdk_completeness_test.go's dualSurfaceOps for how both clients'
+      completeness checks account for the same advertised name. Proven via
+      handler_serverless_finish_test.go's real-SDK-client round-trip tests. Full
+      field-level audit of the pre-existing Collection/AccessPolicy/SecurityConfig/
+      SecurityPolicy families (predating this pass) is still not done -- see the
+      un-updated notes below.
+      UPDATE (2026-09-19, parity sweep gopherstack-92ft-adjacent): implemented and
+      SDK-field-diffed 5 previously-unadvertised op families -- lifecycle (retention)
+      policies (Create/Update/Delete/List/BatchGet/BatchGetEffective, real
+      optimistic-concurrency PolicyVersion conflict on Update, deterministic
+      most-specific-pattern-wins effective-policy resolution), collection groups
+      (Create/Update/Delete/List/BatchGet), GetAccountSettings/UpdateAccountSettings
+      (documented 10-OCU default, 2-1700 OCU range validation), GetPoliciesStats
+      (real per-family counts), and BatchGetVpcEndpoint (resolved against the existing
+      classic-domain VpcEndpoint store rather than a fabricated one -- gopherstack
+      models one VPC-endpoint resource, not two). 15 ops moved off
+      sdk_completeness_test.go's notImplemented list (see handler_serverless_lifecycle.go,
+      handler_serverless_collection_groups.go, handler_serverless_account.go,
+      handler_serverless_new_ops_test.go's real-SDK-client round-trip tests). Full
+      field-level audit of the pre-existing Collection/AccessPolicy/SecurityConfig/
+      SecurityPolicy families (predating this pass) is still not done -- see the
+      un-updated notes below.
       UPDATE (2026-08-23, manifest-harvest pass): started the field-level audit. One real bug
       found and fixed (DeleteCollection not-found mapped to 500 InternalServerException instead
       of the real 404 ResourceNotFoundException -- serverlessErrorTable was missing the
@@ -422,13 +477,34 @@ families:
       was needed) but never updated this earlier note. No open gap remains here; see that sweep's
       dated section below for the fix detail.
 gaps: []
-items_still_open: []
-deferred:
-  - serverless
+items_still_open:
+  - "ListMigrations' MigrationSummary.Error member (real, deserializers.go) is never emitted: this backend's migration state machine (migrations.go) only ever transitions PENDING->IN_PROGRESS->SUCCEEDED, so there is no failure state to source Error from. Correct-by-absence, not fabricated; would need a real migration-failure trigger to wire up (gopherstack-dv4s, 2026-09-19)."
+  - "UpdateCollectionInput's DeletionProtection and VectorOptions (real fields, api_op_UpdateCollection.go) are accepted but unmodeled -- ServerlessCollection tracks neither (CreateCollection doesn't set them either), so UpdateCollection only applies Description. Would need both fields added to ServerlessCollection and CreateCollection's parsing extended first (2026-09-19)."
+deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}
 ---
 
 ## Notes
+
+### 2026-09-23: terraform coverage sweep
+
+Fixed for VPC-domain/SAML coverage: VPC domains now emit `Endpoints["vpc"]`
+instead of a non-null `Endpoint`; SAML options now nest `Idp{EntityId,MetadataContent}`.
+
+### 2026-09-19: opensearchserverless Index/VpcEndpoint/UpdateCollection -- notImplemented empty
+
+Finished the last 9 ops: Index CRUD (own ServerlessIndex store), native
+VpcEndpoint CRUD (own ServerlessVpcEndpoint store, BatchGetVpcEndpoint prefers
+it over classic), UpdateCollection + live collection-group member counts.
+sdk_completeness_test.go's notImplemented is now empty for opensearchserverless.
+
+### 2026-09-19: opensearchserverless lifecycle policies, collection groups, account settings
+
+Implemented 15 real AOSS ops off notImplemented (lifecycle policies,
+collection groups, account settings, policy stats, BatchGetVpcEndpoint),
+field-diffed against opensearchserverless@v1.34.4, proven via real-SDK-client
+tests. enumcheck's 3 rows (data_sources.go:47, outbound_connections.go:48/59)
+are tool misses: real enum members reached via a converter it can't follow.
 
 ### 2026-09-18 zeroguard: UpdateDomainConfig.AccessPolicies omitted-member fix
 
@@ -1534,3 +1610,15 @@ Gates: `go build ./services/opensearch/...` and `go vet
 FAIL. No persisted-struct/snapshot-inventory change (all three fixes are
 routing/response-encoding only; the underlying domain model in `models.go`
 is untouched); no version bump.
+
+## Notes (2026-09-19 pass — gopherstack-dv4s over-wide-response census)
+
+Verified all 6 census-flagged List ops member-by-member against
+cmd/structfielddiff for opensearch@v1.75.4: ListApplications,
+ListDataSourceAttachments, ListDomainNames, ListMigrations, ListVpcEndpoints,
+ListVpcEndpointsForDomain. 5 of 6 already exact. ListMigrations is missing
+MigrationSummary.Error but the backend's migration state machine never
+produces a failure state -- correct-by-absence, recorded in
+items_still_open rather than fabricated. Locked in via
+list_summary_shapes_test.go. Gates: `go build`/`go vet`/`go test -race`
+clean, `golangci-lint run` 0 issues.

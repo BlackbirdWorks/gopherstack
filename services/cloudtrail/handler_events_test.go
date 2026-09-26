@@ -3,12 +3,44 @@ package cloudtrail_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 )
+
+// TestLookupEvents_WireHasNoEventCategory locks in that the real
+// LookupEventsOutput Event shape has no top-level EventCategory field
+// (cloudtrail@v1.58.4 types.go:283) -- it previously leaked the persisted
+// domain field straight onto the wire.
+func TestLookupEvents_WireHasNoEventCategory(t *testing.T) {
+	t.Parallel()
+
+	b := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b.RecordEvent(cloudtrail.Event{
+		EventID:     "evt-1",
+		EventName:   "RunInstances",
+		EventSource: "ec2.amazonaws.com",
+		EventTime:   time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+	})
+	h := cloudtrail.NewHandler(b)
+
+	rec := doCloudTrailOp(t, h, "LookupEvents", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseCloudTrailResp(t, rec)
+	events, ok := resp["Events"].([]any)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+
+	ev, ok := events[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, ev, "EventCategory")
+}
 
 func TestCloudTrailLookupEvents(t *testing.T) {
 	t.Parallel()

@@ -28,6 +28,7 @@ func matchesBackupPath(path string) bool {
 		pathReportJobs + "/",
 		pathScanJobs + "/",
 		pathTieringConf + "/",
+		pathBackupAccessPoint + "/",
 	}
 
 	exacts := []string{
@@ -57,6 +58,7 @@ func matchesBackupPath(path string) bool {
 		pathAuditCopyJobSummaries,
 		pathAuditRestoreJobSummaries,
 		pathAuditScanJobSummaries,
+		pathBackupAccessPoint,
 	}
 
 	if slices.Contains(exacts, path) {
@@ -147,6 +149,10 @@ func parseBackupPath(
 func parseBackupMiscPath(method, path string) backupRoute {
 	if r := parseBackupSettingsPath(method, path); r.operation != opUnknown {
 		return r
+	}
+
+	if suffix, ok := strings.CutPrefix(path, pathBackupAccessPoint); ok {
+		return parseBackupAccessPointRoute(method, suffix)
 	}
 
 	return parseBackupJobFamilyPath(method, path)
@@ -987,6 +993,65 @@ func parseRestoreTestingSubRoute(method, rest string) backupRoute {
 				}
 			}
 		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseBackupAccessPointRoute routes /backup-access-point[/create|/delete/{arn}|
+// /recovery-point/{rpArn}|/resource/{resourceArn}|/{accessPointArn}]. The ARN
+// suffixes may themselves contain slashes, so recognized literal prefixes are
+// matched first and the remainder is taken whole, the mirror image of
+// parseResourceRoute's CutSuffix approach (there the arbitrary part comes
+// first; here it comes last).
+func parseBackupAccessPointRoute(method, suffix string) backupRoute {
+	if suffix == "" {
+		if method == http.MethodGet {
+			return backupRoute{operation: opListBackupAccessPoints}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	rest := strings.TrimPrefix(suffix, "/")
+
+	if rest == "create" {
+		if method == http.MethodPut {
+			return backupRoute{operation: opCreateBackupAccessPoint}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if accessPointArn, ok := strings.CutPrefix(rest, "delete/"); ok {
+		if method == http.MethodDelete {
+			return backupRoute{operation: opDeleteBackupAccessPoint, resource: accessPointArn}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if recoveryPointArn, ok := strings.CutPrefix(rest, "recovery-point/"); ok {
+		if method == http.MethodPost {
+			return backupRoute{
+				operation: opListBackupAccessPointsByRecoveryPoint,
+				resource:  recoveryPointArn,
+			}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if resourceArn, ok := strings.CutPrefix(rest, "resource/"); ok {
+		if method == http.MethodPost {
+			return backupRoute{operation: opListBackupAccessPointsByResource, resource: resourceArn}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if method == http.MethodGet {
+		return backupRoute{operation: opDescribeBackupAccessPoint, resource: rest}
 	}
 
 	return backupRoute{operation: opUnknown}

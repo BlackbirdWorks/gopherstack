@@ -98,7 +98,7 @@ func TestDescribeDBClusterEndpoints_IdentifierVsFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newRDSHandler()
+			h := newRDSHandler(t)
 			postRDSForm(t, h, "Action=CreateDBCluster&Version=2014-10-31"+
 				"&DBClusterIdentifier=idvf-cluster&Engine=aurora-postgresql")
 			postRDSForm(t, h, "Action=CreateDBClusterEndpoint&Version=2014-10-31"+

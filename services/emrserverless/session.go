@@ -113,6 +113,7 @@ func (b *InMemoryBackend) StartSession(
 		b.sessionTokens[applicationID] = make(map[string]string)
 	}
 	b.sessions.Put(session)
+	b.touchClientToken("session", applicationID, clientToken, b.sessionTokens[applicationID], now)
 	b.sessionTokens[applicationID][clientToken] = id
 
 	return cloneSession(session), nil
@@ -120,7 +121,7 @@ func (b *InMemoryBackend) StartSession(
 
 func (b *InMemoryBackend) sessionForToken(applicationID, clientToken string) *Session {
 	sessionID := b.sessionTokens[applicationID][clientToken]
-	if sessionID == "" {
+	if sessionID == "" || !b.clientTokenFresh("session", applicationID, clientToken, time.Now()) {
 		return nil
 	}
 

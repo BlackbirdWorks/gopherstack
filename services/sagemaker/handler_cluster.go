@@ -335,8 +335,7 @@ func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	logger.Load(ctx).
-		InfoContext(ctx, "sagemaker: created cluster", "name", c.ClusterName, "arn", c.ClusterArn)
+	logger.Load(ctx).InfoContext(ctx, "sagemaker: created cluster", "name", c.ClusterName)
 
 	return json.Marshal(map[string]string{keyClusterArn: c.ClusterArn})
 }

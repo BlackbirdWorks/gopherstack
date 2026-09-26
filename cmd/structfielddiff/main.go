@@ -47,8 +47,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/cmd/internal/sdkshape"
 )
 
 // dirModuleOverride maps services/<dir> to its aws-sdk-go-v2/service module
@@ -68,29 +69,14 @@ var dirModuleOverride = map[string]string{
 	"stepfunctions":  "sfn",
 }
 
-var fieldNameRe = regexp.MustCompile(`^([A-Z]\w*)\s+(.+)$`)
-
-const requiredLine = "This member is required."
-
 // maxDepth bounds nested-struct expansion so a self-referential or deeply
 // nested SDK type (e.g. a policy document tree) can't recurse forever.
 const maxDepth = 6
 
-type sdkField struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Required bool   `json:"required"`
-}
-
-type sdkStruct struct {
-	Name   string     `json:"name"`
-	Fields []sdkField `json:"fields"`
-}
-
 type opDump struct {
-	Op     string      `json:"op"`
-	Input  []sdkStruct `json:"input"`
-	Output []sdkStruct `json:"output"`
+	Op     string               `json:"op"`
+	Input  []sdkshape.StructDef `json:"input"`
+	Output []sdkshape.StructDef `json:"output"`
 }
 
 func main() {
@@ -109,7 +95,7 @@ func main() {
 		fatal(err)
 	}
 
-	structs, opNames, err := parseModule(modPath)
+	structs, opNames, err := sdkshape.LoadModuleStructs(modPath)
 	if err != nil {
 		fatal(err)
 	}
@@ -163,7 +149,7 @@ func resolveModule(service string) (string, string, string, error) {
 
 // dumpOps expands every op in opNames (or just filterOp, when non-empty)
 // into its Input/Output field dump.
-func dumpOps(structs map[string]sdkStruct, opNames []string, filterOp string) []opDump {
+func dumpOps(structs map[string]sdkshape.StructDef, opNames []string, filterOp string) []opDump {
 	dumps := make([]opDump, 0, len(opNames))
 
 	for _, name := range opNames {
@@ -235,193 +221,11 @@ func moduleVersion(goModSrc, mod string) string {
 	return ""
 }
 
-// parseModule reads every api_op_*.go file (for op names and Input/Output
-// structs) and types/types.go (for nested structs) under modPath, returning
-// every struct found keyed by bare name, plus the sorted list of op names.
-func parseModule(modPath string) (map[string]sdkStruct, []string, error) {
-	structs := map[string]sdkStruct{}
-
-	opNames, err := collectOpFiles(modPath, structs)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	typesFile := filepath.Join(modPath, "types", "types.go")
-	if src, readErr := os.ReadFile(typesFile); readErr == nil {
-		maps.Copy(structs, parseFile(string(src)))
-	}
-
-	sort.Strings(opNames)
-
-	return structs, opNames, nil
-}
-
-func collectOpFiles(modPath string, structs map[string]sdkStruct) ([]string, error) {
-	entries, err := os.ReadDir(modPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var opNames []string
-
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasPrefix(name, "api_op_") || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-
-		opName := strings.TrimSuffix(strings.TrimPrefix(name, "api_op_"), ".go")
-		opNames = append(opNames, opName)
-
-		src, readErr := os.ReadFile(filepath.Join(modPath, name))
-		if readErr != nil {
-			continue
-		}
-
-		maps.Copy(structs, parseFile(string(src)))
-	}
-
-	return opNames, nil
-}
-
-// parseFile finds every "type X struct { ... }" in src and returns each as
-// an sdkStruct keyed by bare name X.
-func parseFile(src string) map[string]sdkStruct {
-	out := map[string]sdkStruct{}
-
-	lines := strings.Split(src, "\n")
-	typeDeclRe := regexp.MustCompile(`^type\s+(\w+)\s+struct\s*\{`)
-
-	for i := 0; i < len(lines); i++ {
-		m := typeDeclRe.FindStringSubmatch(strings.TrimSpace(lines[i]))
-		if m == nil {
-			continue
-		}
-
-		name := m[1]
-		body, end := extractBody(lines, i)
-		out[name] = sdkStruct{Name: name, Fields: fields(body)}
-		i = end
-	}
-
-	return out
-}
-
-// extractBody returns the lines making up the struct body starting at
-// declLine (brace-depth tracked, so a nested struct/map literal never
-// closes it early) and the index of the line where it closed.
-func extractBody(lines []string, declLine int) ([]string, int) {
-	depth := strings.Count(lines[declLine], "{") - strings.Count(lines[declLine], "}")
-
-	var body []string
-
-	i := declLine + 1
-
-	for ; i < len(lines) && depth > 0; i++ {
-		depth += strings.Count(lines[i], "{") - strings.Count(lines[i], "}")
-		if depth > 0 {
-			body = append(body, lines[i])
-		}
-	}
-
-	return body, i
-}
-
-// fields splits body into blank-line-separated top-level field blocks
-// (brace-depth tracked) and parses each into an sdkField.
-func fields(body []string) []sdkField {
-	var (
-		out   []sdkField
-		block []string
-		depth int
-	)
-
-	flush := func() {
-		if len(block) == 0 {
-			return
-		}
-
-		if f, ok := parseFieldBlock(block); ok {
-			out = append(out, f)
-		}
-
-		block = block[:0]
-	}
-
-	for _, line := range body {
-		if strings.TrimSpace(line) == "" && depth == 0 {
-			flush()
-
-			continue
-		}
-
-		block = append(block, line)
-		depth += strings.Count(line, "{") - strings.Count(line, "}")
-	}
-
-	flush()
-
-	return out
-}
-
-func parseFieldBlock(block []string) (sdkField, bool) {
-	required := false
-
-	var fieldLine string
-
-	for _, l := range block {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "// "+requiredLine || trimmed == "//"+requiredLine {
-			required = true
-		}
-
-		if !strings.HasPrefix(trimmed, "//") && trimmed != "" {
-			fieldLine = trimmed
-		}
-	}
-
-	if fieldLine == "" {
-		return sdkField{}, false
-	}
-
-	m := fieldNameRe.FindStringSubmatch(fieldLine)
-	if m == nil {
-		return sdkField{}, false
-	}
-
-	if m[1] == "noSmithyDocumentSerde" {
-		return sdkField{}, false
-	}
-
-	return sdkField{Name: m[1], Type: strings.TrimSpace(m[2]), Required: required}, true
-}
-
-// bareTypeName strips pointer/slice/map decoration and a "types." or
-// package-qualifier prefix, returning the identifier to look up in structs.
-func bareTypeName(t string) string {
-	t = strings.TrimPrefix(t, "*")
-	t = strings.TrimPrefix(t, "[]")
-	t = strings.TrimPrefix(t, "*")
-
-	if strings.HasPrefix(t, "map[") {
-		if idx := strings.Index(t, "]"); idx != -1 {
-			t = t[idx+1:]
-		}
-
-		t = strings.TrimPrefix(t, "*")
-	}
-
-	if idx := strings.LastIndex(t, "."); idx != -1 {
-		t = t[idx+1:]
-	}
-
-	return t
-}
-
 // expand walks def's fields, recursively expanding any field whose type
 // resolves to a known struct, cycle- and depth-guarded.
-func expand(structs map[string]sdkStruct, def sdkStruct, seen map[string]bool, depth int) []sdkStruct {
+func expand(
+	structs map[string]sdkshape.StructDef, def sdkshape.StructDef, seen map[string]bool, depth int,
+) []sdkshape.StructDef {
 	if seen[def.Name] || depth > maxDepth {
 		return nil
 	}
@@ -429,10 +233,10 @@ func expand(structs map[string]sdkStruct, def sdkStruct, seen map[string]bool, d
 	seen = cloneSeen(seen)
 	seen[def.Name] = true
 
-	result := []sdkStruct{def}
+	result := []sdkshape.StructDef{def}
 
 	for _, f := range def.Fields {
-		nested, ok := structs[bareTypeName(f.Type)]
+		nested, ok := structs[sdkshape.BareTypeName(f.Type)]
 		if !ok {
 			continue
 		}
@@ -479,7 +283,7 @@ func printText(mod, ver string, dumps []opDump) {
 	}
 }
 
-func printStructs(structs []sdkStruct) {
+func printStructs(structs []sdkshape.StructDef) {
 	if len(structs) == 0 {
 		fmt.Fprintln(os.Stdout, "  (none)")
 

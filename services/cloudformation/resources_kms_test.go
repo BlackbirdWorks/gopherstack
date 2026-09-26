@@ -46,5 +46,5 @@ func TestResourceCreator_Extra_KMSAlias(t *testing.T) {
 	assert.Contains(t, got, "alias/phase5")
 	assert.Contains(t, got, "arn:aws:kms")
 
-	require.NoError(t, rc.Delete(ctx, "AWS::KMS::Alias", aliasPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::KMS::Alias", aliasPhys, nil, nil))
 }

@@ -3,6 +3,7 @@ package cloudfront
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -52,14 +53,15 @@ func (b *InMemoryBackend) CreateCachePolicy(
 
 	id := generateID()
 	policy := &CachePolicy{
-		ID:         id,
-		ETag:       uuid.NewString(),
-		Name:       name,
-		Comment:    comment,
-		DefaultTTL: defaultTTL,
-		MaxTTL:     maxTTL,
-		MinTTL:     minTTL,
-		Params:     p,
+		ID:               id,
+		ETag:             uuid.NewString(),
+		Name:             name,
+		Comment:          comment,
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
+		DefaultTTL:       defaultTTL,
+		MaxTTL:           maxTTL,
+		MinTTL:           minTTL,
+		Params:           p,
 	}
 	b.cachePolicies.Put(policy)
 	b.cachePolicyByName[name] = id
@@ -159,6 +161,7 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 	p.MaxTTL = maxTTL
 	p.MinTTL = minTTL
 	p.ETag = uuid.NewString()
+	p.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	if len(params) > 0 {
 		p.Params = params[0]
 	}

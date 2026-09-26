@@ -23,6 +23,7 @@ func TestBatchGetSecretValue_MaxResultsTooHigh(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	mr := int32(21)
 	_, err := b.BatchGetSecretValue(context.Background(), &secretsmanager.BatchGetSecretValueInput{MaxResults: &mr})
 	require.ErrorIs(t, err, secretsmanager.ErrInvalidParameter, "BatchGetSecretValue MaxResults>20 must fail")
@@ -32,6 +33,7 @@ func TestBatchGetSecretValue_MaxResultsHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 
 	rec := doR1Request(t, h, "secretsmanager.BatchGetSecretValue", `{"MaxResults":25}`)
@@ -42,6 +44,7 @@ func TestBatchGetSecretValue_ByIDList(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	for _, name := range []string{"bg-s1", "bg-s2"} {
 		_, err := b.CreateSecret(
 			context.Background(),
@@ -62,6 +65,7 @@ func TestBatchGetSecretValue_MissingInErrors(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "bg-good", SecretString: "v"},
@@ -81,6 +85,7 @@ func TestBatchGetSecretValue_ByFilter(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "bg-filter-match",
 		SecretString: "v",
@@ -200,6 +205,7 @@ func TestBatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			tt.setup(t, b)
 
 			out, err := b.BatchGetSecretValue(context.Background(), tt.inputFn())
@@ -266,6 +272,7 @@ func TestBatchGetSecretValue_SecretIDListTooLong(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			_, err := b.BatchGetSecretValue(
 				context.Background(),
 				&secretsmanager.BatchGetSecretValueInput{SecretIDList: tt.ids},
@@ -319,6 +326,7 @@ func TestBatchGetSecretValue_SecretIDListTooLong_HTTP(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(b.StopRotationScheduler)
 			h := secretsmanager.NewHandler(b)
 
 			rec := doR1Request(t, h, "secretsmanager.BatchGetSecretValue", tt.body)
@@ -342,7 +350,7 @@ func TestBatchGetSecretValue_SecretIDListTooLong_HTTP(t *testing.T) {
 func TestBatchGetSecretValue_SecretIdListAndFiltersRejected(t *testing.T) {
 	t.Parallel()
 
-	h := newSMHandler()
+	h := newSMHandler(t)
 
 	rec := doSMRequest(t, h, "secretsmanager.BatchGetSecretValue",
 		`{"SecretIdList":["s1"],"Filters":[{"Key":"name","Values":["s"]}]}`)
@@ -360,6 +368,7 @@ func TestBatchGetSecretValue_FilterUsesPrefix(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	h := secretsmanager.NewHandler(b)
 	ctx := context.Background()
 
@@ -480,6 +489,7 @@ func TestBatchGetSecretValue_HTTP(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
+			t.Cleanup(backend.StopRotationScheduler)
 			if tt.setup != nil {
 				tt.setup(t, backend)
 			}
@@ -507,6 +517,7 @@ func TestBatchGetSecretValue_DeletedSecretInIDList(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(
 		context.Background(),
 		&secretsmanager.CreateSecretInput{Name: "del-batch", SecretString: "v"},
@@ -533,6 +544,7 @@ func TestBatchGetSecretValue_FilterTagKey(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "batch-tag",
 		SecretString: "v",
@@ -558,6 +570,7 @@ func TestBatchGetSecretValue_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
+	t.Cleanup(b.StopRotationScheduler)
 
 	for i := range 5 {
 		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{

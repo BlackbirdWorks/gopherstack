@@ -13,8 +13,10 @@ type PutComplianceItemsOutput struct{}
 // PutInventoryOutput is the response for PutInventory.
 type PutInventoryOutput struct{}
 type complianceTally struct {
-	compliantCount    int
-	nonCompliantCount int
+	compliantSeverity    SeveritySummary
+	nonCompliantSeverity SeveritySummary
+	compliantCount       int
+	nonCompliantCount    int
 }
 type InventoryItem struct {
 	Context       map[string]string   `json:"Context,omitempty"`
@@ -171,10 +173,24 @@ type ListComplianceSummariesOutput struct {
 	ComplianceSummaryItems []any  `json:"ComplianceSummaryItems"`
 }
 
-// ComplianceCountSummary holds compliant or non-compliant item counts.
+// ComplianceCountSummary holds compliant or non-compliant item counts, plus
+// their per-severity breakdown (types.SeveritySummary, a real member of both
+// types.CompliantSummary and types.NonCompliantSummary).
 type ComplianceCountSummary struct {
-	CompliantCount    int `json:"CompliantCount,omitempty"`
-	NonCompliantCount int `json:"NonCompliantCount,omitempty"`
+	SeveritySummary   *SeveritySummary `json:"SeveritySummary,omitempty"`
+	CompliantCount    int              `json:"CompliantCount,omitempty"`
+	NonCompliantCount int              `json:"NonCompliantCount,omitempty"`
+}
+
+// SeveritySummary tallies items by ComplianceSeverity, field-diffed against
+// types.SeveritySummary.
+type SeveritySummary struct {
+	CriticalCount      int `json:"CriticalCount,omitempty"`
+	HighCount          int `json:"HighCount,omitempty"`
+	MediumCount        int `json:"MediumCount,omitempty"`
+	LowCount           int `json:"LowCount,omitempty"`
+	InformationalCount int `json:"InformationalCount,omitempty"`
+	UnspecifiedCount   int `json:"UnspecifiedCount,omitempty"`
 }
 
 // ComplianceSummaryItem represents a rolled-up compliance summary by type.

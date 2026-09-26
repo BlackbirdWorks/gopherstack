@@ -316,7 +316,7 @@ func (b *InMemoryBackend) cachedEventForToken(clientToken, fingerprint string) (
 	}
 
 	entry, ok := b.clientTokens[clientToken]
-	if !ok {
+	if !ok || time.Since(entry.CreatedAt) >= clientTokenTTL {
 		return nil, false, nil
 	}
 
@@ -340,7 +340,22 @@ func (b *InMemoryBackend) rememberClientToken(clientToken, requestToken, fingerp
 		return
 	}
 
-	b.clientTokens[clientToken] = clientTokenEntry{RequestToken: requestToken, Fingerprint: fingerprint}
+	now := time.Now()
+	b.sweepClientTokensLocked(now)
+
+	b.clientTokens[clientToken] = clientTokenEntry{RequestToken: requestToken, Fingerprint: fingerprint, CreatedAt: now}
+}
+
+// sweepClientTokensLocked deletes clientTokens entries past clientTokenTTL so the map
+// does not grow unbounded across a long-running backend. cachedEventForToken already
+// treats an expired entry as absent; this just reclaims its memory. Callers must hold
+// b.mu (write) already.
+func (b *InMemoryBackend) sweepClientTokensLocked(now time.Time) {
+	for k, e := range b.clientTokens {
+		if now.Sub(e.CreatedAt) >= clientTokenTTL {
+			delete(b.clientTokens, k)
+		}
+	}
 }
 
 // copyResource returns a shallow copy of a Resource so callers cannot mutate backend state.

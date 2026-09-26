@@ -36,6 +36,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			ctx := context.Background()
 
 			src := elbv2.NewInMemoryBackend("123456789012", config.DefaultRegion)
+			t.Cleanup(src.Close)
 			defer src.Close()
 
 			lb, err := src.CreateLoadBalancer(elbv2.CreateLoadBalancerInput{
@@ -92,6 +93,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			require.NotNil(t, data)
 
 			dst := elbv2.NewInMemoryBackend("123456789012", config.DefaultRegion)
+			t.Cleanup(dst.Close)
 			defer dst.Close()
 
 			require.NoError(t, dst.Restore(ctx, data))

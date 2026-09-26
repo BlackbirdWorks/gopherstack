@@ -90,12 +90,17 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 // Lustre file systems. The terraform-provider-aws Read path treats a nil
 // LustreConfiguration as an empty result, so a Lustre file system must echo
 // this back even when the create request sent no LustreConfiguration.
+// DataRepositoryConfiguration.Lifecycle is a real, required-by-observation
+// field even with no linked S3 repository (fsx@v1.68.4 types.go:1858);
+// DataRepositoryLifecycle has no "no repository" member, so AVAILABLE (the
+// steady-state member) is the closest accurate value -- not the fabricated
+// "DISABLED" this used to send.
 func (s *storedFileSystem) toLustreConfiguration() *LustreConfiguration {
 	return &LustreConfiguration{
 		DeploymentType: s.DeploymentType,
 		MountName:      s.MountName,
 		DataRepositoryConfiguration: &DataRepositoryConfiguration{
-			Lifecycle: dataRepositoryLifecycleDisabled,
+			Lifecycle: lifecycleAvailable,
 		},
 	}
 }
@@ -407,8 +412,25 @@ func applyFileSystemTypeConfig(fs *storedFileSystem, input *createFileSystemInpu
 // persistence.go) instead of silently encoding as "{}" the way an
 // unexported-field struct would.
 type fsCreateTokenEntry struct {
-	Fingerprint  string `json:"fingerprint"`
-	FileSystemID string `json:"fileSystemId"`
+	CreatedAt    time.Time `json:"createdAt,omitzero"`
+	Fingerprint  string    `json:"fingerprint"`
+	FileSystemID string    `json:"fileSystemId"`
+}
+
+// createFileSystemTokenTTL bounds how long a ClientRequestToken is remembered for
+// CreateFileSystem's idempotent replay. AWS's docs don't state an explicit retention
+// window, so this uses the repo's default for undocumented idempotency windows.
+const createFileSystemTokenTTL = 24 * time.Hour
+
+// sweepCreateFileSystemTokensLocked deletes createFileSystemTokens entries past
+// createFileSystemTokenTTL so the map does not grow unbounded across a long-running
+// backend. Caller must hold b.mu (write).
+func (b *InMemoryBackend) sweepCreateFileSystemTokensLocked(now time.Time) {
+	for k, e := range b.createFileSystemTokens {
+		if now.Sub(e.CreatedAt) >= createFileSystemTokenTTL {
+			delete(b.createFileSystemTokens, k)
+		}
+	}
 }
 
 // fingerprintCreateFileSystemInput returns a canonical encoding of the
@@ -438,7 +460,7 @@ func fingerprintCreateFileSystemInput(input *createFileSystemInput) (string, err
 // error) rather than proceeding to create a new file system.
 func (b *InMemoryBackend) dedupCreateFileSystemLocked(token, fingerprint string) (*FileSystem, bool, error) {
 	entry, ok := b.createFileSystemTokens[token]
-	if !ok {
+	if !ok || time.Since(entry.CreatedAt) >= createFileSystemTokenTTL {
 		return nil, false, nil
 	}
 
@@ -549,9 +571,12 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 	b.tags[arn] = tags
 
 	if input.ClientRequestToken != "" {
+		b.sweepCreateFileSystemTokensLocked(now)
+
 		b.createFileSystemTokens[input.ClientRequestToken] = fsCreateTokenEntry{
 			Fingerprint:  fingerprint,
 			FileSystemID: fs.FileSystemID,
+			CreatedAt:    now,
 		}
 	}
 
@@ -579,7 +604,13 @@ func newFSxBackupID() string                 { return "backup-" + newFSXHexUUID(
 func newDataRepositoryTaskID() string        { return "task-" + newFSXHexUUID(fsxIDHexLen) }
 func newFileCacheID() string                 { return "fc-" + newFSXHexUUID(fsxIDHexLen) }
 
-const fsxVolumeIDHexLen = 16
+// fsxVolumeIDHexLen must produce a 23-character "fsvol-..." ID: the
+// hashicorp/aws provider's aws_fsx_openzfs_volume.parent_volume_id and
+// aws_fsx_openzfs_snapshot.volume_id both client-side validate their input
+// against ValidateFunc(stringLenBetween(23, 23)) before ever sending a
+// request, so a shorter ID here fails in the provider, not against this
+// emulator's wire.
+const fsxVolumeIDHexLen = 17
 
 func newFSxVolumeID() string { return "fsvol-" + newFSXHexUUID(fsxVolumeIDHexLen) }
 

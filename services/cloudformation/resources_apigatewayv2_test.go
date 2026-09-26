@@ -44,11 +44,106 @@ func TestResourceCreator_Extra_APIGatewayV2Children(t *testing.T) {
 	require.Len(t, routes, 1)
 	assert.Equal(t, "GET /items", routes[0].RouteKey)
 
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Route", routePhys, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Integration", intPhys, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Authorizer", authPhys, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Route", routePhys, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Integration", intPhys, nil, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Authorizer", authPhys, nil, nil))
 
 	routes, err = apigw.GetRoutes(apiID)
 	require.NoError(t, err)
 	assert.Empty(t, routes)
+}
+
+// TestDeleteStack_APIGatewayV2ChildAlreadyDeleted reproduces the CI failure on
+// the apigatewayv2 terraform fixture: a child resource (Integration, Route or
+// Stage) deleted directly through its own service before DeleteStack runs
+// must not fail the stack delete with the underlying NotFoundException. Real
+// CloudFormation treats an already-gone resource as DELETE_COMPLETE.
+func TestDeleteStack_APIGatewayV2ChildAlreadyDeleted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		deleteDirect func(t *testing.T, apigw *apigatewayv2backend.InMemoryBackend, apiID string)
+		name         string
+		resourceType string
+	}{
+		{
+			name:         "integration",
+			resourceType: "AWS::ApiGatewayV2::Integration",
+			deleteDirect: func(t *testing.T, apigw *apigatewayv2backend.InMemoryBackend, apiID string) {
+				t.Helper()
+				integs, err := apigw.GetIntegrations(apiID)
+				require.NoError(t, err)
+				require.Len(t, integs, 1)
+				require.NoError(t, apigw.DeleteIntegration(apiID, integs[0].IntegrationID))
+			},
+		},
+		{
+			name:         "route",
+			resourceType: "AWS::ApiGatewayV2::Route",
+			deleteDirect: func(t *testing.T, apigw *apigatewayv2backend.InMemoryBackend, apiID string) {
+				t.Helper()
+				routes, err := apigw.GetRoutes(apiID)
+				require.NoError(t, err)
+				require.Len(t, routes, 1)
+				require.NoError(t, apigw.DeleteRoute(apiID, routes[0].RouteID))
+			},
+		},
+		{
+			name:         "stage",
+			resourceType: "AWS::ApiGatewayV2::Stage",
+			deleteDirect: func(t *testing.T, apigw *apigatewayv2backend.InMemoryBackend, apiID string) {
+				t.Helper()
+				require.NoError(t, apigw.DeleteStage(apiID, "prod"))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backends := newDependentServiceBackends(t)
+			apigw, ok := backends.APIGatewayV2.Backend.(*apigatewayv2backend.InMemoryBackend)
+			require.True(t, ok)
+
+			b := cloudformation.NewInMemoryBackendWithConfig(
+				"000000000000", "us-east-1", cloudformation.NewResourceCreator(backends),
+			)
+
+			tmpl := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+				`"MyApi":{"Type":"AWS::ApiGatewayV2::Api","Properties":{"Name":"stackapi","ProtocolType":"HTTP"}},` +
+				`"MyChild":{"Type":"` + tc.resourceType + `","DependsOn":"MyApi","Properties":{` +
+				apiGatewayV2ChildProperties(tc.resourceType) + `}}}}`
+
+			stack, err := b.CreateStack(t.Context(), "apigwv2-stack", tmpl, nil, cloudformation.StackOptions{})
+			require.NoError(t, err)
+			require.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
+
+			apiRes, err := b.DescribeStackResource("apigwv2-stack", "MyApi")
+			require.NoError(t, err)
+			apiID := apiRes.PhysicalID
+
+			tc.deleteDirect(t, apigw, apiID)
+
+			require.NoError(t, b.DeleteStack(t.Context(), "apigwv2-stack"))
+
+			final, err := b.DescribeStack("apigwv2-stack")
+			require.NoError(t, err)
+			assert.Equal(t, "DELETE_COMPLETE", final.StackStatus)
+			assert.Empty(t, final.StackStatusReason)
+		})
+	}
+}
+
+// apiGatewayV2ChildProperties returns the CFN Properties JSON body for the
+// given APIGatewayV2 child resource type, referencing "MyApi" as its parent.
+func apiGatewayV2ChildProperties(resourceType string) string {
+	switch resourceType {
+	case "AWS::ApiGatewayV2::Integration":
+		return `"ApiId":{"Ref":"MyApi"},"IntegrationType":"HTTP_PROXY","IntegrationUri":"https://example.com"`
+	case "AWS::ApiGatewayV2::Route":
+		return `"ApiId":{"Ref":"MyApi"},"RouteKey":"GET /items"`
+	default: // AWS::ApiGatewayV2::Stage
+		return `"ApiId":{"Ref":"MyApi"},"StageName":"prod"`
+	}
 }

@@ -57,6 +57,7 @@ func newRealClientBackendAndClient(
 	t.Helper()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
 
 	return backend, client

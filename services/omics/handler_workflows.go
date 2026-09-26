@@ -96,7 +96,14 @@ func (h *Handler) handleListWorkflows(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyItems: workflows, keyNextToken: next})
+	// Real ListWorkflowsOutput's element (WorkflowListItem) is narrower than
+	// GetWorkflowOutput -- see WorkflowSummary's doc comment.
+	summaries := make([]WorkflowSummary, 0, len(workflows))
+	for _, wf := range workflows {
+		summaries = append(summaries, newWorkflowSummary(wf))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyItems: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
@@ -188,7 +195,15 @@ func (h *Handler) handleListWorkflowVersions(c *echo.Context, workflowID string)
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyItems: versions, keyNextToken: next})
+	// Real ListWorkflowVersionsOutput's element (WorkflowVersionListItem) is
+	// narrower than GetWorkflowVersionOutput -- see WorkflowVersionSummary's
+	// doc comment.
+	summaries := make([]WorkflowVersionSummary, 0, len(versions))
+	for _, wv := range versions {
+		summaries = append(summaries, newWorkflowVersionSummary(wv))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyItems: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateWorkflowVersion(

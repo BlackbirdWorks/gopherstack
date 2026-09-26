@@ -156,7 +156,18 @@ func (h *Handler) handleListFindingsFilters(query string) (any, int) {
 	limit, _ := strconv.Atoi(q.Get("maxResults"))
 	filters, nextToken, _ := h.Backend.ListFindingsFilters(limit, q.Get("nextToken"))
 
-	resp := map[string]any{"findingsFilterListItems": filters}
+	items := make([]FindingsFilterListItem, len(filters))
+	for i, f := range filters {
+		items[i] = FindingsFilterListItem{
+			Action: f.Action,
+			Arn:    f.Arn,
+			ID:     f.ID,
+			Name:   f.Name,
+			Tags:   f.Tags,
+		}
+	}
+
+	resp := map[string]any{"findingsFilterListItems": items}
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}

@@ -19,7 +19,7 @@ import (
 func TestTagResourceFamily_SDKRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	client := newTestRDSClient(t, newTestRDSHandler())
+	client := newTestRDSClient(t, newTestRDSHandler(t))
 
 	out, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String("tagfamily-db"),

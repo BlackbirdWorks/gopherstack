@@ -1,8 +1,8 @@
 ---
 service: sns
 sdk_module: aws-sdk-go-v2/service/sns@v1.46.0
-last_audit_commit: b1905140e
-last_audit_date: 2026-09-18
+last_audit_commit: a72029cb1  # 2026-09-24 replayMessagesToSubscription deliveryWg tracking fix (bd 1x2u0)
+last_audit_date: 2026-09-24
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -55,10 +55,20 @@ items_still_open:
 deferred:
   - "PutDataProtectionPolicy: the policy statement grammar (DataIdentifier ARNs, Operation/Audit/De-identify/Deny shapes, Principal formats) is not validated — only the top-level document shape (JSON object, <=30,720 chars, Name/Version/Statement present). Amazon SNS message data protection is also no longer available to new customers as of 2026-04-30 per docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-availability-change.html (existing customers may continue using it); implementing the full grammar is disproportionate feature work for a frozen/legacy feature and was explicitly out of scope this pass (bd gopherstack-4wtz)."
   - "Cross-service integration (test/integration/*_parity_test.go) was not run this pass — see parity-principles.md note that unit tests are not parity proof; recommend running the SDK-driven integration suite in a follow-up"
-leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never persisted (Snapshot/Restore) and was never cleaned up on DeleteTopic (both leak + ARN-reuse resurrection bug); (2) smsDeliveries/emailDeliveries/applicationDeliveries observability buffers had no cap and grew unboundedly under sustained publish traffic without a Drain* call — added appendBounded with maxRecordedDeliveries=100k; (3) notificationSigner.certURL was read/written without synchronization (SetSigningCertBaseURL vs concurrent delivery reads) — added a dedicated RWMutex. HTTP delivery goroutines already had proper ctx-cancel + semaphore + deliveryWg cleanup (unchanged, verified correct). 2026-09-03 (gopherstack-0k0): found and fixed a genuine unsynchronized data race, same class as (3) above but in three call sites (3) missed — see Notes."}
+leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never persisted (Snapshot/Restore) and was never cleaned up on DeleteTopic (both leak + ARN-reuse resurrection bug); (2) smsDeliveries/emailDeliveries/applicationDeliveries observability buffers had no cap and grew unboundedly under sustained publish traffic without a Drain* call — added appendBounded with maxRecordedDeliveries=100k; (3) notificationSigner.certURL was read/written without synchronization (SetSigningCertBaseURL vs concurrent delivery reads) — added a dedicated RWMutex. HTTP delivery goroutines already had proper ctx-cancel + semaphore + deliveryWg cleanup (unchanged, verified correct). 2026-09-03 (gopherstack-0k0): found and fixed a genuine unsynchronized data race, same class as (3) above but in three call sites (3) missed — see Notes. FIXED (2026-09-24, bd 1x2u0): SetSubscriptionAttributes' ReplayPolicy replay was launched via a bare `go b.replayMessagesToSubscription(...)`, untracked by deliveryWg, so Shutdown/WaitDeliveries returned without waiting for an in-flight replay — a real race/leak class, same shape as the HTTP delivery goroutines but missing the deliveryWg.Go(...) wiring those already had. Now tracked the same way (also gated on !b.closing.Load(), matching dispatchHTTPDeliveries' pattern so no new work is scheduled once shutdown has begun). TestReplayMessagesToSubscription_TrackedByDeliveryWaitGroup (replay_shutdown_test.go) uses a blocking LambdaInvoker double to prove WaitDeliveries now blocks until the in-flight replay delivery completes (confirmed to fail pre-fix: WaitDeliveries returned while the replay was still blocked in InvokeFunction); TestMain's existing goleak verification (leak_main_test.go) covers the leak angle for every sns test including this one."}
 ---
 
 ## Notes
+
+## 2026-09-19 PGO perf sweep (pgoload cpu.pprof)
+
+handlePublish's cost is ~96% RSA sign in buildPublishedEvent, already called
+once per Publish (not per subscription); per-subscription filter policies
+are already parsed once at Subscribe time. No safe change found; added
+benchmark + golden coverage as a baseline. Noted but not fixed (unexercised
+by pgoload, no HTTP subscriptions): `buildHTTPDeliveryPayload`
+(delivery.go) re-signs per HTTP subscriber with its own timestamp instead
+of reusing one signed envelope per publish.
 
 ## 2026-09-18 audit (gopherstack-xhu2t reqfielddiff tier-1 sweep)
 
@@ -763,3 +773,17 @@ still returns the placeholder too until `ConfirmSubscription` supplies the
 real ARN. Gates: `go build ./...` (whole module), `go vet`, `go test -race
 -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No
 persisted struct fields changed; no version bump.
+
+## 2026-09-24: PGO perf sweep -- HTTP/HTTPS delivery signed once per publish
+
+`buildHTTPDeliveryPayload` re-signed with a fresh `time.Now()` timestamp per
+HTTP/HTTPS subscriber; now Publish signs each distinct body once and shares
+that Timestamp/Signature across subscribers, matching real SNS.
+
+## 2026-09-19: goroutine-leak sweep (gopherstack parity-sweep)
+
+`fifoDeduplication.startPeriodicSweep` ran a background goroutine per
+`Handler` that never stopped in tests (only `Shutdown` stopped it, and most
+tests never call it), leaking one goroutine per test. Replaced with a lazy
+sweep triggered from `isDuplicate`/`record`; added `leak_main_test.go`
+(goleak TestMain), now clean.

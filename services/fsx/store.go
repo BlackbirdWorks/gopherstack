@@ -1,12 +1,20 @@
 package fsx
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
-	lifecycleAvailable      = "AVAILABLE"
+	lifecycleAvailable = "AVAILABLE"
+	// svmLifecycleCreated is the real terminal lifecycle value for a storage
+	// virtual machine (types.StorageVirtualMachineLifecycle, fsx@v1.68.4
+	// types/enums.go). SVMs never reach "AVAILABLE" -- that's the file-system
+	// lifecycle enum; the AWS provider's SVM create waiter targets
+	// CREATED/MISCONFIGURED and errors on any other terminal value.
+	svmLifecycleCreated     = "CREATED"
 	lifecycleDeleting       = "DELETING"
 	lifecycleDeleted        = "DELETED"
 	backupTypeUserInitiated = "USER_INITIATED"
@@ -14,14 +22,13 @@ const (
 	// sharedVpcDisabled is the default/reset value of sharedVpcEnabled.
 	sharedVpcDisabled = "false"
 
-	fileSystemTypeLustre            = "LUSTRE"
-	fileSystemTypeWindows           = "WINDOWS"
-	fileSystemTypeONTAP             = "ONTAP"
-	fileSystemTypeOpenZFS           = "OPENZFS"
-	dataRepositoryLifecycleDisabled = "DISABLED"
-	lustreDeploymentTypeScratch1    = "SCRATCH_1"
-	windowsDeploymentTypeSingleAZ1  = "SINGLE_AZ_1"
-	lustreMountNameLen              = 8
+	fileSystemTypeLustre           = "LUSTRE"
+	fileSystemTypeWindows          = "WINDOWS"
+	fileSystemTypeONTAP            = "ONTAP"
+	fileSystemTypeOpenZFS          = "OPENZFS"
+	lustreDeploymentTypeScratch1   = "SCRATCH_1"
+	windowsDeploymentTypeSingleAZ1 = "SINGLE_AZ_1"
+	lustreMountNameLen             = 8
 
 	// defaultAutomaticBackupRetentionDays is the real-AWS default backup
 	// retention for Windows/ONTAP/OpenZFS file systems when the create
@@ -32,6 +39,9 @@ const (
 	// openZFSRootVolumeName is the fixed name AWS assigns to the
 	// auto-created root volume of every FSx for OpenZFS file system.
 	openZFSRootVolumeName = "fsx"
+	// openZFSDefaultRecordSizeKiB is real AWS's documented default record
+	// size (KiB) for an OpenZFS volume with no RecordSizeKiB override.
+	openZFSDefaultRecordSizeKiB = 128
 	// defaultNetworkType is CreateFileSystemInput.NetworkType's documented
 	// omission default: "The default is IPV4." (api_op_CreateFileSystem.go).
 	defaultNetworkType = "IPV4"
@@ -59,6 +69,21 @@ const (
 	s3APTypeOpenZFS = "OPENZFS"
 
 	s3AccessPointAliasHexLen = 16
+
+	// DataRepositoryTaskLifecycle values (types/enums.go).
+	drtLifecycleExecuting = "EXECUTING"
+	drtLifecycleSucceeded = "SUCCEEDED"
+	drtLifecycleCanceling = "CANCELING"
+	drtLifecycleCanceled  = "CANCELED"
+
+	// dataRepositoryTaskCompletionDelay is the modeled duration a
+	// DataRepositoryTask spends EXECUTING before this backend settles it at
+	// SUCCEEDED. Real completion time depends on data volume/throughput
+	// this emulator has no engine to simulate; a short fixed delay reaches
+	// a terminal state deterministically instead of leaving the task
+	// EXECUTING forever, matching the lazy-sweep pattern already used by
+	// services/glue/reconciler.go and services/swf/timeout_sweep.go.
+	dataRepositoryTaskCompletionDelay = 2 * time.Second
 )
 
 // InMemoryBackend implements StorageBackend using in-memory maps.

@@ -1,8 +1,107 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 514ddad6                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 26)
-last_audit_date: 2026-07-23
+last_audit_commit: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
+                               # Blueprint/CustomEntityType/Workflow (3 types);
+                               # DataSync Agent/LocationS3/Task (3 types);
+                               # Transfer Profile/Workflow (2 types); AppConfig
+                               # Application/Environment/ConfigurationProfile/
+                               # DeploymentStrategy (4 types); Macie
+                               # AllowList/FindingsFilter (2 types); GuardDuty
+                               # Detector/IPSet (2 types); AccessAnalyzer
+                               # Analyzer/ArchiveRule (2 types); Amplify
+                               # App/Branch (2 types); Batch
+                               # SchedulingPolicy/ServiceEnvironment (2 types);
+                               # EFS AccessPoint (1 type); Redshift
+                               # ClusterParameterGroup/ClusterSubnetGroup (2
+                               # types) (380 -> 405 supported types); DataSync,
+                               # AppConfig, Macie2, AccessAnalyzer newly wired
+                               # into the CloudFormation backend (cli.go
+                               # gained datasyncHandler/macie2Handler/
+                               # accessanalyzerHandler fields + getters --
+                               # FSx was NOT wired: every FSx InMemoryBackend
+                               # Create* method takes an unexported input
+                               # struct pointer, uncallable from outside the
+                               # fsx package, so AWS::FSx::FileSystem/Backup
+                               # were skipped rather than stubbed; GuardDuty/
+                               # Amplify/AppConfig already had cli.go getters,
+                               # just needed BackendsProvider/ServiceBackends
+                               # wiring); cfn_attributes_gen.go regenerated
+                               # (cmd/cfnattrgen) -- most new attribute names
+                               # (Id, Status, ApplicationId, AppId, ...) were
+                               # excluded by its goconst-safety rule (already
+                               # common literals elsewhere in the package),
+                               # which is documented conservative behavior,
+                               # not a regression: an excluded attribute falls
+                               # back to pre-existing permissive resolution
+                               # rather than being wrongly rejected;
+                               # prior: 43e38e92b  # 2026-09-24 24 new resource types added: Lambda
+                               # CodeSigningConfig; Events Endpoint; Scheduler
+                               # ScheduleGroup; AppSync DomainName/GraphQLSchema/
+                               # ChannelNamespace (3 types); Route53Resolver
+                               # ResolverRuleAssociation/FirewallDomainList/
+                               # FirewallRuleGroup/FirewallRuleGroupAssociation/
+                               # ResolverQueryLoggingConfig/
+                               # ResolverQueryLoggingConfigAssociation/
+                               # OutpostResolver (7 types); CloudTrail
+                               # EventDataStore/Channel (2 types); Logs
+                               # Delivery/DeliveryDestination/DeliverySource/
+                               # Integration/LogAnomalyDetector/ScheduledQuery
+                               # (6 types); CodeArtifact Domain/Repository/
+                               # PackageGroup (3 types, new family -- CodeArtifact
+                               # newly wired into the CloudFormation backend,
+                               # CodeArtifact field added to ServiceBackends;
+                               # GetCodeArtifactHandler already existed on
+                               # BackendsProvider/cli.go, so no cli.go change
+                               # was needed) (356 -> 380 supported types);
+                               # prior: 390f9687e  # 2026-09-24 20 new resource types added: SageMaker Model/
+                               # EndpointConfig/Endpoint/NotebookInstance/
+                               # NotebookInstanceLifecycleConfig/CodeRepository/Domain/
+                               # Pipeline/ModelPackageGroup/FeatureGroup/Project/Workteam/
+                               # Image/ImageVersion (14 types); Athena WorkGroup/DataCatalog/
+                               # NamedQuery/PreparedStatement/CapacityReservation (5 types);
+                               # WAFv2 WebACLAssociation (1 type) (319 -> 339 supported
+                               # types); SageMaker and Athena newly wired into the
+                               # CloudFormation backend (GetSageMakerHandler/GetAthenaHandler
+                               # added to BackendsProvider/ServiceBackends -- cli.go already
+                               # implemented both methods for the generic backend registry,
+                               # so no cli.go change was needed); prior: 0af53d7f0  # 2026-09-24 28 new resource types added: IAM GroupPolicy/
+                               # RolePolicy/UserPolicy/ServerCertificate, ECR
+                               # PullThroughCacheRule/RegistryPolicy/RepositoryCreationTemplate,
+                               # ElastiCache ParameterGroup/SecurityGroup/GlobalReplicationGroup/
+                               # UserGroup, Neptune DBSubnetGroup/DBClusterParameterGroup/
+                               # DBParameterGroup/GlobalCluster, DocDB DBSubnetGroup/
+                               # DBClusterParameterGroup/GlobalCluster, Backup Framework/
+                               # ReportPlan, Glue Classifier/Registry/Schema/
+                               # SecurityConfiguration/DevEndpoint, CodeBuild ReportGroup,
+                               # Kinesis ResourcePolicy, Lambda ResourcePolicy (291 -> 319
+                               # supported types); prior: 1ba59adde  # 2026-09-24 25 new resource types added: IoT ThingType/
+                               # ThingGroup/Policy/TopicRuleDestination/RoleAlias/Certificate/
+                               # ProvisioningTemplate/Authorizer/DomainConfiguration/
+                               # JobTemplate/Dimension/SecurityProfile/CustomMetric/
+                               # FleetMetric/BillingGroup/MitigationAction/ScheduledAudit
+                               # (17 types); AWS::Config newly wired into the CloudFormation
+                               # backend (ConfigRule/ConfigurationRecorder/DeliveryChannel/
+                               # ConfigurationAggregator/AggregationAuthorization/
+                               # ConformancePack/RemediationConfiguration/StoredQuery, 8
+                               # types) (266 -> 291 supported types); prior: e74172daa  # 2026-09-24 25 new resource types added: RDS OptionGroup/
+                               # EventSubscription/GlobalCluster/DBProxyEndpoint, Cognito
+                               # UserPoolResourceServer/UserPoolIdentityProvider, SSM
+                               # MaintenanceWindowTarget/MaintenanceWindowTask/PatchBaseline/
+                               # ResourceDataSync/ResourcePolicy, CloudWatch MetricStream/
+                               # AnomalyDetector/InsightRule, ApiGateway VpcLink/
+                               # ClientCertificate/DocumentationPart/DocumentationVersion,
+                               # CloudFront OriginRequestPolicy/KeyGroup/PublicKey/
+                               # CloudFrontOriginAccessIdentity/RealtimeLogConfig/
+                               # KeyValueStore/ContinuousDeploymentPolicy (241 -> 266
+                               # supported types); prior: 6279d75f6  # 2026-09-24 13 new
+                               # resource types added (EKS FargateProfile/
+                               # Addon/AccessEntry/PodIdentityAssociation/IdentityProviderConfig,
+                               # StepFunctions StateMachineVersion/StateMachineAlias, Kinesis
+                               # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
+                               # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
+                               # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
+last_audit_date: 2026-09-24  # prior: 2026-09-24 (28-type IAM/ECR/ElastiCache/Neptune/DocDB/Backup/Glue/CodeBuild/Kinesis/Lambda pass earlier same day)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -32,7 +131,7 @@ overall: A            # This pass closed out all 4 documented gaps and independe
 ops:
   CreateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "CAPABILITY_AUTO_EXPAND no longer wrongly satisfies the IAM-resource capability check (backend_parity.go requireIAMCapability); this pass ALSO fixed the inverse gap -- top-level Transform is now parsed (Template.Transform) and requireAutoExpandCapability gates CAPABILITY_AUTO_EXPAND for macro/SAM-using templates, which was previously never enforced at all"}
   UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: missing UPDATE_FAILED stack event on template parse failure; added pre-flight export-in-use block (validateExportsStillInUse); same CAPABILITY_AUTO_EXPAND gate as CreateStack added this pass. gopherstack-cqy3 (THIS PASS): the stored stack policy was never enforced here at all -- SetStackPolicy stored a policy, GetStackPolicy echoed it back, and nothing in between ever read it, so a Deny on Update:Delete/Update:Replace/Update:Modify did nothing. Now checkStackPolicy (stack_policy.go) evaluates every resource change computeChanges would apply (the same diff CreateChangeSet already computes) against the stack's policy before any state mutation; a denied action fails the whole call atomically. Also now accepts StackPolicyDuringUpdateBody (UpdateStackInput field, api_op_UpdateStack.go:223) as a one-shot override that is never persisted. See gaps: for what this does not cover (NotAction/NotResource, parameter-only diffing) and the families: stack_policy_enforcement entry for the evaluation semantics and their sourcing."}
-  DeleteStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not ErrStackNotFound) per AWS's unmodeled DeleteStack error surface; added export-in-use block (stackExportsInUse). gopherstack-cqy3 sweep: independently re-verified UpdateTerminationProtection IS enforced here (stack.EnableTerminationProtection gate, stacks.go deleteStackLocked) -- this service was NOT one of the five found with settable-and-unenforced termination protection; no change needed"}
+  DeleteStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not ErrStackNotFound) per AWS's unmodeled DeleteStack error surface; added export-in-use block (stackExportsInUse). gopherstack-cqy3 sweep: independently re-verified UpdateTerminationProtection IS enforced here (stack.EnableTerminationProtection gate, stacks.go deleteStackLocked) -- this service was NOT one of the five found with settable-and-unenforced termination protection; no change needed. FIXED 2026-09-24: a child resource already deleted directly through its own service (observed for APIGatewayV2 Integration/Route/Stage) 404'd deleteStackLocked's b.creator.Delete call and left the stack DELETE_FAILED, unlike real CloudFormation which treats a gone resource as already deleted. deleteAPIGatewayV2Integration/Route/Stage now swallow their service's NotFoundException sentinels (ErrIntegrationNotFound/ErrRouteNotFound/ErrStageNotFound/ErrAPINotFound) as success, matching the existing deleteDynamoDBGlobalTable idempotent-delete convention. Other resource types' delete paths were not audited this pass. FIXED 2026-09-24: deleteStackLocked previously deleted resources in unordered map-iteration order; now uses reverseDependencyOrder (resource_deps.go) so a resource is always deleted before whatever it depends on, matching real AWS (see families: resource_provisioning)."}
   DescribeStacks: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTerminationProtection: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-cqy3 sweep: verified enforced (see DeleteStack note) -- was missing an ops: table entry despite being routed and correct, now documented"}
   SetStackPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-cqy3: was missing an ops: table entry. Now validates the policy body is well-formed JSON (parseStackPolicyDocument) at set time and rejects malformed input, rather than accepting garbage that would have silently never enforced anything at UpdateStack time. StackPolicyURL is not modeled (this backend has never fetched policies by URL for either Set or Get)"}
@@ -45,7 +144,7 @@ ops:
   DescribeStackResources: {wire: ok, errors: ok, state: ok, persist: ok}
   ListExports: {wire: ok, errors: ok, state: ok, persist: ok}
   ListImports: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now accepts and stores a Capabilities parameter (Capabilities.member.N form field, parseCapabilities) -- previously silently dropped, meaning capabilities declared at CreateChangeSet time were never usable at Execute time (see ExecuteChangeSet note); DescribeChangeSet's response now surfaces Capabilities too, matching the real DescribeChangeSetResult shape"}
+  CreateChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now accepts and stores a Capabilities parameter (Capabilities.member.N form field, parseCapabilities) -- previously silently dropped, meaning capabilities declared at CreateChangeSet time were never usable at Execute time (see ExecuteChangeSet note); DescribeChangeSet's response now surfaces Capabilities too, matching the real DescribeChangeSetResult shape. 2026-09-18: same fix applied to ResourceTypes and DisableValidation (api_op_CreateChangeSet.go:254,192) -- also read nowhere and dropped, so a change set's own resource-type allowlist/validation-skip had no effect once executed. Both are now stored on the ChangeSet and threaded into ExecuteChangeSet's internal CreateStack/UpdateStack call, same as Capabilities. IncludeNestedStacks remains unmodeled (see items_still_open). Verified via TestRealClient_StackOptions/create_change_set_resource_types_threaded_to_execute"}
   DescribeChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed error code ChangeSetNotFoundException -> ChangeSetNotFound (SDK deserializer matches the un-suffixed code; see errors.go ChangeSetNotFoundException.ErrorCode()); this pass added the missing Capabilities field to the response"}
   ExecuteChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer executes a FAILED/UNAVAILABLE change set (added InvalidChangeSetStatus gate); on success now clears every other change set for the stack, matching documented AWS behaviour, not just the executed one; fixed ChangeSetNotFound code. THIS PASS fixed a significant additional bug: ExecuteChangeSet always called UpdateStack/CreateStack with an empty StackOptions{} (zero capabilities), because CreateChangeSet never stored Capabilities in the first place -- meaning ANY change set touching IAM resources could never actually be executed regardless of what capabilities the caller declared at CreateChangeSet time. Verified via TestChangeSet_Capabilities_ThreadedToExecute (execute now succeeds with CAPABILITY_IAM, fails with InsufficientCapabilities without it)"}
   DeleteChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed ChangeSetNotFound code"}
@@ -104,8 +203,8 @@ ops:
   RegisterPublisher: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
   DescribePublisher: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
 families:
-  resource_provisioning: {status: ok, note: "topoSortResources (Kahn's algorithm, deterministic alphabetical tie-break) + provisionResources/rollbackCreateResources (reverse-order rollback, DeletionPolicy Retain/Snapshot honored) verified correct, no changes needed"}
-  update_reconciliation: {status: ok, note: "updateResources/rollbackUpdateResources snapshot-and-restore semantics verified correct; deleteStaleResources runs only after all creates/updates succeed, matching AWS ordering"}
+  resource_provisioning: {status: ok, note: "topoSortResources (resource_deps.go, Kahn's algorithm, deterministic alphabetical tie-break) + provisionResources/rollbackCreateResources (reverse-order rollback, DeletionPolicy Retain/Snapshot honored) verified correct. FIXED 2026-09-24: topoSortResources previously ordered only by explicit DependsOn; now also infers dependencies from Ref/Fn::GetAtt (array and dotted-string form)/Fn::Sub (${Id}/${Id.Attr}, skipping ${!Literal} escapes and Sub's own local variables) anywhere in a resource's Properties, recursively through Fn::If/Fn::Join/Fn::Select/etc, matching real CloudFormation. A dependency cycle (via DependsOn or an inferred reference) now fails with ErrCircularDependency (\"Circular dependency between resources: [...]\") instead of silently falling back to alphabetical order."}
+  update_reconciliation: {status: ok, note: "updateResources/rollbackUpdateResources snapshot-and-restore semantics verified correct; deleteStaleResources runs only after all creates/updates succeed, matching AWS ordering. FIXED 2026-09-24: both updateResources' new-resource creation and deleteStaleResources' stale-resource cleanup now use the same inferred-dependency graph (creation in topo order, deletion in its reverse) instead of unordered map iteration / plain alphabetical order."}
   exports_imports: {status: ok, note: "ADDED: delete-blocked-while-imported and update-blocked-while-imported (Export X cannot be deleted as it is in use by Y), the one concretely-named gap from the audit brief that was completely unimplemented before this pass"}
   error_code_mapping: {status: ok, note: "verified against aws-sdk-go-v2 deserializers.go: StackNotFoundException is modeled for exactly one op (ImportStacksToStackSet) — every other stack-lookup op correctly falls back to generic ValidationError, matching real AWS's query-protocol behaviour; this was already correct, not changed"}
   drift_detection: {status: ok, note: "DetectStackDrift / DescribeStackResourceDrifts / legacy SimulateDrift fallback reviewed, logic is internally consistent; NOT re-verified against AWS's real per-property drift diff algorithm this pass (see deferred). 2026-08-22 (gopherstack-r80d batch 26): swept all 4 drift ops (DetectStackDrift, DetectStackResourceDrift, DescribeStackDriftDetectionStatus, DescribeStackResourceDrifts) for required-output-member completeness specifically -- these had no ops: table rows at all before this pass, now added above. 0 bugs; every required member (including types.StackResourceDrift's own 5 required members, one level below the flat per-op scan) confirmed always populated with no omitempty gaps."}
@@ -124,33 +223,681 @@ families:
   type_registry_filters_and_registration: {status: ok, note: "FIXED this pass (gopherstack-xhu2t, 2026-09-13): ListTypes' Visibility/ProvisioningType, ListTypeRegistrations' RegistrationStatusFilter, and TestType's VersionId were all declared request-side filters that were read nowhere. Now enforced (type_registry.go's ListTypes/ListTypeRegistrations/TestType signatures gained the filter params; TestType validates VersionId against the stored typeVersions). RegisterPublisher now requires AcceptTermsAndConditions=true (was silently accepted with the field absent, contradicting the real API's mandatory-acceptance contract) -- fixed 2 pre-existing tests that had been driving RegisterPublisher without the field (wire_field_fixes_cfn21my_test.go, type_registry_test.go), not weakened, since they were exercising the bug rather than pinning real behavior. Adjacent bug found and fixed: DescribeTypeRegistration only ever populated TypeArn, never the distinct TypeVersionArn field the real response also carries -- now both are emitted. CORRECTION during this pass: an earlier draft of this fix incorrectly added Visibility/ProvisioningType fields to the ListTypes response wire shape (typeXML) and a ProvisioningType field to the TypeSummary model, assuming they were echoed back -- a real-SDK-typed compile error (types.TypeSummary has no such field) caught this; verified against deserializers.go's awsAwsquery_deserializeDocumentTypeSummary that neither is wire-visible on the response (both are request-only filters), and reverted. Verified via TestRealClient_StackOptions's list_types/list_type_registrations/test_type_version_id/register_publisher subtests."}
 gaps: []
 items_still_open:
-  - "changeset_diff.go requiresRecreation() models only a curated subset of AWS resource types' replacement-forcing properties (documented in-code as intentional partial coverage, not a regression) — expanding this table is future work, not tracked separately from gopherstack-e5h"
-  - "SetTypeConfiguration accepts configuration for any type name without requiring prior registration (intentional permissiveness for first-party AWS types — see ops: SetTypeConfiguration note); real AWS models TypeNotFoundException here but this emulator doesn't track the full built-in-type catalog (bd: gopherstack-e5h)"
-  - "StackSets DeploymentTargets.AccountFilterType INTERSECTION/DIFFERENCE/UNION filtering and AccountsUrl are not implemented — only the unset/NONE case (union of Accounts and OU-resolved accounts) is honoured; other AccountFilterType values are now rejected explicitly with ValidationError (fixed gopherstack-nirx; previously silently dropped despite being documented as rejected — bd: gopherstack-g7b5, gopherstack-nirx)"
-  - "ImportStacksToStackSet still doesn't tag imported instances with a real OU (no DeploymentTargets on that op in the SDK to source one from) — unaffected by the gopherstack-g7b5 OU work"
-  - "StackSetOperations complete synchronously as SUCCEEDED the instant recordStackSetOperation
-    creates them (stack_sets.go) — RUNNING/STOPPING are therefore unreachable through any public
-    API. DELIBERATE, not accidental (2026-09-11, gopherstack-b3pm): cloudformation has no
-    clock/janitor-driven lifecycle anywhere in this package — CreateStack's CREATE_IN_PROGRESS ->
-    CREATE_COMPLETE, change sets' EXECUTE_IN_PROGRESS -> EXECUTE_COMPLETE/FAILED, and every
-    stack-instance/stack-set operation all resolve inside the same handler call, no
-    goroutine/ticker ever revisits a status later — so giving stack-set operations alone an async
-    lifecycle would be inconsistent with the rest of the service. StopStackSetOperation on an
-    already-SUCCEEDED (i.e. every) operation already returns the correct InvalidOperationException
-    (verified against cloudformation@v1.76.1 deserializers.go's 3-way modeled error switch for this
-    op: InvalidOperationException/OperationNotFoundException/StackSetNotFoundException) — this was
-    pre-existing correct behavior, not a bug. See families: stacksets and the dated note at the end
-    of this file for the full writeup and tests."
-  - "Stack policy enforcement (gopherstack-cqy3) does not implement NotAction/NotResource (disclosed, not approximated — see families: stack_policy_enforcement); a Replacement=='Conditionally' change (only reachable for DynamoDB AttributeDefinitions and RDS Engine/AvailabilityZone per requiresRecreation) is deliberately treated as Update:Replace for policy purposes, erring toward the more protective classification since this backend cannot resolve the ambiguity statically; a policy set via StackPolicyBody/StackPolicyURL at CreateStack/UpdateStack time (as opposed to SetStackPolicy) and the URL variant of either are not modeled, consistent with SetStackPolicy never having supported StackPolicyURL; enforcement is computed from the same template-body text diff CreateChangeSet uses, so a parameter-only update (TemplateBody omitted, UsePreviousTemplate not modeled) produces no diff and is not checked — a pre-existing limitation of computeChanges this pass did not extend"
-  - "CreateChangeSet's DisableValidation, ResourceTypes, and IncludeNestedStacks (api_op_CreateChangeSet.go:192,254,209) are read nowhere by handleCreateChangeSet/CreateChangeSet — unlike CreateStack/UpdateStack, which this pass wired to the equivalent StackOptions fields, a change set's own pre-flight validation/allowlist/nested-stack-inclusion path was out of this pass's scope; changeset_diff.go's computeChanges has no nested-stack (AWS::CloudFormation::Stack) awareness at all today, so IncludeNestedStacks has no tree to include or exclude yet either way (gopherstack-xhu2t, 2026-09-13)"
-  - "UpdateStack.RetainExceptOnCreate is accepted and validated but has no update-path rollback machinery to apply it to: this backend's UpdateStack has no resource-level rollback at all (rollbackUpdateResources restores prior state on failure, it never deletes newly-created resources the way CreateStack's rollbackCreateResources does), so RetainExceptOnCreate — which only ever governs delete-on-rollback of resources newly created during THIS operation — has nothing to act on outside CreateStack/ExecuteChangeSet's create-fallback path, which IS wired (gopherstack-xhu2t, 2026-09-13)"
-  - "RollbackStack (stack_lifecycle.go) is a status-only stub (flips StackStatus to ROLLBACK_COMPLETE, replays nothing against real resources) and handleRollbackStack reads only StackName -- RollbackStackInput's RoleARN and RetainExceptOnCreate are both dropped, not just the latter; same root cause as the UpdateStack line above (no resource-level rollback machinery to apply either to), not fixed this pass (gopherstack-xhu2t, 2026-09-13)"
-  - "ListResourceScanRelatedResources ignores MaxResults/NextToken entirely (handleListResourceScanRelatedResources reads only ResourceScanId) and ListResourceScanRelatedResources's own second Resources param is unused -- the backend always returns an empty related-resources list (this backend does not compute cross-resource relationships for a scan), so there is nothing to paginate over yet either way; not fixed this pass, same class as the other resource-scan gaps above (gopherstack-xhu2t, 2026-09-13)"
-  - "ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped -- handleActivateType reads only TypeName and PublicTypeArn. This backend has no multi-version type catalog or update scheduler (RegisterType stores exactly one version per type name, ActivateType hardcodes VersionID \"00000001\"), so there is no later-version-adoption behavior for AutoUpdate to gate or MajorVersion to pin — same class of gap as SetTypeConfiguration's permissiveness above (gopherstack-xhu2t, 2026-09-13)"
+  - "changeset_diff.go requiresRecreation() covers only a curated subset of resource types' replacement-forcing properties — expanding it is future work under gopherstack-e5h, not a regression (re-verified 2026-09-18)"
+  - "SetTypeConfiguration accepts configuration for any type name without prior registration — intentional permissiveness for first-party AWS types this emulator doesn't catalog fully (bd: gopherstack-e5h; re-verified 2026-09-18)"
+  - "StackSets DeploymentTargets.AccountFilterType INTERSECTION/DIFFERENCE/UNION and AccountsUrl are not implemented (only unset/NONE is honoured; other values are rejected with ValidationError, not silently dropped) — no account-filter graph to compute them against (bd: gopherstack-g7b5, gopherstack-nirx; re-verified 2026-09-18)"
+  - "ImportStacksToStackSet doesn't tag imported instances with a real OU — ImportStacksToStackSetInput has no DeploymentTargets to source one from (structural, unaffected by the gopherstack-g7b5 OU work; re-verified 2026-09-18)"
+  - "StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable) — deliberate: cloudformation has no clock/janitor-driven lifecycle anywhere, every op resolves inside its own handler call (gopherstack-b3pm; see families: stacksets for the full writeup and tests; re-verified 2026-09-18)"
+  - "Stack policy enforcement doesn't implement NotAction/NotResource (disclosed, not approximated), treats Replacement=='Conditionally' as Update:Replace (errs protective), doesn't model StackPolicyBody/URL at Create/UpdateStack time, and doesn't check parameter-only updates (no TemplateBody diff to compute) — see families: stack_policy_enforcement (gopherstack-cqy3; re-verified 2026-09-18)"
+  - "CreateChangeSet's IncludeNestedStacks (api_op_CreateChangeSet.go:209) is read nowhere — changeset_diff.go's computeChanges has no nested-stack awareness to include/exclude against (unmodeled subsystem; DisableValidation/ResourceTypes were the same class of gap and are now fixed, see ops: CreateChangeSet, 2026-09-18)"
+  - "UpdateStack.RetainExceptOnCreate is accepted and validated but has nothing to act on outside CreateStack/ExecuteChangeSet's create-fallback (which IS wired): UpdateStack has no resource-level create-then-rollback machinery at all (gopherstack-xhu2t; re-verified 2026-09-18)"
+  - "RollbackStack is a status-only stub (flips StackStatus, replays nothing) and drops RoleARN/RetainExceptOnCreate both — same missing rollback machinery as the UpdateStack line above (gopherstack-xhu2t; re-verified 2026-09-18)"
+  - "ListResourceScanRelatedResources ignores MaxResults/NextToken and always returns an empty list — this backend computes no cross-resource relationship graph for a scan, so there's nothing to paginate over (gopherstack-xhu2t; re-verified 2026-09-18)"
+  - "ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped — no multi-version type catalog exists for them to gate (RegisterType stores one version per type, ActivateType hardcodes VersionID \"00000001\"; same class as SetTypeConfiguration above) (gopherstack-xhu2t; re-verified 2026-09-18)"
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
 ## Notes
+
+### 2026-09-24 (parity sweep): 25 new resource types (380 -> 405), 6 new backend families wired
+
+Added real create+delete support for 25 `AWS::*` resource types across 11
+service families, each backed by a genuine `InMemoryBackend` call (no
+stubs), with Ref/Fn::GetAtt verified against the live AWS CloudFormation
+Template Reference docs (fetched this pass):
+
+- **Glue**: Blueprint, CustomEntityType, Workflow (`resources_glue_newer.go`)
+- **DataSync**: Agent, LocationS3, Task (`resources_datasync.go`)
+- **Transfer**: Profile, Workflow (`resources_transfer_more.go`)
+- **AppConfig**: Application, Environment, ConfigurationProfile,
+  DeploymentStrategy (`resources_appconfig.go`)
+- **Macie**: AllowList, FindingsFilter (`resources_macie.go`)
+- **GuardDuty**: Detector, IPSet (`resources_guardduty.go`)
+- **AccessAnalyzer**: Analyzer, ArchiveRule (`resources_accessanalyzer.go`)
+- **Amplify**: App, Branch (`resources_amplify.go`)
+- **Batch**: SchedulingPolicy, ServiceEnvironment (`resources_batch_more.go`)
+- **EFS**: AccessPoint (`resources_efs_more.go`)
+- **Redshift**: ClusterParameterGroup, ClusterSubnetGroup
+  (`resources_redshift_more.go`)
+
+Dispatch wiring lives in `resources_newest_dispatch.go`, chained off the end
+of `createNewerSupplementalResource`/`deleteNewerSupplementalResource`
+(create/delete-by-physicalID) and off `deletePropsBasedResource`'s default
+case via a new `deleteOverflowPropsBasedResource` (delete-needing-sibling-
+properties, for AppConfig Environment/ConfigurationProfile, GuardDuty IPSet,
+Amplify Branch, and AccessAnalyzer ArchiveRule). The extra indirection
+(`deleteOverflowPropsBasedResource`) exists solely to keep
+`deletePropsBasedResource`'s own switch -- already at its cyclop budget --
+to a single call in its `default` case.
+
+**Backend wiring.** DataSync, AppConfig, Macie2, and AccessAnalyzer were not
+previously reachable from CloudFormation at all: `cli.go` gained
+`datasyncHandler`/`macie2Handler`/`accessanalyzerHandler` fields, `byName[...]`
+assignments, and `GetDataSyncHandler`/`GetMacie2Handler`/
+`GetAccessAnalyzerHandler` getters (mirroring the existing pattern for every
+other service). GuardDuty, Amplify, and AppConfig already had cli.go getters
+from earlier work; they only needed `BackendsProvider` interface entries and
+`ServiceBackends` struct fields/extraction wiring in `provider.go`/
+`resources.go`.
+
+**FSx was skipped, not stubbed.** Every `fsx.InMemoryBackend` `Create*`
+method (`CreateFileSystem`, `CreateBackup`, `CreateStorageVirtualMachine`,
+`CreateVolume`, `CreateSnapshot`, ...) takes an *unexported* input struct
+pointer (e.g. `*createFileSystemInput`) as its sole parameter -- even though
+the methods themselves are exported and part of the exported
+`StorageBackend` interface, no code outside the `fsx` package can construct
+that argument, so none of them is callable from `services/cloudformation`.
+This differs from every other family added this pass (and from FSx's own
+sibling packages), where `Create*` takes either plain scalars or an exported
+struct. `AWS::FSx::FileSystem` and `AWS::FSx::Backup` were dropped from the
+candidate list rather than worked around (e.g. by hand-marshaling JSON
+through the HTTP-level op dispatch) to avoid a fragile, unprecedented
+integration shape for two resource types.
+
+**cfn_attributes_gen.go regenerated** via
+`go run ./cmd/cfnattrgen -spec <cfn-resource-spec.json> -src services/cloudformation -out services/cloudformation/cfn_attributes_gen.go`.
+Most of the new types' attribute names that are also common English words
+used as struct/JSON keys elsewhere in this package (`Id`, `Status`,
+`ApplicationId`, `AppId`, `ConfigurationProfileId`, ...) were excluded by the
+generator's own goconst-safety rule -- adding them as new map-key literals
+would have tipped an already-frequent literal over golangci-lint's
+`goconst` `min-occurrences: 3` threshold. Per the generator's documented
+contract this is conservative, not lossy: an attribute absent from the table
+falls back to today's pre-existing (permissive) `Fn::GetAtt` resolution
+rather than being wrongly rejected as undocumented. Attribute names distinct
+enough to clear the threshold (`AgentArn`, `LocationArn`, `EndpointType`,
+`ServiceEnvironmentArn`, `ClusterSubnetGroupName`, `ProfileId`,
+`WorkflowId`, ...) made it into the table normally.
+
+Tests: `resources_newest_sweep_test.go`, table-driven with `t.Parallel()`
+throughout, one real `CreateStack` -> `Fn::GetAtt`/`Outputs` -> `DeleteStack`
+round trip per type, asserting the backend object exists after create and is
+gone after delete. Several deliberately exercise real `Fn::GetAtt`
+cross-references between resources rather than `Ref`: `DataSync::Task`'s
+`SourceLocationArn`/`DestinationLocationArn` from two `LocationS3` resources'
+`LocationArn` attribute; `AppConfig::Environment`/`ConfigurationProfile`'s
+`ApplicationId` from the owning `Application`; `GuardDuty::IPSet`'s
+`DetectorId` from the owning `Detector`; `Amplify::Branch`'s `AppId` from the
+owning `App`; and `AccessAnalyzer::ArchiveRule`'s `AnalyzerName` from the
+owning `Analyzer`'s `Arn` attribute (requiring the same ARN-to-name
+conversion `resourceNameFromARN` already provides for
+`AccessAnalyzer::Analyzer`'s own ARN-shaped `Ref`).
+
+### 2026-09-24 (GetAtt follow-ups): delete-time attribute stash persists on the stack; Fn::GetAtt on an undocumented attribute is a ValidationError
+
+Two follow-ups to the property-time Fn::GetAtt fix below.
+
+**gopherstack-9e44r.** DeleteStack (and UpdateStack's stale-resource delete
+and both rollback paths) rebuilt the physicalIDs map passed to `Delete` from
+`stackPhysicalIDsSnapshot` alone -- plain `{logicalID: PhysicalID}`, none of
+property-time resolution's side channel. A props-based delete that
+re-resolves a sibling `Fn::GetAtt` (e.g. CodeArtifact Repository/PackageGroup
+`DomainName: {Fn::GetAtt: [Dom, Name]}`) therefore resolved to the sibling's
+physical ID instead of the requested attribute. Fixed two ways:
+
+- `deleteResolveContext` (resources.go) rebuilds the `_Type/<logicalID>`
+  side channel and account/region/stack name fresh from `StackResource.Type`
+  and the backend every time -- always accurate, no persistence needed.
+- The genuinely non-derivable part -- backend-computed attribute values
+  stashed as `<logicalID>/<Attr>` at create time (CodeArtifact Domain's
+  Name/Owner/EncryptionKey, IAM AccessKey's SecretAccessKey, ServiceDiscovery
+  HostedZoneId, ...) -- is now persisted on a new `Stack.ResourceAttrs`
+  field, refreshed after every successful CreateStack/UpdateStack
+  (`extractAttrStash`, filtered to the currently-live resource set) and
+  merged back in by `deleteResolveContext`.
+
+`Stack.ResourceAttrs` is a plain additive `map[string]string` field on a
+`store.Table[*Stack]`-registered type, so it rides along in `Snapshot()`'s
+existing `Tables["stacks"]` blob with no `backendSnapshot` change and no
+`cfnSnapshotVersion` bump. `go test ./pkgs/persistence/ -update` inventory
+diff: one new line, `Stack.ResourceAttrs map[string]string`, plus
+column-realignment noise on its four struct-tag neighbors from gofmt
+regrouping around the new field's comment (no field's tag/type/name
+changed, only whitespace). Verified via
+`TestDeleteStack_PropertyGetAtt` (resources_delete_getatt_test.go) and by
+converting `testCodeArtifactRepository`/`testCodeArtifactPackageGroup`
+(resources_newer_types_test.go) from a literal `DomainName` + `DependsOn` to
+real `Fn::GetAtt: [Dom, Name]`.
+
+**gopherstack-p7pvq.** `getResourceAttribute`/`getExtraResourceAttribute`
+silently fell back to the physical ID for an attribute name a resource type
+doesn't support, instead of real CloudFormation's `CreateStack`/`UpdateStack`
+ValidationError ("Template error: resource `<X>` does not support attribute
+type `<Y>` in Fn::GetAtt"). Fixed by validating `Fn::GetAtt`/`Fn::Sub
+${Logical.Attr}` attribute names against a generated table
+(`cfn_attributes_gen.go`, `cmd/cfnattrgen`) built from the CloudFormation
+resource specification's `ResourceTypes.<T>.Attributes`. A type absent from
+the table is untouched (falls back to today's behaviour) -- the table only
+covers types with a declared `resTypeXxx` constant in this package AND whose
+*entire* documented attribute set can be re-quoted without tripping this
+repo's `goconst` (an attribute already re-used as a Go string constant, e.g.
+`attrNameArn`/`attrNameName`, is referenced by identifier instead of
+re-quoted; a type with even one attribute that can't be safely emitted is
+dropped whole, never partially, since a partial table would reject a real
+documented attribute the table simply declined to re-quote). This kept the
+table to 76 of the ~360 types this backend emulates -- conservative, not
+lossy, per the same "unknown falls back" rule.
+
+The check runs synchronously (`preflightGetAttAttributeErr`, called from
+`CreateStack`/`UpdateStack` before the stack is created/mutated, unless
+`DisableValidation`), unlike this file's other intrinsic-reference checks
+(undefined logical ID, unsupported resource Type), which fail the stack
+asynchronously (`ROLLBACK_COMPLETE`/`UPDATE_ROLLBACK_COMPLETE`) -- matching
+this specific error's own real-AWS `ValidationError` semantics. Fixed two
+latent test bugs this validation caught: `testAthenaNamedQuery` GetAtt'd
+`Name` (not `NamedQueryId`, NamedQuery's only documented attribute) and
+`testCodeArtifactPackageGroup` GetAtt'd `Pattern` (not `Arn`, PackageGroup's
+only documented attribute) -- both switched to the documented attribute.
+Verified via `TestCreateStack_GetAttAttributeValidation`
+(intrinsics_getatt_attribute_test.go): an unknown attribute on a table-listed
+type fails through the typed SDK client with a `ValidationError`; a
+documented attribute on the same type still works; a type absent from the
+table still falls back for any attribute name.
+
+### 2026-09-24 (property-time Fn::GetAtt fix): resolveGetAtt now sees a resource's real type, account ID and region while resolving another resource's Properties
+
+Fixed the bug class the wave-10 entry below originally flagged as
+"not fixed, pre-existing": `strProp`/`resolve` resolve a resource's own
+Properties at create time by calling `ResolveValue` with a bare
+`{params, physicalIDs}` `resolveCtx` -- no `resourceTypes` map, and no
+account ID/region, unlike Outputs-time resolution's fully-populated ctx.
+`resolveGetAtt`'s stashed-attribute gate switches on `resType`, so an
+`Fn::GetAtt` used as an *input property value* for another resource in the
+same stack always fell through to the plain-physID fallback for any
+attribute that wasn't the physical ID itself.
+
+Rather than widen `ResolveValue`'s signature (which would mean threading a
+`resourceTypes` map through the ~450 `create*` methods and ~1,150
+`strProp`/`resolve` call sites, most of which never touch GetAtt), a small
+side channel is now stashed directly into the `physicalIDs` map every
+`create*` method already receives -- `physIDResourceTypeKey(logicalID)` ->
+declared type, plus `_AccountId`/`_Region`/`_StackName` (`template.go`,
+alongside the pre-existing `_StackId`/`_StackName` custom-resource
+convention). `provisionResources` (create) and `applyTemplateToStack`
+(update, `stacks.go`) populate it before resource creation starts, from the
+same `tmpl.Resources`/`b.accountID`/`b.region` data Outputs-time resolution
+already uses. `resolveGetAtt` falls back to this side channel only when its
+`ctx.resourceTypes` map is empty (the Outputs/preview paths already pass a
+real one, so they're unaffected), and `ResolveValue` seeds
+accountID/region/stackName from it. No caller of `strProp`/`resolve`/
+`ResolveValue` changed.
+
+Fn::Sub `${Res.Attr}`, Fn::Join and Fn::Select already routed through the
+same `resolveGetAtt`/`resolveValueCtx` path, so they're fixed for free.
+Fn::ImportValue/Fn::If/Fn::FindInMap/Fn::Transform inside a resource's own
+Properties still resolve through a bare-ish context (no exports/
+conditions/mappings/macros side channel was added) -- out of scope for this
+fix, not a regression it introduces.
+
+Unknown-attribute behaviour is unchanged and intentionally so:
+`getResourceAttribute`/`getExtraResourceAttribute` silently fall back to the
+physical ID for an attribute name they don't recognize on a *known* type,
+both at Outputs time and now at property time -- this backend has no
+GetAtt-unknown-attribute error path anywhere (CloudFormation's real
+`No attribute named X found` error is unmodeled), so property-time
+resolution stays consistent with Outputs-time rather than inventing new
+behaviour here.
+
+Simplified `resources_newer_types_test.go`'s `logs_delivery` case to use a
+real `Fn::GetAtt: [Dest, Arn]` for `Delivery.DeliveryDestinationArn` instead
+of a literal ARN string plus `DependsOn` (Logs::Delivery deletes by its own
+physical ID, so this doesn't touch the delete path). The `codeartifact_repository`/
+`codeartifact_package_group` cases and the wave-9 MemoryDB
+`SubnetGroupName`+`DependsOn` case are left as-is: their delete paths
+re-resolve a sibling property (DomainName/SubnetGroupName) from a
+`stackPhysicalIDsSnapshot` map that's rebuilt fresh from
+`{logicalID: PhysicalID}` at DeleteStack time and carries none of the
+create-time attribute stash or side channel, so `Fn::GetAtt` there still
+can't recover a value distinct from the physical ID -- a separate,
+structural delete-path limitation this pass doesn't touch. New coverage
+added in `resources_property_getatt_test.go`
+(`TestCreateStack_PropertyTimeGetAtt`): the CodeArtifact and Logs::Delivery
+repros above via a real CreateStack round trip, a derived (non-stashed)
+attribute case (SQS Queue `Arn` computed via `arn.Build`, fed into an
+`AWS::SNS::Subscription`'s `Endpoint` -- the `sqs` protocol's ARN-shape
+validation means the pre-fix fallback to the queue's URL-shaped physical ID
+would have failed CreateStack outright, not just resolved wrong), and the
+same case via `Fn::Sub "${Queue.Arn}"`.
+
+### 2026-09-24 (parity-sweep, wave 10): Lambda/Events/Scheduler/AppSync/Route53Resolver/CloudTrail/Logs/CodeArtifact -- 24 new resource types: 356 -> 380 supported types
+
+Added: `AWS::Lambda::CodeSigningConfig` (resources_lambda_csc.go);
+`AWS::Events::Endpoint` (resources_events_endpoint.go);
+`AWS::Scheduler::ScheduleGroup` (resources_scheduler_group.go);
+`AWS::AppSync::{DomainName,GraphQLSchema,ChannelNamespace}`
+(resources_appsync_more.go); `AWS::Route53Resolver::{ResolverRuleAssociation,
+FirewallDomainList,FirewallRuleGroup,FirewallRuleGroupAssociation,
+ResolverQueryLoggingConfig,ResolverQueryLoggingConfigAssociation,
+OutpostResolver}` (resources_route53resolver_more.go);
+`AWS::CloudTrail::{EventDataStore,Channel}` (resources_cloudtrail_more.go);
+`AWS::Logs::{Delivery,DeliveryDestination,DeliverySource,Integration,
+LogAnomalyDetector,ScheduledQuery}` (resources_logs_more.go); and
+`AWS::CodeArtifact::{Domain,Repository,PackageGroup}`
+(resources_codeartifact.go, new family -- CodeArtifact wasn't wired into
+CloudFormation at all before this pass, despite `GetCodeArtifactHandler`
+already existing on `BackendsProvider`/cli.go; added the `CodeArtifact`
+field to `ServiceBackends` and its `extractAllServiceBackends` wiring in
+provider.go). All create* dispatch through a new `createNewerSupplementalResource`/
+`deleteNewerSupplementalResource` tier (resources.go), added because
+`createMoreSupplementalResource`/`deleteMoreSupplementalResource` (the
+MemoryDB/Athena/SageMaker overflow tier from wave 9) were themselves at
+their cyclop budget.
+
+Doc-vs-backend Ref mismatches (same class as the Athena::NamedQuery
+precedent, resources_athena.go): `Lambda::CodeSigningConfig` and
+`CloudTrail::{EventDataStore,Channel}`'s Template Reference pages literally
+say "Ref returns the resource name", but none of the three has a Name-keyed
+backend identity (CodeSigningConfig has no Name property at all; Create/Delete
+for all three take the ARN) -- the ARN is used as Ref/physical ID instead, with
+the docs' own non-Arn GetAtt attributes (CodeSigningConfigId; none for
+EventDataStore/Channel beyond the ARN itself) stashed or, for EventDataStore,
+absent since Name isn't actually a documented GetAtt attribute either.
+`Events::Endpoint`'s docs say Ref is the EndpointId ("mystack-Endpoint-ABCDEFGHIJK"-shaped),
+but the backend is Name-keyed (`DeleteEndpoint(ctx, name)`); since
+`EndpointID = name + "-" + region` deterministically (endpoints.go), Ref
+uses the real EndpointId and delete strips the trailing `"-"+region` back
+off rather than stashing Name. Several Route53Resolver types' Ref text
+("returns the FirewallDomainList object", "the FirewallRuleGroupId") doesn't
+name a field distinctly from their documented `Id` GetAtt attribute, so `Id`
+(the backend's own key) is used, same imprecision class. Where Ref is fully
+undocumented (`Logs::{Delivery,DeliveryDestination,DeliverySource,
+Integration}`, `Logs::{LogAnomalyDetector,ScheduledQuery}` -- checked via the
+raw page HTML: an empty `<h3>Ref</h3>` with no following paragraph, not
+merely a generic sentence), the backend's own primary key is used per the
+task's "use the primary identifier" rule (DeliveryId, Name, Name, IntegrationName,
+AnomalyDetectorArn, ScheduledQueryArn respectively).
+
+`AppSync::GraphQLSchema` and `AWS::ECS::PrimaryTaskSet` share a "no
+independent lifecycle" delete: a GraphQL schema lives and dies with its
+owning Api, so delete is a documented no-op (create genuinely calls
+`StartSchemaCreation`, so this isn't a stub -- same reasoning as
+PrimaryTaskSet's existing no-op delete). `AppSync::ChannelNamespace` is keyed
+by `(ApiId, Name)` against `b.eventAPIs`, a *different* table than the
+`b.apis` GraphQLApi table `AWS::AppSync::GraphQLApi` populates -- Event APIs
+are created via `CreateAPI`, which only `AWS::AppSync::Api` (not implemented
+this pass, see skipped list) would wire up; the test seeds an Event API
+directly on the backend and passes its ID in as a stack Parameter rather than
+provisioning it through CFN.
+
+Skipped (ops missing or out of scope, not stubbed): `Route53Resolver::
+{FirewallConfig,ResolverDNSSECConfig,ResolverConfig}` -- no create/delete
+API exists in real AWS either (singleton per-VPC config mutated via
+Update/Put; CFN itself models Create as an initial Update call and Delete
+as a reset-to-default Update, which this backend has no clean way to
+distinguish from an ordinary property update without a dedicated "does this
+logical ID own the config" tracking layer). `AppSync::ApiCache` -- the
+Template Reference page has no "Return values" section at all (no Ref, no
+GetAtt documented for this type), so there's no doc basis for its Ref value
+even under the "use the primary identifier" fallback rule; `CreateAPICache`/
+`DeleteAPICache` exist and are real, so this is a candidate for a future
+pass once Ref is settled some other way. `AppSync::{Api,SourceApiAssociation,
+DomainNameApiAssociation}` -- would need the Event-API CreateAPI path
+(see ChannelNamespace above) wired up first. `CodeArtifact::Package` --
+CFN documents this type but the backend has `DeletePackage` with no
+corresponding `CreatePackage` (packages are created implicitly via publish,
+matching real AWS's own model where `AWS::CodeArtifact::Package` largely
+exists for `OriginConfiguration` on an already-published package, not for
+provisioning one from scratch) -- no-stub rule leaves this for a pass that
+adds package-version-aware create semantics. `CloudWatchLogs::AccountPolicy`
+-- backend has `PutResourcePolicy`/`DeleteResourcePolicy` but no
+account-scope-specific variant distinct from the existing (already-wired)
+`Logs::ResourcePolicy`'s resource-scope semantics.
+
+`resources_newer_types_test.go` (new): one table-driven
+`TestCreateStack_NewerTypes` (24 subtests, each `t.Parallel()`) driving a
+real CreateStack -> Fn::GetAtt -> DeleteStack -> backend-describe round trip
+per type through the real `aws-sdk-go-v2/service/cloudformation` client,
+asserting the backend object exists after create and is gone after delete.
+
+### 2026-09-24 (parity-sweep, wave 9): AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster} -- 5 new resource types: 339 -> 344 supported types
+
+Unblocks the wave-8 skip note below: `services/memorydb/exports.go` gained
+`ExportedCreateClusterRequest`/`ExportedCreateACLRequest`/
+`ExportedCreateSubnetGroupRequest`/`ExportedCreateUserRequest`/
+`ExportedCreateParameterGroupRequest` (type aliases for the previously
+package-private `create*Request` structs -- most already existed there for
+external tests; added `ExportedTagEntry`, `ExportedUpdateParameterGroupRequest`,
+and `ExportedParameterNameValueEntry` to round out the set). Aliases, not new
+types, so `InMemoryBackend.Create*` keeps its exact validated code path and
+the memorydb handler's own behavior is unchanged; `go test ./services/memorydb/...`
+stayed green with no handler edits. `services/cloudformation/resources_memorydb.go`
+(new) adds AWS::MemoryDB::{ParameterGroup,SubnetGroup,User,ACL,Cluster}, calling
+`rc.backends.MemoryDB.Backend.Create*` directly through those aliases -- the
+MemoryDB backend was already wired into `ServiceBackends`/`BackendsProvider`
+(provider.go) by an earlier, unrelated pass, so no provider.go edit was needed
+this time.
+
+Ref for all five types is the resource ARN (curl'd the CloudFormation Template
+Reference's Return values section for each -- none of the five pages has a
+separate "Ref" subsection; the ARN GetAtt entry's own text states "Ref returns
+the ARN of the ..." for every one). GetAtt: ParameterGroup/SubnetGroup/User/ACL
+each add only `ARN` (SubnetGroup/User/ACL/User's is spelled `ARN`/`Arn`
+per-page, immaterial since physicalID already equals the ARN and any
+unmatched attrName falls back to physID); SubnetGroup also has
+`SupportedNetworkTypes`, hardcoded `"ipv4"` since the backend's own
+`defaultSupportedNetworkTypes` is a fixed constant, never per-resource state;
+ACL/User also have `Status`, hardcoded `"active"` since CreateACL/CreateUser
+always set that status constant synchronously (no lifecycle overlay). Cluster
+additionally documents `ClusterEndpoint.Address`, `ClusterEndpoint.Port`,
+`ParameterGroupStatus`, and `Status` -- all backend-computed at create time,
+so stashed into `physicalIDs[logicalID+"/<Attr>"]` the same way EKS/SageMaker
+side-channel attrs are (added `resTypeMemoryDBCluster` to the stashed-attribute
+type gate in `resolveGetAtt`, template.go). Delete is name-keyed same as the
+wave-8 SageMaker/Athena ARN types, so `sagemakerNameFromARN` (already generic,
+just an ARN-tail extractor) is reused rather than duplicated.
+
+`resources_memorydb_test.go` (new): one table-driven `TestCreateStack_MemoryDBTypes`
+(5 subtests, each `t.Parallel()`) driving a real CreateStack -> Fn::GetAtt ->
+DeleteStack -> `Describe*` round trip per type through the real
+`aws-sdk-go-v2/service/cloudformation` client, asserting the memorydb backend
+object exists after create and is gone after delete.
+
+Skipped: `AWS::MemoryDB::MultiRegionCluster` is a real, separately-documented
+CloudFormation resource type but was out of this pass's five-type mandate
+(ParameterGroup/SubnetGroup/User/ACL/Cluster) -- a scope choice, not a
+structural blocker, left for a follow-up. `AWS::MemoryDB::MultiRegionParameterGroup`
+is not a CloudFormation resource type AWS publishes at all (its template-reference
+URL redirects to the TemplateReference index rather than resolving to a page)
+-- structurally out of scope, not a gap.
+
+### 2026-09-24 (parity-sweep, wave 8) 20 new resource types: 319 -> 339 supported types
+
+Wired AWS::SageMaker and AWS::Athena into the CloudFormation backend for the first time
+(GetSageMakerHandler/GetAthenaHandler added to BackendsProvider in provider.go and to
+ServiceBackends/extractAllServiceBackends; cli.go already implemented both methods for the
+generic backend registry from an earlier, unrelated pass, so no cli.go edit was needed).
+
+Added AWS::SageMaker::{Model,EndpointConfig,Endpoint,NotebookInstance,
+NotebookInstanceLifecycleConfig,CodeRepository,Domain,Pipeline,ModelPackageGroup,
+FeatureGroup,Project,Workteam,Image,ImageVersion} (14 types); AWS::Athena::{WorkGroup,
+DataCatalog,NamedQuery,PreparedStatement,CapacityReservation} (5 types); and
+AWS::WAFv2::WebACLAssociation (1 type, against the WAFv2 backend already wired into
+ServiceBackends) -- 20 types total. New files resources_sagemaker.go, resources_athena.go,
+resources_wafv2_association.go; SageMaker/Athena added to ServiceBackends and to
+resolveGetAtt's stashed-attribute type gate (template.go) for every type whose Ref is an
+ARN/ID but which also exposes a documented GetAtt attribute derived from a sibling property
+(e.g. Model's Ref is ModelArn but ModelName is also a GetAtt). Test helper
+newDependentServiceBackends (resources_dependent_services_test.go) now constructs real
+SageMaker/Athena backends for every test built on it.
+
+Every Ref/Fn::GetAtt was checked against the CloudFormation Template Reference's "Return
+values" section (curl + tag-stripped read) and, for the composite/undocumented cases, cross-
+checked against the CloudFormation Registry resource schema's `primaryIdentifier` (from
+github.com/aws-cloudformation/aws-cloudformation-resource-providers-sagemaker, fetched live).
+Several SageMaker types document Ref as the resource's ARN while the backend's own Delete
+methods are name-keyed (Model, EndpointConfig, Endpoint, NotebookInstance,
+NotebookInstanceLifecycleConfig, CodeRepository, ModelPackageGroup, Project, Image) -- same
+class as AWS::Backup::Framework's existing precedent (see the 291->319 entry below): the
+trailing path segment is extracted from the ARN at delete time (sagemakerNameFromARN).
+ImageVersion's ARN embeds both the parent image name and the version number
+(.../image-version/<name>/<version>), extracted the same way (sagemakerImageVersionFromARN)
+rather than via a sibling property. AWS::SageMaker::Workteam's Template Reference page has no
+Ref subsection at all (only Fn::GetAtt Id/WorkteamName, both the work team's own name) --
+WorkteamName, this backend's own primary key, is used as the fallback per this task's rule for
+undocumented Ref. AWS::Athena::NamedQuery's page text ("Ref returns the resource name") cannot
+be this type's real identifier: NamedQuery is backend- and real-AWS-keyed by a generated
+NamedQueryId (CreateNamedQuery returns the ID, not the name; GetNamedQuery/DeleteNamedQuery
+are ID-only, with no name-keyed lookup at all), and GetAtt NamedQueryId is documented as a
+*separate* attribute from Ref -- the same "docs text doesn't match this type's own identifier
+model" class already logged for AWS::Glue::Registry and AWS::ECR::RegistryPolicy in the
+291->319 entry below. The generated ID is used as Ref/physical ID instead; Name is stashed as
+a GetAtt-style attribute. AWS::WAFv2::WebACLAssociation's page documents Ref as
+"name|id|scope" -- verified against the CloudFormation registry schema
+(aws-cloudformation-resource-providers-wafv2) to be a copy/paste artifact from
+AWS::WAFv2::WebACL's own Ref format: WebACLAssociation's only properties are
+ResourceArn/WebACLArn (both required, createOnly, and the schema's actual
+`primaryIdentifier`), so ResourceArn|WebACLArn (pipe-joined, matching CloudFormation's own
+composite-key convention) is used instead. AWS::Athena::CapacityReservation and
+AWS::SageMaker::NotebookInstance both need a state transition before their real delete call
+will succeed (DeleteCapacityReservation requires CANCELLED/CANCELLING;
+DeleteNotebookInstance requires Stopped) -- stack teardown now calls
+CancelCapacityReservation / StopNotebookInstance (the synchronous, unconditional variants,
+not the InService-only/async FSM ones) immediately before the real delete, mirroring how a
+real deploy tool (e.g. the Terraform AWS provider) sequences these deletes.
+
+Delete for AWS::Athena::PreparedStatement needs the sibling WorkGroup property (the backend
+key is workGroup+"/"+name, not name alone), so it is wired through the existing
+deleteMorePropsBasedResource props-based-delete dispatcher (resources_iam_more.go), the same
+pattern AWS::Config::StoredQuery already used.
+
+Skipped: the AWS::MemoryDB::* family (ParameterGroup/SubnetGroup/User/ACL/Cluster) -- the
+memorydb.StorageBackend interface's Create* methods all take an *unexported*
+`*memorydb.createXRequest` struct type, which services/cloudformation cannot name or
+construct from outside the memorydb package (a real Go visibility blocker, not a scope
+choice); see items_still_open for the exact methods and the fix this needs. This is a
+correction to the previous pass's Notes entry below, which listed MemoryDB as merely
+deferred for scope reasons -- it is not accessible at all without a services/memorydb change,
+which was out of this pass's services/cloudformation-only mandate. AWS::SageMaker::App and
+AWS::SageMaker::UserProfile were also considered and skipped: both have composite
+primaryIdentifiers (App: AppName|AppType|DomainId|UserProfileName; UserProfile:
+UserProfileName|DomainId, both confirmed via the CloudFormation registry schema) that would
+need cross-resource Fn::GetAtt wiring to compose correctly in a template, and this pass found
+(while debugging test failures) that Fn::GetAtt resolution used to link one resource's
+Properties to a sibling resource created earlier in the same stack does not go through
+resolveGetAtt's type-gated physicalIDs stash the way Fn::GetAtt in a stack's Outputs does
+(ctx.resourceTypes is empty at that resolution point) -- a pre-existing template.go limitation
+unrelated to any of this pass's new types, out of scope to fix here, and not exercised by any
+of the 20 types actually added (none of their test templates depend on cross-resource
+Fn::GetAtt during creation).
+
+### 2026-09-24 (parity-sweep) 28 new resource types: 291 -> 319 supported types
+
+Added AWS::IAM::{GroupPolicy,RolePolicy,UserPolicy,ServerCertificate} (4); AWS::ECR::
+{PullThroughCacheRule,RegistryPolicy,RepositoryCreationTemplate} (3); AWS::ElastiCache::
+{ParameterGroup,SecurityGroup,GlobalReplicationGroup,UserGroup} (4); AWS::Neptune::
+{DBSubnetGroup,DBClusterParameterGroup,DBParameterGroup,GlobalCluster} (4); AWS::DocDB::
+{DBSubnetGroup,DBClusterParameterGroup,GlobalCluster} (3); AWS::Backup::{Framework,ReportPlan}
+(2); AWS::Glue::{Classifier,Registry,Schema,SecurityConfiguration,DevEndpoint} (5); and
+AWS::CodeBuild::ReportGroup, AWS::Kinesis::ResourcePolicy, AWS::Lambda::ResourcePolicy (3) --
+28 types total, all against backends already wired into ServiceBackends (no provider.go/
+BackendsProvider changes needed). New files resources_iam_more.go, resources_ecr_more.go,
+resources_elasticache_more.go, resources_neptune_more.go, resources_docdb_more.go,
+resources_backup_more.go, resources_glue_more.go, resources_misc_more.go, plus the shared
+test helper resources_more_resources_test.go; resources.go grew two new dispatch layers
+(createMoreSupplementalResource/deleteMoreSupplementalResource and
+deleteMorePropsBasedResource) purely to keep createSupplementalResource/
+deleteSupplementalResource/deletePropsBasedResource under the cyclop/gocognit limits after
+adding 8 new resource-type groups -- no behavior change to the existing dispatch chain.
+
+Every Ref/Fn::GetAtt was checked against the CloudFormation Template Reference's "Return
+values" section for that exact type (curl + tag-stripped read), not assumed from a sibling
+type. Several are genuinely undocumented and are called out with the primary-identifier
+fallback used instead: AWS::ECR::PullThroughCacheRule has no "Return values" section at all
+(Ref returns EcrRepositoryPrefix); AWS::ECR::RegistryPolicy's section lists only
+Fn::GetAtt RegistryId with no Ref subsection (this backend models one policy per registry, so
+the registry ID is used as the primary identifier); AWS::Glue::Schema's section says
+"Return values Ref" with no elaborating text (the documented Fn::GetAtt Arn value, SchemaArn,
+is used); AWS::Glue::Registry's stated Ref text ("a combination of VersionId|Key|Value") does
+not match this resource's own properties at all and reads as a copy/paste error from another
+page (it is in fact AWS::Glue::SchemaVersionMetadata's real Ref shape) -- the registry name,
+this backend's own primary key, is used instead; AWS::Kinesis::ResourcePolicy's section says
+"Return values Ref" with no elaborating text (the target ResourceArn, this backend's own key,
+is used). AWS::ElastiCache::ParameterGroup and AWS::ElastiCache::SecurityGroup have no name
+property in their CFN schema at all (CloudFormation auto-generates one) -- both generate a
+name from the logical ID, matching this file's existing AWS::ElastiCache::UserGroup precedent
+in the pre-existing resources_extended.go. AWS::DocDB::GlobalCluster's documented
+GlobalClusterResourceId Fn::GetAtt attribute is left unresolved rather than fabricated: this
+backend's GlobalCluster struct has no such field (only GlobalClusterArn, which is stashed).
+
+Delete for AWS::IAM::GroupPolicy/RolePolicy/UserPolicy and AWS::Glue::Schema needs a sibling
+property (the owning group/role/user/registry name) not embedded in the Ref value, so all four
+are wired through the existing deletePropsBasedResource props-based-delete dispatcher (the
+same pattern AWS::Config::StoredQuery already used) rather than the physicalID-only path.
+AWS::Backup::Framework's Ref is the framework ARN but DeleteFramework is name-keyed, so delete
+extracts the name back out of the ARN, mirroring AWS::Backup::BackupVault's own precedent in
+the pre-existing resources_backup.go.
+
+Skipped (backend lacks the op, or the backend doesn't exist in this service's dependency
+graph): AWS::SageMaker::* and AWS::Athena::* (prioritized types from the task brief) --
+neither service backend is wired into CloudFormation's ServiceBackends/BackendsProvider at
+all, and wiring one in requires adding a Get<Service>Handler() method to the BackendsProvider
+interface AND implementing it in cli.go, which sits outside services/cloudformation/ and was
+out of scope for this change (cli.go is also being edited by another agent this session, per
+the task brief, making a concurrent edit there doubly unsafe). AWS::ECR::PublicRepository was
+considered but skipped: this backend's CreateRepository models private ECR only (a different
+AWS service/ARN namespace/attribute shape than ECR Public), and reusing it would misrepresent
+the resource rather than emulate it. AWS::WAFv2::WebACLAssociation and the AWS::MemoryDB::*
+family were left out only to keep this pass's scope bounded to the 20-30 range requested; both
+have real, already-wired backend ops (wafv2.AssociateWebACL/DisassociateWebACL,
+memorydb.Create/DeleteParameterGroup etc.) and are good candidates for a follow-up pass.
+
+### 2026-09-24 (parity-sweep) 25 new resource types: 266 -> 291 supported types
+
+Added AWS::IoT::{ThingType,ThingGroup,Policy,TopicRuleDestination,RoleAlias,Certificate,
+ProvisioningTemplate,Authorizer,DomainConfiguration,JobTemplate,Dimension,SecurityProfile,
+CustomMetric,FleetMetric,BillingGroup,MitigationAction,ScheduledAudit} (17 types; Thing and
+TopicRule already existed) and wired AWS::Config into the CloudFormation backend for the first
+time: AWS::Config::{ConfigRule,ConfigurationRecorder,DeliveryChannel,ConfigurationAggregator,
+AggregationAuthorization,ConformancePack,RemediationConfiguration,StoredQuery} (8 types;
+OrganizationConfigRule intentionally excluded -- it targets an AWS Organizations management
+account, a different provisioning model than a single-account stack resource). New files
+resources_iot_more.go, resources_awsconfig.go; AWSConfig added to ServiceBackends/
+BackendsProvider/extractAllServiceBackends (provider.go, resources.go) -- cli.go already had
+GetAWSConfigHandler wired for the dashboard, just not threaded into CloudFormation. Each type's
+Ref/Fn::GetAtt was verified against the CloudFormation Template Reference's "Return values"
+section for that exact type, not assumed from sibling types. Several Refs return a
+backend-generated ID (ThingType/ThingGroup/BillingGroup all return TypeId/GroupId/Id, not the
+name) while their delete operation takes the name -- these look the ID up via the backend's own
+List* call (ListThingTypes/ListThingGroups/ListBillingGroups) rather than needing a logicalID
+side-channel, since Delete() is only ever given physicalID + props, not the logicalID. Two Refs
+are genuinely undocumented in the CloudFormation reference (AWS::Config::StoredQuery has an empty
+Ref section): its resource-type-schema primary identifier is QueryId, so Ref returns that, and
+delete re-reads the required QueryName property via the existing props-based delete dispatcher
+(deletePropsBasedResource) since QueryId doesn't embed it. AWS::Config::AggregationAuthorization's
+Ref is documented as the authorization's own ARN, which conveniently embeds both
+AuthorizedAccountId/AuthorizedAwsRegion, so delete parses them back out of the ARN with no extra
+lookup. Deterministic ARN attributes (e.g. IoT RoleAlias's RoleAliasArn, Config
+ConfigurationAggregator's counter-based ConfigurationAggregatorArn) are computed with the same
+format string the backend's own ARN builder uses (verified by reading it), or, where the backend
+generates the ARN from an internal counter rather than the name, stashed at create time via the
+`physicalIDs[logicalID+"/<AttrName>"]` pattern plus the resolveGetAtt gate in template.go (IoT
+ThingType/ThingGroup/BillingGroup/DomainConfiguration/FleetMetric/MitigationAction, Config
+ConfigRule/ConfigurationAggregator/ConformancePack/StoredQuery). IoT Certificate delete
+deactivates an ACTIVE certificate before deleting (DeleteCertificate rejects ACTIVE, matching real
+AWS IoT); IoT ThingType delete deprecates before deleting for the same reason (real AWS also
+requires deprecation first, though this backend doesn't model the real 5-minute/300-day wait).
+Partial-property gaps (create a real object but skip a subset of its optional nested config,
+matching this file's existing convention of not wiring the CFN `Tags` property on any type):
+IoT SecurityProfile's Behaviors/AlertTargets/MetricsExportConfig/AdditionalMetricsToRetainV2, IoT
+JobTemplate's AbortConfig/TimeoutConfig/JobExecutionsRolloutConfig/JobExecutionsRetryConfig/
+PresignedURLConfig/MaintenanceWindows/DestinationPackageVersions, and IoT DomainConfiguration's
+AuthorizerConfig/ClientCertificateConfig/ServerCertificateConfig (ServerCertificateArns IS wired,
+stashed for its ServerCertificates GetAtt). All 25 have a passing CreateStack ->
+Fn::GetAtt-in-Outputs -> backend-state-assertion -> DeleteStack -> backend-state-gone test
+(resources_iot_more_test.go, resources_awsconfig_test.go).
+
+### 2026-09-24 (parity-sweep) 25 new resource types: 241 -> 266 supported types
+
+Added AWS::RDS::{OptionGroup,EventSubscription,GlobalCluster,DBProxyEndpoint},
+AWS::Cognito::{UserPoolResourceServer,UserPoolIdentityProvider},
+AWS::SSM::{MaintenanceWindowTarget,MaintenanceWindowTask,PatchBaseline,ResourceDataSync,
+ResourcePolicy}, AWS::CloudWatch::{MetricStream,AnomalyDetector,InsightRule},
+AWS::ApiGateway::{VpcLink,ClientCertificate,DocumentationPart,DocumentationVersion}, and
+AWS::CloudFront::{OriginRequestPolicy,KeyGroup,PublicKey,CloudFrontOriginAccessIdentity,
+RealtimeLogConfig,KeyValueStore,ContinuousDeploymentPolicy} -- the list "skipped for budget" in
+the prior 13-type pass below, minus RDS DBProxyTargetGroup, the four Cognito UserPoolUser*
+types, and CloudFront MonitoringSubscription (still skipped this pass too, see below). Each is
+backed by a real service call (create + delete both mutate real backend state) with Ref/GetAtt
+verified against the CloudFormation Template Reference's "Return values" section for that type
+(new files resources_rds_more.go, resources_ssm_more.go, resources_cloudwatch_more.go,
+resources_apigateway_more.go, resources_cloudfront_more.go, plus two new cases in
+resources_cognito.go). Several types have no documented Fn::GetAtt at all
+(AWS::CloudWatch::AnomalyDetector, AWS::RDS::{OptionGroup,EventSubscription,GlobalCluster},
+AWS::SSM::{PatchBaseline,ResourceDataSync}, AWS::Cognito::UserPool{ResourceServer,
+IdentityProvider}) -- confirmed by reading the actual doc page, not assumed. A few Ref values
+diverge from a naive physical ID and needed the existing "props-based delete" pattern
+(deleteEKSAccessEntry's precedent) because a sibling CFN property (WindowId, UserPoolId,
+RestApiId, Namespace/MetricName/Stat) isn't embedded in the returned Ref: MaintenanceWindowTarget/
+Task, the two new Cognito types, ApiGateway DocumentationPart/DocumentationVersion, and
+CloudWatch AnomalyDetector (delete-only, Ref/GetAtt undocumented so no props-based dispatch
+needed for read paths). SSM::ResourcePolicy's delete additionally needs a live PolicyHash lookup
+(GetResourcePolicies) since AWS's optimistic-concurrency hash is never a CFN property. Still
+skipped (real value uncertain vs. effort, or backend shape mismatch found while implementing):
+RDS::DBProxyTargetGroup (backend models target *registration* against an existing default proxy
+target group, not an independently creatable/deletable CFN resource), Cognito
+UserPoolUser/UserPoolUserToGroupAttachment/UserPoolRiskConfigurationAttachment/
+UserPoolUICustomizationAttachment (each is an admin-mutation style resource with weaker
+CFN-resource semantics), and CloudFront::MonitoringSubscription (keyed by an existing
+Distribution rather than having its own creatable identity). All 25 have a passing
+CreateStack -> Fn::GetAtt-in-Outputs -> backend-state-assertion -> DeleteStack ->
+backend-state-gone test (resources_rds_more_test.go, resources_cognito_more_test.go,
+resources_ssm_more_test.go, resources_cloudwatch_more_test.go, resources_apigateway_more_test.go,
+resources_cloudfront_more_test.go).
+
+### 2026-09-24 (parity-sweep) 13 new resource types: 228 -> 241 supported types
+
+Added AWS::EKS::{FargateProfile,Addon,AccessEntry,PodIdentityAssociation,IdentityProviderConfig},
+AWS::StepFunctions::{StateMachineVersion,StateMachineAlias}, AWS::Kinesis::StreamConsumer, and
+AWS::ECS::{CapacityProvider,ClusterCapacityProviderAssociations,TaskSet,PrimaryTaskSet}, each
+backed by a real service call with Ref/GetAtt verified against the CloudFormation docs (see
+resources_eks.go, resources_stepfunctions.go, resources_kinesis_more.go, resources_ecs_more.go).
+Fixed a real bug found along the way: `AWS::Firehose::DeliveryStream` isn't a real CFN type name
+(the CFN spec only has `AWS::KinesisFirehose::DeliveryStream`) and its Ref returned the delivery
+stream ARN instead of the documented stream name; now the real type name is supported (old name
+kept as an alias for existing tests/templates), Ref returns the name, and Arn is a proper GetAtt
+attribute (resources_firehose.go, resources_getatt.go). Skipped for this pass (budget): RDS
+{OptionGroup,EventSubscription,GlobalCluster,DBProxyEndpoint,DBProxyTargetGroup}, Cognito
+UserPool{ResourceServer,IdentityProvider,User,UserToGroupAttachment,RiskConfigurationAttachment,
+UICustomizationAttachment}, SSM {MaintenanceWindowTarget,MaintenanceWindowTask,PatchBaseline,
+ResourceDataSync,ResourcePolicy}, CloudWatch {MetricStream,AnomalyDetector,InsightRule},
+ApiGateway {VpcLink,ClientCertificate,DocumentationPart,DocumentationVersion}, CloudFront
+{OriginRequestPolicy,KeyGroup,PublicKey,CloudFrontOriginAccessIdentity,RealtimeLogConfig,
+KeyValueStore,MonitoringSubscription,ContinuousDeploymentPolicy}, and the AWS::Config::* family
+(would need AWSConfig wired into ServiceBackends first) -- all have real backend support to build
+on, none were started.
+
+### 2026-09-24 (parity-sweep) 20 new resource types: 220 -> 240 supported types
+
+Added 3 AWS::CodeDeploy::* types (wired codedeploy into ServiceBackends) and 17 AWS::EC2::* types
+(DHCPOptions, EIPAssociation, EgressOnlyIGW, CustomerGateway, CarrierGateway, InstanceConnectEndpoint, ClientVpn family, IPAM family, CapacityReservation, Host), each real-backend; see resources_codedeploy.go / resources_ec2_more.go.
+
+### 2026-09-24 (parity-sweep) 16 new resource types: 192 -> 208 supported types
+
+Added AWS::EC2::{TransitGateway,TransitGatewayAttachment,TransitGatewayRouteTable,
+TransitGatewayRoute}, AWS::IAM::{AccessKey,ServiceLinkedRole,UserToGroupAddition},
+AWS::ServiceDiscovery::{PrivateDnsNamespace,HttpNamespace,PublicDnsNamespace,Service,Instance}
+(wired the servicediscovery backend into ServiceBackends/BackendsProvider -- CLI already had
+GetServiceDiscoveryHandler), AWS::Route53::RecordSetGroup, AWS::Logs::Destination, and
+AWS::SQS::QueueInlinePolicy / AWS::SNS::TopicInlinePolicy, each provisioning through its real
+service backend with Ref/GetAtt verified against the CloudFormation docs (see
+resources_more_managed_types2.go, resources_servicediscovery.go). Fixed a real cross-type bug
+found along the way: AWS::IAM::User/Group's Ref returns an ARN in this backend, so a template's
+`{"Ref": "MyUser"}` feeding an AccessKey's UserName or a UserToGroupAddition's GroupName/Users
+arrived as an ARN where IAM's own APIs need a bare name -- createIAMAccessKey/
+createIAMUserToGroupAddition now unwrap it (iamNameFromRefValue). Also found and fixed a
+delete-time correctness gap that predates this pass: ResourceCreator.Delete only ever received
+a resource's raw (unresolved) Properties, so a `{"Ref": "OtherResource"}` property read during
+deletion (IAM AccessKey's UserName, UserToGroupAddition's GroupName/Users, ServiceDiscovery
+Instance's ServiceId) resolved to the referenced resource's *logical* ID instead of its physical
+ID. Delete's signature now also takes a `stackPhysicalIDs` snapshot (built by its 4 callers in
+stacks.go from the stack's live StackResources) so these Refs resolve correctly; this is a
+general fix, not scoped to the 3 new callers. Skipped for this pass (budget): AWS::CodeDeploy::*
+(3 types, backend exists but not yet wired into ServiceBackends), AWS::EKS::{FargateProfile,Addon}
+(2 types). Census of all still-missing AWS::<emulated-service>::* types, from the real
+CloudFormationResourceSpecification.json, at scratchpad census/cfn_types_missing.json
+(1057 missing, rough commonality-ranked).
+
+### 2026-09-24 topoSortResources infers dependencies from Ref/Fn::GetAtt/Fn::Sub, not just DependsOn
+
+Create (CreateStack, UpdateStack's new resources) and delete (DeleteStack, UpdateStack's stale
+cleanup) now order by a real dependency graph (resource_deps.go); a cycle now errors instead of silently reordering.
+
+### 2026-09-24 (parity-sweep) 7 new resource types: 184 -> 191 supported types
+
+Added AWS::EC2::LaunchTemplate, AWS::EC2::VPCEndpoint, AWS::AutoScaling::{ScalingPolicy,
+ScheduledAction,LifecycleHook}, AWS::IAM::OIDCProvider, AWS::RDS::DBProxy, each
+provisioning through its real service backend with correct Ref/GetAtt (see resources_
+more_managed_types.go). Found but did not fix a pre-existing gap: topoSortResources only
+honors explicit DependsOn, never infers ordering from Ref/Fn::GetAtt, so templates whose
+resources sort alphabetically out of dependency order (e.g. "Endpoint" before "VPC") fail
+CreateStack unless DependsOn is added explicitly -- unlike real CloudFormation.
+
+### 2026-09-24 (parity-sweep) DeleteStack already-gone child resource
+
+CI's apigatewayv2 terraform fixture hit DELETE_FAILED when a child
+Integration/Route/Stage was deleted directly before DeleteStack ran. Fixed
+in resources_apigatewayv2.go (see DeleteStack ops note); tested via
+TestDeleteStack_APIGatewayV2ChildAlreadyDeleted.
 
 Protocol: AWS query/XML (`Action=...` form POST, `<FooResponse>` root, `ResponseMetadata>RequestId`).
 Errors always serialize as HTTP 400 with `<ErrorResponse><Error><Code>/<Message></Error></ErrorResponse>`
@@ -1533,8 +2280,10 @@ mechanism:
    `isValidGetTemplateStage`.
 
 Recorded, not fixed (added to `items_still_open` above with full reasoning):
-CreateChangeSet.DisableValidation/ResourceTypes/IncludeNestedStacks (no
-change-set-level validation/allowlist/nested-stack-tree path exists yet);
+IncludeNestedStacks (api_op_CreateChangeSet.go:209) -- no change-set-level
+nested-stack-tree path exists yet (its siblings on that same op,
+DisableValidation/ResourceTypes, were fixed 2026-09-18; see ops:
+CreateChangeSet above);
 UpdateStack.RetainExceptOnCreate and RollbackStack.RetainExceptOnCreate/RoleARN
 (no resource-level rollback machinery on either path to apply them to --
 RollbackStack is a status-only stub); ListResourceScanRelatedResources.
@@ -1572,3 +2321,42 @@ concurrently-edited elasticache file mid-refactor by the other agent; not
 this service, not this pass). `golangci-lint run --concurrency 2
 --new-from-rev=HEAD ./services/cloudformation/...` -- 0 issues. `go run
 ./cmd/paritylint` -- 0 missing-items-still-open FAIL.
+
+## 2026-09-18
+
+Audited the 15 `cmd/overwidecandidates` List ops for Describe-shaped leaks.
+Fixed one real leak (`ListStackInstanceResourceDrifts` emitted
+`ExpectedProperties`/`ActualProperties`, absent from the real
+`StackInstanceResourceDriftsSummary`) and four dropped-but-tracked Summary
+members (`ListHookResults.HookResultId`, `ListResourceScans.
+PercentageCompleted`, `ListStackSets.AutoDeployment`/`ManagedExecution`/
+`PermissionModel`, `ListStacks.ParentId`/`RootId`/`TemplateDescription`).
+Re-adjudicated `items_still_open`: fixed `CreateChangeSet`'s dropped
+`ResourceTypes`/`DisableValidation` (threaded into `ExecuteChangeSet`, like
+`Capabilities`); the other 10 entries are confirmed-accurate, tightened.
+
+## 2026-09-20: Type Registry ARN shape (cognito-ecs-cloudformation-and-wafv2 coverage, `aws_cloudformation_type`)
+
+Real type ARNs are account/region-scoped with `::` hyphenated
+(`arn:aws:cloudformation:<region>:<account>:type/resource/Vendor-Svc-Type`);
+this backend built a bare `arn:aws:cloudformation:::type/resource/` + the raw
+`::`-separated name, which fails `terraform-provider-aws`'s own ARN parser
+("expected 4 resource parts"). Fixed via a single `buildTypeARN` helper used
+everywhere a type ARN was hand-formatted (`RegisterType`, `ActivateType`,
+`DeactivateType`, `DeregisterType`, `PublishType`,
+`BatchDescribeTypeConfigurations`, `ListTypeVersions`, `DescribeType`).
+`DescribeTypeRegistration`'s `TypeVersionArn` previously duplicated `TypeArn`
+verbatim (the prior 2026-09-13 fix populated the field but not with a real
+per-version value) — now genuinely distinct (`TypeArn + "/" + versionID`,
+matching real `TypeVersionSummary.Arn`). `SetTypeDefaultVersion` only accepted
+identification by `Arn`; `aws_cloudformation_type`'s create path always
+identifies by `TypeName` instead, so it 404'd immediately after every
+register — added the same `Arn`-or-`TypeName` fallback the other type-registry
+ops already had. `DescribeType` also now accepts a version-suffixed `Arn`
+(stripping and resolving `/<versionId>`), since the resource's `Read` re-reads
+by the `TypeVersionArn` it stored as `id`. Proven end-to-end by
+`TestTerraform_CognitoEcsCloudformationAndWafv2` (real `aws_cloudformation_type` apply) and unit
+tests `TestDescribeType_Registered/lookup_by_version-suffixed_ARN_after_RegisterType`
+plus the updated ARN literals across `type_registry_test.go`,
+`type_registry_feature_test.go`, `deregister_type_version_test.go`,
+`empty_result_element_test.go`, `handler_type_registry_arn_test.go`.

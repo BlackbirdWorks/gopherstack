@@ -253,6 +253,7 @@ func TestConnectionGroup_Persistence(t *testing.T) {
 	}
 
 	restored := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(restored.Close)
 	if err := restored.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}
@@ -560,6 +561,7 @@ func TestConnectionFunction_Persistence(t *testing.T) {
 	}
 
 	restored := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(restored.Close)
 	if err := restored.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}
@@ -630,6 +632,7 @@ func TestListDistributionsByConnectionFunction(t *testing.T) {
 func TestConnectionGroup_ListDistributionsByConnectionGroup(t *testing.T) {
 	t.Parallel()
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(b.Close)
 	h := cloudfront.NewHandler(b)
 	const prefix = "/2020-05-31/"
 
@@ -840,7 +843,7 @@ func TestConnectionFunctionByID(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
-
+	t.Cleanup(b.Close)
 	// Create two functions with same name (should succeed - AWS allows this).
 	fn1, err := b.CreateConnectionFunction("shared-name", "first fn")
 	require.NoError(t, err)

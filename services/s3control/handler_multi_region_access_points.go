@@ -259,9 +259,9 @@ func (h *Handler) handleDeleteMultiRegionAccessPointAsync(c *echo.Context) error
 		return handleBackendError(c, err)
 	}
 
-	tokenARN := "arn:aws:s3::" + accountID + ":async-request/mrap/delete/1"
+	req := h.Backend.CreateMRAPDeleteRequest(accountID, body.Details.Name)
 
-	return writeXML(c, deleteMRAPAsyncResponseXML{RequestTokenARN: tokenARN})
+	return writeXML(c, deleteMRAPAsyncResponseXML{RequestTokenARN: req.RequestTokenARN})
 }
 
 // listMRAPsResponseXML mirrors ListMultiRegionAccessPointsOutput's real
@@ -329,9 +329,9 @@ func (h *Handler) handlePutMultiRegionAccessPointPolicy(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	policyTokenARN := "arn:aws:s3::" + accountID + ":async-request/mrap/put_policy/1"
+	req := h.Backend.CreateMRAPPutPolicyRequest(accountID, body.Details.Name)
 
-	return writeXML(c, putMRAPPolicyResponseXML{RequestTokenARN: policyTokenARN})
+	return writeXML(c, putMRAPPolicyResponseXML{RequestTokenARN: req.RequestTokenARN})
 }
 
 // --- MRAP handlers (describe / policy / routes) ---

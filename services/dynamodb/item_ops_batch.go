@@ -359,14 +359,42 @@ func batchGetConsumedCapacity(
 	return caps
 }
 
+// wireWriteRequest pairs a BatchWriteItem WriteRequest with its wire-format
+// conversion (the Put item, or the Delete key), computed once per request
+// and reused across validation, sizing, throttling, apply and replication --
+// those stages previously each called models.FromSDKItem on the same
+// request independently.
+type wireWriteRequest struct {
+	wire map[string]any
+	req  types.WriteRequest
+}
+
+// toWireWriteRequests converts each WriteRequest's Put item or Delete key
+// exactly once, up front.
+func toWireWriteRequests(requests []types.WriteRequest) []wireWriteRequest {
+	out := make([]wireWriteRequest, len(requests))
+	for i, req := range requests {
+		wwr := wireWriteRequest{req: req}
+		switch {
+		case req.PutRequest != nil:
+			wwr.wire = models.FromSDKItem(req.PutRequest.Item)
+		case req.DeleteRequest != nil:
+			wwr.wire = models.FromSDKItem(req.DeleteRequest.Key)
+		}
+		out[i] = wwr
+	}
+
+	return out
+}
+
 func validateAllBatchWriteRequests(
-	requestItems map[string][]types.WriteRequest,
+	requestItems map[string][]wireWriteRequest,
 	tables map[string]*Table,
 ) error {
 	for tableName, requests := range requestItems {
 		table := tables[tableName]
-		for _, req := range requests {
-			if err := validateBatchWriteRequest(req, table); err != nil {
+		for _, wwr := range requests {
+			if err := validateBatchWriteRequest(wwr, table); err != nil {
 				return err
 			}
 		}
@@ -387,25 +415,18 @@ func validateAllBatchWriteRequests(
 // (all WriteRequests targeting a single table) reference the same primary key more
 // than once. Mirrors AWS's real BatchWriteItem behaviour, which rejects such
 // requests wholesale rather than silently picking a winner.
-func validateNoDuplicateBatchWriteKeys(requests []types.WriteRequest, table *Table) error {
+func validateNoDuplicateBatchWriteKeys(requests []wireWriteRequest, table *Table) error {
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	seen := make(map[string]struct{}, len(requests))
 
-	for _, req := range requests {
-		var wireItem map[string]any
-
-		switch {
-		case req.PutRequest != nil:
-			wireItem = models.FromSDKItem(req.PutRequest.Item)
-		case req.DeleteRequest != nil:
-			wireItem = models.FromSDKItem(req.DeleteRequest.Key)
-		default:
+	for _, wwr := range requests {
+		if wwr.wire == nil {
 			continue
 		}
 
-		canon := BuildKeyString(wireItem, pkDef.AttributeName)
+		canon := BuildKeyString(wwr.wire, pkDef.AttributeName)
 		if skDef.AttributeName != "" {
-			canon += "\x00" + BuildKeyString(wireItem, skDef.AttributeName)
+			canon += "\x00" + BuildKeyString(wwr.wire, skDef.AttributeName)
 		}
 
 		if _, dup := seen[canon]; dup {
@@ -430,7 +451,7 @@ func globalTableNameRLocked(table *Table) string {
 func (db *InMemoryDB) replicateBatchWrites(
 	tableNames []string,
 	tables map[string]*Table,
-	toProcess map[string][]types.WriteRequest,
+	toProcess map[string][]wireWriteRequest,
 	region string,
 ) {
 	for _, tableName := range tableNames {
@@ -441,14 +462,12 @@ func (db *InMemoryDB) replicateBatchWrites(
 			continue
 		}
 
-		for _, req := range toProcess[tableName] {
+		for _, wwr := range toProcess[tableName] {
 			switch {
-			case req.PutRequest != nil:
-				wireItem := models.FromSDKItem(req.PutRequest.Item)
-				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireItem), "PUT")
-			case req.DeleteRequest != nil:
-				wireKey := models.FromSDKItem(req.DeleteRequest.Key)
-				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireKey), "DELETE")
+			case wwr.req.PutRequest != nil:
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wwr.wire), "PUT")
+			case wwr.req.DeleteRequest != nil:
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wwr.wire), "DELETE")
 			}
 		}
 	}
@@ -479,19 +498,31 @@ func (db *InMemoryDB) BatchWriteItem(
 		return nil, err
 	}
 
-	if err = validateAllBatchWriteRequests(input.RequestItems, tables); err != nil {
+	// Convert each request's Put item / Delete key to wire format exactly
+	// once, up front, and reuse it through validation, sizing, throttling,
+	// apply and replication below.
+	wireByTable := make(map[string][]wireWriteRequest, len(input.RequestItems))
+	for tableName, requests := range input.RequestItems {
+		wireByTable[tableName] = toWireWriteRequests(requests)
+	}
+
+	if err = validateAllBatchWriteRequests(wireByTable, tables); err != nil {
 		return nil, err
 	}
 
 	// Split requests per table by size limit before processing.
-	toProcess := make(map[string][]types.WriteRequest, len(input.RequestItems))
+	toProcess := make(map[string][]wireWriteRequest, len(wireByTable))
 	unprocessedItems := make(map[string][]types.WriteRequest)
 
-	for tableName, requests := range input.RequestItems {
+	for tableName, requests := range wireByTable {
 		process, unprocessed := splitWriteRequestsBySize(requests, batchWriteResponseLimit)
 		toProcess[tableName] = process
 		if len(unprocessed) > 0 {
-			unprocessedItems[tableName] = unprocessed
+			unprocessedReqs := make([]types.WriteRequest, len(unprocessed))
+			for i, wwr := range unprocessed {
+				unprocessedReqs[i] = wwr.req
+			}
+			unprocessedItems[tableName] = unprocessedReqs
 		}
 	}
 
@@ -542,7 +573,7 @@ func (db *InMemoryDB) BatchWriteItem(
 // write path enforces.
 func (db *InMemoryDB) enforceBatchWriteThroughput(
 	region string,
-	processed map[string][]types.WriteRequest,
+	processed map[string][]wireWriteRequest,
 	tables map[string]*Table,
 ) error {
 	for tableName, reqs := range processed {
@@ -575,7 +606,7 @@ func (db *InMemoryDB) enforceBatchWriteThroughput(
 func batchWriteConsumedCapacity(
 	req types.ReturnConsumedCapacity,
 	tableNames []string,
-	processed map[string][]types.WriteRequest,
+	processed map[string][]wireWriteRequest,
 	gsiWCUByTable, lsiWCUByTable map[string]map[string]float64,
 ) []types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
@@ -613,11 +644,11 @@ func putRequestWCU(wireItem map[string]any) float64 {
 const deleteRequestWCU = 1.0
 
 // computeBatchWriteWCU sums the write capacity consumed by a slice of WriteRequests.
-func computeBatchWriteWCU(reqs []types.WriteRequest) float64 {
+func computeBatchWriteWCU(reqs []wireWriteRequest) float64 {
 	cu := 0.0
-	for _, req := range reqs {
-		if req.PutRequest != nil {
-			cu += putRequestWCU(models.FromSDKItem(req.PutRequest.Item))
+	for _, wwr := range reqs {
+		if wwr.req.PutRequest != nil {
+			cu += putRequestWCU(wwr.wire)
 		} else {
 			cu += deleteRequestWCU
 		}
@@ -629,25 +660,24 @@ func computeBatchWriteWCU(reqs []types.WriteRequest) float64 {
 // splitWriteRequestsBySize splits write requests into those whose cumulative estimated size
 // fits within sizeLimit bytes and those that exceed it. Only PutRequests contribute to size.
 func splitWriteRequestsBySize(
-	requests []types.WriteRequest,
+	requests []wireWriteRequest,
 	sizeLimit int,
-) ([]types.WriteRequest, []types.WriteRequest) {
+) ([]wireWriteRequest, []wireWriteRequest) {
 	accumulated := 0
-	var process, unprocessed []types.WriteRequest
+	var process, unprocessed []wireWriteRequest
 
-	for _, req := range requests {
-		if req.PutRequest != nil {
-			wireItem := models.FromSDKItem(req.PutRequest.Item)
-			itemSize, err := CalculateItemSize(wireItem)
+	for _, wwr := range requests {
+		if wwr.req.PutRequest != nil {
+			itemSize, err := CalculateItemSize(wwr.wire)
 			if err != nil {
 				// Process conservatively if size calculation fails
-				process = append(process, req)
+				process = append(process, wwr)
 
 				continue
 			}
 
 			if accumulated+itemSize > sizeLimit {
-				unprocessed = append(unprocessed, req)
+				unprocessed = append(unprocessed, wwr)
 
 				continue
 			}
@@ -655,7 +685,7 @@ func splitWriteRequestsBySize(
 			accumulated += itemSize
 		}
 
-		process = append(process, req)
+		process = append(process, wwr)
 	}
 
 	return process, unprocessed
@@ -705,7 +735,7 @@ type tableWriteResult struct {
 
 func (db *InMemoryDB) processTableWriteRequests(
 	table *Table,
-	requests []types.WriteRequest,
+	requests []wireWriteRequest,
 	rim types.ReturnItemCollectionMetrics,
 	wantIndexes bool,
 ) (tableWriteResult, error) {
@@ -767,7 +797,7 @@ func batchWriteIndexWCU(
 // post-write state.
 func (db *InMemoryDB) processBatchPutRequests(
 	table *Table,
-	requests []types.WriteRequest,
+	requests []wireWriteRequest,
 	rim types.ReturnItemCollectionMetrics,
 ) (map[int]map[string]any, []map[string]any, []types.ItemCollectionMetrics) {
 	// modifiedIndices maps each put's final item offset to its pre-write value
@@ -782,12 +812,12 @@ func (db *InMemoryDB) processBatchPutRequests(
 
 	pkDef, _ := getPKAndSK(table.KeySchema)
 
-	for _, req := range requests {
-		if req.PutRequest == nil {
+	for _, wwr := range requests {
+		if wwr.req.PutRequest == nil {
 			continue
 		}
 
-		wireItem := models.FromSDKItem(req.PutRequest.Item)
+		wireItem := wwr.wire
 		putItems = append(putItems, wireItem)
 
 		if trackMetrics {
@@ -795,7 +825,7 @@ func (db *InMemoryDB) processBatchPutRequests(
 			pkVal := BuildKeyString(wireItem, pkDef.AttributeName)
 			collectionBytes := computeLSICollectionSize(table, pkVal, wireItem, matchIndex)
 			if m := buildItemCollectionMetrics(
-				table, rim, pkOnlyKey(table, req.PutRequest.Item), collectionBytes,
+				table, rim, pkOnlyKey(table, wwr.req.PutRequest.Item), collectionBytes,
 			); m != nil {
 				metrics = append(metrics, *m)
 			}
@@ -818,7 +848,7 @@ func (db *InMemoryDB) processBatchPutRequests(
 // computed here, before applyBatchDeletes actually removes anything.
 func (db *InMemoryDB) processBatchDeleteRequests(
 	table *Table,
-	requests []types.WriteRequest,
+	requests []wireWriteRequest,
 	rim types.ReturnItemCollectionMetrics,
 ) (map[int]bool, []map[string]any, []types.ItemCollectionMetrics) {
 	deletedIndices := make(map[int]bool)
@@ -829,12 +859,12 @@ func (db *InMemoryDB) processBatchDeleteRequests(
 
 	pkDef, _ := getPKAndSK(table.KeySchema)
 
-	for _, req := range requests {
-		if req.DeleteRequest == nil {
+	for _, wwr := range requests {
+		if wwr.req.DeleteRequest == nil {
 			continue
 		}
 
-		wireKey := models.FromSDKItem(req.DeleteRequest.Key)
+		wireKey := wwr.wire
 		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 		if matchIndex == -1 {
 			continue
@@ -846,7 +876,7 @@ func (db *InMemoryDB) processBatchDeleteRequests(
 			pkVal := BuildKeyString(wireKey, pkDef.AttributeName)
 			remaining := currentLSICollectionBytes(table, pkVal) - int64(table.itemSizes[matchIndex])
 			if m := buildItemCollectionMetrics(
-				table, rim, pkOnlyKey(table, req.DeleteRequest.Key), remaining,
+				table, rim, pkOnlyKey(table, wwr.req.DeleteRequest.Key), remaining,
 			); m != nil {
 				metrics = append(metrics, *m)
 			}
@@ -938,7 +968,8 @@ func (db *InMemoryDB) updateItemIndex(
 // - PutRequest items must pass item-size and key-schema validation
 // - DeleteRequest keys must contain all required key attributes
 // KeySchema is immutable after table creation, so no lock is needed to read it.
-func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
+func validateBatchWriteRequest(wwr wireWriteRequest, table *Table) error {
+	req := wwr.req
 	if req.PutRequest == nil && req.DeleteRequest == nil {
 		return NewValidationException(
 			"Supplied AttributeValue has more than one datatypes set, " +
@@ -947,18 +978,16 @@ func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
 	}
 
 	if req.PutRequest != nil {
-		wireItem := models.FromSDKItem(req.PutRequest.Item)
-		if err := ValidateItemSize(wireItem); err != nil {
+		if err := ValidateItemSize(wwr.wire); err != nil {
 			return err
 		}
-		if err := validateKeySchema(wireItem, table.KeySchema); err != nil {
+		if err := validateKeySchema(wwr.wire, table.KeySchema); err != nil {
 			return err
 		}
 	}
 
 	if req.DeleteRequest != nil {
-		wireKey := models.FromSDKItem(req.DeleteRequest.Key)
-		if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+		if err := validateKeySchema(wwr.wire, table.KeySchema); err != nil {
 			return err
 		}
 	}

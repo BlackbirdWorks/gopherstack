@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: s3tables
 sdk_module: aws-sdk-go-v2/service/s3tables@v1.18.4   # version audited against
-last_audit_commit: 6742921a1                      # HEAD this pass started from (2026-09-04); pass's own commit not yet made
-last_audit_date: 2026-09-04
+last_audit_commit: 6c5c49416
+last_audit_date: 2026-09-19
 overall: A            # 2026-09-04 FIXED: two missing-precondition bugs (see Notes). DeleteTable silently
                       # accepted a stale/omitted optional versionToken and always succeeded -- real
                       # DeleteTableInput.VersionToken is optional but, when supplied, is an optimistic-
@@ -104,6 +104,17 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+### 2026-09-19 (requiredoutputfields census, gopherstack-r80d): 0 findings
+
+Read the success-path wire construction for all 28 ops with >=1 required
+output member (60 members total, per `cmd/requiredoutputfields`): table
+bucket/namespace/table CRUD, encryption/policy/storage-class/replication/
+maintenance/record-expiration sub-resources, and the List families. Every
+required member is always present on success (identifiers and configuration
+objects sourced from stored state with sensible defaults when unset, e.g.
+GetTableEncryption's default sseAlgorithm; list members are always non-nil
+slices). No fixes needed.
 
 ## 2026-09-04: DeleteTable ignored its optional versionToken; DeleteTableBucket/DeleteNamespace cascaded instead of requiring emptiness
 

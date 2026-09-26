@@ -93,6 +93,23 @@ byte-for-byte and honor the 128 KB limit, both of which are verified by
 
 ## Notes
 
+### 2026-09-24 unbounded-growth sweep: idle connections never auto-pruned
+
+b.connections had no automatic eviction: PruneIdle existed only as an
+admin-triggered endpoint (`POST /_gopherstack/apigwmgmt/prune`), so nothing
+called it in a normal run and the map grew forever as connections opened.
+Real API Gateway disconnects a WebSocket connection idle for 10 minutes
+(documented WebSocket API quota). Added janitor.go, wired from provider.go
+via `ctx.JanitorCtx` (same pattern as services/ecs's Provider.Init), running
+PruneIdle(10m) on a 1-minute tick. See janitor_test.go.
+
+Follow-up: the idle janitor only saw outbound PostToConnection/Broadcast
+activity. apigatewayv2's WebSocket read loop never refreshed LastActiveAt, so
+a client that only sends frames (never receives one) was wrongly evicted
+after 10 minutes. Added TouchConnection (refreshes LastActiveAt, no
+lifecycle event) and wired it into apigatewayv2's wsReadLoop per inbound
+frame; see TestJanitor_TouchConnection_KeepsActiveConnectionAlive.
+
 Protocol: REST-JSON (restjson1), but routed by literal path prefix `@connections/`
 (not a normal resource path) plus HTTP method, since PostToConnection, GetConnection,
 and DeleteConnection all share the identical `/@connections/{connectionId}` path and

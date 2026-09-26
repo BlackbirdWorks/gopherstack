@@ -20,7 +20,7 @@ func TestDescribeTrustStoreAssociations_PaginationDoesNotDropAssociations(t *tes
 
 	const numListeners = 8
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	tgArn := mustCreateTG(t, h, "tsa-tg")
 
 	tsRec := doELBv2(t, h, url.Values{

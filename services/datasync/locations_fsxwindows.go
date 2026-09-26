@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateLocationFsxWindows(
 	now := time.Now().UTC()
 
 	sub := strings.TrimPrefix(subdirectory, "/")
-	locationURI := fmt.Sprintf("smb://%s/%s", fsxFilesystemArn, sub)
+	locationURI := fmt.Sprintf("smb://%s.%s/%s", b.region, fsxShortResourceID(fsxFilesystemArn), sub)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) UpdateLocationFsxWindows(
 	if subdirectory != "" {
 		l.Subdirectory = subdirectory
 		sub := strings.TrimPrefix(subdirectory, "/")
-		l.LocationURI = fmt.Sprintf("smb://%s/%s", l.FsxWindows.FsxFilesystemArn, sub)
+		l.LocationURI = fmt.Sprintf("smb://%s.%s/%s", b.region, fsxShortResourceID(l.FsxWindows.FsxFilesystemArn), sub)
 	}
 
 	if domain != "" {

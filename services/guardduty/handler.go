@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -297,13 +298,40 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, "/"+pathDetector) ||
 			isGuardDutyTagsPath(path) ||
-			strings.HasPrefix(path, "/"+pathAdmin) ||
+			isGuardDutyAdminPath(path, c.Request().Method, httputils.ExtractServiceFromRequest(c.Request())) ||
 			strings.HasPrefix(path, "/"+pathInvitation) ||
 			strings.HasPrefix(path, "/"+pathMalwareProtectionPlan) ||
 			strings.HasPrefix(path, "/"+pathMalwareScan) ||
 			strings.HasPrefix(path, "/"+pathObjectMalwareScan) ||
-			strings.HasPrefix(path, "/"+pathOrganization)
+			// Only /organization/statistics is genuinely GuardDuty's (see
+			// topLevelPathParsers); a blanket "/organization" prefix here
+			// swallowed SecurityHub's /organization/admin/enable and
+			// /organization/configuration (RouteMatcher prefix collision,
+			// see .claude/memories/route-matcher-prefix-collision.md).
+			strings.HasPrefix(path, "/"+pathOrganization+"/statistics")
 	}
+}
+
+// isGuardDutyAdminPath reports whether (method, path, svc) is one of
+// GuardDuty's own organization-admin-account routes: GET /admin
+// (ListOrganizationAdminAccounts), POST /admin/enable, POST /admin/disable.
+// A blanket HasPrefix(path, "/admin") here swallowed Macie2's POST /admin
+// (EnableOrganizationAdminAccount), DELETE /admin (DisableOrganizationAdminAccount),
+// and POST /admin/configuration (UpdateOrganizationConfiguration) -- none
+// matched by GuardDuty's own real API (RouteMatcher prefix collision, see
+// .claude/memories/route-matcher-prefix-collision.md).
+//
+// GET /admin (ListOrganizationAdminAccounts) is byte-for-byte the same
+// (method, path) shape in both services, so that one case also needs the
+// SigV4 signing service (svc) to disambiguate -- "" (no/unparseable auth
+// header, e.g. a handler-level test) is treated permissively.
+func isGuardDutyAdminPath(path, method, svc string) bool {
+	if path == "/"+pathAdmin {
+		return method == http.MethodGet && (svc == "" || svc == guardDutyService)
+	}
+
+	return method == http.MethodPost &&
+		(path == "/"+pathAdmin+"/enable" || path == "/"+pathAdmin+"/disable")
 }
 
 // isGuardDutyTagsPath reports whether path is a /tags/{resourceArn} request

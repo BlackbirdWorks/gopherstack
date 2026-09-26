@@ -11,7 +11,6 @@ var (
 	quotedRe      = regexp.MustCompile(`"([^"]*)"`)
 	concatLeftRe  = regexp.MustCompile(`"/"\s*\+\s*(\w+)`)
 	concatRightRe = regexp.MustCompile(`(\w+)\s*\+\s*"/"`)
-	guardRe       = regexp.MustCompile(`ExtractServiceFromRequest|is\w+Request\(`)
 	sliceLitRe    = regexp.MustCompile(
 		`(?s)(\w+)\s*=\s*(?:sync\.OnceValue\(func\(\)\s*\[\]string\s*\{\s*return\s*)?\[\]string\{([^}]*)\}`,
 	)
@@ -76,11 +75,16 @@ type claim struct {
 }
 
 type svcInfo struct {
-	Dir      string  `json:"dir"`
-	Claims   []claim `json:"claims"`
-	Priority int     `json:"priority"`
-	RegOrder int     `json:"regOrder"`
-	Guarded  bool    `json:"guarded"`
+	Dir    string  `json:"dir"`
+	Claims []claim `json:"claims"`
+	// GuardEvidence records every recognized guard construct (see guard.go's
+	// isGuarded) found in the matcher's body or a one-hop helper. Empty iff
+	// Guarded is false. Populated regardless of the -why flag; -why only
+	// controls whether the report prints it.
+	GuardEvidence []guardEvidence `json:"guardEvidence,omitempty"`
+	Priority      int             `json:"priority"`
+	RegOrder      int             `json:"regOrder"`
+	Guarded       bool            `json:"guarded"`
 	// Immune marks a RouteMatcher recognized as structurally immune to the
 	// path-prefix collision class (query-protocol Version/Action body match,
 	// or header/X-Amz-Target match with no path literal at all) rather than a

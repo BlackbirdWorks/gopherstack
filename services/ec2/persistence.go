@@ -30,10 +30,12 @@ type backendSnapshot struct {
 	IpamPoolCidrs                  map[string][]*IpamPoolCidr                  `json:"ipamPoolCidrs,omitempty"`
 	IpamPrefixListResolverVersions map[string][]int64                          `json:"ipamPLRVersions,omitempty"`
 	VpcCidrAssociations            map[string]*VpcCidrBlockAssociation         `json:"vpcCidrAssociations"`
+	VpcIpv6CidrAssociations        map[string]*VpcIpv6CidrBlockAssociation     `json:"vpcIpv6CidrAssociations,omitempty"`
 	SpotFleetHistory               map[string][]SpotFleetHistoryRecord         `json:"spotFleetHistory"`
 	FleetHistory                   map[string][]FleetHistoryRecord             `json:"fleetHistory,omitempty"`
 	SnapshotTiers                  map[string]string                           `json:"snapshotTiers,omitempty"`
 	VpcPeeringOptions              map[string]*PeeringConnectionOptions        `json:"vpcPeeringOptions"`
+	VpcPeeringAccepterOptions      map[string]*PeeringConnectionOptions        `json:"vpcPeeringAccepterOptions,omitempty"`
 	SubnetCIDRAssociations         map[string][]*SubnetCIDRAssociation         `json:"subnetCIDRAssociations"`
 	InstanceCreditSpecs            map[string]string                           `json:"instanceCreditSpecs"`
 	InstanceMetadataDefaults       *InstanceMetadataDefaults                   `json:"instanceMetadataDefaults"`
@@ -46,6 +48,7 @@ type backendSnapshot struct {
 	SgVpcAssociations              map[string]map[string]string                `json:"sgVpcAssociations"`
 	ImageDeregistrationProtection  map[string]bool                             `json:"imageDeregProtect"`
 	ImageAttributes                map[string]map[string]string                `json:"imageAttributes"`
+	ImageInstanceTypeSpecs         map[string]*InstanceTypeSpecification       `json:"imageInstanceTypeSpecs,omitempty"`
 	VgwRoutePropagation            map[string]bool                             `json:"vgwRoutePropagation"`
 	TgwRTPropagations              map[string]map[string]*snapTGWRTProp        `json:"tgwRTPropagations,omitempty"`
 	FastLaunchImages               map[string]*FastLaunchImageItem             `json:"fastLaunchImages"`
@@ -114,6 +117,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextPrivateIPIndex:             b.nextPrivateIPIndex,
 		NextElasticIPIndex:             b.nextElasticIPIndex,
 		VpcCidrAssociations:            b.vpcCidrAssociations,
+		VpcIpv6CidrAssociations:        b.vpcIpv6CidrAssociations,
 		SpotFleetHistory:               b.spotFleetHistory,
 		FleetHistory:                   b.fleetHistory,
 		SnapshotTiers:                  b.snapshotTiers,
@@ -121,6 +125,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SgVpcAssociations:              b.sgVpcAssociations,
 		VpcTenancy:                     b.vpcTenancy,
 		VpcPeeringOptions:              b.vpcPeeringOptions,
+		VpcPeeringAccepterOptions:      b.vpcPeeringAccepterOptions,
 		SubnetCIDRAssociations:         b.subnetCIDRAssociations,
 		InstanceCreditSpecs:            b.instanceCreditSpecs,
 		InstanceMetadataDefaults:       b.instanceMetadataDefaults,
@@ -133,6 +138,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ImageDeprecated:                b.imageDeprecated,
 		ImageDeregistrationProtection:  b.imageDeregistrationProtection,
 		ImageAttributes:                b.imageAttributes,
+		ImageInstanceTypeSpecs:         b.imageInstanceTypeSpecs,
 		VgwRoutePropagation:            b.vgwRoutePropagation,
 		FastLaunchImages:               b.fastLaunchImages,
 		FastSnapshotRestores:           b.fastSnapshotRestores,
@@ -237,6 +243,7 @@ func restoreMapField[K comparable, V any](dst *map[K]V, src map[K]V) {
 // for writing.
 func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.vpcCidrAssociations, snap.VpcCidrAssociations)
+	restoreMapField(&b.vpcIpv6CidrAssociations, snap.VpcIpv6CidrAssociations)
 	restoreMapField(&b.spotFleetHistory, snap.SpotFleetHistory)
 	restoreMapField(&b.fleetHistory, snap.FleetHistory)
 	restoreMapField(&b.snapshotTiers, snap.SnapshotTiers)
@@ -244,6 +251,7 @@ func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.sgVpcAssociations, snap.SgVpcAssociations)
 	restoreMapField(&b.vpcTenancy, snap.VpcTenancy)
 	restoreMapField(&b.vpcPeeringOptions, snap.VpcPeeringOptions)
+	restoreMapField(&b.vpcPeeringAccepterOptions, snap.VpcPeeringAccepterOptions)
 	restoreMapField(&b.subnetCIDRAssociations, snap.SubnetCIDRAssociations)
 	restoreMapField(&b.instanceCreditSpecs, snap.InstanceCreditSpecs)
 	restoreMapField(&b.niIPv6Addresses, snap.NiIPv6Addresses)
@@ -254,6 +262,7 @@ func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.imageDeprecated, snap.ImageDeprecated)
 	restoreMapField(&b.imageDeregistrationProtection, snap.ImageDeregistrationProtection)
 	restoreMapField(&b.imageAttributes, snap.ImageAttributes)
+	restoreMapField(&b.imageInstanceTypeSpecs, snap.ImageInstanceTypeSpecs)
 	restoreMapField(&b.vgwRoutePropagation, snap.VgwRoutePropagation)
 	restoreMapField(&b.verifiedAccessEndpointPolicies, snap.VerifiedAccessEndpointPolicies)
 	restoreMapField(&b.verifiedAccessGroupPolicies, snap.VerifiedAccessGroupPolicies)
@@ -420,6 +429,7 @@ func (s *backendSnapshot) initImageAndPoolMaps() {
 	initMapIfNil(&s.UsageReportEntries)
 	initMapIfNil(&s.InstanceProductCodes)
 	initMapIfNil(&s.EnclaveCertIamRoles)
+	initMapIfNil(&s.ImageInstanceTypeSpecs)
 	initMapIfNil(&s.AvailabilityZoneGroupOptIns)
 	initMapIfNil(&s.SQLHaHistory)
 

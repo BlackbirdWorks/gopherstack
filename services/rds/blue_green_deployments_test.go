@@ -14,7 +14,7 @@ import (
 func TestBlueGreen_CreateAndDescribe(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 
 	bg, err := b.CreateBlueGreenDeployment("bg1", "arn:aws:rds:us-east-1:123:db:source-db")
 	require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestBlueGreen_CreateAndDescribe(t *testing.T) {
 func TestBlueGreen_Switchover(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	bg, err := b.CreateBlueGreenDeployment("bg2", "arn:aws:rds:us-east-1:123:db:source-db")
 	require.NoError(t, err)
 
@@ -41,7 +41,7 @@ func TestBlueGreen_Switchover(t *testing.T) {
 func TestBlueGreen_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
+	b := newBatch2Backend(t)
 	_, err := b.DeleteBlueGreenDeployment("nonexistent-id")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, rds.ErrBlueGreenDeploymentNotFound)
@@ -50,7 +50,7 @@ func TestBlueGreen_DeleteNotFound(t *testing.T) {
 func TestBlueGreen_HTTP(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch2Handler()
+	h := newBatch2Handler(t)
 
 	rec := postRDSForm(t, h, url.Values{
 		"Action":                  {"CreateBlueGreenDeployment"},
@@ -71,7 +71,7 @@ func TestBlueGreen_HTTP(t *testing.T) {
 func TestBlueGreenDeployment_TargetGenerated(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	dep, err := b.CreateBlueGreenDeployment("my-bgd", "arn:aws:rds:us-east-1:123:cluster:source")
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestBlueGreenDeployment_TargetGenerated(t *testing.T) {
 func TestBlueGreenDeployment_TargetViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newBatch3Handler()
+	h := newBatch3Handler(t)
 
 	rec := postRDSForm(t, h,
 		"Action=CreateBlueGreenDeployment&Version=2014-10-31"+
@@ -99,7 +99,7 @@ func TestBlueGreenDeployment_TargetViaHandler(t *testing.T) {
 func TestPersistence_BlueGreenTarget(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch3Backend()
+	b := newBatch3Backend(t)
 
 	_, err := b.CreateBlueGreenDeployment("bgd-snap", "arn:aws:rds:us-east-1:123:cluster:src")
 	require.NoError(t, err)
@@ -108,6 +108,7 @@ func TestPersistence_BlueGreenTarget(t *testing.T) {
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b2.Close)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	deployments, err := b2.DescribeBlueGreenDeployments("")
@@ -121,7 +122,7 @@ func TestPersistence_BlueGreenTarget(t *testing.T) {
 func TestRDS_BlueGreenDeployments(t *testing.T) {
 	t.Parallel()
 
-	h := newRDSHandler()
+	h := newRDSHandler(t)
 
 	// DescribeBlueGreenDeployments (list, should be empty)
 	rec := postRDSForm(t, h, url.Values{
@@ -181,6 +182,7 @@ func TestRDSBackend_CreateBlueGreenDeployment(t *testing.T) {
 			t.Parallel()
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			t.Cleanup(b.Close)
 			tt.setup(b)
 
 			d, err := b.CreateBlueGreenDeployment(tt.deplName, tt.source)

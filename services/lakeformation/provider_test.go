@@ -28,7 +28,7 @@ func TestProvider(t *testing.T) {
 			p := &lakeformation.Provider{}
 			assert.Equal(t, tt.want, p.Name())
 
-			ctx := &service.AppContext{Logger: slog.Default()}
+			ctx := &service.AppContext{Logger: slog.Default(), JanitorCtx: t.Context()}
 			svc, err := p.Init(ctx)
 			require.NoError(t, err)
 			assert.NotNil(t, svc)
@@ -48,7 +48,7 @@ func TestProviderInit_Success(t *testing.T) {
 	t.Parallel()
 
 	p := &lakeformation.Provider{}
-	ctx := &service.AppContext{}
+	ctx := &service.AppContext{JanitorCtx: t.Context()}
 	reg, err := p.Init(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, reg)

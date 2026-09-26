@@ -170,3 +170,23 @@ func (b *InMemoryBackend) ModifySnapshotCopyRetentionPeriod(clusterID string, re
 
 	return &cp, nil
 }
+
+// SnapshotCopyConfigFor returns a copy of the cross-region snapshot copy
+// config for clusterID, or nil if snapshot copy is not enabled for it. Used
+// to populate Cluster.ClusterSnapshotCopyStatus on the wire (real
+// EnableSnapshotCopy/DescribeClusters responses, redshift@v1.65.4
+// types.go:204) -- aws_redshift_snapshot_copy's create reads this field and
+// errors with "empty output" if it's absent.
+func (b *InMemoryBackend) SnapshotCopyConfigFor(clusterID string) *SnapshotCopyConfig {
+	b.mu.RLock("SnapshotCopyConfigFor")
+	defer b.mu.RUnlock()
+
+	cfg, enabled := b.snapshotCopyConfigs[clusterID]
+	if !enabled {
+		return nil
+	}
+
+	cp := *cfg
+
+	return &cp
+}

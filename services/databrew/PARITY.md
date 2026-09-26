@@ -1,7 +1,7 @@
 service: databrew
 sdk_module: aws-sdk-go-v2/service/databrew@v1.42.4
-last_audit_commit: 782e2a93
-last_audit_date: 2026-08-29
+last_audit_commit: 75c14a90f
+last_audit_date: 2026-09-19
 overall: A            # 2026-07-23: genuine fixes found across recipe version history, job/dataset field gaps, and an invented UpdateProject field
                       # 2026-08-29 (gopherstack-6flj/21my follow-up sweep): three more silent-drop bugs found one layer below the 2026-08-15 sweep's JobRun snapshot fix and below CreateDataset's Input.*InputDefinition sub-shapes, which the 2026-08-15/2026-08-21 passes read at the wrapper-key/required-member layer but not member-by-member against every nested struct. (1) types.JobRun.ValidationConfigurations (deserializers.go's awsRestjson1_deserializeDocumentJobRun, full case list re-verified: Attempt/CompletedOn/DatabaseOutputs/DataCatalogOutputs/DatasetName/ErrorMessage/ExecutionTime/JobName/JobSample/LogGroupName/LogSubscription/Outputs/RecipeReference/RunId/StartedBy/StartedOn/State/ValidationConfigurations -- 18 total) was an 8th real member the 2026-08-15 sweep's list of 7 missed entirely; JobRun had no field for it at all. (2) types.JobRun.DatasetName -- the Go field already existed on gopherstack's JobRun struct, but StartJobRun's snapshot-from-parent-Job constructor never set it, so a real client's DescribeJobRun/ListJobRuns always saw an empty DatasetName regardless of the profile job's real dataset. Both fixed by extending StartJobRun's existing snapshot-from-Job pattern (jobs.go). (3) types.DataCatalogInputDefinition.CatalogId/TempDirectory and types.DatabaseInputDefinition.QueryString/TempDirectory (both confirmed real via deserializers.go's awsRestjson1_deserializeDocumentDataCatalogInputDefinition/awsRestjson1_deserializeDocumentDatabaseInputDefinition case lists) had no slot on gopherstack's DataCatalogInput/DatabaseInput structs (models.go) at all -- a real client's CreateDataset/UpdateDataset silently lost these four fields on ingest, with DescribeDataset/ListDatasets always reporting them empty. Fixed additively (new struct fields decode automatically since DatasetInput is unmarshaled as a whole Go struct, no handler plumbing needed). See wire_field_fixes_test.go for all three real-SDK round-trip tests. Also ran `go run ./cmd/acceptguard` this pass: it flagged CreateConfiguration's handler reading a "Description" JSON field that is genuinely not a member of the real mq CreateConfigurationInput (that's mq, not databrew -- see mq's PARITY.md) -- no databrew/acceptguard findings this pass. `enumcheck`/`zeroguard`/`xmlitemwrap` had zero databrew findings. Everything else checked this pass (Schedule, Recipe/RecipeStep/RecipeAction/ConditionExpression, DataCatalogOutput/DatabaseOutput/DatabaseTableOutputOptions/S3TableOutputOptions, PathOptions/DatasetParameter/FilesLimit/FilterExpression/DatetimeOptions) matched the pinned SDK's wire shapes with no new findings -- see "ops NOT reached" note below for what this pass did not re-verify member-by-member.
                       # 2026-07-31: pkgs/sdkcheck reverse check found DeleteRecipe wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test/tooling scaffolding. Grade held at A: a documentation defect, not a served-client bug.
@@ -96,6 +96,15 @@ leaks: {status: clean, note: "StartJobRun's delayed STARTING->SUCCEEDED transiti
 ---
 
 ## Notes
+
+**2026-09-19 (required-output-member census):** checked every op with >=1
+SDK-required output member (41 ops, 43 members; `cmd/requiredoutputfields`)
+against handler code -- Name/CreateDate on Job/Recipe/Dataset/Project/
+Schedule/Ruleset, JobName/RunId/State on JobRun, RunId on Start/StopJobRun.
+All struct fields lack `omitempty` and every handler path sets them
+unconditionally (verified via models.go's Dataset/Job/Recipe/Project/
+Ruleset/Schedule/JobRun definitions and their handler_*.go call sites). No
+fixes needed.
 
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 44 ops' real
 method+path directly from `databrew@v1.42.4` serializers.go and drove them

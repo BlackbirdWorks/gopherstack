@@ -89,7 +89,10 @@ var _ firehose.KinesisReader = (*mockKinesisReader)(nil)
 func newFirehoseBackend(t *testing.T) *firehose.InMemoryBackend {
 	t.Helper()
 
-	return firehose.NewInMemoryBackend("123456789012", "us-east-1")
+	b := firehose.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Reset) // stops any Kinesis source poller left running by the test
+
+	return b
 }
 
 // totalRecords reads TotalRecords from the stream Metrics.
