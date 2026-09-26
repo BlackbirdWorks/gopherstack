@@ -39,7 +39,17 @@ func (b *InMemoryBackend) CreateRule(
 		b.tags[b.ruleARN(id)] = maps.Clone(tags)
 	}
 
-	return rule, nil
+	return cloneRule(rule), nil
+}
+
+// cloneRule stops a caller from racing UpdateRule. A shallow copy is not
+// enough: applyEntryUpdate's delete path reuses the predicates backing array.
+func cloneRule(rule *Rule) *Rule {
+	cp := *rule
+	cp.Predicates = make([]Predicate, len(rule.Predicates))
+	copy(cp.Predicates, rule.Predicates)
+
+	return &cp
 }
 
 // GetRule retrieves a Rule by ID.
@@ -52,7 +62,7 @@ func (b *InMemoryBackend) GetRule(id string) (*Rule, error) {
 		return nil, ErrNotFound
 	}
 
-	return rule, nil
+	return cloneRule(rule), nil
 }
 
 // UpdateRule updates a Rule's predicates.
