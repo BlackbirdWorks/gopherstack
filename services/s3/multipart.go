@@ -150,7 +150,13 @@ func (b *InMemoryBackend) UploadPart(
 		return nil, err
 	}
 
-	storedData := bytes.Clone(buf.Bytes())
+	// Clone only if PutBuffer will recycle buf; parts are typically well above
+	// the pool's 64KiB cap and get discarded, so the clone is usually skipped
+	// (mirrors computeObjectHashes in objects.go).
+	storedData := buf.Bytes()
+	if httputils.WillPool(buf) {
+		storedData = bytes.Clone(storedData)
+	}
 	etag := hex.EncodeToString(md5Hasher.Sum(nil))
 
 	// 2. Validate Content-MD5 from context if present.
