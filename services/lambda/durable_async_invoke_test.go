@@ -98,6 +98,7 @@ func TestAsyncDurableInvoke_RecordsCompletion(t *testing.T) {
 			go func() {
 				out, invokeErr := client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:         aws.String(fnName),
+					Qualifier:            aws.String("$LATEST"),
 					InvocationType:       types.InvocationTypeEvent,
 					DurableExecutionName: aws.String("exec-" + tt.name),
 					Payload:              []byte(`{}`),

@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,6 +59,7 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 				// the idempotency table), making the assertion below flaky.
 				_, err := client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:         aws.String("durinv-basic-fn"),
+					Qualifier:            aws.String("$LATEST"),
 					DurableExecutionName: aws.String("basic-exec"),
 					Payload:              []byte(`{"x":1}`),
 				})
@@ -92,6 +94,7 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 
 				_, err := client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:         aws.String("durinv-idem-fn"),
+					Qualifier:            aws.String("$LATEST"),
 					DurableExecutionName: aws.String("idem-exec"),
 					Payload:              payload,
 				})
@@ -119,6 +122,7 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 				// proving the function was NOT invoked again.
 				out, err := client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:         aws.String("durinv-idem-fn"),
+					Qualifier:            aws.String("$LATEST"),
 					DurableExecutionName: aws.String("idem-exec"),
 					Payload:              payload,
 				})
@@ -145,6 +149,7 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 
 				_, err := client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:         aws.String("durinv-conflict-fn"),
+					Qualifier:            aws.String("$LATEST"),
 					DurableExecutionName: aws.String("conflict-exec"),
 					Payload:              []byte(`{"a":1}`),
 				})
@@ -152,6 +157,7 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 
 				_, err = client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:         aws.String("durinv-conflict-fn"),
+					Qualifier:            aws.String("$LATEST"),
 					DurableExecutionName: aws.String("conflict-exec"),
 					Payload:              []byte(`{"a":2}`),
 				})
@@ -172,6 +178,7 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 
 				_, err := client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:   aws.String("durinv-dryrun-fn"),
+					Qualifier:      aws.String("$LATEST"),
 					InvocationType: types.InvocationTypeDryRun,
 					Payload:        []byte(`{}`),
 				})
@@ -199,6 +206,7 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 				// case's comment) so the counts asserted below are stable.
 				_, err := client.Invoke(t.Context(), &lambdasdk.InvokeInput{
 					FunctionName:         aws.String("durinv-qual-fn"),
+					Qualifier:            aws.String("$LATEST"),
 					DurableExecutionName: aws.String("qual-latest-exec"),
 					Payload:              []byte(`{}`),
 				})
@@ -255,6 +263,64 @@ func TestRealClient_DurableInvoke(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tc.run(t)
+		})
+	}
+}
+
+// TestInvoke_DurableFunctionRequiresQualifier guards the qualified-ARN requirement.
+// docs.aws.amazon.com/lambda/latest/dg/durable-invoking.html#durable-invoking-qualified-arns.
+func TestInvoke_DurableFunctionRequiresQualifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		qualifier    string
+		durable      bool
+		wantRejected bool
+	}{
+		{name: "durable function, no qualifier is rejected", durable: true, wantRejected: true},
+		{name: "durable function, explicit $LATEST is accepted", durable: true, qualifier: "$LATEST"},
+		{name: "standard function, no qualifier is accepted"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newInMemoryHandler(t)
+			client := newTestLambdaClient(t, h)
+
+			fnName := "qual-req-" + strings.ReplaceAll(tt.name, " ", "-")
+
+			createInput := &lambdasdk.CreateFunctionInput{
+				FunctionName: aws.String(fnName),
+				PackageType:  types.PackageTypeImage,
+				Code:         &types.FunctionCode{ImageUri: aws.String("ecr/myapp:latest")},
+				Role:         aws.String("arn:aws:iam:::role/r"),
+			}
+			if tt.durable {
+				createInput.DurableConfig = &types.DurableConfig{ExecutionTimeout: aws.Int32(3600)}
+			}
+
+			_, err := client.CreateFunction(t.Context(), createInput)
+			require.NoError(t, err)
+
+			invokeInput := &lambdasdk.InvokeInput{FunctionName: aws.String(fnName), Payload: []byte(`{}`)}
+			if tt.qualifier != "" {
+				invokeInput.Qualifier = aws.String(tt.qualifier)
+			}
+
+			_, err = client.Invoke(t.Context(), invokeInput)
+			require.Error(t, err) // no Docker runtime configured either way
+
+			var apiErr smithy.APIError
+			require.ErrorAs(t, err, &apiErr)
+
+			if tt.wantRejected {
+				assert.Equal(t, "InvalidParameterValueException", apiErr.ErrorCode())
+			} else {
+				assert.NotEqual(t, "InvalidParameterValueException", apiErr.ErrorCode())
+			}
 		})
 	}
 }

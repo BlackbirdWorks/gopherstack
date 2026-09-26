@@ -57,7 +57,7 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 
 	qualifier := c.Request().URL.Query().Get("Qualifier")
 
-	if !h.validateQualifier(c, qualifier) {
+	if !h.validateInvokeQualifier(c, name, qualifier) {
 		return nil
 	}
 
@@ -182,6 +182,39 @@ func (h *Handler) dispatchInvoke(
 	result, statusCode, invokeErr := h.Backend.InvokeFunction(ctx, name, invType, body)
 
 	return result, "", "", statusCode, invokeErr
+}
+
+// validateInvokeQualifier checks qualifier well-formedness, then the durable-function requirement.
+func (h *Handler) validateInvokeQualifier(c *echo.Context, name, qualifier string) bool {
+	return h.validateQualifier(c, qualifier) && h.requireDurableQualifier(c, name, qualifier)
+}
+
+// requireDurableQualifier rejects an unqualified Invoke of a durable function.
+// docs.aws.amazon.com/lambda/latest/dg/durable-invoking.html#durable-invoking-qualified-arns.
+func (h *Handler) requireDurableQualifier(c *echo.Context, name, qualifier string) bool {
+	if qualifier != "" {
+		return true
+	}
+
+	bareName, embeddedQualifier := functionNameAndQualifierFromARN(name)
+	if embeddedQualifier != "" {
+		return true
+	}
+
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return true
+	}
+
+	fn, err := bk.GetFunction(bareName)
+	if err != nil || fn.DurableConfig == nil {
+		return true
+	}
+
+	_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+		"Durable functions require a qualified identifier: specify a version, alias, or $LATEST")
+
+	return false
 }
 
 // resolveExecutedVersion returns the version string for the X-Amz-Executed-Version header.
