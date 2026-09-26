@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -247,61 +248,66 @@ func startExperimentAndPollTerminal(t *testing.T, h *fis.Handler, templateID str
 func TestStartExperiment_WithReportConfiguration_GeneratesReport(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	body := minimalTemplateBody()
-	body["experimentReportConfiguration"] = reportConfigBody()
+		body := minimalTemplateBody()
+		body["experimentReportConfiguration"] = reportConfigBody()
 
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
 
-	mustJSON(t, rec, &tplResp)
+		mustJSON(t, rec, &tplResp)
 
-	result := startExperimentAndPollTerminal(t, h, tplResp.ExperimentTemplate.ID)
+		result := startExperimentAndPollTerminal(t, h, tplResp.ExperimentTemplate.ID)
 
-	assert.Equal(t, "completed", result.ExperimentReport.State.Status)
-	require.Len(t, result.ExperimentReport.S3Reports, 1)
-	assert.Equal(t, "experiment-report", result.ExperimentReport.S3Reports[0].ReportType)
-	assert.True(t, strings.HasPrefix(result.ExperimentReport.S3Reports[0].Arn, "arn:aws:s3:::my-fis-reports/reports/"))
+		assert.Equal(t, "completed", result.ExperimentReport.State.Status)
+		require.Len(t, result.ExperimentReport.S3Reports, 1)
+		assert.Equal(t, "experiment-report", result.ExperimentReport.S3Reports[0].ReportType)
+		assert.True(t,
+			strings.HasPrefix(result.ExperimentReport.S3Reports[0].Arn, "arn:aws:s3:::my-fis-reports/reports/"))
+	})
 }
 
 func TestStartExperiment_ReportConfiguration_MissingS3Output_ReportFails(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	body := minimalTemplateBody()
-	body["experimentReportConfiguration"] = map[string]any{
-		"dataSources": map[string]any{
-			"cloudWatchDashboards": []map[string]any{
-				{"dashboardIdentifier": "arn:aws:cloudwatch::000000000000:dashboard/MyDashboard"},
+		body := minimalTemplateBody()
+		body["experimentReportConfiguration"] = map[string]any{
+			"dataSources": map[string]any{
+				"cloudWatchDashboards": []map[string]any{
+					{"dashboardIdentifier": "arn:aws:cloudwatch::000000000000:dashboard/MyDashboard"},
+				},
 			},
-		},
-	}
+		}
 
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
 
-	mustJSON(t, rec, &tplResp)
+		mustJSON(t, rec, &tplResp)
 
-	result := startExperimentAndPollTerminal(t, h, tplResp.ExperimentTemplate.ID)
+		result := startExperimentAndPollTerminal(t, h, tplResp.ExperimentTemplate.ID)
 
-	assert.Equal(t, "failed", result.ExperimentReport.State.Status)
-	require.NotNil(t, result.ExperimentReport.State.Error)
-	assert.Equal(t, "MissingReportOutputConfiguration", result.ExperimentReport.State.Error.Code)
-	assert.Empty(t, result.ExperimentReport.S3Reports)
+		assert.Equal(t, "failed", result.ExperimentReport.State.Status)
+		require.NotNil(t, result.ExperimentReport.State.Error)
+		assert.Equal(t, "MissingReportOutputConfiguration", result.ExperimentReport.State.Error.Code)
+		assert.Empty(t, result.ExperimentReport.S3Reports)
+	})
 }
 
 func TestGetExperiment_NoReportConfig_OmitsReportFields(t *testing.T) {

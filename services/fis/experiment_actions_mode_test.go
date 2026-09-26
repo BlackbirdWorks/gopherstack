@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -81,112 +82,116 @@ func pollExperimentUntilTerminal(t *testing.T, h *fis.Handler, expID string) map
 func TestStartExperiment_ActionsMode_SkipAll_SkipsActionsAndProvider(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	mock := &fis.MockFISActionProvider{
-		Definitions: []service.FISActionDefinition{
-			{ActionID: "aws:test:mode-action", TargetType: "aws:ec2:instance"},
-		},
-	}
-	h.SetActionProviders([]service.FISActionProvider{mock})
+		mock := &fis.MockFISActionProvider{
+			Definitions: []service.FISActionDefinition{
+				{ActionID: "aws:test:mode-action", TargetType: "aws:ec2:instance"},
+			},
+		}
+		h.SetActionProviders([]service.FISActionProvider{mock})
 
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", actionsModeTemplateBody())
-	require.Equal(t, http.StatusCreated, rec.Code)
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", actionsModeTemplateBody())
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
 
-	mustJSON(t, rec, &tplResp)
+		mustJSON(t, rec, &tplResp)
 
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-		"experimentOptions":    map[string]any{"actionsMode": "skip-all"},
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+			"experimentOptions":    map[string]any{"actionsMode": "skip-all"},
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
 
-	var startResp struct {
-		Experiment struct {
-			ID                string `json:"id"`
-			ExperimentOptions struct {
-				ActionsMode string `json:"actionsMode"`
-			} `json:"experimentOptions"`
-		} `json:"experiment"`
-	}
+		var startResp struct {
+			Experiment struct {
+				ID                string `json:"id"`
+				ExperimentOptions struct {
+					ActionsMode string `json:"actionsMode"`
+				} `json:"experimentOptions"`
+			} `json:"experiment"`
+		}
 
-	mustJSON(t, rec2, &startResp)
-	assert.Equal(t, "skip-all", startResp.Experiment.ExperimentOptions.ActionsMode)
+		mustJSON(t, rec2, &startResp)
+		assert.Equal(t, "skip-all", startResp.Experiment.ExperimentOptions.ActionsMode)
 
-	exp := pollExperimentUntilTerminal(t, h, startResp.Experiment.ID)
+		exp := pollExperimentUntilTerminal(t, h, startResp.Experiment.ID)
 
-	var status struct {
-		Status string `json:"status"`
-	}
-
-	require.NoError(t, json.Unmarshal(exp["status"], &status))
-	assert.Equal(t, "completed", status.Status)
-
-	var actions map[string]struct {
-		Status struct {
+		var status struct {
 			Status string `json:"status"`
-		} `json:"status"`
-	}
+		}
 
-	require.NoError(t, json.Unmarshal(exp["actions"], &actions))
-	require.Contains(t, actions, "modeAction")
-	assert.Equal(t, "skipped", actions["modeAction"].Status.Status)
+		require.NoError(t, json.Unmarshal(exp["status"], &status))
+		assert.Equal(t, "completed", status.Status)
 
-	assert.Equal(t, 0, mock.Calls, "skip-all must not invoke the external action provider")
+		var actions map[string]struct {
+			Status struct {
+				Status string `json:"status"`
+			} `json:"status"`
+		}
+
+		require.NoError(t, json.Unmarshal(exp["actions"], &actions))
+		require.Contains(t, actions, "modeAction")
+		assert.Equal(t, "skipped", actions["modeAction"].Status.Status)
+
+		assert.Equal(t, 0, mock.Calls, "skip-all must not invoke the external action provider")
+	})
 }
 
 func TestStartExperiment_ActionsMode_RunAll_InvokesProvider(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	mock := &fis.MockFISActionProvider{
-		Definitions: []service.FISActionDefinition{
-			{ActionID: "aws:test:mode-action", TargetType: "aws:ec2:instance"},
-		},
-	}
-	h.SetActionProviders([]service.FISActionProvider{mock})
+		mock := &fis.MockFISActionProvider{
+			Definitions: []service.FISActionDefinition{
+				{ActionID: "aws:test:mode-action", TargetType: "aws:ec2:instance"},
+			},
+		}
+		h.SetActionProviders([]service.FISActionProvider{mock})
 
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", actionsModeTemplateBody())
-	require.Equal(t, http.StatusCreated, rec.Code)
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", actionsModeTemplateBody())
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
 
-	mustJSON(t, rec, &tplResp)
+		mustJSON(t, rec, &tplResp)
 
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-		"experimentOptions":    map[string]any{"actionsMode": "run-all"},
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+			"experimentOptions":    map[string]any{"actionsMode": "run-all"},
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var startResp struct {
+			Experiment struct {
+				ID string `json:"id"`
+			} `json:"experiment"`
+		}
+
+		mustJSON(t, rec2, &startResp)
+
+		exp := pollExperimentUntilTerminal(t, h, startResp.Experiment.ID)
+
+		var status struct {
+			Status string `json:"status"`
+		}
+
+		require.NoError(t, json.Unmarshal(exp["status"], &status))
+		assert.Equal(t, "completed", status.Status)
+		assert.Equal(t, 1, mock.Calls, "run-all must invoke the external action provider exactly once")
 	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var startResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &startResp)
-
-	exp := pollExperimentUntilTerminal(t, h, startResp.Experiment.ID)
-
-	var status struct {
-		Status string `json:"status"`
-	}
-
-	require.NoError(t, json.Unmarshal(exp["status"], &status))
-	assert.Equal(t, "completed", status.Status)
-	assert.Equal(t, 1, mock.Calls, "run-all must invoke the external action provider exactly once")
 }
 
 func TestStartExperiment_ActionsMode_DefaultsToRunAll(t *testing.T) {
