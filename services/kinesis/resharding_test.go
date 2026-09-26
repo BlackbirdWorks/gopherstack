@@ -828,13 +828,15 @@ func TestMergeShards_Errors(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
+	clock := newFakeClock(time.Now())
+	h := newTestHandlerWithBackend(t, kinesis.NewInMemoryBackend().WithClock(clock.Now))
 	// Create the stream used in shard_not_found test.
 	setup := doRequest(t, h, "CreateStream", map[string]any{
 		"StreamName": "merge-err-stream",
 		"ShardCount": 1,
 	})
 	require.Equal(t, http.StatusOK, setup.Code)
+	clock.Advance(streamSettleWait)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -938,12 +940,14 @@ func TestSplitShard_Errors(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
+	clock := newFakeClock(time.Now())
+	h := newTestHandlerWithBackend(t, kinesis.NewInMemoryBackend().WithClock(clock.Now))
 	setup := doRequest(t, h, "CreateStream", map[string]any{
 		"StreamName": "split-err-stream",
 		"ShardCount": 1,
 	})
 	require.Equal(t, http.StatusOK, setup.Code)
+	clock.Advance(streamSettleWait)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
