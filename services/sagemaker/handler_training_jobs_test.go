@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +16,14 @@ import (
 
 func TestHandler_TrainingJobLifecycle(t *testing.T) {
 	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		testHandlerTrainingJobLifecycle(t)
+	})
+}
+
+func testHandlerTrainingJobLifecycle(t *testing.T) {
+	t.Helper()
 
 	h := newTestHandler(t)
 
@@ -84,6 +93,14 @@ func TestHandler_TrainingJobLifecycle(t *testing.T) {
 // InProgress or Stopping state.").
 func TestHandler_DeleteTrainingJob_InProgress(t *testing.T) {
 	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		testHandlerDeleteTrainingJobInProgress(t)
+	})
+}
+
+func testHandlerDeleteTrainingJobInProgress(t *testing.T) {
+	t.Helper()
 
 	h := newTestHandler(t)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -39,16 +40,7 @@ func assertStopsPromptly(t *testing.T, timeout time.Duration, stop func()) {
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return true
-		}
-
-		time.Sleep(2 * time.Millisecond)
-	}
-
-	return cond()
+	return assert.Eventually(t, cond, timeout, 2*time.Millisecond)
 }
 
 // describeCount returns the number of clusters, driving the lazy read-time state
@@ -340,32 +332,34 @@ func TestReconciler_ContextCancelStops(t *testing.T) {
 func TestClusterLifecycle_CreatingToAvailable(t *testing.T) {
 	t.Parallel()
 
-	b := newRedshiftBackend()
-	redshift.SetClusterActivationDelay(b, 50*time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		b := newRedshiftBackend()
+		redshift.SetClusterActivationDelay(b, 50*time.Millisecond)
 
-	_, err := b.CreateCluster(
-		"lifecycle-cluster",
-		"dc2.large",
-		"dev",
-		"admin",
-		nil,
-		"",
-		redshift.CreateClusterOptions{},
-	)
-	require.NoError(t, err)
+		_, err := b.CreateCluster(
+			"lifecycle-cluster",
+			"dc2.large",
+			"dev",
+			"admin",
+			nil,
+			"",
+			redshift.CreateClusterOptions{},
+		)
+		require.NoError(t, err)
 
-	// Immediately after create, status should be "creating".
-	clusters, _, err := b.DescribeClusters("lifecycle-cluster", "", 0, nil, nil)
-	require.NoError(t, err)
-	require.Len(t, clusters, 1)
-	assert.Equal(t, "creating", clusters[0].Status,
-		"cluster should be in creating state immediately after CreateCluster")
+		// Immediately after create, status should be "creating".
+		clusters, _, err := b.DescribeClusters("lifecycle-cluster", "", 0, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, clusters, 1)
+		assert.Equal(t, "creating", clusters[0].Status,
+			"cluster should be in creating state immediately after CreateCluster")
 
-	// After the activation delay, status should be "available".
-	time.Sleep(200 * time.Millisecond)
+		// After the activation delay, status should be "available".
+		time.Sleep(200 * time.Millisecond)
 
-	clusters2, _, err := b.DescribeClusters("lifecycle-cluster", "", 0, nil, nil)
-	require.NoError(t, err)
-	require.Len(t, clusters2, 1)
-	assert.Equal(t, "available", clusters2[0].Status, "cluster should be available after activation delay")
+		clusters2, _, err := b.DescribeClusters("lifecycle-cluster", "", 0, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, clusters2, 1)
+		assert.Equal(t, "available", clusters2[0].Status, "cluster should be available after activation delay")
+	})
 }

@@ -3,6 +3,7 @@ package kinesis_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -103,48 +104,50 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			clock := newFakeClock(time.Now())
-			h := newFISKinesisHandlerWithClock(clock.Now)
+			synctest.Test(t, func(t *testing.T) {
+				h := newFISKinesisHandler()
 
-			// Create the stream if needed.
-			if tt.stream != "" {
-				err := h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-					StreamName: tt.stream,
-					ShardCount: 1,
+				// Create the stream if needed.
+				if tt.stream != "" {
+					err := h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+						StreamName: tt.stream,
+						ShardCount: 1,
+					})
+					require.NoError(t, err)
+					time.Sleep(streamSettleWait)
+				}
+
+				err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
+					ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+					Targets:  tt.targets,
+					Duration: tt.duration,
 				})
+
 				require.NoError(t, err)
-				clock.Advance(streamSettleWait)
-			}
 
-			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
-				ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
-				Targets:  tt.targets,
-				Duration: tt.duration,
-			})
-
-			require.NoError(t, err)
-
-			// Verify throughput exception is active on the stream.
-			if tt.stream != "" && len(tt.targets) > 0 {
-				_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
-					StreamName:   tt.stream,
-					PartitionKey: "key",
-					Data:         []byte("data"),
-				})
-				require.ErrorIs(t, putErr, kinesis.ErrProvisionedThroughputExceeded)
-
-				// After the duration, the fault should clear.
-				if tt.duration > 0 {
-					time.Sleep(tt.duration + 50*time.Millisecond)
-
-					_, putAfter := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
+				// Verify throughput exception is active on the stream.
+				if tt.stream != "" && len(tt.targets) > 0 {
+					_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 						StreamName:   tt.stream,
 						PartitionKey: "key",
 						Data:         []byte("data"),
 					})
-					assert.NoError(t, putAfter, "PutRecord should succeed after fault expires")
+					require.ErrorIs(t, putErr, kinesis.ErrProvisionedThroughputExceeded)
+
+					// After the duration, the fault should clear.
+					if tt.duration > 0 {
+						time.Sleep(tt.duration + 50*time.Millisecond)
+						synctest.Wait()
+
+						_, putAfter := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
+							StreamName:   tt.stream,
+							PartitionKey: "key",
+							Data:         []byte("data"),
+						})
+						assert.NoError(t, putAfter, "PutRecord should succeed after fault expires")
+					}
 				}
-			}
+			})
 		})
 	}
 }
