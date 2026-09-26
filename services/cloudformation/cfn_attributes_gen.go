@@ -17,6 +17,9 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 	resTypeAPIGatewayV2Route: {
 		"RouteId": {},
 	},
+	resTypeAPIGatewayV2VpcLink: {
+		"VpcLinkId": {},
+	},
 	resTypeAppConfigEnvironment: {
 		"EnvironmentId": {},
 	},
@@ -112,8 +115,29 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 		"LatestVersionNumber":  {},
 		"LaunchTemplateId":     {},
 	},
+	resTypeEC2PrefixList: {
+		attrNameArn:    {},
+		"OwnerId":      {},
+		"PrefixListId": {},
+		"Version":      {},
+	},
+	resTypeEC2TrafficMirrorFilterRule: {
+		"TrafficMirrorFilterRuleId": {},
+	},
 	resTypeEC2TGWRouteTable: {
 		"TransitGatewayRouteTableId": {},
+	},
+	resTypeEC2VPNConnection: {
+		"VpnConnectionId": {},
+	},
+	resTypeEC2VPNGateway: {
+		"VPNGatewayId": {},
+	},
+	resTypeEC2VerifiedAccessInst: {
+		"CidrEndpointsCustomSubDomainNameServers": {},
+		"CreationTime":             {},
+		"LastUpdatedTime":          {},
+		"VerifiedAccessInstanceId": {},
 	},
 	resTypeECRRegistryPolicy: {
 		"RegistryId": {},
@@ -164,8 +188,15 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 		attrNameArn: {},
 		"RoleId":    {},
 	},
+	resTypeIAMSAMLProvider: {
+		attrNameArn:        {},
+		"SamlProviderUUID": {},
+	},
 	resTypeIAMServerCertificate: {
 		attrNameArn: {},
+	},
+	resTypeIAMVirtualMFADevice: {
+		"SerialNumber": {},
 	},
 	resTypeIoTAuthorizer: {
 		attrNameArn: {},

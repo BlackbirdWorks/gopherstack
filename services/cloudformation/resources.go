@@ -967,7 +967,10 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 		physID, err := rc.createRedshiftCluster(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::OpenSearch::Domain":
+	case "AWS::OpenSearch::Domain", resTypeOpenSearchServiceDomain:
+		// AWS::OpenSearchService::Domain is the real CFN type name; the old
+		// AWS::OpenSearch::Domain name is kept as an alias since existing
+		// tests/templates in this repo use it.
 		physID, err := rc.createOpenSearchDomain(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -1004,7 +1007,10 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 		physID, err := rc.createSESEmailIdentity(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::ACM::Certificate":
+	case "AWS::ACM::Certificate", resTypeCertificateManagerCertificate:
+		// AWS::CertificateManager::Certificate is the real CFN type name;
+		// the old AWS::ACM::Certificate name is kept as an alias since
+		// existing tests/templates in this repo use it.
 		physID, err := rc.createACMCertificate(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -1892,7 +1898,7 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 	case "AWS::Redshift::Cluster":
 
 		return true, rc.deleteRedshiftCluster(physicalID)
-	case "AWS::OpenSearch::Domain":
+	case "AWS::OpenSearch::Domain", resTypeOpenSearchServiceDomain:
 
 		return true, rc.deleteOpenSearchDomain(physicalID)
 	}
@@ -1946,7 +1952,7 @@ func (rc *ResourceCreator) deleteAppNetworkResource(ctx context.Context, physica
 	case "AWS::SES::EmailIdentity":
 
 		return rc.deleteSESEmailIdentity(physicalID)
-	case "AWS::ACM::Certificate":
+	case "AWS::ACM::Certificate", resTypeCertificateManagerCertificate:
 
 		return rc.deleteACMCertificate(ctx, physicalID)
 	case "AWS::Cognito::UserPool":

@@ -1,7 +1,53 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
+last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
+                               # PlacementGroup/VPNGateway/VPNConnection/
+                               # PrefixList/NetworkInterfacePermission/
+                               # VPCEndpointService/TransitGatewayVpcAttachment/
+                               # TransitGatewayPeeringAttachment/
+                               # TransitGatewayMulticastDomain/
+                               # TrafficMirrorFilter/TrafficMirrorFilterRule/
+                               # TrafficMirrorTarget/TrafficMirrorSession/
+                               # RouteServer/RouteServerEndpoint/
+                               # RouteServerPeer/NetworkInsightsPath/
+                               # VerifiedAccessInstance (18 types); IAM
+                               # SAMLProvider/VirtualMFADevice (2 types);
+                               # ElastiCache User (1 type); ApiGatewayV2
+                               # VpcLink (1 type); the real CFN type names
+                               # AWS::CertificateManager::Certificate and
+                               # AWS::OpenSearchService::Domain added as
+                               # aliases for the existing (undocumented)
+                               # AWS::ACM::Certificate/AWS::OpenSearch::Domain
+                               # handlers, same pattern as the existing
+                               # AWS::KinesisFirehose::DeliveryStream alias
+                               # (2 types) (405 -> 429 supported types); no
+                               # new services wired into the CloudFormation
+                               # backend -- EC2/IAM/ElastiCache/ApiGatewayV2/
+                               # ACM/OpenSearch were all already wired;
+                               # cfn_attributes_gen.go regenerated
+                               # (cmd/cfnattrgen) -- most new attribute names
+                               # were excluded by its goconst-safety rule
+                               # (already common literals elsewhere in the
+                               # package, e.g. "Id"/"Arn"/"State"), which is
+                               # documented conservative behavior, not a
+                               # regression: an excluded attribute falls back
+                               # to pre-existing permissive resolution rather
+                               # than being wrongly rejected. Skipped (ops
+                               # missing or no real backend): AWS::EC2::Fleet/
+                               # SpotFleet/CapacityReservationFleet (would
+                               # need broker-side instance-launch simulation
+                               # beyond this sweep's scope), AWS::EC2::Ipam*
+                               # family (complex nested scope/pool graph),
+                               # AWS::EC2::LocalGateway* (Outposts-only,
+                               # no realistic test env), AWS::ECS::
+                               # ContainerInstance/Task/ServiceRevision (not
+                               # documented CFN resource types in the current
+                               # public TemplateReference), AWS::RDS::
+                               # DBSecurityGroup (EC2-Classic-only, no VPC
+                               # equivalent to back it), AWS::S3::AccessPoint
+                               # family (no backend Create/DeleteAccessPoint);
+                               # prior: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
                                # Blueprint/CustomEntityType/Workflow (3 types);
                                # DataSync Agent/LocationS3/Task (3 types);
                                # Transfer Profile/Workflow (2 types); AppConfig
@@ -101,7 +147,7 @@ last_audit_commit: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
                                # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
                                # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
                                # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
-last_audit_date: 2026-09-24  # prior: 2026-09-24 (28-type IAM/ECR/ElastiCache/Neptune/DocDB/Backup/Glue/CodeBuild/Kinesis/Lambda pass earlier same day)
+last_audit_date: 2026-09-25  # prior: 2026-09-24 (25-type Glue/DataSync/Transfer/AppConfig/Macie/GuardDuty/AccessAnalyzer/Amplify/Batch/EFS/Redshift pass)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -238,6 +284,79 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-09-25 (parity sweep): 24 new resource types (405 -> 429), no new backend families
+
+Added real create+delete support for 24 `AWS::*` resource types, each backed
+by a genuine `InMemoryBackend` call (no stubs), with Ref/Fn::GetAtt verified
+against the live AWS CloudFormation Template Reference docs (fetched this
+pass). Every backing service (EC2, IAM, ElastiCache, ApiGatewayV2, ACM,
+OpenSearch) was already wired into the CloudFormation backend, so no
+`cli.go`/`provider.go` changes were needed this pass.
+
+- **EC2** (18 types): PlacementGroup, VPNGateway, VPNConnection, PrefixList,
+  NetworkInterfacePermission, VPCEndpointService
+  (`resources_ec2_networking_extras.go`, `resources_ec2_vpn.go`);
+  TransitGatewayVpcAttachment, TransitGatewayPeeringAttachment,
+  TransitGatewayMulticastDomain (`resources_ec2_transitgateway_more.go`);
+  TrafficMirrorFilter, TrafficMirrorFilterRule, TrafficMirrorTarget,
+  TrafficMirrorSession (`resources_ec2_trafficmirror.go`); RouteServer,
+  RouteServerEndpoint, RouteServerPeer (`resources_ec2_routeserver.go`);
+  NetworkInsightsPath (`resources_ec2_networkinsights.go`);
+  VerifiedAccessInstance (`resources_ec2_networking_extras.go`)
+- **IAM** (2 types): SAMLProvider, VirtualMFADevice (`resources_iam_extras.go`)
+- **ElastiCache** (1 type): User (`resources_elasticache_user.go`)
+- **ApiGatewayV2** (1 type): VpcLink (`resources_apigatewayv2_vpclink.go`)
+- **Type-name aliases** (2 types): `AWS::CertificateManager::Certificate`
+  and `AWS::OpenSearchService::Domain` are the real CFN type names for the
+  existing (undocumented) `AWS::ACM::Certificate`/`AWS::OpenSearch::Domain`
+  handlers -- added as aliases in `resources.go`'s `createMiscLegacyResource`/
+  `deleteComputeStorageResource`/`deleteAppNetworkResource`, same pattern as
+  the existing `AWS::KinesisFirehose::DeliveryStream` alias
+  (`resources_type_aliases.go` holds the two new constants)
+
+Dispatch wiring lives in a new `createEC2AdvancedNetworkingResource`/
+`deleteEC2AdvancedNetworkingResource` pair in `resources_newest_dispatch.go`,
+chained off the end of `createNewestSupplementalResource`/
+`deleteNewestSupplementalResource`.
+
+**Fn::GetAtt side-channel stashing.** PrefixList (Arn/OwnerId/Version),
+TransitGatewayPeeringAttachment (State), TransitGatewayMulticastDomain
+(CreationTime/State/Arn), RouteServer/RouteServerEndpoint/RouteServerPeer
+(Arn plus their real ENI/VPC/subnet fields), NetworkInsightsPath
+(NetworkInsightsPathArn/SourceArn/DestinationArn), and ElastiCache User
+(Arn/Status) all stash real backend values into `physicalIDs[logicalID+
+"/AttrName"]` at create time; their `resTypeXxx` constants were added to
+`resolveGetAtt`'s existing custom-resource-style whitelist in `template.go`
+so those stashed values are actually read back instead of falling through to
+the default `return physID` (documented next to `getExtraResourceAttribute`).
+Where the backend has no honest value to stash (e.g. IAM SAMLProvider's
+SamlProviderUUID, EC2 VerifiedAccessInstance's CreationTime/LastUpdatedTime,
+EC2 TransitGatewayPeeringAttachment's CreationTime, EC2 PlacementGroup's
+GroupId as distinct from GroupName), the attribute is left on the default
+physID fallback rather than fabricated -- called out in each file's
+`---- AWS::Xxx::Yyy ----` doc comment.
+
+**Skipped (real gaps, not fixed this pass).** AWS::EC2::Fleet/SpotFleet/
+CapacityReservationFleet (would need broker-side instance-launch simulation);
+the AWS::EC2::Ipam* family (complex nested scope/pool/resource-discovery
+graph); AWS::EC2::LocalGateway* (Outposts-only, no realistic local test
+environment); AWS::ECS::ContainerInstance/Task/ServiceRevision (not
+documented CFN resource types in the current public TemplateReference, so
+Ref/GetAtt can't be verified against docs); AWS::RDS::DBSecurityGroup
+(EC2-Classic-only, no VPC equivalent to back it honestly); the
+AWS::S3::AccessPoint family (this backend has no
+Create/DeleteAccessPoint). AWS::EC2::VPCEndpointService's
+PrivateDnsNameConfiguration.* Fn::GetAtt attributes are left unimplemented:
+the backend's `CreateVpcEndpointServiceConfiguration` doesn't model private
+DNS name verification at all.
+
+cfn_attributes_gen.go was regenerated (`cmd/cfnattrgen`); most of the new
+attribute names above were excluded by its goconst-safety rule (already
+common literals elsewhere in the package, e.g. "Id"/"Arn"/"State"/
+"VpcId"/"SubnetId") -- documented conservative behavior, not a regression:
+an excluded attribute falls back to the pre-existing permissive resolution
+rather than being wrongly rejected.
 
 ### 2026-09-24 (parity sweep): 25 new resource types (380 -> 405), 6 new backend families wired
 
