@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/google/uuid"
 )
 
 const defaultSamlSessionTimeoutB64 = "MTY4MDAwMDAwMDAwMA=="
@@ -461,7 +462,8 @@ func (b *InMemoryBackend) UpdateServerlessAccessPolicy(
 
 	_ = policyVersion
 	ap.LastModifiedDate = float64(time.Now().Unix())
-	ap.PolicyVersion = fmt.Sprintf("v%d", time.Now().UnixMilli())
+	// uuid suffix: UnixMilli alone collides across same-instant updates under synctest.
+	ap.PolicyVersion = fmt.Sprintf("v%d-%s", time.Now().UnixMilli(), uuid.NewString()[:8])
 
 	cp := *ap
 
@@ -567,7 +569,8 @@ func (b *InMemoryBackend) UpdateServerlessSecurityConfig(
 
 	_ = configVersion
 	sc.LastModifiedDate = float64(time.Now().Unix())
-	sc.ConfigVersion = fmt.Sprintf("v%d", time.Now().UnixMilli())
+	// uuid suffix: UnixMilli alone collides across same-instant updates under synctest.
+	sc.ConfigVersion = fmt.Sprintf("v%d-%s", time.Now().UnixMilli(), uuid.NewString()[:8])
 
 	cp := *sc
 
@@ -677,7 +680,8 @@ func (b *InMemoryBackend) UpdateServerlessEncryptionPolicy(
 
 	_ = policyVersion
 	ep.LastModifiedDate = float64(time.Now().Unix())
-	ep.PolicyVersion = fmt.Sprintf("v%d", time.Now().UnixMilli())
+	// uuid suffix: UnixMilli alone collides across same-instant updates under synctest.
+	ep.PolicyVersion = fmt.Sprintf("v%d-%s", time.Now().UnixMilli(), uuid.NewString()[:8])
 
 	cp := *ep
 

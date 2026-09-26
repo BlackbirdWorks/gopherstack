@@ -68,3 +68,92 @@ func TestOpenSearchBackend_DryRunID_Format(t *testing.T) {
 	require.NoError(t, err)
 	assert.Regexp(t, changeUUIDPattern, dr.DryRunID)
 }
+
+// TestOpenSearchBackend_ServerlessPolicyVersions_Unique checks same-instant updates
+// get distinct PolicyVersion/ConfigVersion tokens.
+func TestOpenSearchBackend_ServerlessPolicyVersions_Unique(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		update func(t *testing.T, b *opensearch.InMemoryBackend) string
+		name   string
+	}{
+		{
+			name: "access_policy_version",
+			update: func(t *testing.T, b *opensearch.InMemoryBackend) string {
+				t.Helper()
+
+				ap, err := b.UpdateServerlessAccessPolicy("data", "pol-a", "desc", `{"a":1}`, "")
+				require.NoError(t, err)
+
+				return ap.PolicyVersion
+			},
+		},
+		{
+			name: "security_config_version",
+			update: func(t *testing.T, b *opensearch.InMemoryBackend) string {
+				t.Helper()
+
+				sc, err := b.UpdateServerlessSecurityConfig("saml/000000000000/1", "desc", "", nil)
+				require.NoError(t, err)
+
+				return sc.ConfigVersion
+			},
+		},
+		{
+			name: "encryption_policy_version",
+			update: func(t *testing.T, b *opensearch.InMemoryBackend) string {
+				t.Helper()
+
+				ep, err := b.UpdateServerlessEncryptionPolicy("data", "pol-e", "desc", `{"e":1}`, "")
+				require.NoError(t, err)
+
+				return ep.PolicyVersion
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				b := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
+
+				_, err := b.CreateServerlessAccessPolicy("data", "pol-a", "desc", `{"a":0}`)
+				require.NoError(t, err)
+				_, err = b.CreateServerlessSecurityConfig("saml", "desc", nil)
+				require.NoError(t, err)
+				_, err = b.CreateServerlessEncryptionPolicy("data", "pol-e", "desc", `{"e":0}`)
+				require.NoError(t, err)
+
+				v1 := tt.update(t, b)
+				v2 := tt.update(t, b)
+
+				assert.NotEqual(t, v1, v2, "two updates in the same instant must get distinct versions")
+			})
+		})
+	}
+}
+
+// TestOpenSearchBackend_LifecyclePolicyVersion_Unique chains updates, since each must
+// pass the version returned by the previous call.
+func TestOpenSearchBackend_LifecyclePolicyVersion_Unique(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		b := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
+
+		lp, err := b.CreateServerlessLifecyclePolicy("retention", "lp-a", "desc", `{"l":0}`)
+		require.NoError(t, err)
+
+		lp1, err := b.UpdateServerlessLifecyclePolicy("retention", "lp-a", "desc", `{"l":1}`, lp.PolicyVersion)
+		require.NoError(t, err)
+
+		lp2, err := b.UpdateServerlessLifecyclePolicy("retention", "lp-a", "desc", `{"l":2}`, lp1.PolicyVersion)
+		require.NoError(t, err)
+
+		assert.NotEqual(t, lp1.PolicyVersion, lp2.PolicyVersion,
+			"two updates in the same instant must get distinct versions")
+	})
+}
