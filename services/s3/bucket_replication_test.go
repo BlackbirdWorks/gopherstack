@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
@@ -178,16 +177,14 @@ func TestS3BucketReplication_PutObjectReplicates(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Allow the async goroutine to run.
-	testKey := "test.txt"
-	require.Eventually(t, func() bool {
-		_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-			Bucket: &dst,
-			Key:    &testKey,
-		})
+	bk.DrainReplicationGoroutines()
 
-		return err == nil
-	}, 3*time.Second, 50*time.Millisecond, "replicated object should appear in destination bucket")
+	testKey := "test.txt"
+	_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: &dst,
+		Key:    &testKey,
+	})
+	require.NoError(t, err, "replicated object should appear in destination bucket")
 }
 
 // TestS3BucketReplication_PrefixFilter verifies that only keys matching the
@@ -240,16 +237,14 @@ func TestS3BucketReplication_PrefixFilter(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	// Wait for the replicated key to appear, then verify the non-replicated one is absent.
-	imgKey := "images/photo.jpg"
-	require.Eventually(t, func() bool {
-		_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &imgKey})
+	bk.DrainReplicationGoroutines()
 
-		return err == nil
-	}, 3*time.Second, 50*time.Millisecond, "images/photo.jpg should be replicated to destination")
+	imgKey := "images/photo.jpg"
+	_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &imgKey})
+	require.NoError(t, err, "images/photo.jpg should be replicated to destination")
 
 	docKey := "documents/report.pdf"
-	_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &docKey})
+	_, err = bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &docKey})
 	assert.Error(t, err, "documents/report.pdf should NOT be replicated (prefix filter)")
 }
 
@@ -378,19 +373,14 @@ func TestS3BucketReplication_DeleteMarker(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusNoContent, rec.Code)
 
-	noteKey := "note.txt"
-	require.Eventually(t, func() bool {
-		out, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-			Bucket: &dst,
-			Key:    &noteKey,
-		})
-		if err != nil {
-			return true // key was deleted
-		}
-		_ = out.Body.Close()
+	bk.DrainReplicationGoroutines()
 
-		return false
-	}, 3*time.Second, 50*time.Millisecond, "delete marker should propagate to destination")
+	noteKey := "note.txt"
+	_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: &dst,
+		Key:    &noteKey,
+	})
+	require.Error(t, err, "delete marker should propagate to destination")
 }
 
 func TestS3BucketReplicationCRUD(t *testing.T) {

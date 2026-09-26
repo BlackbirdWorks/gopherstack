@@ -2,7 +2,6 @@ package s3_test
 
 import (
 	"bytes"
-	"context"
 	"testing"
 	"time"
 
@@ -65,7 +64,7 @@ func TestTransitionDefaultMinimumObjectSize(t *testing.T) {
 </LifecycleConfiguration>`,
 			verify: func(t *testing.T, b *s3.InMemoryBackend, bucket string) {
 				t.Helper()
-				requireStorageClassEventually(t, b, bucket, "big.bin", "GLACIER")
+				requireStorageClassNow(t, b, bucket, "big.bin", "GLACIER")
 			},
 		},
 		{
@@ -81,7 +80,7 @@ func TestTransitionDefaultMinimumObjectSize(t *testing.T) {
 </LifecycleConfiguration>`,
 			verify: func(t *testing.T, b *s3.InMemoryBackend, bucket string) {
 				t.Helper()
-				requireStorageClassEventually(t, b, bucket, "small.txt", "GLACIER")
+				requireStorageClassNow(t, b, bucket, "small.txt", "GLACIER")
 			},
 		},
 		{
@@ -113,7 +112,7 @@ func TestTransitionDefaultMinimumObjectSize(t *testing.T) {
 </LifecycleConfiguration>`,
 			verify: func(t *testing.T, b *s3.InMemoryBackend, bucket string) {
 				t.Helper()
-				requireStorageClassEventually(t, b, bucket, "small.txt", "GLACIER")
+				requireStorageClassNow(t, b, bucket, "small.txt", "GLACIER")
 			},
 		},
 	}
@@ -133,10 +132,10 @@ func TestTransitionDefaultMinimumObjectSize(t *testing.T) {
 			err := b.PutBucketLifecycleConfiguration(t.Context(), bucket, tt.lcXML, tt.transitionDefaultMinObjectSize)
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-
-			go newFastJanitor(b).Run(ctx)
+			j := newFastJanitor(b)
+			for range 3 {
+				j.SweepOnce(t.Context())
+			}
 
 			tt.verify(t, b, bucket)
 		})
@@ -184,26 +183,21 @@ func TestTransitionDefaultMinimumObjectSize_Echoed(t *testing.T) {
 	)
 }
 
-func requireStorageClassEventually(t *testing.T, b *s3.InMemoryBackend, bucket, key, want string) {
+func requireStorageClassNow(t *testing.T, b *s3.InMemoryBackend, bucket, key, want string) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(key),
-		})
-
-		return err == nil && string(out.StorageClass) == want
-	}, 500*time.Millisecond, 10*time.Millisecond, "object %s must reach storage class %s", key, want)
+	out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	require.NoError(t, err)
+	require.Equal(t, want, string(out.StorageClass))
 }
 
-// requireStorageClassStable asserts the object's storage class never
-// transitions across a window long enough for the fast test janitor to have
-// swept it multiple times.
+// requireStorageClassStable asserts the object's storage class survived
+// repeated janitor sweeps (called synchronously by the caller) unchanged.
 func requireStorageClassStable(t *testing.T, b *s3.InMemoryBackend, bucket, key string) {
 	t.Helper()
-
-	time.Sleep(100 * time.Millisecond)
 
 	out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
