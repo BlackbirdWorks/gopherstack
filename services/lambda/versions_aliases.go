@@ -171,7 +171,15 @@ func (b *InMemoryBackend) CreateAlias(
 
 	b.aliases.Put(alias)
 
-	return alias, nil
+	return cloneAlias(alias), nil
+}
+
+// cloneAlias stops a caller from racing UpdateAlias, which mutates alias's
+// fields under the lock.
+func cloneAlias(alias *FunctionAlias) *FunctionAlias {
+	cp := *alias
+
+	return &cp
 }
 
 // GetAlias returns a named alias for a function.
@@ -188,7 +196,7 @@ func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, erro
 		return nil, ErrAliasNotFound
 	}
 
-	return alias, nil
+	return cloneAlias(alias), nil
 }
 
 // ListAliases returns a page of aliases for a function sorted by name.
@@ -212,7 +220,7 @@ func (b *InMemoryBackend) ListAliases(
 			continue
 		}
 
-		result = append(result, a)
+		result = append(result, cloneAlias(a))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -257,7 +265,7 @@ func (b *InMemoryBackend) UpdateAlias(
 
 	alias.RevisionID = uuid.New().String()
 
-	return alias, nil
+	return cloneAlias(alias), nil
 }
 
 // DeleteAlias removes a named alias from a function.
