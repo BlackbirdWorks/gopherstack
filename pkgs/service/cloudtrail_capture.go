@@ -209,6 +209,8 @@ func (w *captureResponseWriter) WriteHeader(code int) {
 // a wrapped handler that writes an error body without ever setting
 // Content-Type would otherwise let net/http sniff the tee'd bytes -- which
 // can include request-derived text -- as text/html, enabling reflected XSS.
+// The tee itself only runs for error statuses; extractErrorInfo ignores the
+// body otherwise, so buffering every success response was wasted work.
 func (w *captureResponseWriter) Write(b []byte) (int, error) {
 	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
@@ -218,7 +220,9 @@ func (w *captureResponseWriter) Write(b []byte) (int, error) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 
-	w.body.Write(b)
+	if w.status >= httpErrorStatusThreshold {
+		w.body.Write(b)
+	}
 
 	return w.ResponseWriter.Write(b)
 }
