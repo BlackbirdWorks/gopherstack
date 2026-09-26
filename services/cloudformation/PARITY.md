@@ -285,6 +285,83 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 
 ## Notes
 
+### 2026-09-26 (parity sweep): 6 new resource types (429 -> 435), 3 new backend families wired
+
+Added real create+delete support for 6 `AWS::*` resource types across 3
+newly-landed service families, each backed by a genuine `InMemoryBackend`
+call (no stubs), with Ref/Fn::GetAtt verified against the live AWS
+CloudFormation Template Reference docs (fetched this pass) and, where the
+Template Reference itself left `Ref` undocumented, cross-checked against the
+AWS-published resource-provider schemas
+(`aws-cloudformation-resource-providers-kafkaconnect`'s `primaryIdentifier`)
+and the legacy `CloudFormationResourceSpecification.json`.
+
+- **KinesisVideo** (2 types): Stream, SignalingChannel
+  (`resources_kinesisvideo.go`) -- `Ref`/`Fn::GetAtt Arn` both return the
+  resource ARN; the Template Reference page leaves `Ref` undocumented for
+  both, stating only the `Arn` attribute (same undocumented-`Ref`-equals-
+  sole-ARN-attribute pattern independently confirmed for KafkaConnect
+  Connector below via its published resource-provider schema)
+- **ECRPublic** (1 type): PublicRepository (`resources_ecrpublic.go`) --
+  `Ref` returns the repository name (documented), `Fn::GetAtt Arn` returns
+  the repository ARN (documented); delete does not force-empty the
+  repository (`AWS::ECR::PublicRepository` has no `EmptyOnDelete` property,
+  unlike `AWS::ECR::Repository`), matching real AWS's less convenient
+  behavior for public repos
+- **KafkaConnect** (3 types): Connector, CustomPlugin, WorkerConfiguration
+  (`resources_kafkaconnect.go`) -- each type's `Ref` returns its ARN,
+  confirmed via the resource-provider schema's `primaryIdentifier` (equal to
+  its sole `readOnlyProperty`) since the Template Reference page leaves
+  `Ref` undocumented for all three; CustomPlugin/WorkerConfiguration also
+  expose a documented `Revision` `Fn::GetAtt` attribute
+
+All three backends were newly wired into the CloudFormation backend:
+`ServiceBackends` (`resources.go`) gained `KinesisVideo`/`ECRPublic`/
+`KafkaConnect` fields, `BackendsProvider` (`provider.go`) gained the matching
+`Get*Handler` methods, and `extractAllServiceBackends` wires them from the
+handlers -- `cli.go` already had `GetKinesisVideoHandler`/
+`GetECRPublicHandler`/`GetKafkaConnectHandler` getters (added when those
+services first landed), so no `cli.go` change was needed. Dispatch wiring
+chains `createKinesisVideoResource`/`createECRPublicResource`/
+`createKafkaConnectResource` (and their `delete*` counterparts) off the end
+of `createNewestSupplementalResource`/`deleteNewestSupplementalResource` in
+`resources_newest_dispatch.go`.
+
+**Fn::GetAtt side-channel stashing.** All 6 types stash their real ARN (and,
+for CustomPlugin/WorkerConfiguration, `Revision`) into
+`physicalIDs[logicalID+"/AttrName"]` at create time; their `resTypeXxx`
+constants were added to `resolveGetAtt`'s existing custom-resource-style
+whitelist in `template.go` so those stashed values are read back instead of
+falling through to the default `return physID`. This mattered concretely for
+ECRPublic (`Ref` is the repository *name*, but `Arn` differs) and for
+CustomPlugin/WorkerConfiguration's `Revision` (an integer, never equal to
+the ARN `Ref` returns) -- both were caught by the new integration tests
+before being added to the whitelist (ECRPublic's `Arn` output resolved to
+the bare repository name, and `Revision` resolved to the full ARN).
+
+`cfn_attributes_gen.go` was regenerated (`cmd/cfnattrgen`) against a fresh
+download of the legacy `CloudFormationResourceSpecification.json`. All 6 new
+types' documented attributes were narrow enough to clear the generator's
+goconst-safety rule for KinesisVideo::Stream/SignalingChannel (`Arn`),
+ECRPublic::PublicRepository (`Arn`), and KafkaConnect::Connector
+(`ConnectorArn`); KafkaConnect::CustomPlugin/WorkerConfiguration were
+excluded whole because `Revision` already clears golangci-lint's `goconst`
+threshold elsewhere in the package -- per the generator's documented
+contract this is conservative, not lossy (an excluded type falls back to
+today's permissive `Fn::GetAtt` resolution, which the stash-and-whitelist
+fix above already makes correct regardless of table membership). Unrelated
+to this pass: regenerating against today's spec download also dropped
+`AWS::EC2::PrefixList` and `AWS::SageMaker::ImageVersion` from the table --
+independently reproduced against the pre-existing (unmodified) source, so
+this is drift in the package's own literal-occurrence counts since the last
+generation, not something this pass's new code caused. Both types keep
+working via the same permissive fallback.
+
+Task B (separate, `services/ecrpublic`): fixed an unrelated
+`InitiateLayerUpload` session leak -- see that service's own PARITY.md Notes
+entry. Task C (separate, `services/kafkaconnect`): implemented
+`RestartConnector` -- see that service's own PARITY.md.
+
 ### 2026-09-25 (parity sweep): 24 new resource types (405 -> 429), no new backend families
 
 Added real create+delete support for 24 `AWS::*` resource types, each backed

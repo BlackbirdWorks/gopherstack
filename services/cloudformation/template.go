@@ -1546,7 +1546,10 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeRedshiftClusterSubnetGroup,
 			resTypeEC2PrefixList, resTypeEC2TGWPeeringAttachment, resTypeEC2TGWMulticastDomain,
 			resTypeEC2RouteServer, resTypeEC2RouteServerEndpoint, resTypeEC2RouteServerPeer,
-			resTypeEC2NetworkInsightsPath, resTypeElastiCacheUser:
+			resTypeEC2NetworkInsightsPath, resTypeElastiCacheUser,
+			resTypeKinesisVideoStream, resTypeKinesisVideoSignalingChannel,
+			resTypeECRPublicRepository,
+			resTypeKafkaConnectConnector, resTypeKafkaConnectCustomPlugin, resTypeKafkaConnectWorkerConfiguration:
 			return v
 		}
 	}

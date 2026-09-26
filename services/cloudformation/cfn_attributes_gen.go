@@ -115,12 +115,6 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 		"LatestVersionNumber":  {},
 		"LaunchTemplateId":     {},
 	},
-	resTypeEC2PrefixList: {
-		attrNameArn:    {},
-		"OwnerId":      {},
-		"PrefixListId": {},
-		"Version":      {},
-	},
 	resTypeEC2TrafficMirrorFilterRule: {
 		"TrafficMirrorFilterRuleId": {},
 	},
@@ -138,6 +132,9 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 		"CreationTime":             {},
 		"LastUpdatedTime":          {},
 		"VerifiedAccessInstanceId": {},
+	},
+	resTypeECRPublicRepository: {
+		attrNameArn: {},
 	},
 	resTypeECRRegistryPolicy: {
 		"RegistryId": {},
@@ -232,7 +229,16 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 		attrNameArn:    {},
 		"StatusReason": {},
 	},
+	resTypeKafkaConnectConnector: {
+		"ConnectorArn": {},
+	},
 	resTypeFirehoseDeliveryStream: {
+		attrNameArn: {},
+	},
+	resTypeKinesisVideoSignalingChannel: {
+		attrNameArn: {},
+	},
+	resTypeKinesisVideoStream: {
 		attrNameArn: {},
 	},
 	resTypeLambdaCodeSigningConfig: {
@@ -311,12 +317,6 @@ var cfnResourceAttributes = map[string]map[string]struct{}{
 	},
 	resTypeSageMakerImage: {
 		"ImageArn": {},
-	},
-	resTypeSageMakerImageVersion: {
-		"ContainerImage":  {},
-		"ImageArn":        {},
-		"ImageVersionArn": {},
-		"Version":         {},
 	},
 	resTypeSageMakerModelPackageGroup: {
 		"CreationTime":            {},

@@ -53,6 +53,15 @@ func (rc *ResourceCreator) createNewestSupplementalResource(
 	if id, ok, err := rc.createRedshiftMoreResource(logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
+	if id, ok, err := rc.createKinesisVideoResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createECRPublicResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createKafkaConnectResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
 
 	return rc.createEC2AdvancedNetworkingResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
@@ -135,6 +144,15 @@ func (rc *ResourceCreator) deleteNewestSupplementalResource(
 		return true, err
 	}
 	if handled, err := rc.deleteRedshiftMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteKinesisVideoResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteECRPublicResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteKafkaConnectResource(resourceType, physicalID); handled {
 		return true, err
 	}
 
