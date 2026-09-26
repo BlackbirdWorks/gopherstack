@@ -147,15 +147,33 @@ func (db *InMemoryDB) ensureReplicaTablesLocked(
 			replica.GlobalTableName = name
 			db.tables.Put(replica)
 		} else {
-			existing.GlobalTableName = name
+			setTableGlobalTableNameLocked(existing, name)
 		}
 	}
 
 	for _, region := range regions {
 		if t, ok := db.tables.Get(tableKey(region, name)); ok {
-			t.Replicas = buildReplicasExcluding(allReplicas, region)
+			setTableReplicasLocked(t, buildReplicasExcluding(allReplicas, region))
 		}
 	}
+}
+
+// setTableGlobalTableNameLocked sets GlobalTableName under table.mu; readers use
+// table.mu, so holding db.mu alone is not enough.
+func setTableGlobalTableNameLocked(table *Table, name string) {
+	table.mu.Lock("GlobalTable.setName")
+	defer table.mu.Unlock()
+
+	table.GlobalTableName = name
+}
+
+// setTableReplicasLocked sets table.Replicas under a defer-protected
+// table.mu.Lock, for the same reason as setTableGlobalTableNameLocked.
+func setTableReplicasLocked(table *Table, replicas []models.ReplicaDescription) {
+	table.mu.Lock("GlobalTable.setReplicas")
+	defer table.mu.Unlock()
+
+	table.Replicas = replicas
 }
 
 // buildReplicaTable creates a new Table for use as a global table replica.
@@ -487,7 +505,7 @@ func (db *InMemoryDB) applyGlobalTableReplicaCreate(
 		replica.GlobalTableName = name
 		db.tables.Put(replica)
 	} else {
-		existing.GlobalTableName = name
+		setTableGlobalTableNameLocked(existing, name)
 	}
 
 	return nil
@@ -524,7 +542,7 @@ func (db *InMemoryDB) rebuildGlobalTableReplicasLocked(name string, regions []st
 	allReplicas := buildAllReplicas(regions)
 	for _, region := range regions {
 		if t, tableExists := db.tables.Get(tableKey(region, name)); tableExists {
-			t.Replicas = buildReplicasExcluding(allReplicas, region)
+			setTableReplicasLocked(t, buildReplicasExcluding(allReplicas, region))
 		}
 	}
 }
