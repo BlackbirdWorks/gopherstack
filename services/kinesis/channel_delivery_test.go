@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -165,13 +166,15 @@ func TestChannelDelivery_PutRecordToS3(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := kinesis.NewInMemoryBackend()
+			clock := newFakeClock(time.Now())
+			backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 			writer := &fakeChannelS3Writer{}
 			backend.SetS3Writer(writer)
 			client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 			streamName := "delivery-stream-" + tt.name
 			streamARN := createOnDemandStream(t, client, streamName)
+			clock.Advance(streamSettleWait)
 
 			s3Dest := minimalS3DestinationConfig()
 			s3Dest.StorageConfiguration.OutputKeyTemplate = aws.String(tt.outputKeyTmpl)
@@ -206,12 +209,14 @@ func TestChannelDelivery_PutRecordToS3(t *testing.T) {
 func TestChannelDelivery_InvalidRecordGoesToDeadLetterQueue(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	writer := &fakeChannelS3Writer{}
 	backend.SetS3Writer(writer)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamARN := createOnDemandStream(t, client, "dlq-stream")
+	clock.Advance(streamSettleWait)
 
 	s3Dest := minimalS3DestinationConfig()
 	streamCfg := []kinesissdktypes.ChannelStreamConfiguration{
@@ -254,12 +259,14 @@ func TestChannelDelivery_InvalidRecordGoesToDeadLetterQueue(t *testing.T) {
 func TestChannelDelivery_DeleteChannelFlushesBuffer(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	writer := &fakeChannelS3Writer{}
 	backend.SetS3Writer(writer)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamARN := createOnDemandStream(t, client, "delete-flush-stream")
+	clock.Advance(streamSettleWait)
 
 	created, err := client.CreateChannel(t.Context(), &kinesissdk.CreateChannelInput{
 		ChannelName:                aws.String("delete-flush-chan"),
@@ -293,10 +300,12 @@ func TestChannelDelivery_DeleteChannelFlushesBuffer(t *testing.T) {
 func TestChannelDelivery_NoWriterWiredIsNoop(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamARN := createOnDemandStream(t, client, "no-writer-stream")
+	clock.Advance(streamSettleWait)
 
 	created, err := client.CreateChannel(t.Context(), &kinesissdk.CreateChannelInput{
 		ChannelName:                aws.String("no-writer-chan"),

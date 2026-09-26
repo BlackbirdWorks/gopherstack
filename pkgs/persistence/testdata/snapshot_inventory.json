@@ -15717,6 +15717,7 @@
       "Stream.KeyID string `json:\"keyId,omitempty\"`",
       "Stream.MaxRecordSizeBytes int `json:\"maxRecordSizeBytes,omitempty\"`",
       "Stream.Name string `json:\"name\"`",
+      "Stream.ReadyAt time.Time `json:\"readyAt\"`",
       "Stream.Region string `json:\"region,omitempty\"`",
       "Stream.RetentionPeriod int `json:\"retentionPeriod\"`",
       "Stream.Shards []*Shard `json:\"shards\"`",

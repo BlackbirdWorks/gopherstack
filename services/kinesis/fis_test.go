@@ -18,6 +18,16 @@ func newFISKinesisHandler() *kinesis.Handler {
 	return kinesis.NewHandler(backend)
 }
 
+// newFISKinesisHandlerWithClock is newFISKinesisHandler with an injectable
+// clock, for tests that need a stream's CREATING window to have already
+// lazily elapsed (via clock.Advance) independent of real wall-clock time --
+// e.g. tests that also drive real FIS fault-duration timers.
+func newFISKinesisHandlerWithClock(now func() time.Time) *kinesis.Handler {
+	backend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1").WithClock(now)
+
+	return kinesis.NewHandler(backend)
+}
+
 func TestKinesis_FISActions(t *testing.T) {
 	t.Parallel()
 
@@ -93,7 +103,8 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newFISKinesisHandler()
+			clock := newFakeClock(time.Now())
+			h := newFISKinesisHandlerWithClock(clock.Now)
 
 			// Create the stream if needed.
 			if tt.stream != "" {
@@ -102,6 +113,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 					ShardCount: 1,
 				})
 				require.NoError(t, err)
+				clock.Advance(streamSettleWait)
 			}
 
 			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
@@ -140,7 +152,8 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 func TestKinesis_ExecuteFISAction_ThroughputException_ZeroPercentage(t *testing.T) {
 	t.Parallel()
 
-	h := newFISKinesisHandler()
+	clock := newFakeClock(time.Now())
+	h := newFISKinesisHandlerWithClock(clock.Now)
 
 	const streamName = "zero-pct-stream"
 	const sampleSize = 50
@@ -150,6 +163,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_ZeroPercentage(t *testing.
 		ShardCount: 1,
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	// Activate fault with 0% — no requests should ever be throttled.
 	err = h.ExecuteFISAction(t.Context(), service.FISActionExecution{
@@ -258,7 +272,8 @@ func TestKinesis_ExecuteFISAction_ThroughputException_CtxCancel(t *testing.T) {
 func TestKinesis_ThroughputFault_ZeroPercentage_NoThrottle(t *testing.T) {
 	t.Parallel()
 
-	h := newFISKinesisHandler()
+	clock := newFakeClock(time.Now())
+	h := newFISKinesisHandlerWithClock(clock.Now)
 
 	const streamName = "zero-pct-stream"
 
@@ -267,6 +282,7 @@ func TestKinesis_ThroughputFault_ZeroPercentage_NoThrottle(t *testing.T) {
 		ShardCount: 1,
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	// Activate with 0% percentage — no requests should be throttled.
 	err = h.ExecuteFISAction(t.Context(), service.FISActionExecution{
@@ -293,7 +309,8 @@ func TestKinesis_ThroughputFault_ZeroPercentage_NoThrottle(t *testing.T) {
 func TestKinesis_ThroughputFault_PartialPercentage(t *testing.T) {
 	t.Parallel()
 
-	h := newFISKinesisHandler()
+	clock := newFakeClock(time.Now())
+	h := newFISKinesisHandlerWithClock(clock.Now)
 
 	const streamName = "partial-pct-stream"
 
@@ -302,6 +319,7 @@ func TestKinesis_ThroughputFault_PartialPercentage(t *testing.T) {
 		ShardCount: 1,
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	// Activate with 50% percentage.
 	err = h.ExecuteFISAction(t.Context(), service.FISActionExecution{
@@ -352,7 +370,8 @@ func TestKinesis_ExecuteFISAction_NonInMemoryBackend(t *testing.T) {
 func TestKinesis_ThroughputFaultActiveLocked_LazyEviction(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1").WithClock(clock.Now)
 
 	const streamName = "lazy-evict-kinesis-stream"
 
@@ -361,6 +380,7 @@ func TestKinesis_ThroughputFaultActiveLocked_LazyEviction(t *testing.T) {
 		ShardCount: 1,
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	// Inject an already-expired fault directly (no goroutine, guaranteed expired).
 	backend.InjectExpiredThroughputFaultForTest(streamName)

@@ -3,6 +3,7 @@ package kinesis_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -62,32 +63,38 @@ func TestGetShardIterator_HonoursRetentionWindow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := kinesis.NewInMemoryBackend()
-			ctx := context.Background()
-			streamName := "retention-iter-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				b := kinesis.NewInMemoryBackend()
+				ctx := context.Background()
+				streamName := "retention-iter-" + tt.name
 
-			require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: streamName, ShardCount: 1}))
-			require.NoError(t, b.SetRetentionPeriodForTest(streamName, tt.retentionHrs))
-			require.NoError(t, b.PushOldRecordForTest(streamName, 0, time.Duration(tt.expiredAgeHrs)*time.Hour))
+				require.NoError(
+					t,
+					b.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: streamName, ShardCount: 1}),
+				)
+				time.Sleep(streamSettleWait)
+				require.NoError(t, b.SetRetentionPeriodForTest(streamName, tt.retentionHrs))
+				require.NoError(t, b.PushOldRecordForTest(streamName, 0, time.Duration(tt.expiredAgeHrs)*time.Hour))
 
-			_, err := b.PutRecord(ctx, &kinesis.PutRecordInput{
-				StreamName:   streamName,
-				PartitionKey: "pk",
-				Data:         []byte(tt.wantData),
+				_, err := b.PutRecord(ctx, &kinesis.PutRecordInput{
+					StreamName:   streamName,
+					PartitionKey: "pk",
+					Data:         []byte(tt.wantData),
+				})
+				require.NoError(t, err)
+
+				input := tt.iterator()
+				input.StreamName = streamName
+				input.ShardID = "shardId-000000000000"
+
+				itOut, err := b.GetShardIterator(ctx, &input)
+				require.NoError(t, err)
+
+				rOut, err := b.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: itOut.ShardIterator})
+				require.NoError(t, err)
+				require.Len(t, rOut.Records, 1, "only the record within the retention window should be returned")
+				assert.Equal(t, tt.wantData, string(rOut.Records[0].Data))
 			})
-			require.NoError(t, err)
-
-			input := tt.iterator()
-			input.StreamName = streamName
-			input.ShardID = "shardId-000000000000"
-
-			itOut, err := b.GetShardIterator(ctx, &input)
-			require.NoError(t, err)
-
-			rOut, err := b.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: itOut.ShardIterator})
-			require.NoError(t, err)
-			require.Len(t, rOut.Records, 1, "only the record within the retention window should be returned")
-			assert.Equal(t, tt.wantData, string(rOut.Records[0].Data))
 		})
 	}
 }
@@ -103,11 +110,20 @@ func TestGetShardIterator_HonoursRetentionWindow(t *testing.T) {
 func TestGetShardIterator_RetentionDecreaseAppliesBeforeJanitorSweep(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testGetShardIteratorRetentionDecreaseAppliesBeforeJanitorSweep(t)
+	})
+}
+
+func testGetShardIteratorRetentionDecreaseAppliesBeforeJanitorSweep(t *testing.T) {
+	t.Helper()
+
 	b := kinesis.NewInMemoryBackend()
 	ctx := context.Background()
 	streamName := "retention-decrease-before-sweep"
 
 	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: streamName, ShardCount: 1}))
+	time.Sleep(streamSettleWait)
 
 	// Retention can only ever decrease to minRetentionHours (24h) at the
 	// lowest, so widen it first: raise to 48h, then a 30h-old record sits
@@ -158,11 +174,20 @@ func TestGetShardIterator_RetentionDecreaseAppliesBeforeJanitorSweep(t *testing.
 func TestSubscribeToShard_HonoursRetentionWindow(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testSubscribeToShardHonoursRetentionWindow(t)
+	})
+}
+
+func testSubscribeToShardHonoursRetentionWindow(t *testing.T) {
+	t.Helper()
+
 	b := kinesis.NewInMemoryBackend()
 	ctx := context.Background()
 	streamName := "subscribe-retention"
 
 	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: streamName, ShardCount: 1}))
+	time.Sleep(streamSettleWait)
 	require.NoError(t, b.SetRetentionPeriodForTest(streamName, 1))
 	require.NoError(t, b.PushOldRecordForTest(streamName, 0, 2*time.Hour))
 

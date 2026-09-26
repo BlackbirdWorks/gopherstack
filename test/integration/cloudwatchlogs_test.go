@@ -263,6 +263,7 @@ func TestIntegration_CloudWatchLogs_SubscriptionFilter_KinesisDelivery(t *testin
 
 		_, _ = kinesisClient.DeleteStream(cleanupCtx, &kinesissdk.DeleteStreamInput{StreamName: aws.String(streamName)})
 	})
+	waitKinesisStreamActive(ctx, t, kinesisClient, streamName)
 
 	// Get Kinesis stream ARN.
 	descKinesis, err := kinesisClient.DescribeStream(ctx, &kinesissdk.DescribeStreamInput{

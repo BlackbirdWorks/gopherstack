@@ -56,6 +56,8 @@ func TestInitializeServices_KinesisChannelS3DeliveryWiring(t *testing.T) {
 
 	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
 	require.True(t, ok, "Kinesis backend must be an InMemoryBackend")
+	kinesisClock := newKinesisFakeClock(time.Now())
+	kinesisBk.WithClock(kinesisClock.Now)
 
 	s3H, ok := byName["S3"].(*s3backend.S3Handler)
 	require.True(t, ok, "S3 handler must be registered")
@@ -73,6 +75,7 @@ func TestInitializeServices_KinesisChannelS3DeliveryWiring(t *testing.T) {
 		StreamName: "kinesis-channel-wiring-stream",
 		StreamMode: kinesisbackend.StreamModeOnDemand,
 	}))
+	kinesisClock.Advance(kinesisStreamSettleWait)
 
 	created, err := kinesisBk.CreateChannel(ctx, &kinesisbackend.CreateChannelInput{
 		ChannelName:             "kinesis-channel-wiring-channel",

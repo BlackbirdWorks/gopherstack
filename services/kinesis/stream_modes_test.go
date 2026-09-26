@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,7 +29,8 @@ import (
 func TestUpdateStreamWarmThroughput_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "warm-throughput-stream"
@@ -40,6 +42,7 @@ func TestUpdateStreamWarmThroughput_RoundTrip(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -74,44 +77,48 @@ func TestUpdateStreamWarmThroughput_RequiredFieldRejected(t *testing.T) {
 func TestUpdateStreamMode_ProvisionedToOnDemand(t *testing.T) {
 	t.Parallel()
 
-	b := newParityBackend(t)
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		b := newParityBackend(t)
+		ctx := context.Background()
 
-	createParityStream(t, b, "mode-test", 2)
+		createParityStream(t, b, "mode-test", 2)
+		time.Sleep(streamSettleWait)
 
-	desc0, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "mode-test"})
-	require.NoError(t, err)
-	assert.Equal(t, "PROVISIONED", desc0.StreamMode)
+		desc0, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "mode-test"})
+		require.NoError(t, err)
+		assert.Equal(t, "PROVISIONED", desc0.StreamMode)
 
-	err = b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
-		StreamARN: desc0.StreamARN,
-		StreamModeDetails: kinesis.StreamModeDetails{
-			StreamMode: "ON_DEMAND",
-		},
+		err = b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
+			StreamARN: desc0.StreamARN,
+			StreamModeDetails: kinesis.StreamModeDetails{
+				StreamMode: "ON_DEMAND",
+			},
+		})
+		require.NoError(t, err)
+		time.Sleep(streamSettleWait)
+
+		desc1, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "mode-test"})
+		require.NoError(t, err)
+		assert.Equal(t, "ON_DEMAND", desc1.StreamMode)
+
+		_, err = b.UpdateShardCount(ctx, &kinesis.UpdateShardCountInput{
+			StreamName:       "mode-test",
+			TargetShardCount: 4,
+		})
+		require.Error(t, err, "UpdateShardCount must fail for ON_DEMAND streams")
+
+		err = b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
+			StreamARN: desc1.StreamARN,
+			StreamModeDetails: kinesis.StreamModeDetails{
+				StreamMode: "PROVISIONED",
+			},
+		})
+		require.NoError(t, err)
+
+		desc2, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "mode-test"})
+		require.NoError(t, err)
+		assert.Equal(t, "PROVISIONED", desc2.StreamMode)
 	})
-	require.NoError(t, err)
-
-	desc1, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "mode-test"})
-	require.NoError(t, err)
-	assert.Equal(t, "ON_DEMAND", desc1.StreamMode)
-
-	_, err = b.UpdateShardCount(ctx, &kinesis.UpdateShardCountInput{
-		StreamName:       "mode-test",
-		TargetShardCount: 4,
-	})
-	require.Error(t, err, "UpdateShardCount must fail for ON_DEMAND streams")
-
-	err = b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
-		StreamARN: desc1.StreamARN,
-		StreamModeDetails: kinesis.StreamModeDetails{
-			StreamMode: "PROVISIONED",
-		},
-	})
-	require.NoError(t, err)
-
-	desc2, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "mode-test"})
-	require.NoError(t, err)
-	assert.Equal(t, "PROVISIONED", desc2.StreamMode)
 }
 
 func TestUpdateStreamMode_Valid(t *testing.T) {
@@ -130,44 +137,47 @@ func TestUpdateStreamMode_Valid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			streamName := "mode-stream-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				streamName := "mode-stream-" + tt.name
 
-			rec := doRequest(t, h, "CreateStream", map[string]any{
-				"StreamName": streamName,
-				"ShardCount": 1,
+				rec := doRequest(t, h, "CreateStream", map[string]any{
+					"StreamName": streamName,
+					"ShardCount": 1,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				time.Sleep(streamSettleWait)
+
+				rec2 := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
+				require.Equal(t, http.StatusOK, rec2.Code)
+				var descResp struct {
+					StreamDescription struct {
+						StreamARN string `json:"StreamARN"`
+					} `json:"StreamDescription"`
+				}
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+
+				rec3 := doRequest(t, h, "UpdateStreamMode", map[string]any{
+					"StreamARN": descResp.StreamDescription.StreamARN,
+					"StreamModeDetails": map[string]any{
+						"StreamMode": tt.newMode,
+					},
+				})
+				require.Equal(t, http.StatusOK, rec3.Code)
+
+				rec4 := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
+				require.Equal(t, http.StatusOK, rec4.Code)
+				var verifyResp struct {
+					StreamDescription struct {
+						StreamModeDetails *struct {
+							StreamMode string `json:"StreamMode"`
+						} `json:"StreamModeDetails"`
+					} `json:"StreamDescription"`
+				}
+				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &verifyResp))
+				require.NotNil(t, verifyResp.StreamDescription.StreamModeDetails)
+				assert.Equal(t, tt.wantMode, verifyResp.StreamDescription.StreamModeDetails.StreamMode)
 			})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			rec2 := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
-			require.Equal(t, http.StatusOK, rec2.Code)
-			var descResp struct {
-				StreamDescription struct {
-					StreamARN string `json:"StreamARN"`
-				} `json:"StreamDescription"`
-			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
-
-			rec3 := doRequest(t, h, "UpdateStreamMode", map[string]any{
-				"StreamARN": descResp.StreamDescription.StreamARN,
-				"StreamModeDetails": map[string]any{
-					"StreamMode": tt.newMode,
-				},
-			})
-			require.Equal(t, http.StatusOK, rec3.Code)
-
-			rec4 := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
-			require.Equal(t, http.StatusOK, rec4.Code)
-			var verifyResp struct {
-				StreamDescription struct {
-					StreamModeDetails *struct {
-						StreamMode string `json:"StreamMode"`
-					} `json:"StreamModeDetails"`
-				} `json:"StreamDescription"`
-			}
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &verifyResp))
-			require.NotNil(t, verifyResp.StreamDescription.StreamModeDetails)
-			assert.Equal(t, tt.wantMode, verifyResp.StreamDescription.StreamModeDetails.StreamMode)
 		})
 	}
 }
@@ -234,33 +244,36 @@ func TestUpdateStreamMode_OnDemandTransitionKeepsShardCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newParityBackend(t)
-			ctx := context.Background()
-			streamName := "reshard-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				b := newParityBackend(t)
+				ctx := context.Background()
+				streamName := "reshard-" + tt.name
 
-			createParityStream(t, b, streamName, tt.startShards)
+				createParityStream(t, b, streamName, tt.startShards)
+				time.Sleep(streamSettleWait)
 
-			descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: streamName})
-			require.NoError(t, err)
-			require.Len(t, descBefore.Shards, tt.startShards, "sanity: initial open shard count")
+				descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: streamName})
+				require.NoError(t, err)
+				require.Len(t, descBefore.Shards, tt.startShards, "sanity: initial open shard count")
 
-			require.NoError(t, b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
-				StreamARN: descBefore.StreamARN,
-				StreamModeDetails: kinesis.StreamModeDetails{
-					StreamMode: "ON_DEMAND",
-				},
-			}))
+				require.NoError(t, b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
+					StreamARN: descBefore.StreamARN,
+					StreamModeDetails: kinesis.StreamModeDetails{
+						StreamMode: "ON_DEMAND",
+					},
+				}))
 
-			// ListShards' default (no ShardFilter) only returns open shards, so
-			// its length is exactly the new open shard count.
-			openAfter, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: streamName})
-			require.NoError(t, err)
-			assert.Len(
-				t,
-				openAfter.Shards,
-				tt.startShards,
-				"PROVISIONED -> ON_DEMAND must retain the pre-transition shard count, not floor to defaultOnDemandShardCount",
-			)
+				// ListShards' default (no ShardFilter) only returns open shards, so
+				// its length is exactly the new open shard count.
+				openAfter, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: streamName})
+				require.NoError(t, err)
+				assert.Len(
+					t,
+					openAfter.Shards,
+					tt.startShards,
+					"PROVISIONED -> ON_DEMAND must retain the pre-transition shard count, not floor to defaultOnDemandShardCount",
+				)
+			})
 		})
 	}
 }
@@ -273,7 +286,8 @@ func TestUpdateStreamMode_OnDemandTransitionKeepsShardCount(t *testing.T) {
 func TestUpdateStreamMode_ProvisionedToOnDemand_RealClientKeepsShardCount(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "real-client-mode-transition"
@@ -282,6 +296,7 @@ func TestUpdateStreamMode_ProvisionedToOnDemand_RealClientKeepsShardCount(t *tes
 		ShardCount: aws.Int32(2),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	descBefore, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 		StreamName: aws.String(streamName),
@@ -326,6 +341,7 @@ func TestUpdateStreamMode_OnDemandAutoScalesOnSustainedWrite(t *testing.T) {
 		StreamName: streamName,
 		StreamMode: "ON_DEMAND",
 	}))
+	fakeNow = fakeNow.Add(streamSettleWait)
 
 	descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: streamName})
 	require.NoError(t, err)
@@ -384,6 +400,7 @@ func TestUpdateStreamMode_OnDemandAutoScaleIgnoresProvisioned(t *testing.T) {
 		StreamName: streamName,
 		ShardCount: 1,
 	}))
+	fakeNow = fakeNow.Add(streamSettleWait)
 
 	payload := make([]byte, 600*1024)
 	_, err := b.PutRecord(ctx, &kinesis.PutRecordInput{
@@ -404,26 +421,29 @@ func TestUpdateStreamMode_OnDemandAutoScaleIgnoresProvisioned(t *testing.T) {
 func TestUpdateStreamMode_OnDemandToProvisionedKeepsShardCount(t *testing.T) {
 	t.Parallel()
 
-	b := newParityBackend(t)
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		b := newParityBackend(t)
+		ctx := context.Background()
 
-	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
-		StreamName: "ondemand-to-prov",
-		StreamMode: "ON_DEMAND",
-	}))
+		require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+			StreamName: "ondemand-to-prov",
+			StreamMode: "ON_DEMAND",
+		}))
+		time.Sleep(streamSettleWait)
 
-	descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "ondemand-to-prov"})
-	require.NoError(t, err)
-	openBefore := len(descBefore.Shards)
+		descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "ondemand-to-prov"})
+		require.NoError(t, err)
+		openBefore := len(descBefore.Shards)
 
-	require.NoError(t, b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
-		StreamARN:         descBefore.StreamARN,
-		StreamModeDetails: kinesis.StreamModeDetails{StreamMode: "PROVISIONED"},
-	}))
+		require.NoError(t, b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
+			StreamARN:         descBefore.StreamARN,
+			StreamModeDetails: kinesis.StreamModeDetails{StreamMode: "PROVISIONED"},
+		}))
 
-	descAfter, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "ondemand-to-prov"})
-	require.NoError(t, err)
-	assert.Len(t, descAfter.Shards, openBefore, "shard count must be unchanged by ON_DEMAND -> PROVISIONED")
+		descAfter, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "ondemand-to-prov"})
+		require.NoError(t, err)
+		assert.Len(t, descAfter.Shards, openBefore, "shard count must be unchanged by ON_DEMAND -> PROVISIONED")
+	})
 }
 
 func TestUpdateStreamMode_NotFound(t *testing.T) {

@@ -24,7 +24,13 @@ var (
 	// registered enhanced fan-out consumers and EnforceConsumerDeletion is
 	// unset or false (real DeleteStreamInput.EnforceConsumerDeletion doc
 	// comment: "the call to DeleteStream fails with a ResourceInUseException").
-	ErrStreamHasConsumers     = awserr.New("ResourceInUseException", awserr.ErrConflict)
+	ErrStreamHasConsumers = awserr.New("ResourceInUseException", awserr.ErrConflict)
+	// ErrStreamNotActive is returned by control-plane mutations real AWS only
+	// accepts against an ACTIVE stream (DeleteStream, MergeShards, SplitShard,
+	// UpdateShardCount, StartStreamEncryption, StopStreamEncryption,
+	// UpdateStreamMode, UpdateMaxRecordSize, UpdateStreamWarmThroughput) when
+	// called while the stream is still CREATING/UPDATING/DELETING.
+	ErrStreamNotActive        = awserr.New("ResourceInUseException", awserr.ErrConflict)
 	ErrInvalidArgument        = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	ErrUnknownAction          = errors.New("UnknownOperationException")
 	ErrShardIteratorExpired   = errors.New("ExpiredIteratorException")

@@ -63,6 +63,8 @@ func TestInitializeServices_FirehoseKinesisSourceWiring(t *testing.T) {
 
 	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
 	require.True(t, ok, "Kinesis backend must be an InMemoryBackend")
+	kinesisClock := newKinesisFakeClock(time.Now())
+	kinesisBk.WithClock(kinesisClock.Now)
 
 	s3H, ok := byName["S3"].(*s3backend.S3Handler)
 	require.True(t, ok, "S3 handler must be registered")
@@ -102,6 +104,7 @@ func TestInitializeServices_FirehoseKinesisSourceWiring(t *testing.T) {
 		StreamName: streamName,
 		ShardCount: 1,
 	}))
+	kinesisClock.Advance(kinesisStreamSettleWait)
 
 	roleARN := "arn:aws:iam::000000000000:role/role"
 	streamARN := "arn:aws:kinesis:us-east-1:000000000000:stream/" + streamName

@@ -2,6 +2,7 @@ package kinesis_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -23,7 +24,8 @@ import (
 func TestDeleteStream_EnforceConsumerDeletion(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "consumer-guarded-stream"
@@ -32,6 +34,7 @@ func TestDeleteStream_EnforceConsumerDeletion(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 		StreamName: aws.String(streamName),
@@ -67,6 +70,7 @@ func TestDeleteStream_EnforceConsumerDeletion(t *testing.T) {
 		EnforceConsumerDeletion: aws.Bool(true),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	_, err = client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 		StreamName: aws.String(streamName),

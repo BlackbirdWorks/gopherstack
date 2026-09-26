@@ -55,6 +55,8 @@ func TestInitializeServices_DynamoDBKinesisWiring(t *testing.T) {
 
 	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
 	require.True(t, ok, "Kinesis backend must be an InMemoryBackend")
+	kinesisClock := newKinesisFakeClock(time.Now())
+	kinesisBk.WithClock(kinesisClock.Now)
 
 	ctx := t.Context()
 
@@ -63,6 +65,7 @@ func TestInitializeServices_DynamoDBKinesisWiring(t *testing.T) {
 		StreamName: streamName,
 		ShardCount: 1,
 	}))
+	kinesisClock.Advance(kinesisStreamSettleWait)
 
 	tableName := "dynamodb-kinesis-wiring-table"
 	_, err = ddbBk.CreateTable(ctx, &sdkddb.CreateTableInput{

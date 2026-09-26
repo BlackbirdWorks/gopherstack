@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,41 +47,44 @@ func TestUpdateShardCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			streamName := "reshard-stream-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				streamName := "reshard-stream-" + tt.name
 
-			rec := doRequest(t, h, "CreateStream", map[string]any{
-				"StreamName": streamName,
-				"ShardCount": tt.initialShards,
+				rec := doRequest(t, h, "CreateStream", map[string]any{
+					"StreamName": streamName,
+					"ShardCount": tt.initialShards,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				time.Sleep(streamSettleWait)
+
+				rec = doRequest(t, h, "UpdateShardCount", map[string]any{
+					"StreamName":       streamName,
+					"TargetShardCount": tt.targetShards,
+					"ScalingType":      "UNIFORM_SCALING",
+				})
+				require.Equal(t, tt.wantCode, rec.Code)
+
+				var resp struct {
+					StreamName        string `json:"StreamName"`
+					CurrentShardCount int    `json:"CurrentShardCount"`
+					TargetShardCount  int    `json:"TargetShardCount"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, streamName, resp.StreamName)
+				assert.Equal(t, tt.wantCurrentCount, resp.CurrentShardCount)
+				assert.Equal(t, tt.wantTargetCount, resp.TargetShardCount)
+
+				// Verify new shard count via ListShards.
+				rec = doRequest(t, h, "ListShards", map[string]any{"StreamName": streamName})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var shardsResp struct {
+					Shards []any `json:"Shards"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shardsResp))
+				assert.Len(t, shardsResp.Shards, tt.targetShards)
 			})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			rec = doRequest(t, h, "UpdateShardCount", map[string]any{
-				"StreamName":       streamName,
-				"TargetShardCount": tt.targetShards,
-				"ScalingType":      "UNIFORM_SCALING",
-			})
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			var resp struct {
-				StreamName        string `json:"StreamName"`
-				CurrentShardCount int    `json:"CurrentShardCount"`
-				TargetShardCount  int    `json:"TargetShardCount"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, streamName, resp.StreamName)
-			assert.Equal(t, tt.wantCurrentCount, resp.CurrentShardCount)
-			assert.Equal(t, tt.wantTargetCount, resp.TargetShardCount)
-
-			// Verify new shard count via ListShards.
-			rec = doRequest(t, h, "ListShards", map[string]any{"StreamName": streamName})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var shardsResp struct {
-				Shards []any `json:"Shards"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shardsResp))
-			assert.Len(t, shardsResp.Shards, tt.targetShards)
 		})
 	}
 }
@@ -123,222 +128,245 @@ func TestUpdateShardCountErrors(t *testing.T) {
 func TestUpdateShardCount_OldShardsMarkedClosed(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	b := h.Backend.(*kinesis.InMemoryBackend)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "update-shardcount-closed",
-		ShardCount: 2,
-	}))
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "update-shardcount-closed",
+			ShardCount: 2,
+		}))
+		time.Sleep(streamSettleWait)
 
-	out, err := b.DescribeStream(
-		context.Background(),
-		&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"},
-	)
-	require.NoError(t, err)
-	require.Len(t, out.Shards, 2)
+		out, err := b.DescribeStream(
+			context.Background(),
+			&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"},
+		)
+		require.NoError(t, err)
+		require.Len(t, out.Shards, 2)
 
-	// Scale up to 4.
-	_, err = b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "update-shardcount-closed",
-		TargetShardCount: 4,
-		ScalingType:      "UNIFORM_SCALING",
-	})
-	require.NoError(t, err)
+		// Scale up to 4.
+		_, err = b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "update-shardcount-closed",
+			TargetShardCount: 4,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
 
-	// DescribeStream must include old closed shards + new open ones.
-	out2, err := b.DescribeStream(
-		context.Background(),
-		&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"},
-	)
-	require.NoError(t, err)
+		// DescribeStream must include old closed shards + new open ones.
+		out2, err := b.DescribeStream(
+			context.Background(),
+			&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"},
+		)
+		require.NoError(t, err)
 
-	openCount := 0
-	closedCount := 0
-	for _, s := range out2.Shards {
-		if s.Closed {
-			closedCount++
-		} else {
-			openCount++
+		openCount := 0
+		closedCount := 0
+		for _, s := range out2.Shards {
+			if s.Closed {
+				closedCount++
+			} else {
+				openCount++
+			}
 		}
-	}
 
-	assert.Equal(t, 4, openCount, "should have 4 new open shards")
-	assert.Equal(t, 2, closedCount, "old 2 shards should be marked closed")
-	assert.Len(t, out2.Shards, 6, "total 6 shards (2 closed + 4 open)")
+		assert.Equal(t, 4, openCount, "should have 4 new open shards")
+		assert.Equal(t, 2, closedCount, "old 2 shards should be marked closed")
+		assert.Len(t, out2.Shards, 6, "total 6 shards (2 closed + 4 open)")
+	})
 }
 
 func TestUpdateShardCount_ListShardsOnlyReturnsOpenShards(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	b := h.Backend.(*kinesis.InMemoryBackend)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "update-listshard-stream",
-		ShardCount: 2,
-	}))
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "update-listshard-stream",
+			ShardCount: 2,
+		}))
+		time.Sleep(streamSettleWait)
 
-	_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "update-listshard-stream",
-		TargetShardCount: 3,
-		ScalingType:      "UNIFORM_SCALING",
+		_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "update-listshard-stream",
+			TargetShardCount: 3,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
+
+		// ListShards default = open shards only.
+		list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "update-listshard-stream"})
+		require.NoError(t, err)
+		assert.Len(t, list.Shards, 3, "ListShards should return only the 3 new open shards")
 	})
-	require.NoError(t, err)
-
-	// ListShards default = open shards only.
-	list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "update-listshard-stream"})
-	require.NoError(t, err)
-	assert.Len(t, list.Shards, 3, "ListShards should return only the 3 new open shards")
 }
 
 func TestUpdateShardCount_CurrentCountIsOpenShards(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	b := h.Backend.(*kinesis.InMemoryBackend)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "update-currentcount-stream",
-		ShardCount: 4,
-	}))
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "update-currentcount-stream",
+			ShardCount: 4,
+		}))
+		time.Sleep(streamSettleWait)
 
-	out, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "update-currentcount-stream",
-		TargetShardCount: 2,
-		ScalingType:      "UNIFORM_SCALING",
+		out, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "update-currentcount-stream",
+			TargetShardCount: 2,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
+
+		// CurrentShardCount should reflect the 4 open shards before the operation.
+		assert.Equal(t, 4, out.CurrentShardCount)
+		assert.Equal(t, 2, out.TargetShardCount)
 	})
-	require.NoError(t, err)
-
-	// CurrentShardCount should reflect the 4 open shards before the operation.
-	assert.Equal(t, 4, out.CurrentShardCount)
-	assert.Equal(t, 2, out.TargetShardCount)
 }
 
 func TestUpdateShardCount_UniqueShardIDs(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	b := h.Backend.(*kinesis.InMemoryBackend)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "update-uniqueids-stream",
-		ShardCount: 2,
-	}))
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "update-uniqueids-stream",
+			ShardCount: 2,
+		}))
+		time.Sleep(streamSettleWait)
 
-	_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "update-uniqueids-stream",
-		TargetShardCount: 3,
-		ScalingType:      "UNIFORM_SCALING",
+		_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "update-uniqueids-stream",
+			TargetShardCount: 3,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
+		time.Sleep(streamSettleWait)
+
+		// Scale again (3 -> 2 stays within the AWS 50%-200% per-call window).
+		_, err = b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "update-uniqueids-stream",
+			TargetShardCount: 2,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
+
+		out, err := b.DescribeStream(
+			context.Background(),
+			&kinesis.DescribeStreamInput{StreamName: "update-uniqueids-stream"},
+		)
+		require.NoError(t, err)
+
+		seen := make(map[string]struct{})
+		for _, s := range out.Shards {
+			assert.NotContains(t, seen, s.ShardID, "duplicate shard ID %q", s.ShardID)
+			seen[s.ShardID] = struct{}{}
+		}
 	})
-	require.NoError(t, err)
-
-	// Scale again (3 -> 2 stays within the AWS 50%-200% per-call window).
-	_, err = b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "update-uniqueids-stream",
-		TargetShardCount: 2,
-		ScalingType:      "UNIFORM_SCALING",
-	})
-	require.NoError(t, err)
-
-	out, err := b.DescribeStream(
-		context.Background(),
-		&kinesis.DescribeStreamInput{StreamName: "update-uniqueids-stream"},
-	)
-	require.NoError(t, err)
-
-	seen := make(map[string]struct{})
-	for _, s := range out.Shards {
-		assert.NotContains(t, seen, s.ShardID, "duplicate shard ID %q", s.ShardID)
-		seen[s.ShardID] = struct{}{}
-	}
 }
 
 func TestUpdateShardCount_ViaHandler_OpenShardsOnly(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "handler-update-shard",
-		"ShardCount": 2,
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "handler-update-shard",
+			"ShardCount": 2,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
+
+		rec = doRequest(t, h, "UpdateShardCount", map[string]any{
+			"StreamName":       "handler-update-shard",
+			"TargetShardCount": 4,
+			"ScalingType":      "UNIFORM_SCALING",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var updateResp struct {
+			CurrentShardCount int `json:"CurrentShardCount"`
+			TargetShardCount  int `json:"TargetShardCount"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+		assert.Equal(t, 2, updateResp.CurrentShardCount)
+		assert.Equal(t, 4, updateResp.TargetShardCount)
+
+		// ListShards returns only open shards → should see 4 new open shards.
+		rec = doRequest(t, h, "ListShards", map[string]any{"StreamName": "handler-update-shard"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var listResp struct {
+			Shards []any `json:"Shards"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		assert.Len(t, listResp.Shards, 4)
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doRequest(t, h, "UpdateShardCount", map[string]any{
-		"StreamName":       "handler-update-shard",
-		"TargetShardCount": 4,
-		"ScalingType":      "UNIFORM_SCALING",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var updateResp struct {
-		CurrentShardCount int `json:"CurrentShardCount"`
-		TargetShardCount  int `json:"TargetShardCount"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	assert.Equal(t, 2, updateResp.CurrentShardCount)
-	assert.Equal(t, 4, updateResp.TargetShardCount)
-
-	// ListShards returns only open shards → should see 4 new open shards.
-	rec = doRequest(t, h, "ListShards", map[string]any{"StreamName": "handler-update-shard"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp struct {
-		Shards []any `json:"Shards"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp.Shards, 4)
 }
 
 func TestUpdateShardCount_SecondScaleStillWorks(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	b := h.Backend.(*kinesis.InMemoryBackend)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "double-scale-stream",
-		ShardCount: 2,
-	}))
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "double-scale-stream",
+			ShardCount: 2,
+		}))
+		time.Sleep(streamSettleWait)
 
-	_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "double-scale-stream",
-		TargetShardCount: 4,
-		ScalingType:      "UNIFORM_SCALING",
+		_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "double-scale-stream",
+			TargetShardCount: 4,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
+		time.Sleep(streamSettleWait)
+
+		out2, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "double-scale-stream",
+			TargetShardCount: 2,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 4, out2.CurrentShardCount, "current count after first scale is 4 open shards")
+		assert.Equal(t, 2, out2.TargetShardCount)
 	})
-	require.NoError(t, err)
-
-	out2, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "double-scale-stream",
-		TargetShardCount: 2,
-		ScalingType:      "UNIFORM_SCALING",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 4, out2.CurrentShardCount, "current count after first scale is 4 open shards")
-	assert.Equal(t, 2, out2.TargetShardCount)
 }
 
 func TestUpdateShardCount_LargeScale(t *testing.T) {
 	t.Parallel()
 
-	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "large-scale-stream",
-		ShardCount: 5,
-	}))
+	synctest.Test(t, func(t *testing.T) {
+		b := kinesis.NewInMemoryBackend()
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "large-scale-stream",
+			ShardCount: 5,
+		}))
+		time.Sleep(streamSettleWait)
 
-	out, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
-		StreamName:       "large-scale-stream",
-		TargetShardCount: 10,
-		ScalingType:      "UNIFORM_SCALING",
+		out, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
+			StreamName:       "large-scale-stream",
+			TargetShardCount: 10,
+			ScalingType:      "UNIFORM_SCALING",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 5, out.CurrentShardCount)
+		assert.Equal(t, 10, out.TargetShardCount)
+
+		// Verify 10 open shards via ListShards.
+		list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "large-scale-stream"})
+		require.NoError(t, err)
+		assert.Len(t, list.Shards, 10)
 	})
-	require.NoError(t, err)
-	assert.Equal(t, 5, out.CurrentShardCount)
-	assert.Equal(t, 10, out.TargetShardCount)
-
-	// Verify 10 open shards via ListShards.
-	list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "large-scale-stream"})
-	require.NoError(t, err)
-	assert.Len(t, list.Shards, 10)
 }

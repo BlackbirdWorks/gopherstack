@@ -162,7 +162,9 @@ func TestWireEventBridgeDelivery_KinesisFirehoseECSStepFunctionsCloudWatchLogs(t
 	ebBk := ebbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 	ebH := ebbackend.NewHandler(ebBk)
 
-	kinesisBk := kinesisbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
+	kinesisClock := newKinesisFakeClock(time.Now())
+	kinesisBk := kinesisbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion).
+		WithClock(kinesisClock.Now)
 	kinesisH := kinesisbackend.NewHandler(kinesisBk)
 
 	firehoseBk := firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
@@ -188,6 +190,7 @@ func TestWireEventBridgeDelivery_KinesisFirehoseECSStepFunctionsCloudWatchLogs(t
 	// --- Fixtures for each target type. ---
 
 	require.NoError(t, kinesisBk.CreateStream(ctx, &kinesisbackend.CreateStreamInput{StreamName: "wiring-stream"}))
+	kinesisClock.Advance(kinesisStreamSettleWait)
 	streamDesc, err := kinesisBk.DescribeStream(ctx, &kinesisbackend.DescribeStreamInput{StreamName: "wiring-stream"})
 	require.NoError(t, err)
 	require.NotEmpty(t, streamDesc.Shards)

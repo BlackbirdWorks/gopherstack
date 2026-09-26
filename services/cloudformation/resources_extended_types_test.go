@@ -3,6 +3,7 @@ package cloudformation_test
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -151,6 +152,8 @@ func TestStreamNameFromARN(t *testing.T) {
 
 			// Exercise streamNameFromARN indirectly via Kinesis delete path.
 			backends := newExtendedServiceBackends()
+			fakeNow := time.Now()
+			withFakeClockedKinesis(backends, &fakeNow)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			streamName := tt.want
@@ -163,6 +166,8 @@ func TestStreamNameFromARN(t *testing.T) {
 			if tt.input == "my-plain-stream" {
 				deleteID = tt.input // pass plain name so fallback branch is hit
 			}
+
+			fakeNow = fakeNow.Add(kinesisStreamSettleWait)
 
 			err = rc.Delete(t.Context(), "AWS::Kinesis::Stream", deleteID, nil, nil)
 			require.NoError(t, err)

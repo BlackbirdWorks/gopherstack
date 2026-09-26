@@ -4,7 +4,6 @@ import (
 	"context"
 	"regexp"
 	"sort"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -76,7 +75,7 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		return ErrValidation
 	}
 
-	if b.streams.Has(streamKey(region, input.StreamName)) {
+	if _, err := b.resolveStreamTransitionLocked(region, input.StreamName); err == nil {
 		return ErrStreamAlreadyExists
 	}
 
@@ -85,7 +84,7 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		return err
 	}
 
-	now := time.Now()
+	now := b.nowFunc()
 	shards := buildInitialShards(shardCount, now)
 
 	accountID := b.accountID
@@ -94,7 +93,7 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 	}
 
 	if streamMode == streamModeOnDemand {
-		if odErr := checkOnDemandLimit(b.streamsByRegion.Get(region), b.onDemandStreamCountLimit); odErr != nil {
+		if odErr := checkOnDemandLimit(b.resolveRegionStreamsLocked(region), b.onDemandStreamCountLimit); odErr != nil {
 			return odErr
 		}
 	}
@@ -114,7 +113,8 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		Name:                input.StreamName,
 		ARN:                 streamARN,
 		Region:              region,
-		Status:              streamStatusActive,
+		Status:              streamStatusCreating,
+		ReadyAt:             now.Add(streamTransitionDelay),
 		Shards:              shards,
 		mu:                  newStreamLock(input.StreamName),
 		Tags:                tags.New("kinesis.stream." + input.StreamName + ".tags"),
@@ -147,78 +147,52 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 	return nil
 }
 
-// deleteStreamLocked performs DeleteStream's actual state removal.
+// deleteStreamLocked marks a resolved, ACTIVE stream DELETING. Real AWS
+// deletes asynchronously (StreamStatus DELETING until removal completes,
+// still visible via DescribeStreamSummary) -- physical removal happens
+// later, lazily, in finishStreamDeletionLocked via
+// resolveStreamTransitionLocked, matching CreateStream's CREATING->ACTIVE
+// pattern.
 func (b *InMemoryBackend) deleteStreamLocked(ctx context.Context, input *DeleteStreamInput) error {
 	region := getRegion(ctx, b.region)
 
-	var stream *Stream
 	var found bool
-	var consumerErr error
+	var opErr error
 
-	// b.mu and stream.mu are both held while the stream is marked DELETING and
-	// removed from b.streams; b.mu releases as soon as that work is done while
-	// stream.mu is handed off to the caller (see stream.mu.Unlock below), matching
-	// the original release timing. handoffOK guards the handoff: if anything in
-	// this closure panics before the handoff point, stream.mu is still released
-	// instead of leaking.
 	func() {
 		b.mu.Lock("DeleteStream")
 		defer b.mu.Unlock()
 
-		s, exists := b.streams.Get(streamKey(region, input.StreamName))
-		if !exists {
+		stream, err := b.resolveStreamTransitionLocked(region, input.StreamName)
+		if err != nil {
 			return
 		}
-		stream = s
 		found = true
 
 		stream.mu.Lock("DeleteStream.stream")
-		handoffOK := false
-		defer func() {
-			if !handoffOK {
-				stream.mu.Unlock()
-			}
-		}()
+		defer stream.mu.Unlock()
 
-		if len(stream.Consumers) > 0 && !input.EnforceConsumerDeletion {
-			consumerErr = ErrStreamHasConsumers
+		if stream.Status != streamStatusActive {
+			opErr = ErrStreamNotActive
 
 			return
 		}
 
-		if stream.Tags != nil {
-			stream.Tags.Close()
+		if len(stream.Consumers) > 0 && !input.EnforceConsumerDeletion {
+			opErr = ErrStreamHasConsumers
+
+			return
 		}
 
-		// Mark the stream as deleting before removing it (AWS-realistic status transition).
 		stream.Status = streamStatusDeleting
-		b.streams.Delete(streamKey(region, input.StreamName))
-		delete(b.resourcePolicies[region], stream.ARN)
-
-		handoffOK = true
+		stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 	}()
 
 	if !found {
 		return ErrStreamNotFound
 	}
 
-	if consumerErr != nil {
-		return consumerErr
-	}
-	defer stream.mu.Unlock()
-
-	b.faultsMu.Lock("DeleteStream.faults")
-	delete(b.faultsStore(region), input.StreamName)
-	b.faultsMu.Unlock()
-
-	if b.OnStreamPurged != nil {
-		b.OnStreamPurged(input.StreamName)
-	}
-
-	// Release lockmetrics resources for the deleted stream to prevent memory leaks.
-	stream.mu.Close()
-
-	return nil
+	return opErr
 }
 
 // DescribeStream returns full stream details including shards.
@@ -228,16 +202,16 @@ func (b *InMemoryBackend) DescribeStream(
 ) (*DescribeStreamOutput, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("DescribeStream")
+	b.mu.Lock("DescribeStream")
 
-	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
-	if !exists {
-		b.mu.RUnlock()
+	stream, err := b.resolveStreamTransitionLocked(region, input.StreamName)
+	if err != nil {
+		b.mu.Unlock()
 
-		return nil, ErrStreamNotFound
+		return nil, err
 	}
 	stream.mu.RLock("DescribeStream.stream")
-	b.mu.RUnlock()
+	b.mu.Unlock()
 	defer stream.mu.RUnlock()
 
 	// AWS paginates the Shards list: default page size 100, max 10000, resumed
@@ -311,11 +285,12 @@ func (b *InMemoryBackend) DescribeStream(
 func (b *InMemoryBackend) ListStreams(ctx context.Context, input *ListStreamsInput) (*ListStreamsOutput, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("ListStreams")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListStreams")
+	defer b.mu.Unlock()
+
+	regionStreams := b.resolveRegionStreamsLocked(region)
 
 	// AWS returns streams in alphabetical order by name.
-	regionStreams := append([]*Stream{}, b.streamsByRegion.Get(region)...)
 	sort.Slice(regionStreams, func(i, j int) bool { return regionStreams[i].Name < regionStreams[j].Name })
 
 	// Apply pagination start point: prefer ExclusiveStartStreamName, then NextToken.
