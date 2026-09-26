@@ -488,7 +488,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 12 gaps |
-| [S3](services/s3/README.md) | A | 24 | 8 gaps |
+| [S3](services/s3/README.md) | A | 26 | 8 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
