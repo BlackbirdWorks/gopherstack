@@ -8,6 +8,11 @@ import (
 const (
 	layerUploadPartSize = 10 * 1024 * 1024
 	minLayerPartSize    = 5 * 1024 * 1024
+	// layerUploadTTL bounds how long an unfinished InitiateLayerUpload
+	// session is retained before being pruned as abandoned. AWS does not
+	// document an explicit expiry window for unfinished layer uploads; this
+	// matches services/ecr's own layerUploadTTL default of 24h.
+	layerUploadTTL = 24 * time.Hour
 )
 
 // BatchCheckLayerAvailability reports which of the given layer digests have
@@ -64,6 +69,8 @@ func (b *InMemoryBackend) InitiateLayerUpload(registryID, repositoryName string)
 	if !b.repos.Has(repositoryName) {
 		return "", 0, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
+
+	b.pruneExpiredLayerUploadsLocked(time.Now())
 
 	b.layerUploadSeq++
 	uploadID := fmt.Sprintf("upload-%d-%d", time.Now().UnixNano(), b.layerUploadSeq)
@@ -161,6 +168,17 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	delete(b.layerUploads, uploadID)
 
 	return digest, nil
+}
+
+// pruneExpiredLayerUploadsLocked removes InitiateLayerUpload sessions older
+// than layerUploadTTL, preventing an unbounded leak from pushes that are
+// initiated but never completed. Caller must hold b.mu.
+func (b *InMemoryBackend) pruneExpiredLayerUploadsLocked(now time.Time) {
+	for id, upload := range b.layerUploads {
+		if now.Sub(upload.CreatedAt) > layerUploadTTL {
+			delete(b.layerUploads, id)
+		}
+	}
 }
 
 // validatePartSizes enforces the 5MiB minimum-part-size rule against every

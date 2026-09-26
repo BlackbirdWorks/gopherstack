@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 23 (23 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -20,7 +20,6 @@
 - "DescribeRegistries is single-tenant: it always returns exactly the caller's own registry, never other accounts' registries. There is no cross-account Amazon ECR Public Gallery directory modeled (that surface is the public gallery.ecr.aws website, not this control-plane API, but even the multi-account admin view this operation can return for a verified account is not modeled)."
 - "Registry/repository 'verified' and marketplaceCertified badges are always false -- the Amazon Web Services Marketplace vendor verification workflow is not modeled."
 - "PutImage's manifest-layer verification only understands a plain OCI/Docker image manifest ({config.digest, layers[].digest}); a manifest list / OCI index (multi-arch) is not parsed for referenced digests and is pushed without that check. Real docker clients pushing multi-arch images would not get LayersNotFoundException protection for the top-level manifest list, only for each per-platform manifest they also push."
-- "Abandoned InitiateLayerUpload sessions are never garbage-collected on a TTL (unlike services/ecr's layerUploadQueue sweep) -- a memory-growth concern for a long-running server under repeated abandoned uploads, not a wire-contract or client-observable gap."
 
 ## More
 

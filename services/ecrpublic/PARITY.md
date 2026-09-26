@@ -23,7 +23,7 @@ ops:
   DescribeImages: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeImageTags: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchCheckLayerAvailability: {wire: ok, errors: ok, state: ok, persist: ok}
-  InitiateLayerUpload: {wire: ok, errors: ok, state: ok, persist: n/a, note: "in-flight sessions never persisted, matching AWS"}
+  InitiateLayerUpload: {wire: ok, errors: ok, state: ok, persist: n/a, note: "in-flight sessions never persisted, matching AWS; abandoned sessions pruned lazily after layerUploadTTL (24h)"}
   UploadLayerPart: {wire: ok, errors: ok, state: ok, persist: n/a}
   CompleteLayerUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "SHA256 computed from accumulated bytes; verified against a caller-supplied full digest"}
   PutImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects a manifest referencing layer/config digests never uploaded (LayersNotFoundException)"}
@@ -58,9 +58,6 @@ items_still_open:
     is not parsed for referenced digests and is pushed without that check. Real docker
     clients pushing multi-arch images would not get LayersNotFoundException protection
     for the top-level manifest list, only for each per-platform manifest they also push."
-  - "Abandoned InitiateLayerUpload sessions are never garbage-collected on a TTL (unlike
-    services/ecr's layerUploadQueue sweep) -- a memory-growth concern for a long-running
-    server under repeated abandoned uploads, not a wire-contract or client-observable gap."
 ---
 
 ## Notes
@@ -83,3 +80,14 @@ the repository ARN omits the region segment
 (`arn:aws:ecr-public::<account>:repository/<name>`), and repositoryUri follows
 `public.ecr.aws/<registryAlias>/<name>` with a registry alias derived
 deterministically per account (a real alias is an opaque, AWS-assigned string).
+
+### 2026-09-26: InitiateLayerUpload session leak fixed
+
+Unfinished `InitiateLayerUpload` sessions (never reaching
+`CompleteLayerUpload`) were retained in `layerUploads` forever, leaking
+memory in a long-running server. AWS does not document an explicit expiry
+window for unfinished layer uploads, so this follows services/ecr's own
+`layerUploadTTL` precedent: sessions older than 24h are now pruned lazily on
+the next `InitiateLayerUpload` call (`pruneExpiredLayerUploadsLocked`, in
+layers.go). Covered by `layer_upload_ttl_test.go`
+(`testing/synctest`-driven: kept within the window, evicted just past it).
