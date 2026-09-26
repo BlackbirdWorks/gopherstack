@@ -19,6 +19,9 @@ import (
 // omitted a field silently blanked it instead of leaving the stored value
 // alone. Each case creates a resource, sets a field, then sends a second
 // update that omits it and asserts the earlier value survived.
+//
+// UpdateAssociation is deliberately not a case here: AWS nulls its omitted
+// fields instead. See TestUpdateAssociation_ReplacesOmittedFields_RealClient.
 func TestUpdate_OmittedMembersPreserveState(t *testing.T) {
 	t.Parallel()
 
@@ -26,7 +29,6 @@ func TestUpdate_OmittedMembersPreserveState(t *testing.T) {
 		run  func(t *testing.T)
 		name string
 	}{
-		{name: "association_max_concurrency", run: testAssociationMaxConcurrencyPreserved},
 		{name: "cloud_connector_display_name", run: testCloudConnectorDisplayNamePreserved},
 		{name: "document_display_name", run: testDocumentDisplayNamePreserved},
 		{name: "maintenance_window_description_and_zero_cutoff", run: testMaintenanceWindowFieldsPreserved},
@@ -42,38 +44,6 @@ func TestUpdate_OmittedMembersPreserveState(t *testing.T) {
 			tc.run(t)
 		})
 	}
-}
-
-func testAssociationMaxConcurrencyPreserved(t *testing.T) {
-	t.Helper()
-
-	backend := ssm.NewInMemoryBackend()
-	client := newTestSSMClient(t, ssm.NewHandler(backend))
-	ctx := t.Context()
-
-	created, err := client.CreateAssociation(ctx, &ssmsdk.CreateAssociationInput{
-		Name:       aws.String("AWS-RunShellScript"),
-		InstanceId: aws.String("i-omit-1"),
-	})
-	require.NoError(t, err)
-
-	assocID := created.AssociationDescription.AssociationId
-
-	withVal, err := client.UpdateAssociation(ctx, &ssmsdk.UpdateAssociationInput{
-		AssociationId:  assocID,
-		MaxConcurrency: aws.String("50%"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "50%", aws.ToString(withVal.AssociationDescription.MaxConcurrency))
-
-	withoutVal, err := client.UpdateAssociation(ctx, &ssmsdk.UpdateAssociationInput{
-		AssociationId:      assocID,
-		ScheduleExpression: aws.String("rate(1 day)"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "50%", aws.ToString(withoutVal.AssociationDescription.MaxConcurrency),
-		"MaxConcurrency must survive an update that omits it")
-	assert.Equal(t, "rate(1 day)", aws.ToString(withoutVal.AssociationDescription.ScheduleExpression))
 }
 
 func testCloudConnectorDisplayNamePreserved(t *testing.T) {

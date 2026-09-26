@@ -460,10 +460,6 @@ items_still_open:
     family uses, over-projecting fields real AWS's narrower types.Association response
     never carries -- not a wire break (a real client discards unknown keys), disclosed
     rather than hand-syncing a second narrower type against the same store."
-  - "UpdateAssociation merges omitted fields instead of nulling them per its own doc
-    comment's replace semantics -- fixing this needs UpdateAssociationInput's scalar fields
-    switched to pointers to distinguish omitted from explicitly-cleared, which would ripple
-    through every existing merge-semantics test in associations_test.go."
   - "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/Tags/TargetLocations/
     TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one
     synchronous single-account/region execution, nothing for multi-target fan-out to plug
@@ -474,7 +470,11 @@ items_still_open:
     remain unmodeled -- TaskInvocationParameters is a real 4-variant union
     (RunCommand/Automation/StepFunctions/Lambda) this backend's shallow task model has
     nothing to plug into. UpdateMaintenanceWindowTaskInput.Replace is also unmodeled --
-    this backend always merges, same class as UpdateAssociation's replace-semantics gap."
+    this backend always merges (same class UpdatePatchBaseline's Replace was in before
+    the 2026-09-26 fix; fixing this one is a smaller lift since UpdateMaintenanceWindowTask
+    has no CreateMaintenanceWindowTask op to source a required-field set from -- would need
+    RegisterTaskWithMaintenanceWindow's own required fields instead, unverified against the
+    SDK this pass)."
   - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual
     command/automation parameters used for one invocation) is unmodeled -- this backend has
     no per-invocation parameter snapshot, only task-level defaults."
@@ -483,9 +483,7 @@ items_still_open:
     the real per-Property map-key convention for the untyped []map[string]string output
     can't be verified from the pinned SDK source, so fixing it risks fabricating a
     differently-wrong shape."
-  - "UpdatePatchBaselineInput.Replace is unmodeled, same class as UpdateAssociation's
-    replace-semantics gap (needs pointer fields, would ripple through merge-semantics
-    tests); CreatePatchBaselineInput.ClientToken (idempotency) is low-value and unmodeled."
+  - "CreatePatchBaselineInput.ClientToken (idempotency) is low-value and unmodeled."
   - "GetDeployablePatchSnapshotForInstanceInput.BaselineOverride is unmodeled -- this
     backend's snapshot response is already synthetic, so honoring a second, non-registered
     baseline needs real effective-patch computation this backend doesn't have."
@@ -507,20 +505,6 @@ items_still_open:
     execution preview never resolves document content by version, and neither preview
     output type echoes the version back on the real wire either, so there is no observable
     point to prove this against."
-  - "Commands/command invocations (SendCommand) are evicted via the janitor's
-    existing sweepExpiredCommands, but its window (commandExpirySecs, default 1h)
-    ties to the real, wire-visible ExpiresAfter/Timeout field (aws-sdk-go-v2/
-    service/ssm@v1.77.0 types/types.go:1221-1226: 'ExpiresAfter is calculated
-    based on the total timeout for the overall command'), not to AWS's separately-
-    documented 30-day command-history retention (docs.aws.amazon.com/systems-
-    manager/latest/userguide/running-commands.html, 'Execution history
-    retention': 'The history of each command is available for up to 30 days').
-    Raising commandExpirySecs to 30 days would fix retention but would also
-    silently wrong the ExpiresAfter wire value (no test currently locks in its
-    Timeout-derived semantics, but it is a real, client-visible field); the two
-    concepts need decoupling (a separate terminal-status-gated history sweep,
-    independent of ExpiresAfter) rather than reusing one field for both. Found
-    2026-09-24, bd 1x2u0-adjacent sweep; not fixed this pass."
   - "ListOpsItemEvents' OpsItemEventSummary.DetailType and ListOpsItemRelatedItems'
     OpsItemRelatedItem.CreatedBy/LastModifiedBy/LastModifiedTime (found 2026-09-18,
     list-summary-shapes sweep) remain unmodeled -- DetailType has no real backing concept
@@ -544,6 +528,44 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-09-26: items_still_open burn-down (merge-vs-replace + command history retention)
+
+Three items closed. (1) UpdateAssociation merged omitted optional fields instead of
+nulling them; api_op_UpdateAssociation.go states the opposite verbatim ("the system
+removes all optional parameters from the request and overwrites the association with
+null values for those parameters. This is by design."). No signature change was needed
+-- UpdateAssociationInput's fields were already pointers/nilable except
+ComplianceSeverity/SyncCompliance/ApplyOnlyAtCronInterval, which the real SDK also
+models as non-pointer (AWS itself can't distinguish "omitted" from "explicit zero
+value" for those three either), so an unconditional assign in
+applyAssociationCoreUpdates/applyAssociationExtendedUpdates (associations.go) matches
+AWS's own limitation exactly. TestUpdateAssociation_ReplacesOmittedFields_RealClient
+(replace_semantics_test.go) proves the null-out via a real client;
+testAssociationMaxConcurrencyPreserved (update_omitted_members_preserve_state_test.go)
+had ratified the old merge behavior and was removed, since UpdateAssociation is the one
+op in that file's suite that does NOT preserve omitted fields. (2) UpdatePatchBaseline's
+Replace field was entirely unmodeled -- added (models_patch_baselines.go), with
+replacePatchBaselineUpdate (patch_baselines.go) implementing "If True, then all fields
+that are required by the CreatePatchBaseline operation are also required for this API
+request. Optional fields that aren't specified are set to null" (BaselineId is already
+required; CreatePatchBaseline's only other required field is Name, so Replace=true now
+requires Name too). Default (Replace unset/false) behavior is unchanged (merge, matching
+"Fields not specified in the request are left unchanged"). Proven by
+TestUpdatePatchBaseline_Replace_RealClient. (3) Command-history retention: commands were
+only ever evicted via ExpiresAfter (commandExpirySecs, default 1h, tied to the real
+Timeout-derived wire field), never via AWS's separately-documented 30-day command-history
+retention (running-commands.html). Added a `terminalAt` field on Command (set by
+completeCommand/CancelCommand, not a wire member, same non-persisted-across-restore
+convention as the existing `completeAfter`) and a new, independent janitor sweep
+(sweepExpiredCommandHistory, janitor.go) gated on it via a new
+commandHistoryRetentionSecs backend field (default 30 days, overridable via
+WithCommandHistoryRetention like the existing WithCommandTTL). Proven by
+TestJanitor_SweepsExpiredCommandHistory_RealClient. Not fixed, left with a reason: the
+UpdateMaintenanceWindowTaskInput.Replace item (same class, but UpdateMaintenanceWindowTask
+has no sibling CreateMaintenanceWindowTask op to source a required-field set from) and the
+generic Filters/Aggregators/caller-identity/scheduler/CloudWatch-alarm items, which need
+unmodeled subsystems.
 
 ### 2026-09-19 (terraform-coverage sweep, ssm-and-backup)
 

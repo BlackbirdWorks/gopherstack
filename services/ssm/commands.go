@@ -315,6 +315,7 @@ func (b *InMemoryBackend) completeCommand(region, cmdID string) {
 	cmd.Status = overall
 	cmd.StatusDetails = overall
 	cmd.completeAfter = 0
+	cmd.terminalAt = completionTime
 	cmdTable.Put(&cmd)
 }
 
@@ -582,6 +583,7 @@ func (b *InMemoryBackend) CancelCommand(
 	if allCancelled {
 		cmd := *cmdPtr
 		cmd.Status = commandStatusCancelled
+		cmd.terminalAt = UnixTimeFloat(time.Now())
 		cmdTable.Put(&cmd)
 	}
 

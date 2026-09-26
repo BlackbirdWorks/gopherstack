@@ -114,6 +114,7 @@ type UpdatePatchBaselineInput struct {
 	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
 	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
 	ApprovedPatchesEnableNonSecurity         *bool             `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
+	Replace                                  *bool             `json:"Replace,omitempty"`
 	BaselineID                               string            `json:"BaselineId"`
 	Name                                     *string           `json:"Name,omitempty"`
 	Description                              *string           `json:"Description,omitempty"`
