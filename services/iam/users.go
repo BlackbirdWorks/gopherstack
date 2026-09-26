@@ -152,11 +152,25 @@ func (b *InMemoryBackend) ListUsers(marker string, maxItems int) (page.Page[User
 
 	return pageFromSortedNames(
 		b.sortedUserNames,
-		b.users.Get,
+		b.cloneUserLocked,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
 	), nil
+}
+
+// cloneUserLocked looks up a user by name and returns a copy with its own
+// Tags map, so ListUsers cannot alias TagUser/UntagUser's in-place writes.
+func (b *InMemoryBackend) cloneUserLocked(userName string) (*User, bool) {
+	u, exists := b.users.Get(userName)
+	if !exists {
+		return nil, false
+	}
+
+	cp := *u
+	cp.Tags = maps.Clone(u.Tags)
+
+	return &cp, true
 }
 
 // GetUser retrieves a single IAM user by name.
@@ -169,7 +183,10 @@ func (b *InMemoryBackend) GetUser(userName string) (*User, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	return u, nil
+	cp := *u
+	cp.Tags = maps.Clone(u.Tags)
+
+	return &cp, nil
 }
 
 // ListAllUsers returns all users (for dashboard).

@@ -19,6 +19,7 @@ const (
 	asyncInvokeSlotLifetimeBase   = 18203 // 18203–18204 reserved
 	asyncInvokeRetryBase          = 18205 // 18205–18208 reserved
 	asyncInvokeTimeoutDestBase    = 18209 // 18209 reserved
+	asyncInvokeDurableDestBase    = 18210 // 18210 reserved
 )
 
 // newAsyncTestBackend returns a backend with no Docker/port-alloc so that
@@ -490,4 +491,49 @@ func TestEnqueueAsync_TimeoutDeliversToFailureDestination(t *testing.T) {
 		"a timed-out async invocation must be delivered to its on-failure destination")
 
 	assert.Contains(t, fake.targets(), failureARN)
+}
+
+// TestEnqueueAsync_DurableFunctionSkipsDestinations verifies a durable
+// function's DLQ still fires but its OnFailure destination does not.
+// docs.aws.amazon.com/lambda/latest/dg/durable-invoking.html.
+func TestEnqueueAsync_DurableFunctionSkipsDestinations(t *testing.T) {
+	t.Parallel()
+
+	const (
+		dlqARN         = "arn:aws:sqs:us-east-1:000000000000:durable-dlq"
+		destFailureARN = "arn:aws:sqs:us-east-1:000000000000:durable-on-failure"
+	)
+
+	srv := startAsyncTestServer(t, asyncInvokeDurableDestBase)
+	bk := newAsyncTestBackend(t)
+
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
+		FunctionName:     "fn-durable-timeout-dest",
+		DurableConfig:    &lambda.DurableConfig{},
+		DeadLetterConfig: &lambda.DeadLetterConfig{TargetArn: dlqARN},
+	}))
+
+	_, err := bk.PutFunctionEventInvokeConfig("fn-durable-timeout-dest", &lambda.PutFunctionEventInvokeConfigInput{
+		MaximumRetryAttempts: new(0),
+		DestinationConfig: &lambda.DestinationConfig{
+			OnFailure: &lambda.Destination{Destination: destFailureARN},
+		},
+	})
+	require.NoError(t, err)
+
+	fake := &fakeAsyncDelivery{}
+	bk.SetAsyncDestinationDelivery(fake)
+
+	// Never simulate any /next or /response call: the container is hung and the
+	// invocation must time out rather than ever completing.
+	lambda.EnqueueAsync(t.Context(), bk, srv, "fn-durable-timeout-dest", []byte(`{}`), 200*time.Millisecond, false)
+
+	require.Eventually(t, func() bool {
+		return len(fake.targets()) > 0
+	}, 3*time.Second, 10*time.Millisecond,
+		"a timed-out durable async invocation must still be delivered to its DLQ")
+
+	assert.Contains(t, fake.targets(), dlqARN)
+	assert.NotContains(t, fake.targets(), destFailureARN,
+		"durable functions don't support Lambda destinations")
 }

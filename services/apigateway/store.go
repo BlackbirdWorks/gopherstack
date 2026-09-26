@@ -74,6 +74,10 @@ type StorageBackend interface {
 		restAPIID, deploymentID string,
 		input UpdateDeploymentInput,
 	) (*Deployment, error)
+	// DeploymentConfig returns the invoke-time configuration snapshot a
+	// deployment captured (see DeploymentConfig's doc). The data-plane proxy
+	// uses this instead of the live resource/method/integration state.
+	DeploymentConfig(restAPIID, deploymentID string) (*DeploymentConfig, error)
 
 	// Stages
 	GetStages(restAPIID string) ([]Stage, error)

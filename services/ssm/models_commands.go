@@ -33,6 +33,9 @@ type Command struct {
 	// command lazily transitions to its terminal status. Zero means the command
 	// completes on the next read (or was created without an exec delay).
 	completeAfter float64
+	// terminalAt is when this command went terminal; drives the janitor's
+	// command-history sweep, independent of ExpiresAfter. Not a wire field.
+	terminalAt float64
 }
 
 // CommandInvocation represents the invocation of a command on an instance.

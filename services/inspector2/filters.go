@@ -271,6 +271,7 @@ func (b *InMemoryBackend) ListFilters(
 		}
 
 		clone := *f
+		clone.Tags = maps.Clone(f.Tags)
 		matched = append(matched, &clone)
 	}
 

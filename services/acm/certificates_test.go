@@ -2,8 +2,10 @@ package acm_test
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +13,80 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
+
+// uuidCertArnPattern matches an ACM certificate ARN whose id is a UUID v4,
+// e.g. arn:aws:acm:us-east-1:000000000000:certificate/12345678-1234-1234-1234-123456789012.
+var uuidCertArnPattern = regexp.MustCompile(
+	`^arn:aws:acm:[\w-]+:\d+:certificate/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+)
+
+// TestACMBackend_CertificateIDs_Unique locks in the fix for gopherstack-k1b28:
+// certificate IDs were derived from time.Now().UnixNano(), so two requests in
+// the same nanosecond (guaranteed under synctest's fake clock) collided and
+// the second silently overwrote the first.
+func TestACMBackend_CertificateIDs_Unique(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		create func(t *testing.T, b *acm.InMemoryBackend) string
+		name   string
+	}{
+		{
+			name: "request_certificate",
+			create: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+
+				cert, err := b.RequestCertificate(
+					context.Background(), "unique.example.com", "", "", "", "", "", "", nil,
+				)
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+		},
+		{
+			name: "import_certificate",
+			create: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+
+				certPEM, keyPEM := generateTestCert(t)
+				cert, err := b.ImportCertificate(context.Background(), certPEM, keyPEM, "", "")
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+
+				// No sleep: both calls land in the same synctest instant, the
+				// exact scenario that used to collide.
+				arn1 := tt.create(t, b)
+				arn2 := tt.create(t, b)
+
+				assert.NotEqual(t, arn1, arn2, "two certificates created back-to-back must get distinct ARNs")
+				assert.Regexp(t, uuidCertArnPattern, arn1)
+				assert.Regexp(t, uuidCertArnPattern, arn2)
+
+				p, err := b.ListCertificates(context.Background(), acm.ListCertificatesParams{})
+				require.NoError(t, err)
+
+				gotARNs := make([]string, 0, len(p.Data))
+				for _, c := range p.Data {
+					gotARNs = append(gotARNs, c.ARN)
+				}
+
+				assert.ElementsMatch(t, []string{arn1, arn2}, gotARNs, "both certificates must be listed")
+			})
+		})
+	}
+}
 
 func TestACMBackend_RequestCertificate(t *testing.T) {
 	t.Parallel()
@@ -65,41 +141,44 @@ func TestACMBackend_RequestCertificate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-			cert, err := b.RequestCertificate(
-				context.Background(),
-				tt.domain,
-				"",
-				tt.validationMethod,
-				"",
-				"",
-				"",
-				"",
-				nil,
-			)
+			synctest.Test(t, func(t *testing.T) {
+				b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					tt.domain,
+					"",
+					tt.validationMethod,
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 
-			if tt.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
+				if tt.wantErr != nil {
+					require.Error(t, err)
+					assert.ErrorIs(t, err, tt.wantErr)
 
-				return
-			}
+					return
+				}
 
-			require.NoError(t, err)
-			assert.Contains(t, cert.ARN, "arn:aws:acm:")
-			assert.Equal(t, tt.wantDomain, cert.DomainName)
-			assert.Equal(t, tt.wantStatus, cert.Status)
-			assert.Equal(t, tt.wantType, cert.Type)
-			assert.NotEmpty(t, cert.CertificateBody, "CertificateBody should be set")
+				require.NoError(t, err)
+				assert.Contains(t, cert.ARN, "arn:aws:acm:")
+				assert.Equal(t, tt.wantDomain, cert.DomainName)
+				assert.Equal(t, tt.wantStatus, cert.Status)
+				assert.Equal(t, tt.wantType, cert.Type)
+				assert.NotEmpty(t, cert.CertificateBody, "CertificateBody should be set")
 
-			if tt.wantPendingFirst {
-				// Wait for auto-validation
-				require.Eventually(t, func() bool {
+				if tt.wantPendingFirst {
+					// autoValidateDelayMS is 100ms; cross it so auto-validation fires.
+					time.Sleep(150 * time.Millisecond)
+					synctest.Wait()
+
 					c, descErr := b.DescribeCertificate(context.Background(), cert.ARN)
-
-					return descErr == nil && c.Status == "ISSUED"
-				}, 2*time.Second, 50*time.Millisecond, "certificate should transition to ISSUED")
-			}
+					require.NoError(t, descErr)
+					assert.Equal(t, "ISSUED", c.Status, "certificate should transition to ISSUED")
+				}
+			})
 		})
 	}
 }

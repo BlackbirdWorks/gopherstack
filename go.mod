@@ -13,7 +13,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/aws/aws-dax-go v1.2.15
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/aws/aws-sdk-go-v2 v1.46.0
+	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
@@ -68,10 +68,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/directoryservice v1.41.4
 	github.com/aws/aws-sdk-go-v2/service/dlm v1.39.4
 	github.com/aws/aws-sdk-go-v2/service/docdb v1.51.4
+	github.com/aws/aws-sdk-go-v2/service/dsql v1.22.1
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.67.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.40.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.329.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.64.0
+	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.47.1
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.96.0
 	github.com/aws/aws-sdk-go-v2/service/efs v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/eks v1.98.0
@@ -99,9 +101,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.59.4
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.57.2
+	github.com/aws/aws-sdk-go-v2/service/kafkaconnect v1.39.1
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.53.0
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.33.4
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.41.4
+	github.com/aws/aws-sdk-go-v2/service/kinesisvideo v1.41.1
 	github.com/aws/aws-sdk-go-v2/service/kms v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.107.0
@@ -219,8 +223,8 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.2 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect

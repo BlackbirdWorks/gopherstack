@@ -77,8 +77,11 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
+	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
@@ -164,8 +167,12 @@ type ServiceBackends struct {
 	GuardDuty      *guarddutybackend.Handler
 	AccessAnalyzer *accessanalyzerbackend.Handler
 	Amplify        *amplifybackend.Handler
-	AccountID      string
-	Region         string
+	// Phase-7 backends
+	KinesisVideo *kinesisvideobackend.Handler
+	ECRPublic    *ecrpublicbackend.Handler
+	KafkaConnect *kafkaconnectbackend.Handler
+	AccountID    string
+	Region       string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
@@ -967,7 +974,10 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 		physID, err := rc.createRedshiftCluster(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::OpenSearch::Domain":
+	case "AWS::OpenSearch::Domain", resTypeOpenSearchServiceDomain:
+		// AWS::OpenSearchService::Domain is the real CFN type name; the old
+		// AWS::OpenSearch::Domain name is kept as an alias since existing
+		// tests/templates in this repo use it.
 		physID, err := rc.createOpenSearchDomain(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -1004,7 +1014,10 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 		physID, err := rc.createSESEmailIdentity(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::ACM::Certificate":
+	case "AWS::ACM::Certificate", resTypeCertificateManagerCertificate:
+		// AWS::CertificateManager::Certificate is the real CFN type name;
+		// the old AWS::ACM::Certificate name is kept as an alias since
+		// existing tests/templates in this repo use it.
 		physID, err := rc.createACMCertificate(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -1389,6 +1402,8 @@ func (b *InMemoryBackend) deleteResolveContext(stack *Stack) map[string]string {
 	return out
 }
 
+// Delete deletes a single resource by type and physical ID. An already-gone target counts
+// as deleted, as CloudFormation's handler contract treats NotFound on delete.
 func (rc *ResourceCreator) Delete(
 	ctx context.Context,
 	resourceType, physicalID string,
@@ -1399,6 +1414,32 @@ func (rc *ResourceCreator) Delete(
 		return nil
 	}
 
+	err := rc.deleteResource(ctx, resourceType, physicalID, props, stackPhysicalIDs)
+	if isResourceGoneError(err) {
+		return nil
+	}
+
+	return err
+}
+
+// isResourceGoneError reports whether delErr is a NotFound-class error; every such error
+// in this codebase names itself "not found" or "NotFound".
+func isResourceGoneError(delErr error) bool {
+	if delErr == nil {
+		return false
+	}
+
+	msg := strings.ToLower(delErr.Error())
+
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "notfound")
+}
+
+func (rc *ResourceCreator) deleteResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+	props map[string]any,
+	stackPhysicalIDs map[string]string,
+) error {
 	if rc.deleteHook != nil {
 		rc.deleteHook(resourceType)
 	}
@@ -1892,7 +1933,7 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 	case "AWS::Redshift::Cluster":
 
 		return true, rc.deleteRedshiftCluster(physicalID)
-	case "AWS::OpenSearch::Domain":
+	case "AWS::OpenSearch::Domain", resTypeOpenSearchServiceDomain:
 
 		return true, rc.deleteOpenSearchDomain(physicalID)
 	}
@@ -1946,7 +1987,7 @@ func (rc *ResourceCreator) deleteAppNetworkResource(ctx context.Context, physica
 	case "AWS::SES::EmailIdentity":
 
 		return rc.deleteSESEmailIdentity(physicalID)
-	case "AWS::ACM::Certificate":
+	case "AWS::ACM::Certificate", resTypeCertificateManagerCertificate:
 
 		return rc.deleteACMCertificate(ctx, physicalID)
 	case "AWS::Cognito::UserPool":

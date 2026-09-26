@@ -50,8 +50,16 @@ func (b *InMemoryBackend) putRecordLocked(
 		return nil, "", ErrProvisionedThroughputExceeded
 	}
 
-	// Reject writes if the stream is not active (e.g. CREATING/DELETING).
-	if stream.Status != streamStatusActive {
+	// Real AWS rejects PutRecord while CREATING (stream not ready yet) but
+	// documents UPDATING as accepting reads/writes ("Updating or applying
+	// encryption normally takes a few seconds ... You can continue to read
+	// and write data to your stream while its status is UPDATING" --
+	// api_op_StartStreamEncryption.go); DELETING is treated conservatively
+	// as rejecting too. Uses the lazily-resolved effective status (not the
+	// possibly-stale stored field) since PutRecord does not itself hold
+	// b.mu for writing -- see effectiveStreamStatus.
+	switch effectiveStreamStatus(stream, b.nowFunc()) {
+	case streamStatusCreating, streamStatusDeleting:
 		return nil, "", ErrInvalidArgument
 	}
 
@@ -230,6 +238,10 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 	stream.mu.RLock("GetRecords.stream")
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
+
+	if streamEffectivelyGone(stream, b.nowFunc()) {
+		return nil, ErrStreamNotFound
+	}
 
 	if b.isThroughputFaultActive(region, it.StreamName) {
 		return nil, ErrProvisionedThroughputExceeded

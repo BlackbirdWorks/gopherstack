@@ -154,8 +154,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 
 	tasks := make([]Task, 0, len(work))
 	for _, w := range work {
-		cp := *w.task
-		tasks = append(tasks, cp)
+		tasks = append(tasks, b.taskWithLiveTagsLocked(w.task))
 	}
 
 	return tasks, failures, nil
@@ -494,13 +493,13 @@ func (b *InMemoryBackend) DescribeTasks(
 	return out, failures, nil
 }
 
-// taskWithLiveTagsLocked returns a copy of t with Tags sourced from the
-// resourceTags side map instead of t's own creation-time snapshot, so tags
-// applied via TagResource/UntagResource after the task was started are
-// reflected. Must be called with at least a read lock held.
+// taskWithLiveTagsLocked copies t with live tags and deep-copied
+// Containers/Attachments (mutated in place elsewhere). Needs at least RLock.
 func (b *InMemoryBackend) taskWithLiveTagsLocked(t *Task) Task {
 	cp := *t
 	cp.Tags = copyTags(b.resourceTags[resourceTagKey(t.TaskArn)])
+	cp.Containers = append([]Container(nil), t.Containers...)
+	cp.Attachments = append([]TaskAttachment(nil), t.Attachments...)
 
 	return cp
 }

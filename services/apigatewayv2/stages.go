@@ -43,6 +43,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 	b.stages.Put(stage)
 
 	cp := *stage
+	cp.Tags = copyTags(stage.Tags)
 
 	return &cp, nil
 }
@@ -62,6 +63,7 @@ func (b *InMemoryBackend) GetStage(apiID, stageName string) (*Stage, error) {
 	}
 
 	cp := *s
+	cp.Tags = copyTags(s.Tags)
 
 	return &cp, nil
 }
@@ -79,7 +81,9 @@ func (b *InMemoryBackend) GetStages(apiID string) ([]Stage, error) {
 	result := make([]Stage, 0, len(stages))
 
 	for _, s := range stages {
-		result = append(result, *s)
+		cp := *s
+		cp.Tags = copyTags(s.Tags)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -165,6 +169,7 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 	s.LastUpdatedDate = isoTime{time.Now()}
 
 	cp := *s
+	cp.Tags = copyTags(s.Tags)
 
 	return &cp, nil
 }

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -116,6 +117,8 @@ type Handler struct {
 	// ClientToken so a lost-response retry replays the original result instead of
 	// failing with ConflictException on the now-existing name. See idempotency.go.
 	idempotency *safemap.Map[string, idempotentResult]
+	// idempotencyInsertsSinceSweep paces maybeEvictExpiredIdempotency.
+	idempotencyInsertsSinceSweep atomic.Int64
 }
 
 // Runner returns the internal runner for cross-service wiring.

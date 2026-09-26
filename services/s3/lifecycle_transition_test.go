@@ -2,7 +2,6 @@ package s3_test
 
 import (
 	"bytes"
-	"context"
 	"testing"
 	"time"
 
@@ -56,14 +55,12 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			wantClass: "GLACIER",
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				require.Eventually(t, func() bool {
-					out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
-						Bucket: aws.String("tr-days"),
-						Key:    aws.String("old-obj.txt"),
-					})
-
-					return err == nil && string(out.StorageClass) == "GLACIER"
-				}, 500*time.Millisecond, 10*time.Millisecond, "object must be transitioned to GLACIER")
+				out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
+					Bucket: aws.String("tr-days"),
+					Key:    aws.String("old-obj.txt"),
+				})
+				require.NoError(t, err)
+				require.Equal(t, "GLACIER", string(out.StorageClass))
 			},
 		},
 		{
@@ -86,13 +83,6 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			wantClass: "STANDARD_IA",
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				// Wait for transition to fire.
-				require.Eventually(t, func() bool {
-					history := s3.StorageClassTransitionsForObject(b, "tr-hist", "doc.txt")
-
-					return len(history) >= 1
-				}, 500*time.Millisecond, 10*time.Millisecond, "transition history must be recorded")
-
 				history := s3.StorageClassTransitionsForObject(b, "tr-hist", "doc.txt")
 				require.Len(t, history, 1)
 				assert.Equal(t, "STANDARD", history[0].FromClass)
@@ -120,14 +110,12 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 			wantClass: "DEEP_ARCHIVE",
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				require.Eventually(t, func() bool {
-					out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
-						Bucket: aws.String("tr-date"),
-						Key:    aws.String("archive.bin"),
-					})
-
-					return err == nil && string(out.StorageClass) == "DEEP_ARCHIVE"
-				}, 500*time.Millisecond, 10*time.Millisecond, "object must be transitioned to DEEP_ARCHIVE")
+				out, err := b.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
+					Bucket: aws.String("tr-date"),
+					Key:    aws.String("archive.bin"),
+				})
+				require.NoError(t, err)
+				require.Equal(t, "DEEP_ARCHIVE", string(out.StorageClass))
 			},
 		},
 		{
@@ -334,33 +322,22 @@ func TestS3Lifecycle_NoncurrentVersionTransitions(t *testing.T) {
 			err = b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML, "")
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
+			j := newFastJanitor(b)
+			j.SweepOnce(t.Context())
+			j.SweepOnce(t.Context())
 
-			go newFastJanitor(b).Run(ctx)
-
-			// Wait for noncurrent version to be transitioned.
-			require.Eventually(t, func() bool {
-				out, listErr := b.ListObjectVersions(t.Context(), &sdk_s3.ListObjectVersionsInput{
-					Bucket: aws.String(tt.bucket),
-				})
-				if listErr != nil {
-					return false
-				}
-				for _, ver := range out.Versions {
-					if !aws.ToBool(ver.IsLatest) && string(ver.StorageClass) == "GLACIER" {
-						return true
-					}
-				}
-
-				return false
-			}, 500*time.Millisecond, 10*time.Millisecond, "noncurrent version must be transitioned to GLACIER")
-
-			// Latest version must still be STANDARD.
 			out, err := b.ListObjectVersions(t.Context(), &sdk_s3.ListObjectVersionsInput{
 				Bucket: aws.String(tt.bucket),
 			})
 			require.NoError(t, err)
+
+			transitioned := false
+			for _, ver := range out.Versions {
+				if !aws.ToBool(ver.IsLatest) && string(ver.StorageClass) == "GLACIER" {
+					transitioned = true
+				}
+			}
+			require.True(t, transitioned, "noncurrent version must be transitioned to GLACIER")
 
 			for _, ver := range out.Versions {
 				if aws.ToBool(ver.IsLatest) {

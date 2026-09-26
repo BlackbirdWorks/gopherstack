@@ -67,7 +67,7 @@ func (b *InMemoryBackend) DeleteMember(accountID string) error {
 // still associated with this administrator, paginated by limit/token.
 func (b *InMemoryBackend) ListMembers(onlyAssociated bool, limit int, token string) ([]*Member, string, error) {
 	return listPaginated(
-		b, "ListMembers", b.members.All(),
+		b, "ListMembers", b.members.All,
 		func(m *Member) (*Member, bool) {
 			if onlyAssociated && m.RelationshipStatus == "Removed" {
 				return nil, false

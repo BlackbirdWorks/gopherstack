@@ -48,7 +48,7 @@ func (j *Janitor) Run(ctx context.Context) {
 // It delegates to InMemoryBackend.pruneState so the handler and internal janitor share one code path.
 func (j *Janitor) sweepExpiredMessages(ctx context.Context) {
 	before := j.Backend.totalMessages()
-	j.Backend.pruneState(time.Now())
+	j.Backend.pruneState(j.Backend.now())
 	after := j.Backend.totalMessages()
 
 	if purged := before - after; purged > 0 {
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) runJanitor() {
 		case <-b.janitorStop:
 			return
 		case <-ticker.C:
-			b.pruneState(time.Now())
+			b.pruneState(b.now())
 		}
 	}
 }

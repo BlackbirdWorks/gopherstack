@@ -160,11 +160,25 @@ func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[P
 
 	return pageFromSortedNames(
 		b.sortedPolicyNames,
-		b.policies.Get,
+		b.clonePolicyLocked,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
 	), nil
+}
+
+// clonePolicyLocked looks up a policy by name and returns a copy with its own
+// Tags map, so ListPolicies cannot alias TagPolicy/UntagPolicy's in-place writes.
+func (b *InMemoryBackend) clonePolicyLocked(policyName string) (*Policy, bool) {
+	p, exists := b.policies.Get(policyName)
+	if !exists {
+		return nil, false
+	}
+
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	return &cp, true
 }
 
 // AttachUserPolicy attaches a policy to a user.
@@ -276,6 +290,8 @@ func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
+
+	pol.Tags = maps.Clone(pol.Tags)
 
 	return &pol, nil
 }

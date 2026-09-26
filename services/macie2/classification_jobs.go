@@ -150,7 +150,7 @@ func (b *InMemoryBackend) ListClassificationJobs(
 	filterCriteria map[string]any, sortBy *ListJobsSortCriteria, maxResults int, nextToken string,
 ) ([]*ClassificationJobSummary, string, error) {
 	return listPaginated(
-		b, "ListClassificationJobs", b.classificationJobs.All(),
+		b, "ListClassificationJobs", b.classificationJobs.All,
 		func(job *ClassificationJob) (*ClassificationJobSummary, bool) {
 			if !matchesJobCriteria(job, filterCriteria) {
 				return nil, false

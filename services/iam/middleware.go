@@ -167,6 +167,7 @@ func buildPrincipalConditionContext(
 		Username:         principal.SessionName,
 		UserID:           principal.UserID,
 		SourceIP:         extractClientIP(r),
+		SecureTransport:  secureTransportValue(r),
 	}
 }
 
@@ -467,7 +468,25 @@ func buildConditionContext(r *http.Request, user *User) ConditionContext {
 		Username:         user.UserName,
 		UserID:           user.UserID,
 		PrincipalTags:    user.Tags,
+		SecureTransport:  secureTransportValue(r),
 	}
+}
+
+// secureTransportValue reports whether the request arrived over TLS, as the
+// aws:SecureTransport condition key expects ("true"/"false"). Checks r.TLS
+// directly (gopherstack terminating TLS itself) and X-Forwarded-Proto (behind
+// a reverse proxy), the same two signals services/sqs's CreateQueue already
+// uses to pick a scheme for QueueURL.
+func secureTransportValue(r *http.Request) string {
+	if r.TLS != nil {
+		return credTrue
+	}
+
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return credTrue
+	}
+
+	return "false"
 }
 
 // extractClientIP returns the IP address of the client without the port.

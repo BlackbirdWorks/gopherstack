@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/condeval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -33,17 +35,25 @@ const (
 	condKeyExternalID   = "sts:externalid"
 	condKeyPrincipalArn = "aws:principalarn"
 	condKeyMFAPresent   = "aws:multifactorauthpresent"
+	condKeyCurrentTime  = "aws:currenttime"
+	condKeyEpochTime    = "aws:epochtime"
 
 	// Normalized (lowercased, IfExists-stripped, see normalizeConditionOp) forms
 	// of the AWS condition operators this evaluator models beyond the String
 	// family. ArnEquals and ArnLike are documented by AWS as behaving
 	// identically (both wildcard-capable), so both map to the same case.
-	condOperatorBool         = "bool"
-	condOperatorNull         = "null"
-	condOperatorArnEquals    = "arnequals"
-	condOperatorArnLike      = "arnlike"
-	condOperatorArnNotEquals = "arnnotequals"
-	condOperatorArnNotLike   = "arnnotlike"
+	condOperatorBool              = "bool"
+	condOperatorNull              = "null"
+	condOperatorArnEquals         = "arnequals"
+	condOperatorArnLike           = "arnlike"
+	condOperatorArnNotEquals      = "arnnotequals"
+	condOperatorArnNotLike        = "arnnotlike"
+	condOperatorDateEquals        = "dateequals"
+	condOperatorDateNotEquals     = "datenotequals"
+	condOperatorDateLessThan      = "datelessthan"
+	condOperatorDateLessThanEq    = "datelessthanequals"
+	condOperatorDateGreaterThan   = "dategreaterthan"
+	condOperatorDateGreaterThanEq = "dategreaterthanequals"
 )
 
 // trustEval carries the caller context evaluated against a role trust policy.
@@ -82,15 +92,28 @@ func (e trustEval) principalLabel() string {
 // unmodelled keys are treated as satisfied so unfamiliar conditions never cause
 // a spurious denial.
 func (e trustEval) conditionValue(key string) (string, bool) {
-	switch strings.ToLower(key) {
+	lower := strings.ToLower(key)
+
+	switch lower {
 	case condKeyExternalID:
 		return e.externalID, true
 	case condKeyPrincipalArn:
 		return e.callerArn, true
 	}
 
-	if v, ok := e.conditionCtx[strings.ToLower(key)]; ok {
+	if v, ok := e.conditionCtx[lower]; ok {
 		return v, true
+	}
+
+	// aws:CurrentTime/aws:EpochTime need no request plumbing (unlike
+	// aws:SourceIp, which this evaluator has nowhere to source honestly --
+	// see services/sts/PARITY.md's gopherstack-yg95 entry): the value is
+	// always "now" unless a test overrides it via conditionCtx above.
+	switch lower {
+	case condKeyCurrentTime:
+		return time.Now().UTC().Format(time.RFC3339), true
+	case condKeyEpochTime:
+		return strconv.FormatInt(time.Now().UTC().Unix(), 10), true
 	}
 
 	return "", false
@@ -462,8 +485,18 @@ func conditionsSatisfied(cond map[string]map[string]json.RawMessage, ev trustEva
 // paths log loudly at WARN so the gap is discoverable at runtime instead of
 // silent -- that is the fix for gopherstack-yg95, not a change of default.
 func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) bool {
-	normOp := normalizeConditionOp(op)
-	isIfExists := isIfExistsConditionOp(op)
+	// AWS docs: IfExists may suffix any operator except Null (which already
+	// tests presence), so "NullIfExists" is left as an unrecognized operator.
+	//nolint:lll // AWS doc URL, cannot be split
+	// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_IfExists
+	lowerOp := strings.ToLower(op)
+	normOp := lowerOp
+	isIfExists := false
+
+	if trimmed, ok := strings.CutSuffix(lowerOp, "ifexists"); ok && trimmed != condOperatorNull {
+		normOp = trimmed
+		isIfExists = true
+	}
 
 	actual, known := ev.conditionValue(key)
 
@@ -488,37 +521,12 @@ func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) b
 		return true
 	}
 
-	want := extractStringValues(raw)
-
-	switch normOp {
-	case "stringequals":
-		return anyEquals(want, actual, false)
-	case "stringequalsignorecase":
-		return anyEquals(want, actual, true)
-	case "stringnotequals":
-		return !anyEquals(want, actual, false)
-	case "stringlike":
-		return anyWildcard(want, actual)
-	case "stringnotlike":
-		return !anyWildcard(want, actual)
-	case condOperatorBool:
-		return anyEquals(want, actual, true)
-	case condOperatorArnEquals, condOperatorArnLike:
-		// AWS documents ArnEquals/ArnLike as behaving identically, both
-		// wildcard-capable. Real AWS matches each of the six colon-delimited
-		// ARN segments separately and disallows wildcards spanning segments;
-		// this emulator uses the same general-purpose glob matcher as
-		// StringLike instead of segment-aware matching, a deliberate
-		// simplification since trust-policy ARN conditions in practice
-		// wildcard within a single segment (e.g. role/prod-*).
-		return anyWildcard(want, actual)
-	case condOperatorArnNotEquals, condOperatorArnNotLike:
-		return !anyWildcard(want, actual)
-	default:
-		// Numeric*/Date*/IpAddress/NotIpAddress/BinaryEquals are not modeled:
-		// this evaluator has no numeric, timestamp, source-IP, or binary
-		// request-context value to compare against for any condition key it
-		// carries (structural, not deferred -- see PARITY.md).
+	fn, ok := conditionOperatorFuncs[normOp]
+	if !ok {
+		// Numeric*/IpAddress/NotIpAddress/BinaryEquals remain unmodeled: this
+		// evaluator has no numeric, source-IP, or binary request-context
+		// value to compare against for any condition key it carries
+		// (structural, not deferred -- see PARITY.md).
 		if ev.strictConditions {
 			return false
 		}
@@ -526,11 +534,71 @@ func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) b
 
 		return true
 	}
+
+	return fn(extractStringValues(raw), actual)
 }
 
-// isIfExistsConditionOp reports whether op ends with the IfExists suffix.
-func isIfExistsConditionOp(op string) bool {
-	return strings.HasSuffix(strings.ToLower(op), "ifexists")
+// dateCompare returns a conditionOperatorFuncs entry for one of the six Date
+// operators, closing over which comparison dateOperatorHolds should run.
+func dateCompare(op string) func(want []string, actual string) bool {
+	return func(want []string, actual string) bool {
+		return dateOperatorHolds(op, want, actual)
+	}
+}
+
+// arnCompare returns a conditionOperatorFuncs entry for one of the four Arn
+// operators, negating condeval.AnyArnMatch's result for the NotEquals/NotLike pair.
+func arnCompare(negate bool) func(want []string, actual string) bool {
+	return func(want []string, actual string) bool {
+		return condeval.AnyArnMatch(want, actual, wildcardMatch) != negate
+	}
+}
+
+// conditionOperatorFuncs maps a normalized (lower-case, IfExists-stripped)
+// condition operator to its want/actual matcher. Null is handled separately
+// by conditionOperatorHolds (it tests key presence, not value); an operator
+// absent from this table is unrecognized and fails open there too. AWS
+// documents ArnEquals/ArnLike (and their NotEquals/NotLike negations) as
+// behaving identically -- each of the six colon-delimited ARN components is
+// wildcard-matched separately, not one glob over the whole string.
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_ARN
+//
+//nolint:gochecknoglobals // read-only dispatch table
+var conditionOperatorFuncs = map[string]func(want []string, actual string) bool{
+	"stringequals":                func(want []string, actual string) bool { return anyEquals(want, actual, false) },
+	"stringequalsignorecase":      func(want []string, actual string) bool { return anyEquals(want, actual, true) },
+	"stringnotequals":             func(want []string, actual string) bool { return !anyEquals(want, actual, false) },
+	"stringlike":                  anyWildcard,
+	"stringnotlike":               func(want []string, actual string) bool { return !anyWildcard(want, actual) },
+	condOperatorBool:              func(want []string, actual string) bool { return anyEquals(want, actual, true) },
+	condOperatorArnEquals:         arnCompare(false),
+	condOperatorArnLike:           arnCompare(false),
+	condOperatorArnNotEquals:      arnCompare(true),
+	condOperatorArnNotLike:        arnCompare(true),
+	condOperatorDateEquals:        dateCompare(condOperatorDateEquals),
+	condOperatorDateNotEquals:     dateCompare(condOperatorDateNotEquals),
+	condOperatorDateLessThan:      dateCompare(condOperatorDateLessThan),
+	condOperatorDateLessThanEq:    dateCompare(condOperatorDateLessThanEq),
+	condOperatorDateGreaterThan:   dateCompare(condOperatorDateGreaterThan),
+	condOperatorDateGreaterThanEq: dateCompare(condOperatorDateGreaterThanEq),
+}
+
+// dateOperatorHolds evaluates a Date condition operator: actual matches if it
+// satisfies the comparison against any value in want (OR-within-key).
+func dateOperatorHolds(normOp string, want []string, actual string) bool {
+	actualTime, ok := condeval.ParseDate(actual)
+	if !ok {
+		return false
+	}
+
+	for _, v := range want {
+		condTime, okParse := condeval.ParseDate(v)
+		if okParse && condeval.CompareDate(normOp, actualTime, condTime) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // nullConditionHolds evaluates AWS's Null condition operator: "true" requires

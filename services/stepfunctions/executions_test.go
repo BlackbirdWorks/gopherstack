@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -148,38 +149,38 @@ func TestDescribeExecution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			arn := tt.executionArn
-			if tt.createExec {
-				sm, err := b.CreateStateMachine(
-					context.Background(),
-					"desc-exec-sm",
-					passDefinition,
-					"arn:role",
-					"STANDARD",
-				)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+				arn := tt.executionArn
+				if tt.createExec {
+					sm, err := b.CreateStateMachine(
+						context.Background(),
+						"desc-exec-sm",
+						passDefinition,
+						"arn:role",
+						"STANDARD",
+					)
+					require.NoError(t, err)
+					exec, err := b.StartExecution(sm.StateMachineArn, "exec1", tt.input)
+					require.NoError(t, err)
+					arn = exec.ExecutionArn
+					// The async executor runs in this goroutine's bubble; Wait
+					// blocks until it finishes (or durably blocks).
+					synctest.Wait()
+				}
+
+				got, err := b.DescribeExecution(arn)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
 				require.NoError(t, err)
-				exec, err := b.StartExecution(sm.StateMachineArn, "exec1", tt.input)
-				require.NoError(t, err)
-				arn = exec.ExecutionArn
-				// Wait for the async executor to finish.
-				require.Eventually(t, func() bool {
-					desc, descErr := b.DescribeExecution(arn)
-
-					return descErr == nil && desc.Status != "RUNNING"
-				}, 5*time.Second, 50*time.Millisecond)
-			}
-
-			got, err := b.DescribeExecution(arn)
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, got.Status)
-			assert.Equal(t, tt.wantInput, got.Input)
+				assert.Equal(t, tt.wantStatus, got.Status)
+				assert.Equal(t, tt.wantInput, got.Input)
+			})
 		})
 	}
 }
@@ -217,40 +218,32 @@ func TestListExecutions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			sm, err := b.CreateStateMachine(
-				context.Background(),
-				"list-exec-sm",
-				passDefinition,
-				"arn:role",
-				"STANDARD",
-			)
-			require.NoError(t, err)
-			for _, name := range tt.execNames {
-				_, err = b.StartExecution(sm.StateMachineArn, name, "")
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"list-exec-sm",
+					passDefinition,
+					"arn:role",
+					"STANDARD",
+				)
 				require.NoError(t, err)
-			}
-
-			// Wait for async executions to complete before checking status filters.
-			require.Eventually(t, func() bool {
-				execs, _, listErr := b.ListExecutions(sm.StateMachineArn, "", "", 0)
-				if listErr != nil {
-					return false
-				}
-				for _, ex := range execs {
-					if ex.Status == "RUNNING" {
-						return false
-					}
+				for _, name := range tt.execNames {
+					_, err = b.StartExecution(sm.StateMachineArn, name, "")
+					require.NoError(t, err)
 				}
 
-				return true
-			}, 5*time.Second, 50*time.Millisecond)
+				// Wait for the async executions to complete before checking
+				// status filters.
+				synctest.Wait()
 
-			execs, next, err := b.ListExecutions(sm.StateMachineArn, tt.statusFilter, "", 0)
-			require.NoError(t, err)
-			assert.Empty(t, next)
-			assert.Len(t, execs, tt.wantCount)
+				execs, next, err := b.ListExecutions(sm.StateMachineArn, tt.statusFilter, "", 0)
+				require.NoError(t, err)
+				assert.Empty(t, next)
+				assert.Len(t, execs, tt.wantCount)
+			})
 		})
 	}
 }
@@ -288,37 +281,39 @@ func TestStopExecution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			arn := tt.executionArn
-			if tt.createExec {
-				sm, err := b.CreateStateMachine(context.Background(), "stop-sm", waitDefinition, "arn:role", "STANDARD")
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+				arn := tt.executionArn
+				if tt.createExec {
+					sm, err := b.CreateStateMachine(
+						context.Background(), "stop-sm", waitDefinition, "arn:role", "STANDARD",
+					)
+					require.NoError(t, err)
+					exec, err := b.StartExecution(sm.StateMachineArn, "exec-stop", "")
+					require.NoError(t, err)
+					arn = exec.ExecutionArn
+					// The executor blocks on the Wait state's timer once
+					// RUNNING; Wait returns once it's durably blocked there.
+					synctest.Wait()
+				}
+
+				err := b.StopExecution(arn, tt.stopError, tt.stopCause)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
 				require.NoError(t, err)
-				exec, err := b.StartExecution(sm.StateMachineArn, "exec-stop", "")
+
+				got, err := b.DescribeExecution(arn)
 				require.NoError(t, err)
-				arn = exec.ExecutionArn
-				// Wait for execution to enter RUNNING before stopping it.
-				require.Eventually(t, func() bool {
-					desc, descErr := b.DescribeExecution(arn)
-
-					return descErr == nil && desc.Status == "RUNNING"
-				}, 5*time.Second, 10*time.Millisecond)
-			}
-
-			err := b.StopExecution(arn, tt.stopError, tt.stopCause)
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-
-				return
-			}
-			require.NoError(t, err)
-
-			got, err := b.DescribeExecution(arn)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, got.Status)
-			assert.Equal(t, tt.wantError, got.Error)
-			assert.Equal(t, tt.wantCause, got.Cause)
-			assert.NotNil(t, got.StopDate)
+				assert.Equal(t, tt.wantStatus, got.Status)
+				assert.Equal(t, tt.wantError, got.Error)
+				assert.Equal(t, tt.wantCause, got.Cause)
+				assert.NotNil(t, got.StopDate)
+			})
 		})
 	}
 }
@@ -347,50 +342,33 @@ func TestRedriveExecution_RedriveCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			failDef := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"Err","Cause":"test"}}}`
-			sm, err := b.CreateStateMachine(
-				context.Background(),
-				"redrive-sm-"+tt.name,
-				failDef,
-				"arn:role",
-				"STANDARD",
-			)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+				failDef := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"Err","Cause":"test"}}}`
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"redrive-sm-"+tt.name,
+					failDef,
+					"arn:role",
+					"STANDARD",
+				)
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "redrive-exec-"+tt.name, `{}`)
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "redrive-exec-"+tt.name, `{}`)
+				require.NoError(t, err)
+				synctest.Wait()
 
-			// Wait for failure.
-			require.Eventually(t, func() bool {
-				d, e := b.DescribeExecution(exec.ExecutionArn)
+				for range tt.redrives {
+					_, redriveErr := b.RedriveExecution(exec.ExecutionArn)
+					require.NoError(t, redriveErr)
+					synctest.Wait()
+				}
 
-				return e == nil && d.Status == "FAILED"
-			}, 5*time.Second, 50*time.Millisecond)
-
-			// Perform redrives.
-			for range tt.redrives {
-				require.Eventually(t, func() bool {
-					d, e := b.DescribeExecution(exec.ExecutionArn)
-
-					return e == nil && d.Status == "FAILED"
-				}, 5*time.Second, 50*time.Millisecond)
-
-				_, redriveErr := b.RedriveExecution(exec.ExecutionArn)
-				require.NoError(t, redriveErr)
-			}
-
-			// Wait for final completion.
-			require.Eventually(t, func() bool {
-				d, e := b.DescribeExecution(exec.ExecutionArn)
-
-				return e == nil && d.Status != "RUNNING"
-			}, 5*time.Second, 50*time.Millisecond)
-
-			described, err := b.DescribeExecution(exec.ExecutionArn)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantRedriveCount, described.RedriveCount)
-			assert.NotNil(t, described.RedriveDate)
+				described, err := b.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantRedriveCount, described.RedriveCount)
+				assert.NotNil(t, described.RedriveDate)
+			})
 		})
 	}
 }
@@ -541,34 +519,31 @@ func TestDescribeExecution_ParityFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			t.Cleanup(b.Destroy)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+				t.Cleanup(b.Destroy)
 
-			sm, err := b.CreateStateMachine(t.Context(), "sm-"+tt.name, tt.def, validRoleARN, "STANDARD")
-			require.NoError(t, err)
+				sm, err := b.CreateStateMachine(t.Context(), "sm-"+tt.name, tt.def, validRoleARN, "STANDARD")
+				require.NoError(t, err)
 
-			exec, err := b.StartExecutionWithTrace(sm.StateMachineArn, "exec-"+tt.name, `{"in":1}`, tt.traceHeader)
-			require.NoError(t, err)
+				exec, err := b.StartExecutionWithTrace(sm.StateMachineArn, "exec-"+tt.name, `{"in":1}`, tt.traceHeader)
+				require.NoError(t, err)
+				synctest.Wait()
 
-			require.Eventually(t, func() bool {
-				desc, descErr := b.DescribeExecution(exec.ExecutionArn)
-
-				return descErr == nil && desc.Status != "RUNNING"
-			}, 5*time.Second, 50*time.Millisecond)
-
-			desc, err := b.DescribeExecution(exec.ExecutionArn)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, desc.Status)
-			assert.Equal(t, tt.wantRedriveStatus, desc.RedriveStatus)
-			require.NotNil(t, desc.InputDetails)
-			assert.True(t, desc.InputDetails.Included)
-			if tt.traceHeader != "" {
-				assert.Equal(t, tt.traceHeader, desc.TraceHeader)
-			}
-			if tt.wantStatus == "SUCCEEDED" {
-				require.NotNil(t, desc.OutputDetails)
-				assert.True(t, desc.OutputDetails.Included)
-			}
+				desc, err := b.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantStatus, desc.Status)
+				assert.Equal(t, tt.wantRedriveStatus, desc.RedriveStatus)
+				require.NotNil(t, desc.InputDetails)
+				assert.True(t, desc.InputDetails.Included)
+				if tt.traceHeader != "" {
+					assert.Equal(t, tt.traceHeader, desc.TraceHeader)
+				}
+				if tt.wantStatus == "SUCCEEDED" {
+					require.NotNil(t, desc.OutputDetails)
+					assert.True(t, desc.OutputDetails.Included)
+				}
+			})
 		})
 	}
 }
@@ -708,35 +683,31 @@ func TestStopExecution_SetsAborted(t *testing.T) {
 func TestStopExecution_IdempotentOnTerminalState(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"idm-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"idm-sm",
+			minimalDefinition,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "idm-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "idm-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
 
-	// Wait for execution to reach terminal state.
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
+		// Must not error and must not overwrite terminal status.
+		err = b.StopExecution(exec.ExecutionArn, "ShouldNotOverwrite", "nope")
+		require.NoError(t, err)
 
-		return e == nil && d.Status != "RUNNING"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	// Must not error and must not overwrite terminal status.
-	err = b.StopExecution(exec.ExecutionArn, "ShouldNotOverwrite", "nope")
-	require.NoError(t, err)
-
-	desc, err := b.DescribeExecution(exec.ExecutionArn)
-	require.NoError(t, err)
-	assert.Equal(t, "SUCCEEDED", desc.Status, "terminal status must not be overwritten")
-	assert.NotEqual(t, "ShouldNotOverwrite", desc.Error)
+		desc, err := b.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		assert.Equal(t, "SUCCEEDED", desc.Status, "terminal status must not be overwritten")
+		assert.NotEqual(t, "ShouldNotOverwrite", desc.Error)
+	})
 }
 
 func TestStopExecution_NotFound(t *testing.T) {
@@ -753,36 +724,33 @@ func TestStopExecution_NotFound(t *testing.T) {
 func TestListExecutions_StatusFilter_RUNNING(t *testing.T) {
 	t.Parallel()
 
-	waitDef := `{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":3600,"End":true}}}`
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"list-sm",
-		waitDef,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		waitDef := `{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":3600,"End":true}}}`
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"list-sm",
+			waitDef,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "list-run-e", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "list-run-e", "{}")
+		require.NoError(t, err)
+		// The executor durably blocks on the Wait state's timer once RUNNING.
+		synctest.Wait()
 
-	// Give the execution time to start.
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
+		running, _, err := b.ListExecutions(sm.StateMachineArn, "RUNNING", "", 100)
+		require.NoError(t, err)
+		assert.Len(t, running, 1)
+		assert.Equal(t, exec.ExecutionArn, running[0].ExecutionArn)
 
-		return e == nil && d.Status == "RUNNING"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	running, _, err := b.ListExecutions(sm.StateMachineArn, "RUNNING", "", 100)
-	require.NoError(t, err)
-	assert.Len(t, running, 1)
-	assert.Equal(t, exec.ExecutionArn, running[0].ExecutionArn)
-
-	succeeded, _, err := b.ListExecutions(sm.StateMachineArn, "SUCCEEDED", "", 100)
-	require.NoError(t, err)
-	assert.Empty(t, succeeded)
+		succeeded, _, err := b.ListExecutions(sm.StateMachineArn, "SUCCEEDED", "", 100)
+		require.NoError(t, err)
+		assert.Empty(t, succeeded)
+	})
 }
 
 func TestListExecutions_Pagination(t *testing.T) {
@@ -864,30 +832,28 @@ func TestDescribeStateMachineForExecution(t *testing.T) {
 func TestRedriveExecution_NotRedrivable(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"redrive-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"redrive-sm",
+			minimalDefinition,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "rd-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "rd-exec", "{}")
+		require.NoError(t, err)
 
-	// SUCCEEDED executions cannot be redriven.
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
+		// SUCCEEDED executions cannot be redriven.
+		synctest.Wait()
 
-		return e == nil && d.Status == "SUCCEEDED"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	_, err = b.RedriveExecution(exec.ExecutionArn)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrExecutionNotRedrivable)
+		_, err = b.RedriveExecution(exec.ExecutionArn)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, stepfunctions.ErrExecutionNotRedrivable)
+	})
 }
 
 // ─── roleArn validation ───────────────────────────────────────────────────────
@@ -936,35 +902,37 @@ func TestInput_OverLimit_Fails(t *testing.T) {
 func TestListExecutions_OrderedByStartDateDesc(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	sm, err := b.CreateStateMachine(context.Background(), "order-sm", minimalDefinition, validRoleARN, "STANDARD")
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+		sm, err := b.CreateStateMachine(context.Background(), "order-sm", minimalDefinition, validRoleARN, "STANDARD")
+		require.NoError(t, err)
 
-	names := []string{"exec-a", "exec-b", "exec-c"}
-	startDates := make([]float64, len(names))
+		names := []string{"exec-a", "exec-b", "exec-c"}
+		startDates := make([]float64, len(names))
 
-	for i, name := range names {
-		exec, execErr := b.StartExecution(sm.StateMachineArn, name, "{}")
-		require.NoError(t, execErr)
+		for i, name := range names {
+			exec, execErr := b.StartExecution(sm.StateMachineArn, name, "{}")
+			require.NoError(t, execErr)
 
-		startDates[i] = exec.StartDate
+			startDates[i] = exec.StartDate
 
-		// Small sleep to ensure distinct start timestamps.
-		time.Sleep(5 * time.Millisecond)
-	}
+			// Small sleep to ensure distinct start timestamps.
+			time.Sleep(5 * time.Millisecond)
+		}
 
-	execs, _, err := b.ListExecutions(sm.StateMachineArn, "", "", 10)
-	require.NoError(t, err)
-	require.Len(t, execs, 3)
+		execs, _, err := b.ListExecutions(sm.StateMachineArn, "", "", 10)
+		require.NoError(t, err)
+		require.Len(t, execs, 3)
 
-	// Most recent first.
-	for i := 1; i < len(execs); i++ {
-		assert.GreaterOrEqual(t, execs[i-1].StartDate, execs[i].StartDate,
-			"expected descending startDate order at index %d", i)
-	}
+		// Most recent first.
+		for i := 1; i < len(execs); i++ {
+			assert.GreaterOrEqual(t, execs[i-1].StartDate, execs[i].StartDate,
+				"expected descending startDate order at index %d", i)
+		}
 
-	// First result should be the last started.
-	assert.Equal(t, names[2], execs[0].Name)
+		// First result should be the last started.
+		assert.Equal(t, names[2], execs[0].Name)
+	})
 }
 
 const (
@@ -1001,37 +969,37 @@ func (m *mockStepFunctionsSQS) SFNSendMessage(
 func TestListExecutionsStatusIndex(t *testing.T) {
 	t.Parallel()
 
-	bk := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	ctx := context.Background()
-
-	sm, err := bk.CreateStateMachine(
-		ctx, "perf-sm",
-		`{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`,
-		"arn:aws:iam::123456789012:role/r", "STANDARD",
-	)
-	require.NoError(t, err)
-	smARN := sm.StateMachineArn
-
 	const numExecs = 5
-	execARNs := make([]string, 0, numExecs)
 
-	for i := range numExecs {
-		exec, startErr := bk.StartExecution(smARN, fmt.Sprintf("exec-%d", i), `{}`)
-		require.NoError(t, startErr)
-		execARNs = append(execARNs, exec.ExecutionArn)
-	}
+	var (
+		bk       *stepfunctions.InMemoryBackend
+		execARNs []string
+		smARN    string
+	)
 
-	// Wait for all executions to finish.
-	require.Eventually(t, func() bool {
-		for _, arn := range execARNs {
-			exec, descErr := bk.DescribeExecution(arn)
-			if descErr != nil || exec.Status == "RUNNING" {
-				return false
-			}
+	synctest.Test(t, func(t *testing.T) {
+		bk = stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+		ctx := context.Background()
+
+		sm, err := bk.CreateStateMachine(
+			ctx, "perf-sm",
+			`{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`,
+			"arn:aws:iam::123456789012:role/r", "STANDARD",
+		)
+		require.NoError(t, err)
+		smARN = sm.StateMachineArn
+
+		execARNs = make([]string, 0, numExecs)
+
+		for i := range numExecs {
+			exec, startErr := bk.StartExecution(smARN, fmt.Sprintf("exec-%d", i), `{}`)
+			require.NoError(t, startErr)
+			execARNs = append(execARNs, exec.ExecutionArn)
 		}
 
-		return true
-	}, 5*time.Second, 20*time.Millisecond)
+		// Wait for all executions to finish.
+		synctest.Wait()
+	})
 
 	// Count actual statuses.
 	succeededCount := 0
@@ -1176,40 +1144,28 @@ func TestBackend_ListExecutions_Pagination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine(
-				context.Background(),
-				"page-sm",
-				`{"StartAt":"S","States":{"S":{"Type":"Pass","End":true}}}`,
-				"arn:role",
-				"STANDARD",
-			)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackend()
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"page-sm",
+					`{"StartAt":"S","States":{"S":{"Type":"Pass","End":true}}}`,
+					"arn:role",
+					"STANDARD",
+				)
+				require.NoError(t, err)
 
-			// Create two executions so we have something to paginate
-			_, _ = b.StartExecution(sm.StateMachineArn, "exec-a", `{}`)
-			_, _ = b.StartExecution(sm.StateMachineArn, "exec-b", `{}`)
+				// Create two executions so we have something to paginate
+				_, _ = b.StartExecution(sm.StateMachineArn, "exec-a", `{}`)
+				_, _ = b.StartExecution(sm.StateMachineArn, "exec-b", `{}`)
 
-			// Wait for executions to complete to avoid race condition
-			require.Eventually(t, func() bool {
-				execs, _, listErr := b.ListExecutions(sm.StateMachineArn, "", "", 0)
-				if listErr != nil {
-					return false
-				}
+				// Wait for both to complete before checking pagination.
+				synctest.Wait()
 
-				doneCount := 0
-				for _, e := range execs {
-					if e.Status != "RUNNING" {
-						doneCount++
-					}
-				}
-
-				return doneCount == 2
-			}, 5*time.Second, 50*time.Millisecond)
-
-			execs, _, err := b.ListExecutions(sm.StateMachineArn, "", tt.nextToken, tt.maxResults)
-			require.NoError(t, err)
-			assert.Len(t, execs, tt.wantLen)
+				execs, _, err := b.ListExecutions(sm.StateMachineArn, "", tt.nextToken, tt.maxResults)
+				require.NoError(t, err)
+				assert.Len(t, execs, tt.wantLen)
+			})
 		})
 	}
 }

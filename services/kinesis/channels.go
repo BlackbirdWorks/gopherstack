@@ -2,6 +2,7 @@ package kinesis
 
 import (
 	"context"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -383,7 +384,10 @@ func (b *InMemoryBackend) DescribeChannel(
 		return nil, ErrChannelNotFound
 	}
 
-	return &DescribeChannelOutput{ChannelDescription: *channel}, nil
+	cd := *channel
+	cd.Tags = maps.Clone(channel.Tags)
+
+	return &DescribeChannelOutput{ChannelDescription: cd}, nil
 }
 
 // channelMatchesStreamFilter reports whether c is associated with any of the
@@ -413,7 +417,9 @@ func (b *InMemoryBackend) ListChannels(ctx context.Context, input *ListChannelsI
 	matched := make([]Channel, 0, b.channelsByRegion.Len())
 	for _, c := range b.channelsByRegion.Get(region) {
 		if channelMatchesStreamFilter(c, input.StreamFilter) {
-			matched = append(matched, *c)
+			cp := *c
+			cp.Tags = maps.Clone(c.Tags)
+			matched = append(matched, cp)
 		}
 	}
 	b.mu.RUnlock()

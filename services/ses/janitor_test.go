@@ -3,6 +3,7 @@ package ses_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -208,25 +209,27 @@ func TestJanitor_Run_CancelContext(t *testing.T) {
 func TestSESJanitor_SweepExpiredEmails(t *testing.T) {
 	t.Parallel()
 
-	b := ses.NewInMemoryBackend()
-	b.SetEmailTTL(time.Millisecond) // very short TTL
-	require.NoError(t, b.VerifyEmailIdentity("j@test.com"))
+	synctest.Test(t, func(t *testing.T) {
+		b := ses.NewInMemoryBackend()
+		b.SetEmailTTL(time.Millisecond) // very short TTL
+		require.NoError(t, b.VerifyEmailIdentity("j@test.com"))
 
-	_, err := b.SendEmail(ses.SendEmailInput{
-		From: "j@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+		_, err := b.SendEmail(ses.SendEmailInput{
+			From: "j@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, 1, b.EmailCount())
+
+		// Wait for TTL to expire then sweep.
+		time.Sleep(5 * time.Millisecond)
+
+		j := ses.NewJanitor(b, 0)
+		j.SweepOnce(t.Context())
+
+		assert.Equal(t, 0, b.EmailCount())
+		assert.Equal(t, 0, b.EmailsByIDCount())
 	})
-	require.NoError(t, err)
-
-	require.Equal(t, 1, b.EmailCount())
-
-	// Wait for TTL to expire then sweep.
-	time.Sleep(5 * time.Millisecond)
-
-	j := ses.NewJanitor(b, 0)
-	j.SweepOnce(t.Context())
-
-	assert.Equal(t, 0, b.EmailCount())
-	assert.Equal(t, 0, b.EmailsByIDCount())
 }
 
 func TestSESJanitor_SweepNoExpired(t *testing.T) {

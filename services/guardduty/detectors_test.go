@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -232,38 +233,40 @@ func TestDetector_Timestamps_Present(t *testing.T) {
 func TestDetector_UpdatedAt_Advances(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	id := createTestDetector(t, h)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		id := createTestDetector(t, h)
 
-	rec1 := doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
-	require.Equal(t, http.StatusOK, rec1.Code)
+		rec1 := doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
+		require.Equal(t, http.StatusOK, rec1.Code)
 
-	var before map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
-	createdAt := before["createdAt"].(string)
-	updatedAt1 := before["updatedAt"].(string)
+		var before map[string]any
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
+		createdAt := before["createdAt"].(string)
+		updatedAt1 := before["updatedAt"].(string)
 
-	time.Sleep(2 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 
-	rec := doRequest(t, h, http.MethodPost, "/detector/"+id, map[string]any{
-		"findingPublishingFrequency": "FIFTEEN_MINUTES",
+		rec := doRequest(t, h, http.MethodPost, "/detector/"+id, map[string]any{
+			"findingPublishingFrequency": "FIFTEEN_MINUTES",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec2 := doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
+		require.Equal(t, http.StatusOK, rec2.Code)
+
+		var after map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after))
+		createdAt2 := after["createdAt"].(string)
+		updatedAt2 := after["updatedAt"].(string)
+
+		assert.Equal(t, createdAt, createdAt2, "createdAt must not change after UpdateDetector")
+
+		t1 := parseTS(t, "updatedAt before", updatedAt1)
+		t2 := parseTS(t, "updatedAt after", updatedAt2)
+		assert.True(t, t2.After(t1) || t2.Equal(t1),
+			"updatedAt must not regress: before=%s after=%s", updatedAt1, updatedAt2)
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var after map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after))
-	createdAt2 := after["createdAt"].(string)
-	updatedAt2 := after["updatedAt"].(string)
-
-	assert.Equal(t, createdAt, createdAt2, "createdAt must not change after UpdateDetector")
-
-	t1 := parseTS(t, "updatedAt before", updatedAt1)
-	t2 := parseTS(t, "updatedAt after", updatedAt2)
-	assert.True(t, t2.After(t1) || t2.Equal(t1),
-		"updatedAt must not regress: before=%s after=%s", updatedAt1, updatedAt2)
 }
 
 func TestDetector_Tags_EmptyMap_Not_Null(t *testing.T) {

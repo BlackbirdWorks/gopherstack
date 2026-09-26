@@ -122,11 +122,13 @@ import (
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
+	dsqlbackend "github.com/blackbirdworks/gopherstack/services/dsql"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
@@ -154,9 +156,11 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -358,8 +362,10 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
+	dsqlHandler                   service.Registerable
 	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
+	ecrPublicHandler              service.Registerable
 	ecsHandler                    service.Registerable
 	efsHandler                    service.Registerable
 	eksHandler                    service.Registerable
@@ -381,7 +387,9 @@ type CLI struct {
 	inspector2Handler             service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
+	kafkaconnectHandler           service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
+	kinesisvideoHandler           service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
 	mqHandler                     service.Registerable
@@ -1302,6 +1310,11 @@ func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 
+// GetECRPublicHandler returns the ECR Public handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetECRPublicHandler() service.Registerable { return c.ecrPublicHandler }
+
 // GetECSHandler returns the ECS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1367,12 +1380,22 @@ func (c *CLI) GetInspector2Handler() service.Registerable { return c.inspector2H
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 
+// GetKafkaConnectHandler returns the MSK Connect handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKafkaConnectHandler() service.Registerable { return c.kafkaconnectHandler }
+
 // GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
 	return c.kinesisanalyticsv2Handler
 }
+
+// GetKinesisVideoHandler returns the Kinesis Video Streams handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisVideoHandler() service.Registerable { return c.kinesisvideoHandler }
 
 // GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
 //
@@ -1735,6 +1758,11 @@ func (c *CLI) GetElasticbeanstalkHandler() service.Registerable { return c.elast
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetDocDBHandler() service.Registerable { return c.docdbHandler }
+
+// GetDSQLHandler returns the Aurora DSQL handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDSQLHandler() service.Registerable { return c.dsqlHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -2778,6 +2806,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.bedrockHandler = byName["Bedrock"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
+	cli.ecrPublicHandler = byName["ECRPublic"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
@@ -2819,7 +2848,9 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.inspector2Handler = byName["Inspector2"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.kafkaconnectHandler = byName["KafkaConnect"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
+	cli.kinesisvideoHandler = byName["KinesisVideo"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mqHandler = byName["MQ"]
@@ -2835,6 +2866,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mwaaHandler = byName["MWAA"]
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
+	cli.dsqlHandler = byName["DSQL"]
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.rdsdataHandler = byName["RDSData"]
@@ -4052,12 +4084,16 @@ func getRemainingServiceProviders() []service.Provider {
 		&guarddutybackend.Provider{},
 		&inspector2backend.Provider{},
 		&docdbbackend.Provider{},
+		&dsqlbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&kafkaconnectbackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
+		&kinesisvideobackend.Provider{},
+		&ecrpublicbackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,34 +64,35 @@ func (s *auditSFNExecutor) LastExecution() sfnExecution {
 func TestDelivery_StepFunctions_DeliversEvent(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
-	sfn := &auditSFNExecutor{}
-	smARN := "arn:aws:states:us-east-1:123456789012:stateMachine:my-sm"
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend()
+		sfn := &auditSFNExecutor{}
+		smARN := "arn:aws:states:us-east-1:123456789012:stateMachine:my-sm"
 
-	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{StepFunctions: sfn})
+		b.SetDeliveryTargets(&eventbridge.DeliveryTargets{StepFunctions: sfn})
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         "sfn-rule",
-		EventPattern: `{"source":["sfn-test"]}`,
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         "sfn-rule",
+			EventPattern: `{"source":["sfn-test"]}`,
+		})
+		require.NoError(t, err)
+
+		_, err = b.PutTargets(context.Background(), "sfn-rule", "", []eventbridge.Target{
+			{ID: "t1", Arn: smARN},
+		})
+		require.NoError(t, err)
+
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "sfn-test", DetailType: "Order", Detail: `{"id":42}`},
+		})
+		synctest.Wait()
+
+		require.Positive(t, sfn.Count(), "Step Functions should have been invoked")
+
+		exec := sfn.LastExecution()
+		assert.Equal(t, smARN, exec.StateMachineARN)
+		assert.NotEmpty(t, exec.Input)
 	})
-	require.NoError(t, err)
-
-	_, err = b.PutTargets(context.Background(), "sfn-rule", "", []eventbridge.Target{
-		{ID: "t1", Arn: smARN},
-	})
-	require.NoError(t, err)
-
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "sfn-test", DetailType: "Order", Detail: `{"id":42}`},
-	})
-
-	require.Eventually(t, func() bool {
-		return sfn.Count() > 0
-	}, 2*time.Second, 10*time.Millisecond, "Step Functions should have been invoked")
-
-	exec := sfn.LastExecution()
-	assert.Equal(t, smARN, exec.StateMachineARN)
-	assert.NotEmpty(t, exec.Input)
 }
 
 func TestDelivery_StepFunctions_NilHandlerSkipsGracefully(t *testing.T) {
@@ -122,44 +123,45 @@ func TestDelivery_StepFunctions_NilHandlerSkipsGracefully(t *testing.T) {
 func TestDelivery_StepFunctions_FailureSendsToDLQ(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend()
 
-	dlqSink := newMockSQSSender()
-	dlqARN := "arn:aws:sqs:us-east-1:123456789012:sfn-dlq"
-	smARN := "arn:aws:states:us-east-1:123456789012:stateMachine:failing-sm"
+		dlqSink := newMockSQSSender()
+		dlqARN := "arn:aws:sqs:us-east-1:123456789012:sfn-dlq"
+		smARN := "arn:aws:states:us-east-1:123456789012:stateMachine:failing-sm"
 
-	sfnSink := &auditSFNExecutor{returnErr: errExecutionLimitReached}
+		sfnSink := &auditSFNExecutor{returnErr: errExecutionLimitReached}
 
-	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
-		StepFunctions: sfnSink,
-		SQS:           dlqSink,
-	})
+		b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+			StepFunctions: sfnSink,
+			SQS:           dlqSink,
+		})
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         "sfn-fail-rule",
-		EventPattern: `{"source":["sfn-fail"]}`,
-	})
-	require.NoError(t, err)
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         "sfn-fail-rule",
+			EventPattern: `{"source":["sfn-fail"]}`,
+		})
+		require.NoError(t, err)
 
-	_, err = b.PutTargets(context.Background(), "sfn-fail-rule", "", []eventbridge.Target{
-		{
-			ID:  "t1",
-			Arn: smARN,
-			DeadLetterConfig: &eventbridge.DeadLetterConfig{
-				Arn: dlqARN,
+		_, err = b.PutTargets(context.Background(), "sfn-fail-rule", "", []eventbridge.Target{
+			{
+				ID:  "t1",
+				Arn: smARN,
+				DeadLetterConfig: &eventbridge.DeadLetterConfig{
+					Arn: dlqARN,
+				},
+				RetryPolicy: &eventbridge.RetryPolicy{MaximumRetryAttempts: 0},
 			},
-			RetryPolicy: &eventbridge.RetryPolicy{MaximumRetryAttempts: 0},
-		},
-	})
-	require.NoError(t, err)
+		})
+		require.NoError(t, err)
 
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "sfn-fail", DetailType: "T", Detail: `{}`},
-	})
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "sfn-fail", DetailType: "T", Detail: `{}`},
+		})
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
-		return len(dlqSink.MessagesFor(dlqARN)) > 0
-	}, 2*time.Second, 10*time.Millisecond, "DLQ should receive failed SFN delivery")
+		assert.NotEmpty(t, dlqSink.MessagesFor(dlqARN), "DLQ should receive failed SFN delivery")
+	})
 }
 
 func TestDelivery_IsStateMachineARN(t *testing.T) {
@@ -180,32 +182,33 @@ func TestDelivery_IsStateMachineARN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
-			sfn := &auditSFNExecutor{}
-			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{StepFunctions: sfn})
+			synctest.Test(t, func(t *testing.T) {
+				b := newBackend()
+				sfn := &auditSFNExecutor{}
+				b.SetDeliveryTargets(&eventbridge.DeliveryTargets{StepFunctions: sfn})
 
-			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         "arn-test-" + tt.name,
-				EventPattern: `{"source":["arn-probe-` + tt.name + `"]}`,
+				_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         "arn-test-" + tt.name,
+					EventPattern: `{"source":["arn-probe-` + tt.name + `"]}`,
+				})
+				require.NoError(t, err)
+
+				_, err = b.PutTargets(context.Background(), "arn-test-"+tt.name, "", []eventbridge.Target{
+					{ID: "t1", Arn: tt.arn},
+				})
+				require.NoError(t, err)
+
+				b.PutEvents(context.Background(), []eventbridge.EventEntry{
+					{Source: "arn-probe-" + tt.name, DetailType: "T", Detail: `{}`},
+				})
+				synctest.Wait()
+
+				if tt.want {
+					assert.Positive(t, sfn.Count(), "expected SFN invocation for ARN %s", tt.arn)
+				} else {
+					assert.Equal(t, 0, sfn.Count(), "expected no SFN invocation for non-SM ARN %s", tt.arn)
+				}
 			})
-			require.NoError(t, err)
-
-			_, err = b.PutTargets(context.Background(), "arn-test-"+tt.name, "", []eventbridge.Target{
-				{ID: "t1", Arn: tt.arn},
-			})
-			require.NoError(t, err)
-
-			b.PutEvents(context.Background(), []eventbridge.EventEntry{
-				{Source: "arn-probe-" + tt.name, DetailType: "T", Detail: `{}`},
-			})
-
-			time.Sleep(50 * time.Millisecond)
-
-			if tt.want {
-				assert.Positive(t, sfn.Count(), "expected SFN invocation for ARN %s", tt.arn)
-			} else {
-				assert.Equal(t, 0, sfn.Count(), "expected no SFN invocation for non-SM ARN %s", tt.arn)
-			}
 		})
 	}
 }

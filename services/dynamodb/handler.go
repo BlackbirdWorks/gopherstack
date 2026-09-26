@@ -434,22 +434,22 @@ func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var data map[string]any
+	// Struct decode, not map[string]any: this runs on every request.
+	var data struct {
+		TableName string `json:"TableName"`
+		BackupArn string `json:"BackupArn"`
+	}
 	if uerr := json.Unmarshal(body, &data); uerr != nil {
 		return ""
 	}
 
-	if tbl, exists := data["TableName"]; exists {
-		if tblStr, ok := tbl.(string); ok && tblStr != "" {
-			return tblStr
-		}
+	if data.TableName != "" {
+		return data.TableName
 	}
 
 	// Backup operations carry BackupArn instead of TableName.
-	if arnVal, exists := data["BackupArn"]; exists {
-		if arnStr, ok := arnVal.(string); ok && arnStr != "" {
-			return extractTableFromBackupARN(arnStr)
-		}
+	if data.BackupArn != "" {
+		return extractTableFromBackupARN(data.BackupArn)
 	}
 
 	return ""

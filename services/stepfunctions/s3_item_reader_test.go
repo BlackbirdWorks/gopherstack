@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,46 +38,44 @@ func (f *fakeS3Reader) GetObjectBytes(_ context.Context, _, _ string) ([]byte, e
 func TestStartExecution_MapItemReader_S3(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	b.SetS3Reader(&fakeS3Reader{data: []byte(`[{"n":1},{"n":2},{"n":3}]`)})
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		b.SetS3Reader(&fakeS3Reader{data: []byte(`[{"n":1},{"n":2},{"n":3}]`)})
 
-	def := `{
-		"StartAt": "M",
-		"States": {
-			"M": {
-				"Type": "Map",
-				"ItemReader": {
-					"Resource": "arn:aws:states:::s3:getObject",
-					"Parameters": {"Bucket": "test-bucket", "Key": "items.json"}
-				},
-				"ItemProcessor": {
-					"StartAt": "P",
-					"States": {"P": {"Type": "Pass", "End": true}}
-				},
-				"End": true
+		def := `{
+			"StartAt": "M",
+			"States": {
+				"M": {
+					"Type": "Map",
+					"ItemReader": {
+						"Resource": "arn:aws:states:::s3:getObject",
+						"Parameters": {"Bucket": "test-bucket", "Key": "items.json"}
+					},
+					"ItemProcessor": {
+						"StartAt": "P",
+						"States": {"P": {"Type": "Pass", "End": true}}
+					},
+					"End": true
+				}
 			}
-		}
-	}`
+		}`
 
-	sm, err := b.CreateStateMachine(context.Background(), "s3-itemreader-sm", def, validRoleARN, "STANDARD")
-	require.NoError(t, err)
+		sm, err := b.CreateStateMachine(context.Background(), "s3-itemreader-sm", def, validRoleARN, "STANDARD")
+		require.NoError(t, err)
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "s3-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "s3-exec", "{}")
+		require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		described, descErr := b.DescribeExecution(exec.ExecutionArn)
+		synctest.Wait()
 
-		return descErr == nil && described.Status != "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+		described, err := b.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		require.Equal(t, "SUCCEEDED", described.Status, "cause=%s error=%s", described.Cause, described.Error)
 
-	described, err := b.DescribeExecution(exec.ExecutionArn)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCEEDED", described.Status, "cause=%s error=%s", described.Cause, described.Error)
-
-	var output []map[string]any
-	require.NoError(t, json.Unmarshal([]byte(described.Output), &output))
-	assert.Len(t, output, 3, "expected one output entry per S3-sourced item")
+		var output []map[string]any
+		require.NoError(t, json.Unmarshal([]byte(described.Output), &output))
+		assert.Len(t, output, 3, "expected one output entry per S3-sourced item")
+	})
 }
 
 // TestStartExecution_MapItemReader_NoS3Reader verifies the documented
@@ -88,39 +86,37 @@ func TestStartExecution_MapItemReader_S3(t *testing.T) {
 func TestStartExecution_MapItemReader_NoS3Reader(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
 
-	def := `{
-		"StartAt": "M",
-		"States": {
-			"M": {
-				"Type": "Map",
-				"ItemReader": {
-					"Resource": "arn:aws:states:::s3:getObject",
-					"Parameters": {"Bucket": "test-bucket", "Key": "items.json"}
-				},
-				"ItemProcessor": {
-					"StartAt": "P",
-					"States": {"P": {"Type": "Pass", "End": true}}
-				},
-				"End": true
+		def := `{
+			"StartAt": "M",
+			"States": {
+				"M": {
+					"Type": "Map",
+					"ItemReader": {
+						"Resource": "arn:aws:states:::s3:getObject",
+						"Parameters": {"Bucket": "test-bucket", "Key": "items.json"}
+					},
+					"ItemProcessor": {
+						"StartAt": "P",
+						"States": {"P": {"Type": "Pass", "End": true}}
+					},
+					"End": true
+				}
 			}
-		}
-	}`
+		}`
 
-	sm, err := b.CreateStateMachine(context.Background(), "no-s3-itemreader-sm", def, validRoleARN, "STANDARD")
-	require.NoError(t, err)
+		sm, err := b.CreateStateMachine(context.Background(), "no-s3-itemreader-sm", def, validRoleARN, "STANDARD")
+		require.NoError(t, err)
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "no-s3-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "no-s3-exec", "{}")
+		require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		described, descErr := b.DescribeExecution(exec.ExecutionArn)
+		synctest.Wait()
 
-		return descErr == nil && described.Status != "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
-
-	described, err := b.DescribeExecution(exec.ExecutionArn)
-	require.NoError(t, err)
-	assert.Equal(t, "FAILED", described.Status)
+		described, err := b.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		assert.Equal(t, "FAILED", described.Status)
+	})
 }

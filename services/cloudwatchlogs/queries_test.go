@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -400,7 +401,6 @@ func TestCloudWatchLogsBackend_QueryEviction_TTL(t *testing.T) {
 					0,
 					0,
 				)
-				// Sleep well beyond the TTL to avoid any scheduling jitter.
 				time.Sleep(20 * time.Millisecond)
 				// This new query triggers eviction; old-1 and old-2 should be removed.
 				_, _ = b.StartQuery(
@@ -442,14 +442,16 @@ func TestCloudWatchLogsBackend_QueryEviction_TTL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			if tt.setup != nil {
-				tt.setup(t, b)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+				if tt.setup != nil {
+					tt.setup(t, b)
+				}
 
-			queries, _, err := b.DescribeQueries("", "", "", "", 0)
-			require.NoError(t, err)
-			assert.Len(t, queries, tt.wantLen)
+				queries, _, err := b.DescribeQueries("", "", "", "", 0)
+				require.NoError(t, err)
+				assert.Len(t, queries, tt.wantLen)
+			})
 		})
 	}
 }

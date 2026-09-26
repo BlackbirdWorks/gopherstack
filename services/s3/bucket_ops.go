@@ -608,7 +608,7 @@ func (h *S3Handler) createBucket(
 	}
 
 	logger.Load(ctx).
-		DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
+		DebugContext(ctx, "S3 createBucket output", "bucket", bucketName)
 
 	// Set Location header from output
 	if output.Location != nil {
@@ -703,6 +703,23 @@ func (h *S3Handler) headBucket(
 	w.WriteHeader(http.StatusOK)
 }
 
+// createSessionResult is the XML response body for CreateSession
+// (s3@v1.111.0 deserializers.go: root element name is never checked by the
+// real client, only the nested Credentials element -- "CreateSessionResult"
+// matches AWS's documented shape).
+type createSessionResult struct {
+	XMLName     xml.Name           `xml:"CreateSessionResult"`
+	Xmlns       string             `xml:"xmlns,attr"`
+	Credentials createSessionCreds `xml:"Credentials"`
+}
+
+type createSessionCreds struct {
+	SessionToken    string `xml:"SessionToken"`
+	SecretAccessKey string `xml:"SecretAccessKey"`
+	AccessKeyID     string `xml:"AccessKeyId"`
+	Expiration      string `xml:"Expiration"`
+}
+
 func (h *S3Handler) createSession(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -710,13 +727,23 @@ func (h *S3Handler) createSession(
 	bucket string,
 ) {
 	h.setOperation(ctx, "CreateSession")
-	sessionXML, err := h.Backend.CreateSession(ctx, bucket)
+
+	mode := types.SessionMode(r.Header.Get("X-Amz-Create-Session-Mode"))
+
+	creds, err := h.Backend.CreateSession(ctx, bucket, mode)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
-	w.Header().Set("Content-Type", "application/xml")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(sessionXML))
+
+	httputils.WriteXML(ctx, w, http.StatusOK, createSessionResult{
+		Xmlns: xmlNamespaceS3,
+		Credentials: createSessionCreds{
+			SessionToken:    creds.SessionToken,
+			SecretAccessKey: creds.SecretAccessKey,
+			AccessKeyID:     creds.AccessKeyID,
+			Expiration:      creds.Expiration.UTC().Format(time.RFC3339),
+		},
+	})
 }

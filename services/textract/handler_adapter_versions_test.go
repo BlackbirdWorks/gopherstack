@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -273,62 +274,65 @@ func TestHandler_CreateAdapterVersion_DatasetConfig(t *testing.T) {
 func TestHandler_AdapterVersion_InProgressThenActive(t *testing.T) {
 	t.Parallel()
 
-	// Use a backend with a short async delay.
-	b := textract.NewInMemoryBackendSync("123456789012", "us-east-1")
-	textract.SetBackendAsyncDelay(b, 50*time.Millisecond)
-	h := textract.NewHandler(b)
+	synctest.Test(t, func(t *testing.T) {
+		// Use a backend with a short async delay.
+		b := textract.NewInMemoryBackendSync("123456789012", "us-east-1")
+		textract.SetBackendAsyncDelay(b, 50*time.Millisecond)
+		h := textract.NewHandler(b)
 
-	createAdapterRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
-		"AdapterName":  "lifecycle-adapter",
-		"FeatureTypes": []string{"FORMS"},
-	})
-	require.Equal(t, http.StatusOK, createAdapterRec.Code)
+		createAdapterRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
+			"AdapterName":  "lifecycle-adapter",
+			"FeatureTypes": []string{"FORMS"},
+		})
+		require.Equal(t, http.StatusOK, createAdapterRec.Code)
 
-	var createAdapterResp map[string]string
-	require.NoError(t, json.Unmarshal(createAdapterRec.Body.Bytes(), &createAdapterResp))
-	adapterID := createAdapterResp["AdapterId"]
+		var createAdapterResp map[string]string
+		require.NoError(t, json.Unmarshal(createAdapterRec.Body.Bytes(), &createAdapterResp))
+		adapterID := createAdapterResp["AdapterId"]
 
-	createVersionRec := doTextractRequest(t, h, "CreateAdapterVersion", map[string]any{
-		"AdapterId": adapterID,
-		"DatasetConfig": map[string]any{
-			"ManifestS3Object": map[string]any{
-				"Bucket": "test-dataset-bucket",
-				"Name":   "manifest.json",
+		createVersionRec := doTextractRequest(t, h, "CreateAdapterVersion", map[string]any{
+			"AdapterId": adapterID,
+			"DatasetConfig": map[string]any{
+				"ManifestS3Object": map[string]any{
+					"Bucket": "test-dataset-bucket",
+					"Name":   "manifest.json",
+				},
 			},
-		},
-		"OutputConfig": map[string]any{
-			"S3Bucket": "test-output-bucket",
-		},
+			"OutputConfig": map[string]any{
+				"S3Bucket": "test-output-bucket",
+			},
+		})
+		require.Equal(t, http.StatusOK, createVersionRec.Code)
+
+		var createVersionResp map[string]string
+		require.NoError(t, json.Unmarshal(createVersionRec.Body.Bytes(), &createVersionResp))
+		adapterVersion := createVersionResp["AdapterVersion"]
+
+		// Immediately check: should be CREATION_IN_PROGRESS.
+		getRec1 := doTextractRequest(t, h, "GetAdapterVersion", map[string]any{
+			"AdapterId":      adapterID,
+			"AdapterVersion": adapterVersion,
+		})
+		require.Equal(t, http.StatusOK, getRec1.Code)
+
+		var getResp1 map[string]any
+		require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1))
+		assert.Equal(t, "CREATION_IN_PROGRESS", getResp1["Status"])
+
+		// After delay, should be ACTIVE.
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
+
+		getRec2 := doTextractRequest(t, h, "GetAdapterVersion", map[string]any{
+			"AdapterId":      adapterID,
+			"AdapterVersion": adapterVersion,
+		})
+		require.Equal(t, http.StatusOK, getRec2.Code)
+
+		var getResp2 map[string]any
+		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
+		assert.Equal(t, "ACTIVE", getResp2["Status"])
 	})
-	require.Equal(t, http.StatusOK, createVersionRec.Code)
-
-	var createVersionResp map[string]string
-	require.NoError(t, json.Unmarshal(createVersionRec.Body.Bytes(), &createVersionResp))
-	adapterVersion := createVersionResp["AdapterVersion"]
-
-	// Immediately check: should be CREATION_IN_PROGRESS.
-	getRec1 := doTextractRequest(t, h, "GetAdapterVersion", map[string]any{
-		"AdapterId":      adapterID,
-		"AdapterVersion": adapterVersion,
-	})
-	require.Equal(t, http.StatusOK, getRec1.Code)
-
-	var getResp1 map[string]any
-	require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1))
-	assert.Equal(t, "CREATION_IN_PROGRESS", getResp1["Status"])
-
-	// After delay, should be ACTIVE.
-	time.Sleep(200 * time.Millisecond)
-
-	getRec2 := doTextractRequest(t, h, "GetAdapterVersion", map[string]any{
-		"AdapterId":      adapterID,
-		"AdapterVersion": adapterVersion,
-	})
-	require.Equal(t, http.StatusOK, getRec2.Code)
-
-	var getResp2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
-	assert.Equal(t, "ACTIVE", getResp2["Status"])
 }
 
 // TestHandler_AdapterVersion_EvaluationMetrics verifies GetAdapterVersion

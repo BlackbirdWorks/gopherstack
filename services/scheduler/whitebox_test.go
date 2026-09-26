@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -146,6 +147,54 @@ func TestScheduler_Runner_LocCacheEviction(t *testing.T) {
 
 	runner.checkAndFireSchedules(t.Context(), matchTime.Add(time.Hour))
 	assert.Equal(t, 0, locCacheLen(runner), "stale timezone cache entries should be evicted")
+}
+
+// TestScheduler_IdempotencyEviction proves storeIdempotent opportunistically
+// sweeps expired entries once the cache grows past idempotencyEvictThreshold,
+// so a Create* call whose ClientToken is never replayed does not sit in the
+// cache forever (only lookupIdempotent pruned before this fix, and only for
+// the exact key it was asked about).
+func TestScheduler_IdempotencyEviction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		seedExpired int
+		inserts     int
+		wantSwept   bool
+	}{
+		{name: "below threshold keeps expired", seedExpired: 1, inserts: 1},
+		{
+			name:        "threshold and sweep interval evicts expired",
+			seedExpired: idempotencyEvictThreshold + 16,
+			inserts:     idempotencyEvictSweepInterval,
+			wantSwept:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := NewHandler(NewInMemoryBackend("000000000000", "us-east-1"))
+			past := time.Now().Add(-time.Hour)
+
+			for i := range tt.seedExpired {
+				h.idempotency.Set(fmt.Sprintf("expired-%d", i), idempotentResult{arn: "arn:expired", expiresAt: past})
+			}
+
+			for i := range tt.inserts {
+				h.storeIdempotent(fmt.Sprintf("live-%d", i), "arn:live")
+			}
+
+			_, stillPresent := h.idempotency.Get("expired-0")
+			if tt.wantSwept {
+				assert.False(t, stillPresent, "expired entry should have been swept")
+			} else {
+				assert.True(t, stillPresent, "expired entry should remain below the eviction threshold")
+			}
+		})
+	}
 }
 
 type whiteboxLambdaInvoker struct{}

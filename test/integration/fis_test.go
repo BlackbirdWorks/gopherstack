@@ -505,6 +505,7 @@ func TestIntegration_FIS_KinesisThroughputException(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, kinesisClient, streamName)
 
 	// Obtain the stream ARN so we can reference it in the FIS target.
 	descOut, err := kinesisClient.DescribeStream(ctx, &kinesissdk.DescribeStreamInput{

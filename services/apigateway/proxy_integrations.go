@@ -59,7 +59,7 @@ func (h *Handler) handleAWSProxy(
 	var lambdaResp LambdaProxyResponse
 	if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(respBytes) //nolint:gosec // local emulation: response passthrough is intentional
+		_, _ = w.Write(respBytes)
 
 		return
 	}
@@ -86,19 +86,26 @@ func (h *Handler) handleAWSProxy(
 		bodyBytes = []byte(lambdaResp.Body)
 	}
 
-	bodyBytes = maybeCompressResponse(w, r, bodyBytes, h.minCompressSize(apiID))
+	bodyBytes = maybeCompressResponse(w, r, bodyBytes, h.minCompressSize(apiID, stageName))
 	w.WriteHeader(statusCode)
 	_, _ = w.Write(bodyBytes)
 }
 
-// minCompressSize returns the MinimumCompressionSize for the given API (0 = disabled).
-func (h *Handler) minCompressSize(apiID string) int {
-	api, err := h.Backend.GetRestAPI(apiID)
-	if err != nil || api == nil {
+// minCompressSize returns the deployed MinimumCompressionSize for the stage (0 =
+// disabled) -- like resources/methods/integrations, this RestApi-level setting is
+// only read as of the stage's deployment snapshot, not live.
+func (h *Handler) minCompressSize(apiID, stageName string) int {
+	stage, err := h.Backend.GetStage(apiID, stageName)
+	if err != nil || stage.DeploymentID == "" {
 		return 0
 	}
 
-	return api.MinimumCompressionSize
+	cfg, err := h.Backend.DeploymentConfig(apiID, stage.DeploymentID)
+	if err != nil {
+		return 0
+	}
+
+	return cfg.MinimumCompressionSize
 }
 
 // handleAWSIntegration handles an AWS (non-proxy) integration using VTL templates.
@@ -156,7 +163,7 @@ func (h *Handler) handleAWSIntegration(
 	// Apply response mapping template using status-code pattern matching.
 	responseBody, statusCode := h.applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
 
-	responseBody = maybeCompressResponse(w, r, responseBody, h.minCompressSize(apiID))
+	responseBody = maybeCompressResponse(w, r, responseBody, h.minCompressSize(apiID, stageName))
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
@@ -260,11 +267,11 @@ func (h *Handler) handleAWSServiceIntegration(
 	}
 
 	responseBody, statusCode := h.applyResponseTemplate([]byte("{}"), integration, vtlCtx.RequestID)
-	responseBody = maybeCompressResponse(w, r, responseBody, h.minCompressSize(apiID))
+	responseBody = maybeCompressResponse(w, r, responseBody, h.minCompressSize(apiID, stageName))
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write(responseBody) //nolint:gosec // local emulation: response passthrough is intentional
+	_, _ = w.Write(responseBody)
 }
 
 // sqsQueuePathSegments is the expected segment count of the path-style sqs
@@ -567,7 +574,6 @@ func (h *Handler) handleHTTPProxy(
 	r *http.Request,
 	integration *Integration,
 ) {
-	//nolint:gosec // local emulation: integration URI is test-configured
 	targetReq, err := http.NewRequestWithContext(
 		ctx,
 		r.Method,
@@ -641,7 +647,7 @@ func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Inte
 	}
 
 	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(body)) //nolint:gosec // local emulation: mock integration body is test-configured
+	_, _ = w.Write([]byte(body))
 }
 
 // mockResponseWithIR resolves the status code, body, and integration response for a MOCK integration.

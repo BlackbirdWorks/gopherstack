@@ -3,12 +3,12 @@ package stepfunctions_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -240,65 +240,49 @@ func TestHandler_SendTaskSuccess_WithRealToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
+			synctest.Test(t, func(t *testing.T) {
+				ctx := t.Context()
+				h, e := newSFNHandler(t)
 
-			// Create an activity.
-			rec := sfnPost(ctx, t, h, e, "CreateActivity", `{"name":"send-act-`+tt.name+`"}`)
-			require.Equal(t, http.StatusOK, rec.Code)
+				// Create an activity.
+				rec := sfnPost(ctx, t, h, e, "CreateActivity", `{"name":"send-act-`+tt.name+`"}`)
+				require.Equal(t, http.StatusOK, rec.Code)
 
-			var actResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &actResp))
-			actARN := actResp["activityArn"].(string)
+				var actResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &actResp))
+				actARN := actResp["activityArn"].(string)
 
-			// Enqueue a task by calling InvokeActivity from the backend.
-			bk, ok := h.Backend.(*stepfunctions.InMemoryBackend)
-			require.True(t, ok)
+				// Enqueue a task by calling InvokeActivity from the backend.
+				bk, ok := h.Backend.(*stepfunctions.InMemoryBackend)
+				require.True(t, ok)
 
-			taskCh := make(chan string, 1)
-			go func() {
-				out, err := bk.InvokeActivity(t.Context(), actARN, `{"in":1}`, 0)
-				if err == nil {
-					taskCh <- out
-				} else {
-					taskCh <- ""
-				}
-			}()
+				taskCh := make(chan string, 1)
+				go func() {
+					out, err := bk.InvokeActivity(t.Context(), actARN, `{"in":1}`, 0)
+					if err == nil {
+						taskCh <- out
+					} else {
+						taskCh <- ""
+					}
+				}()
 
-			// Poll for the task via the handler.
-			var taskToken string
+				// GetActivityTask long-polls; it unblocks as soon as the
+				// goroutine above enqueues the task.
+				task, pollErr := bk.GetActivityTask(ctx, actARN, "worker")
+				require.NoError(t, pollErr)
+				require.NotEmpty(t, task.TaskToken)
 
-			require.Eventually(t, func() bool {
-				pollCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-				defer cancel()
+				// Send success via HTTP handler.
+				body, _ := json.Marshal(map[string]string{
+					"taskToken": task.TaskToken,
+					"output":    tt.output,
+				})
+				rec = sfnPost(ctx, t, h, e, "SendTaskSuccess", string(body))
+				assert.Equal(t, http.StatusOK, rec.Code)
 
-				// Use the backend directly since GetActivityTask is context-aware.
-				task, pollErr := bk.GetActivityTask(pollCtx, actARN, "worker")
-				if pollErr != nil || task == nil || task.TaskToken == "" {
-					return false
-				}
-
-				taskToken = task.TaskToken
-
-				return true
-			}, 5*time.Second, 50*time.Millisecond)
-
-			require.NotEmpty(t, taskToken)
-
-			// Send success via HTTP handler.
-			body, _ := json.Marshal(map[string]string{
-				"taskToken": taskToken,
-				"output":    tt.output,
+				synctest.Wait()
+				assert.Equal(t, tt.output, <-taskCh)
 			})
-			rec = sfnPost(ctx, t, h, e, "SendTaskSuccess", string(body))
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			select {
-			case out := <-taskCh:
-				assert.Equal(t, tt.output, out)
-			case <-time.After(5 * time.Second):
-				t.Fatal("timeout waiting for InvokeActivity to complete")
-			}
 		})
 	}
 }
@@ -884,102 +868,77 @@ func TestActivity_ListAndPaginate(t *testing.T) {
 func TestActivity_SendTaskSuccess(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		defer b.Destroy()
 
-	act, err := b.CreateActivity(context.Background(), "send-act")
-	require.NoError(t, err)
+		act, err := b.CreateActivity(context.Background(), "send-act")
+		require.NoError(t, err)
 
-	actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
-		act.ActivityArn)
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"act-sm",
-		actDef,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
+		actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
+			act.ActivityArn)
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"act-sm",
+			actDef,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "act-exec", `{"in":1}`)
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "act-exec", `{"in":1}`)
+		require.NoError(t, err)
 
-	// Poll for the task.
-	var task *stepfunctions.ActivityTask
+		// GetActivityTask long-polls; it unblocks once the executor reaches
+		// the Task state and enqueues the task.
+		task, err := b.GetActivityTask(context.Background(), act.ActivityArn, "worker1")
+		require.NoError(t, err)
+		require.NotEmpty(t, task.TaskToken)
 
-	require.Eventually(t, func() bool {
-		ctx2, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
+		require.NoError(t, b.SendTaskSuccess(task.TaskToken, `{"out":2}`))
+		synctest.Wait()
 
-		t2, e := b.GetActivityTask(ctx2, act.ActivityArn, "worker1")
-
-		if e == nil && t2 != nil {
-			task = t2
-
-			return true
-		}
-
-		return false
-	}, 5*time.Second, 50*time.Millisecond)
-
-	require.NotNil(t, task)
-	require.NoError(t, b.SendTaskSuccess(task.TaskToken, `{"out":2}`))
-
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
-
-		return e == nil && d.Status == "SUCCEEDED"
-	}, 5*time.Second, 20*time.Millisecond)
+		d, err := b.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		assert.Equal(t, "SUCCEEDED", d.Status)
+	})
 }
 
 func TestActivity_SendTaskFailure(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		defer b.Destroy()
 
-	act, err := b.CreateActivity(context.Background(), "fail-act")
-	require.NoError(t, err)
+		act, err := b.CreateActivity(context.Background(), "fail-act")
+		require.NoError(t, err)
 
-	actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
-		act.ActivityArn)
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"act-fail-sm",
-		actDef,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
+		actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
+			act.ActivityArn)
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"act-fail-sm",
+			actDef,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "act-fail-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "act-fail-exec", "{}")
+		require.NoError(t, err)
 
-	var task *stepfunctions.ActivityTask
+		task, err := b.GetActivityTask(context.Background(), act.ActivityArn, "worker1")
+		require.NoError(t, err)
+		require.NotEmpty(t, task.TaskToken)
 
-	require.Eventually(t, func() bool {
-		ctx2, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
+		require.NoError(t, b.SendTaskFailure(task.TaskToken, "MyErr", "failed on purpose"))
+		synctest.Wait()
 
-		t2, e := b.GetActivityTask(ctx2, act.ActivityArn, "worker1")
-
-		if e == nil && t2 != nil {
-			task = t2
-
-			return true
-		}
-
-		return false
-	}, 5*time.Second, 50*time.Millisecond)
-
-	require.NotNil(t, task)
-	require.NoError(t, b.SendTaskFailure(task.TaskToken, "MyErr", "failed on purpose"))
-
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
-
-		return e == nil && d.Status == "FAILED"
-	}, 5*time.Second, 20*time.Millisecond)
+		d, err := b.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		assert.Equal(t, "FAILED", d.Status)
+	})
 }
 
 func TestActivity_SendTaskSuccessUnknownToken(t *testing.T) {
@@ -994,41 +953,29 @@ func TestActivity_SendTaskSuccessUnknownToken(t *testing.T) {
 func TestActivity_SendTaskHeartbeat(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		defer b.Destroy()
 
-	act, err := b.CreateActivity(context.Background(), "hb-act")
-	require.NoError(t, err)
+		act, err := b.CreateActivity(context.Background(), "hb-act")
+		require.NoError(t, err)
 
-	actDef := fmt.Sprintf(
-		`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"HeartbeatSeconds":60,"End":true}}}`,
-		act.ActivityArn,
-	)
-	sm, err := b.CreateStateMachine(context.Background(), "hb-sm", actDef, validRoleARN, "STANDARD")
-	require.NoError(t, err)
+		actDef := fmt.Sprintf(
+			`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"HeartbeatSeconds":60,"End":true}}}`,
+			act.ActivityArn,
+		)
+		sm, err := b.CreateStateMachine(context.Background(), "hb-sm", actDef, validRoleARN, "STANDARD")
+		require.NoError(t, err)
 
-	_, err = b.StartExecution(sm.StateMachineArn, "hb-exec", "{}")
-	require.NoError(t, err)
+		_, err = b.StartExecution(sm.StateMachineArn, "hb-exec", "{}")
+		require.NoError(t, err)
 
-	var task *stepfunctions.ActivityTask
+		task, err := b.GetActivityTask(context.Background(), act.ActivityArn, "hb-worker")
+		require.NoError(t, err)
+		require.NotEmpty(t, task.TaskToken)
 
-	require.Eventually(t, func() bool {
-		ctx2, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-
-		t2, e := b.GetActivityTask(ctx2, act.ActivityArn, "hb-worker")
-
-		if e == nil && t2 != nil {
-			task = t2
-
-			return true
-		}
-
-		return false
-	}, 5*time.Second, 50*time.Millisecond)
-
-	require.NotNil(t, task)
-	require.NoError(t, b.SendTaskHeartbeat(task.TaskToken))
+		require.NoError(t, b.SendTaskHeartbeat(task.TaskToken))
+	})
 }
 
 // ─── Versions ─────────────────────────────────────────────────────────────────
@@ -1276,40 +1223,38 @@ func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newSFBackend()
-			a, err := b.CreateActivity(context.Background(), "cancel-act-"+tt.name)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := newSFBackend()
+				a, err := b.CreateActivity(context.Background(), "cancel-act-"+tt.name)
+				require.NoError(t, err)
 
-			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
-			defer cancelInvoke()
+				invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+				defer cancelInvoke()
 
-			invokeErrCh := make(chan error, 1)
-			go func() {
-				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
-				invokeErrCh <- invokeErr
-			}()
+				invokeErrCh := make(chan error, 1)
+				go func() {
+					_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
+					invokeErrCh <- invokeErr
+				}()
 
-			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancelPoll()
+				task, err := b.GetActivityTask(t.Context(), a.ActivityArn, "worker-1")
+				require.NoError(t, err)
+				require.NotNil(t, task)
+				require.NotEmpty(t, task.TaskToken)
 
-			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
-			require.NoError(t, err)
-			require.NotNil(t, task)
-			require.NotEmpty(t, task.TaskToken)
+				cancelInvoke()
+				synctest.Wait()
 
-			cancelInvoke()
-
-			require.Eventually(t, func() bool {
 				select {
 				case invokeErr := <-invokeErrCh:
-					return errors.Is(invokeErr, context.Canceled)
+					require.ErrorIs(t, invokeErr, context.Canceled)
 				default:
-					return false
+					t.Fatal("InvokeActivity did not observe cancellation")
 				}
-			}, 2*time.Second, 25*time.Millisecond)
 
-			err = tt.sendResult(b, task.TaskToken)
-			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+				err = tt.sendResult(b, task.TaskToken)
+				require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+			})
 		})
 	}
 }
@@ -1345,44 +1290,43 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newSFBackend()
-			a, err := b.CreateActivity(context.Background(), "delete-act-"+tt.name)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := newSFBackend()
+				a, err := b.CreateActivity(context.Background(), "delete-act-"+tt.name)
+				require.NoError(t, err)
 
-			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
-			defer cancelInvoke()
+				invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+				defer cancelInvoke()
 
-			invokeErrCh := make(chan error, 1)
-			go func() {
-				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
-				invokeErrCh <- invokeErr
-			}()
+				invokeErrCh := make(chan error, 1)
+				go func() {
+					_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
+					invokeErrCh <- invokeErr
+				}()
 
-			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancelPoll()
+				task, err := b.GetActivityTask(t.Context(), a.ActivityArn, "worker-1")
+				require.NoError(t, err)
+				require.NotNil(t, task)
+				require.NotEmpty(t, task.TaskToken)
 
-			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
-			require.NoError(t, err)
-			require.NotNil(t, task)
-			require.NotEmpty(t, task.TaskToken)
+				err = b.DeleteActivity(a.ActivityArn)
+				require.NoError(t, err)
 
-			err = b.DeleteActivity(a.ActivityArn)
-			require.NoError(t, err)
+				err = tt.sendResult(b, task.TaskToken)
+				require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
 
-			err = tt.sendResult(b, task.TaskToken)
-			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+				// DeleteActivity signals resultCh for in-flight tasks, so InvokeActivity
+				// must unblock and return an error without requiring context cancellation.
+				synctest.Wait()
 
-			// DeleteActivity signals resultCh for in-flight tasks, so InvokeActivity
-			// must unblock and return an error without requiring context cancellation.
-			require.Eventually(t, func() bool {
 				select {
 				case invokeErr := <-invokeErrCh:
-					return invokeErr != nil
+					require.Error(t, invokeErr)
 				default:
-					return false
+					t.Fatal("InvokeActivity did not unblock after DeleteActivity")
 				}
-			}, 2*time.Second, 25*time.Millisecond)
-			cancelInvoke()
+				cancelInvoke()
+			})
 		})
 	}
 }
@@ -1412,17 +1356,15 @@ func TestSweepTaskTokensRLock(t *testing.T) {
 				act, err := bk.CreateActivity(ctx, "sweep-test-act")
 				require.NoError(t, err)
 
-				done := make(chan struct{})
 				go func() {
-					defer close(done)
 					// InvokeActivity registers a token; we never complete it.
 					bk.InvokeActivity(ctx, act.ActivityArn, `{}`, 0)
 				}()
 
-				// Give the goroutine time to register its token.
-				require.Eventually(t, func() bool {
-					return bk.TaskTokenCount() > 0
-				}, time.Second, 5*time.Millisecond)
+				// Wait until the goroutine above registers its token and
+				// durably blocks awaiting the result.
+				synctest.Wait()
+				require.Positive(t, bk.TaskTokenCount())
 
 				// Age all tokens well past the TTL.
 				bk.AgeTaskTokensForTest(2 * stepfunctions.DefaultTaskTokenTTLForTest)
@@ -1435,11 +1377,13 @@ func TestSweepTaskTokensRLock(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := stepfunctions.NewInMemoryBackend()
-			tt.setupFn(t, bk)
+			synctest.Test(t, func(t *testing.T) {
+				bk := stepfunctions.NewInMemoryBackend()
+				tt.setupFn(t, bk)
 
-			evicted := bk.SweepTaskTokens()
-			assert.Equal(t, tt.wantEvictions, evicted)
+				evicted := bk.SweepTaskTokens()
+				assert.Equal(t, tt.wantEvictions, evicted)
+			})
 		})
 	}
 }

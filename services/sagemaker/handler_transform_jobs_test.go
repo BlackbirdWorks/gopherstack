@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,68 +19,71 @@ import (
 func TestHandler_TransformJobLifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateModel", map[string]any{"ModelName": "my-model"})
+		doSageMakerRequest(t, h, "CreateModel", map[string]any{"ModelName": "my-model"})
 
-	// Create
-	rec := doSageMakerRequest(t, h, "CreateTransformJob", map[string]any{
-		"TransformJobName": "my-transform",
-		"ModelName":        "my-model",
-		"TransformInput": map[string]any{
-			"DataSource": map[string]any{
-				"S3DataSource": map[string]any{
-					"S3Uri":      "s3://bucket/input",
-					"S3DataType": "S3Prefix",
+		// Create
+		rec := doSageMakerRequest(t, h, "CreateTransformJob", map[string]any{
+			"TransformJobName": "my-transform",
+			"ModelName":        "my-model",
+			"TransformInput": map[string]any{
+				"DataSource": map[string]any{
+					"S3DataSource": map[string]any{
+						"S3Uri":      "s3://bucket/input",
+						"S3DataType": "S3Prefix",
+					},
 				},
+				"ContentType": "text/csv",
 			},
-			"ContentType": "text/csv",
-		},
-		"TransformOutput": map[string]any{
-			"S3OutputPath": "s3://bucket/output",
-		},
-		"TransformResources": map[string]any{
-			"InstanceType":  "ml.m5.large",
-			"InstanceCount": 1,
-		},
-		"BatchStrategy": "MultiRecord",
-		"Environment":   map[string]string{"KEY": "VALUE"},
+			"TransformOutput": map[string]any{
+				"S3OutputPath": "s3://bucket/output",
+			},
+			"TransformResources": map[string]any{
+				"InstanceType":  "ml.m5.large",
+				"InstanceCount": 1,
+			},
+			"BatchStrategy": "MultiRecord",
+			"Environment":   map[string]string{"KEY": "VALUE"},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var createResp map[string]string
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		assert.NotEmpty(t, createResp["TransformJobArn"])
+
+		// Describe — InProgress initially
+		rec = doSageMakerRequest(t, h, "DescribeTransformJob", map[string]any{
+			"TransformJobName": "my-transform",
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		assert.Equal(t, "my-transform", descResp["TransformJobName"])
+		assert.Equal(t, "my-model", descResp["ModelName"])
+		assert.Equal(t, "InProgress", descResp["TransformJobStatus"])
+		assert.Equal(t, "MultiRecord", descResp["BatchStrategy"])
+
+		// List
+		rec = doSageMakerRequest(t, h, "ListTransformJobs", map[string]any{})
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var listResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		summaries := listResp["TransformJobSummaries"].([]any)
+		assert.Len(t, summaries, 1)
+
+		// Wait for completion
+		time.Sleep(400 * time.Millisecond)
+		synctest.Wait()
+		rec = doSageMakerRequest(t, h, "DescribeTransformJob", map[string]any{
+			"TransformJobName": "my-transform",
+		})
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		assert.Equal(t, "Completed", descResp["TransformJobStatus"])
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	assert.NotEmpty(t, createResp["TransformJobArn"])
-
-	// Describe — InProgress initially
-	rec = doSageMakerRequest(t, h, "DescribeTransformJob", map[string]any{
-		"TransformJobName": "my-transform",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "my-transform", descResp["TransformJobName"])
-	assert.Equal(t, "my-model", descResp["ModelName"])
-	assert.Equal(t, "InProgress", descResp["TransformJobStatus"])
-	assert.Equal(t, "MultiRecord", descResp["BatchStrategy"])
-
-	// List
-	rec = doSageMakerRequest(t, h, "ListTransformJobs", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	summaries := listResp["TransformJobSummaries"].([]any)
-	assert.Len(t, summaries, 1)
-
-	// Wait for completion
-	time.Sleep(400 * time.Millisecond)
-	rec = doSageMakerRequest(t, h, "DescribeTransformJob", map[string]any{
-		"TransformJobName": "my-transform",
-	})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "Completed", descResp["TransformJobStatus"])
 }
 
 func TestHandler_TransformJob_NotFound(t *testing.T) {

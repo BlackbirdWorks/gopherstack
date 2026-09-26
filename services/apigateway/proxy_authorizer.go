@@ -156,10 +156,12 @@ func (h *Handler) runAuthorizer(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID, stageName, authorizerID string,
+	apiID, stageName string,
+	cfg *DeploymentConfig,
+	authorizerID string,
 ) bool {
-	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
-	if err != nil {
+	auth, ok := cfg.Authorizers[authorizerID]
+	if !ok {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
 		http.Error(w, "Authorizer configuration error", http.StatusInternalServerError)
 

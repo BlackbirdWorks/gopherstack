@@ -3,6 +3,7 @@ package pipes_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -28,49 +29,35 @@ func createEnrichmentTestPipe(t *testing.T, b *pipes.InMemoryBackend, name strin
 	require.NoError(t, err)
 }
 
-// waitPipeDeleted waits up to 500ms for a pipe to be fully deleted (removed from store).
-func waitPipeDeleted(t *testing.T, b *pipes.InMemoryBackend, name string) {
-	t.Helper()
-
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		_, err := b.GetPipe(context.Background(), name)
-		if err != nil {
-			return // pipe is gone
-		}
-
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	t.Fatalf("pipe %q was not deleted within 500ms", name)
-}
-
 // TestPipesEnrichmentCallCountPrunedOnDelete verifies that when a pipe is deleted
 // its enrichment call counter is removed from the index, preventing unbounded growth.
 func TestPipesEnrichmentCallCountPrunedOnDelete(t *testing.T) {
 	t.Parallel()
 
-	b := newPipesBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		b := newPipesBackend(t)
 
-	createEnrichmentTestPipe(t, b, "my-pipe")
+		createEnrichmentTestPipe(t, b, "my-pipe")
 
-	// Record some enrichment calls.
-	b.RecordEnrichmentCall(context.Background(), "my-pipe")
-	b.RecordEnrichmentCall(context.Background(), "my-pipe")
-	assert.Equal(t, int64(2), b.EnrichmentCallCountForTest("my-pipe"))
-	assert.Equal(t, 1, b.EnrichmentIndexSizeForTest())
+		// Record some enrichment calls.
+		b.RecordEnrichmentCall(context.Background(), "my-pipe")
+		b.RecordEnrichmentCall(context.Background(), "my-pipe")
+		assert.Equal(t, int64(2), b.EnrichmentCallCountForTest("my-pipe"))
+		assert.Equal(t, 1, b.EnrichmentIndexSizeForTest())
 
-	// Delete the pipe and wait for the async transition to complete.
-	_, err := b.DeletePipe(context.Background(), "my-pipe")
-	require.NoError(t, err)
+		// Delete the pipe and wait for the async transition to complete.
+		_, err := b.DeletePipe(context.Background(), "my-pipe")
+		require.NoError(t, err)
 
-	waitPipeDeleted(t, b, "my-pipe")
+		time.Sleep(20 * time.Millisecond)
+		synctest.Wait()
 
-	// The enrichment counter for the deleted pipe must have been pruned.
-	assert.Equal(t, int64(0), b.EnrichmentCallCountForTest("my-pipe"),
-		"enrichment count for deleted pipe must be 0")
-	assert.Equal(t, 0, b.EnrichmentIndexSizeForTest(),
-		"enrichment index must be empty after pipe deletion")
+		// The enrichment counter for the deleted pipe must have been pruned.
+		assert.Equal(t, int64(0), b.EnrichmentCallCountForTest("my-pipe"),
+			"enrichment count for deleted pipe must be 0")
+		assert.Equal(t, 0, b.EnrichmentIndexSizeForTest(),
+			"enrichment index must be empty after pipe deletion")
+	})
 }
 
 // TestPipesEnrichmentCountOnlyPrunesDeletedPipe verifies that deleting one pipe
@@ -78,24 +65,28 @@ func TestPipesEnrichmentCallCountPrunedOnDelete(t *testing.T) {
 func TestPipesEnrichmentCountOnlyPrunesDeletedPipe(t *testing.T) {
 	t.Parallel()
 
-	b := newPipesBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		b := newPipesBackend(t)
 
-	createEnrichmentTestPipe(t, b, "pipe-a")
-	createEnrichmentTestPipe(t, b, "pipe-b")
+		createEnrichmentTestPipe(t, b, "pipe-a")
+		createEnrichmentTestPipe(t, b, "pipe-b")
 
-	b.RecordEnrichmentCall(context.Background(), "pipe-a")
-	b.RecordEnrichmentCall(context.Background(), "pipe-b")
-	b.RecordEnrichmentCall(context.Background(), "pipe-b")
+		b.RecordEnrichmentCall(context.Background(), "pipe-a")
+		b.RecordEnrichmentCall(context.Background(), "pipe-b")
+		b.RecordEnrichmentCall(context.Background(), "pipe-b")
 
-	assert.Equal(t, 2, b.EnrichmentIndexSizeForTest())
+		assert.Equal(t, 2, b.EnrichmentIndexSizeForTest())
 
-	_, err := b.DeletePipe(context.Background(), "pipe-a")
-	require.NoError(t, err)
-	waitPipeDeleted(t, b, "pipe-a")
+		_, err := b.DeletePipe(context.Background(), "pipe-a")
+		require.NoError(t, err)
 
-	// pipe-b counter must be untouched.
-	assert.Equal(t, int64(2), b.EnrichmentCallCountForTest("pipe-b"))
-	assert.Equal(t, 1, b.EnrichmentIndexSizeForTest(), "only pipe-a should be pruned")
+		time.Sleep(20 * time.Millisecond)
+		synctest.Wait()
+
+		// pipe-b counter must be untouched.
+		assert.Equal(t, int64(2), b.EnrichmentCallCountForTest("pipe-b"))
+		assert.Equal(t, 1, b.EnrichmentIndexSizeForTest(), "only pipe-a should be pruned")
+	})
 }
 
 // BenchmarkPipesEnrichmentCallCount benchmarks RecordEnrichmentCall to confirm

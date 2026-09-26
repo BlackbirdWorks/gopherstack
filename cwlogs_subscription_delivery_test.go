@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -17,13 +18,15 @@ func TestCWLogsSubscriptionDeliverer_Routing(t *testing.T) {
 	t.Run("kinesis destination receives the payload", func(t *testing.T) {
 		t.Parallel()
 
-		kb := kinesisbackend.NewInMemoryBackend()
+		clock := newKinesisFakeClock(time.Now())
+		kb := kinesisbackend.NewInMemoryBackend().WithClock(clock.Now)
 		if err := kb.CreateStream(
 			context.Background(),
 			&kinesisbackend.CreateStreamInput{StreamName: "logs", ShardCount: 1},
 		); err != nil {
 			t.Fatalf("CreateStream: %v", err)
 		}
+		clock.Advance(kinesisStreamSettleWait)
 
 		d := &cwlogsSubscriptionDeliverer{kinesis: kb}
 		arn := "arn:aws:kinesis:us-east-1:000000000000:stream/logs"

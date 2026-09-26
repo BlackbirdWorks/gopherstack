@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -50,7 +52,7 @@ func (b *InMemoryBackend) RequestCertificate(
 		return existing, nil
 	}
 
-	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	id := uuid.NewString()
 	certARN := arn.Build("acm", region, b.accountID, "certificate/"+id)
 
 	if certType == "" {
@@ -401,7 +403,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		return &cp, nil
 	}
 
-	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	id := uuid.NewString()
 	certARN := arn.Build("acm", region, b.accountID, "certificate/"+id)
 
 	cert := &Certificate{

@@ -73,14 +73,16 @@ type StorageBackend interface {
 		ctx context.Context,
 		stackSetName string,
 		accounts, ouIDs, regions []string,
+		filterType string,
 	) (string, error)
 	DeleteStackInstances(
 		ctx context.Context,
 		stackSetName string,
 		accounts, ouIDs, regions []string,
 		retainStacks bool,
+		filterType string,
 	) (string, error)
-	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string) (string, error)
+	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string, filterType string) (string, error)
 	ListStackInstances(
 		stackSetName string, maxResults int, nextToken string, filter ListStackInstancesFilter,
 	) (page.Page[StackInstance], error)

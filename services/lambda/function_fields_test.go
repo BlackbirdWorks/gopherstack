@@ -389,6 +389,177 @@ func TestDurableConfig_PublishedVersionCarriesConfig(t *testing.T) {
 	assert.Equal(t, int32(1800), *ver.DurableConfig.ExecutionTimeout)
 }
 
+// DurableConfig — documented range/runtime restrictions.
+// docs.aws.amazon.com/lambda/latest/api/API_DurableConfig.html
+
+func TestCreateFunction_DurableConfigRangeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		durableConfig  string
+		wantStatusCode int
+	}{
+		{
+			name:           "ExecutionTimeout below minimum is rejected",
+			durableConfig:  `{"ExecutionTimeout":0}`,
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "ExecutionTimeout above maximum is rejected",
+			durableConfig:  `{"ExecutionTimeout":31622401}`,
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "ExecutionTimeout at the documented boundaries is accepted",
+			durableConfig:  `{"ExecutionTimeout":1,"RetentionPeriodInDays":90}`,
+			wantStatusCode: http.StatusCreated,
+		},
+		{
+			name:           "RetentionPeriodInDays below minimum is rejected",
+			durableConfig:  `{"RetentionPeriodInDays":0}`,
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "RetentionPeriodInDays above maximum is rejected",
+			durableConfig:  `{"RetentionPeriodInDays":91}`,
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newInMemoryHandler(t)
+			body := fmt.Sprintf(
+				`{"FunctionName":%q,"PackageType":"Image","Code":{"ImageUri":"ecr/x:latest"},`+
+					`"Role":"arn:aws:iam:::role/r","DurableConfig":%s}`,
+				"durcfg-range-fn", tt.durableConfig,
+			)
+
+			rec := auditCreateFunction(t, h, body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code, rec.Body.String())
+
+			if tt.wantStatusCode == http.StatusBadRequest {
+				errBody := lambdaParseBody(t, rec)
+				assert.Equal(t, "InvalidParameterValueException", errBody["__type"])
+			}
+		})
+	}
+}
+
+func TestUpdateFunctionConfiguration_DurableConfigRangeValidation(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	rec := auditCreateFunction(t, h, baseImageFn("durcfg-range-update-fn"))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec2 := auditUpdateConfig(t, h, "durcfg-range-update-fn", `{"DurableConfig":{"RetentionPeriodInDays":91}}`)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	errBody := lambdaParseBody(t, rec2)
+	assert.Equal(t, "InvalidParameterValueException", errBody["__type"])
+}
+
+func TestCreateFunction_DurableRuntimeRestriction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		fnName         string
+		packageType    string
+		runtime        string
+		durableConfig  string
+		wantStatusCode int
+	}{
+		{
+			name:           "Zip runtime unsupported for durable functions is rejected",
+			fnName:         "durrt-unsupported",
+			packageType:    "Zip",
+			runtime:        "python3.9",
+			durableConfig:  `{"ExecutionTimeout":3600}`,
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "Zip runtime supported for durable functions is accepted",
+			fnName:         "durrt-supported",
+			packageType:    "Zip",
+			runtime:        "python3.13",
+			durableConfig:  `{"ExecutionTimeout":3600}`,
+			wantStatusCode: http.StatusCreated,
+		},
+		{
+			name:           "Zip unsupported runtime without DurableConfig is unaffected",
+			fnName:         "durrt-no-durable",
+			packageType:    "Zip",
+			runtime:        "python3.9",
+			wantStatusCode: http.StatusCreated,
+		},
+		{
+			name:           "Image package type has no runtime restriction",
+			fnName:         "durrt-image",
+			packageType:    "Image",
+			durableConfig:  `{"ExecutionTimeout":3600}`,
+			wantStatusCode: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newInMemoryHandler(t)
+
+			var codeField, durableField string
+
+			if tt.packageType == "Zip" {
+				codeField = `"Code":{"ZipFile":"UEsDBA=="},"Handler":"index.handler","Runtime":"` + tt.runtime + `",`
+			} else {
+				codeField = `"Code":{"ImageUri":"ecr/x:latest"},`
+			}
+
+			if tt.durableConfig != "" {
+				durableField = `"DurableConfig":` + tt.durableConfig + `,`
+			}
+
+			body := fmt.Sprintf(
+				`{"FunctionName":%q,"PackageType":%q,%s%s"Role":"arn:aws:iam:::role/r"}`,
+				tt.fnName, tt.packageType, codeField, durableField,
+			)
+
+			rec := auditCreateFunction(t, h, body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code, rec.Body.String())
+
+			if tt.wantStatusCode == http.StatusBadRequest {
+				errBody := lambdaParseBody(t, rec)
+				assert.Equal(t, "InvalidParameterValueException", errBody["__type"])
+			}
+		})
+	}
+}
+
+func TestUpdateFunctionConfiguration_DurableRuntimeRestriction(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	body := `{"FunctionName":"durrt-update-fn","PackageType":"Zip","Runtime":"python3.13",` +
+		`"Handler":"index.handler","Code":{"ZipFile":"UEsDBA=="},"Role":"arn:aws:iam:::role/r",` +
+		`"DurableConfig":{"ExecutionTimeout":3600}}`
+	rec := auditCreateFunction(t, h, body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	// Changing Runtime to one that doesn't support durable functions must be
+	// rejected using the function's EXISTING DurableConfig (not repeated here).
+	rec2 := auditUpdateConfig(t, h, "durrt-update-fn", `{"Runtime":"python3.9"}`)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code, rec2.Body.String())
+
+	errBody := lambdaParseBody(t, rec2)
+	assert.Equal(t, "InvalidParameterValueException", errBody["__type"])
+}
+
 // ============================================================
 // RevisionId optimistic concurrency on UpdateFunctionConfiguration /
 // UpdateFunctionCode (PARITY.md deferred item, extended from AddPermission's

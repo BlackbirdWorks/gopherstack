@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -197,20 +196,14 @@ func TestS3ObjectLambda_ConfigClearedOnBucketDelete(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusNoContent, rec.Code)
 
-	// Run the janitor so the pending-delete bucket is fully removed from the
-	// table (DeleteBucket only marks it pending; removal is asynchronous).
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go s3.NewJanitor(backend, s3.Settings{JanitorInterval: 5 * time.Millisecond}).Run(ctx)
+	// DeleteBucket only marks the bucket pending; drain it synchronously so
+	// the table reflects full removal before recreating the bucket.
+	s3.NewJanitor(backend, s3.Settings{}).DrainPendingBucketsOnce(t.Context())
 
-	// Recreate a bucket with the same name and put a plain object.
-	require.Eventually(t, func() bool {
-		req = httptest.NewRequest(http.MethodPut, "/"+bucket, nil)
-		rec = httptest.NewRecorder()
-		serveS3Handler(handler, rec, req)
-
-		return rec.Code == http.StatusOK
-	}, time.Second, 10*time.Millisecond, "recreated bucket should succeed once janitor drains the pending delete")
+	req = httptest.NewRequest(http.MethodPut, "/"+bucket, nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	req = httptest.NewRequest(
 		http.MethodPut,

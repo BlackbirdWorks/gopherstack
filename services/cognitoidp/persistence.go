@@ -398,6 +398,7 @@ func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
 	b.tokenRevokedBeforeSeq = make(map[string]int64)
 	b.tokenRevokedBefore = make(map[string]time.Time)
 	b.tokenSeq = 0
+	b.refreshTokenInsertsSinceSweep = 0
 	b.resourceTags = make(map[string]map[string]string)
 	b.riskConfigurations = make(map[string]*RiskConfiguration)
 	b.logDeliveryConfigs = make(map[string]*LogDeliveryConfig)

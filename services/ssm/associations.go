@@ -638,77 +638,29 @@ func (b *InMemoryBackend) ListAssociations(
 	return &ListAssociationsOutputFull{Associations: page, NextToken: next}, nil
 }
 
-// applyAssociationCoreUpdates applies UpdateAssociationInput's original
-// (pre-extended-fields) settable properties to assoc in place.
+// applyAssociationCoreUpdates replaces (not merges) assoc's original
+// settable properties: AWS nulls every omitted optional field (api_op_UpdateAssociation.go).
 func applyAssociationCoreUpdates(assoc *Association, input *UpdateAssociationInput) {
-	if input.AssociationName != nil {
-		assoc.AssociationName = *input.AssociationName
-	}
-
-	if input.DocumentVersion != nil {
-		assoc.DocumentVersion = *input.DocumentVersion
-	}
-
-	if input.Parameters != nil {
-		assoc.Parameters = copyAssocParameters(input.Parameters)
-	}
-
-	if input.Targets != nil {
-		assoc.Targets = copyAssocTargets(input.Targets)
-	}
+	assoc.AssociationName = ptrconv.String(input.AssociationName)
+	assoc.DocumentVersion = ptrconv.String(input.DocumentVersion)
+	assoc.Parameters = copyAssocParameters(input.Parameters)
+	assoc.Targets = copyAssocTargets(input.Targets)
 }
 
-// applyAssociationExtendedUpdates applies the State Manager fields added
-// alongside CreateAssociationInput (ApplyOnlyAtCronInterval/
-// AssociationDispatchAssumeRole/AutomationTargetParameterName/CalendarNames/
-// ComplianceSeverity/Duration/MaxConcurrency/MaxErrors/OutputLocation/
-// ScheduleExpression/SyncCompliance) to assoc in place. Split out of
-// UpdateAssociation to keep its cyclomatic complexity under the package
-// limit.
+// applyAssociationExtendedUpdates applies the State Manager fields the same
+// way: replace, not merge -- see applyAssociationCoreUpdates.
 func applyAssociationExtendedUpdates(assoc *Association, input *UpdateAssociationInput) {
-	if input.ApplyOnlyAtCronInterval {
-		assoc.ApplyOnlyAtCronInterval = input.ApplyOnlyAtCronInterval
-	}
-
-	if input.AssociationDispatchAssumeRole != nil {
-		assoc.AssociationDispatchAssumeRole = *input.AssociationDispatchAssumeRole
-	}
-
-	if input.AutomationTargetParameterName != nil {
-		assoc.AutomationTargetParameterName = *input.AutomationTargetParameterName
-	}
-
-	if input.CalendarNames != nil {
-		assoc.CalendarNames = append([]string(nil), input.CalendarNames...)
-	}
-
-	if input.ComplianceSeverity != "" {
-		assoc.ComplianceSeverity = input.ComplianceSeverity
-	}
-
-	if input.Duration != nil {
-		assoc.Duration = input.Duration
-	}
-
-	if input.MaxConcurrency != nil {
-		assoc.MaxConcurrency = *input.MaxConcurrency
-	}
-
-	if input.MaxErrors != nil {
-		assoc.MaxErrors = *input.MaxErrors
-	}
-
-	if input.OutputLocation != nil {
-		assoc.OutputLocation = copyAssocOutputLocation(input.OutputLocation)
-	}
-
-	if input.ScheduleExpression != nil {
-		assoc.ScheduleExpression = *input.ScheduleExpression
-	}
-
-	if input.SyncCompliance != "" {
-		assoc.SyncCompliance = input.SyncCompliance
-	}
+	assoc.ApplyOnlyAtCronInterval = input.ApplyOnlyAtCronInterval
+	assoc.AssociationDispatchAssumeRole = ptrconv.String(input.AssociationDispatchAssumeRole)
+	assoc.AutomationTargetParameterName = ptrconv.String(input.AutomationTargetParameterName)
+	assoc.CalendarNames = append([]string(nil), input.CalendarNames...)
+	assoc.ComplianceSeverity = input.ComplianceSeverity
+	assoc.Duration = input.Duration
+	assoc.MaxConcurrency = ptrconv.String(input.MaxConcurrency)
+	assoc.MaxErrors = ptrconv.String(input.MaxErrors)
+	assoc.OutputLocation = copyAssocOutputLocation(input.OutputLocation)
+	assoc.ScheduleExpression = ptrconv.String(input.ScheduleExpression)
+	assoc.SyncCompliance = input.SyncCompliance
 }
 
 // UpdateAssociation updates an existing association.

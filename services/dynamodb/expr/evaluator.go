@@ -776,12 +776,34 @@ func (e *Evaluator) parseNumeric(v any) (float64, bool) {
 	case int64:
 		return float64(val), true
 	case string:
+		// Skip ParseFloat (allocates on failure) for plainly non-numeric strings.
+		if !couldBeNumeric(val) {
+			return 0, false
+		}
 		if f, parseErr := strconv.ParseFloat(val, 64); parseErr == nil {
 			return f, true
 		}
 	}
 
 	return 0, false
+}
+
+// couldBeNumeric reports whether s has only decimal-float characters.
+func couldBeNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for i := range len(s) {
+		switch c := s[i]; {
+		case c >= '0' && c <= '9':
+		case c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E':
+		default:
+			return false
+		}
+	}
+
+	return true
 }
 
 // formatDynamoNumber formats a float64 as a plain decimal string without

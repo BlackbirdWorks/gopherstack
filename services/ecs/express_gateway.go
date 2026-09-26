@@ -2,7 +2,6 @@ package ecs
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -205,7 +204,7 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 
 	serviceName := input.ServiceName
 	if serviceName == "" {
-		serviceName = "express-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		serviceName = "express-" + uuid.NewString()
 	}
 
 	serviceArn := fmt.Sprintf(

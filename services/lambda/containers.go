@@ -415,17 +415,21 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 //
 //nolint:gochecknoglobals // intentional package-level lookup table
 var runtimeBaseImages = map[string]string{
+	"python3.14":      "public.ecr.aws/lambda/python:3.14",
 	"python3.13":      "public.ecr.aws/lambda/python:3.13",
 	"python3.12":      "public.ecr.aws/lambda/python:3.12",
 	"python3.11":      "public.ecr.aws/lambda/python:3.11",
 	"python3.10":      "public.ecr.aws/lambda/python:3.10",
 	"python3.9":       "public.ecr.aws/lambda/python:3.9",
+	"nodejs24.x":      "public.ecr.aws/lambda/nodejs:24",
 	"nodejs22.x":      "public.ecr.aws/lambda/nodejs:22",
 	"nodejs20.x":      "public.ecr.aws/lambda/nodejs:20",
 	"nodejs18.x":      "public.ecr.aws/lambda/nodejs:18",
+	"java25":          "public.ecr.aws/lambda/java:25",
 	"java21":          "public.ecr.aws/lambda/java:21",
 	"java17":          "public.ecr.aws/lambda/java:17",
 	"java11":          "public.ecr.aws/lambda/java:11",
+	"dotnet10":        "public.ecr.aws/lambda/dotnet:10",
 	"dotnet9":         "public.ecr.aws/lambda/dotnet:9",
 	"dotnet8":         "public.ecr.aws/lambda/dotnet:8",
 	"ruby3.3":         "public.ecr.aws/lambda/ruby:3.3",
@@ -490,6 +494,29 @@ func isValidRuntime(runtime string) bool {
 	}
 
 	_, ok := deprecatedRuntimes[runtime]
+
+	return ok
+}
+
+// durableSupportedRuntimes lists managed runtimes allowed for a Zip durable function.
+// docs.aws.amazon.com/lambda/latest/dg/durable-supported-runtimes.html
+//
+//nolint:gochecknoglobals // static allowlist mirroring a fixed AWS doc table
+var durableSupportedRuntimes = map[string]struct{}{
+	"nodejs22.x": {},
+	"nodejs24.x": {},
+	"python3.13": {},
+	"python3.14": {},
+	"java17":     {},
+	"java21":     {},
+	"java25":     {},
+	"dotnet8":    {},
+	"dotnet10":   {},
+}
+
+// isDurableSupportedRuntime reports whether runtime supports durable functions.
+func isDurableSupportedRuntime(runtime string) bool {
+	_, ok := durableSupportedRuntimes[runtime]
 
 	return ok
 }

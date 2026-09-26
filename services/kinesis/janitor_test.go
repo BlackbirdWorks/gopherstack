@@ -3,6 +3,7 @@ package kinesis_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -134,16 +135,32 @@ func TestJanitor_Run_Cancel(t *testing.T) {
 func TestDeleteStream_CleansFaultEntry(t *testing.T) {
 	t.Parallel()
 
-	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "fault-stream"}))
+	synctest.Test(t, func(t *testing.T) {
+		bk := kinesis.NewInMemoryBackend()
+		require.NoError(
+			t,
+			bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "fault-stream"}),
+		)
+		time.Sleep(streamSettleWait)
 
-	// Inject a fault for the stream.
-	bk.InjectFaultForTest("fault-stream")
-	assert.True(t, bk.HasFaultForTest("fault-stream"), "fault should be present before delete")
+		// Inject a fault for the stream.
+		bk.InjectFaultForTest("fault-stream")
+		assert.True(t, bk.HasFaultForTest("fault-stream"), "fault should be present before delete")
 
-	require.NoError(t, bk.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "fault-stream"}))
+		require.NoError(
+			t,
+			bk.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "fault-stream"}),
+		)
+		time.Sleep(streamSettleWait)
 
-	assert.False(t, bk.HasFaultForTest("fault-stream"), "fault entry should be removed after delete")
+		// The fault entry is cleaned up lazily, once the DELETING deadline is
+		// physically resolved (any DescribeStream/ListStreams call) -- not at
+		// the DeleteStream call itself.
+		_, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "fault-stream"})
+		require.ErrorIs(t, err, kinesis.ErrStreamNotFound)
+
+		assert.False(t, bk.HasFaultForTest("fault-stream"), "fault entry should be removed after delete")
+	})
 }
 
 // TestDeleteStream_ClearsResourcePolicyOnRecreate verifies that deleting a
@@ -153,60 +170,73 @@ func TestDeleteStream_CleansFaultEntry(t *testing.T) {
 func TestDeleteStream_ClearsResourcePolicyOnRecreate(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "reused-stream"}))
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		bk := kinesis.NewInMemoryBackend()
+		require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "reused-stream"}))
+		time.Sleep(streamSettleWait)
 
-	desc, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "reused-stream"})
-	require.NoError(t, err)
+		desc, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "reused-stream"})
+		require.NoError(t, err)
 
-	require.NoError(t, bk.PutResourcePolicy(ctx, &kinesis.PutResourcePolicyInput{
-		ResourceARN: desc.StreamARN,
-		Policy:      `{"Version":"2012-10-17"}`,
-	}))
+		require.NoError(t, bk.PutResourcePolicy(ctx, &kinesis.PutResourcePolicyInput{
+			ResourceARN: desc.StreamARN,
+			Policy:      `{"Version":"2012-10-17"}`,
+		}))
 
-	require.NoError(t, bk.DeleteStream(ctx, &kinesis.DeleteStreamInput{StreamName: "reused-stream"}))
-	require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "reused-stream"}))
+		require.NoError(t, bk.DeleteStream(ctx, &kinesis.DeleteStreamInput{StreamName: "reused-stream"}))
+		time.Sleep(streamSettleWait)
+		require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "reused-stream"}))
 
-	recreated, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "reused-stream"})
-	require.NoError(t, err)
-	require.Equal(t, desc.StreamARN, recreated.StreamARN)
+		recreated, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "reused-stream"})
+		require.NoError(t, err)
+		require.Equal(t, desc.StreamARN, recreated.StreamARN)
 
-	_, err = bk.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{ResourceARN: recreated.StreamARN})
-	require.ErrorIs(t, err, kinesis.ErrResourcePolicyNotFound)
+		_, err = bk.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{ResourceARN: recreated.StreamARN})
+		require.ErrorIs(t, err, kinesis.ErrResourcePolicyNotFound)
+	})
 }
 
 func TestDeleteStream_LeavesOtherStreamResourcePolicyIntact(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	bk := kinesis.NewInMemoryBackend()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		bk := kinesis.NewInMemoryBackend()
 
-	require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "gone-stream"}))
-	require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "kept-stream"}))
+		require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "gone-stream"}))
+		require.NoError(t, bk.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: "kept-stream"}))
+		time.Sleep(streamSettleWait)
 
-	goneDesc, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "gone-stream"})
-	require.NoError(t, err)
-	keptDesc, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "kept-stream"})
-	require.NoError(t, err)
+		goneDesc, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "gone-stream"})
+		require.NoError(t, err)
+		keptDesc, err := bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "kept-stream"})
+		require.NoError(t, err)
 
-	require.NoError(t, bk.PutResourcePolicy(ctx, &kinesis.PutResourcePolicyInput{
-		ResourceARN: goneDesc.StreamARN,
-		Policy:      `{"Version":"2012-10-17","Statement":"gone"}`,
-	}))
-	require.NoError(t, bk.PutResourcePolicy(ctx, &kinesis.PutResourcePolicyInput{
-		ResourceARN: keptDesc.StreamARN,
-		Policy:      `{"Version":"2012-10-17","Statement":"kept"}`,
-	}))
+		require.NoError(t, bk.PutResourcePolicy(ctx, &kinesis.PutResourcePolicyInput{
+			ResourceARN: goneDesc.StreamARN,
+			Policy:      `{"Version":"2012-10-17","Statement":"gone"}`,
+		}))
+		require.NoError(t, bk.PutResourcePolicy(ctx, &kinesis.PutResourcePolicyInput{
+			ResourceARN: keptDesc.StreamARN,
+			Policy:      `{"Version":"2012-10-17","Statement":"kept"}`,
+		}))
 
-	require.NoError(t, bk.DeleteStream(ctx, &kinesis.DeleteStreamInput{StreamName: "gone-stream"}))
+		require.NoError(t, bk.DeleteStream(ctx, &kinesis.DeleteStreamInput{StreamName: "gone-stream"}))
+		time.Sleep(streamSettleWait)
 
-	_, err = bk.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{ResourceARN: goneDesc.StreamARN})
-	require.ErrorIs(t, err, kinesis.ErrResourcePolicyNotFound)
+		// Force lazy physical removal of "gone-stream" (and its resource
+		// policy cleanup) via a resolving call.
+		_, err = bk.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "gone-stream"})
+		require.ErrorIs(t, err, kinesis.ErrStreamNotFound)
 
-	kept, err := bk.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{ResourceARN: keptDesc.StreamARN})
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"Version":"2012-10-17","Statement":"kept"}`, kept.Policy)
+		_, err = bk.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{ResourceARN: goneDesc.StreamARN})
+		require.ErrorIs(t, err, kinesis.ErrResourcePolicyNotFound)
+
+		kept, err := bk.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{ResourceARN: keptDesc.StreamARN})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"Version":"2012-10-17","Statement":"kept"}`, kept.Policy)
+	})
 }
 
 // TestRingBuffer_WrapAround checks that pushing more than maxRecordsPerShard records
@@ -214,9 +244,18 @@ func TestDeleteStream_LeavesOtherStreamResourcePolicyIntact(t *testing.T) {
 func TestRingBuffer_WrapAround(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testRingBufferWrapAround(t)
+	})
+}
+
+func testRingBufferWrapAround(t *testing.T) {
+	t.Helper()
+
 	const maxCap = 10000
 	bk := kinesis.NewInMemoryBackend()
 	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "ring-stream"}))
+	time.Sleep(streamSettleWait)
 
 	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "ring-stream"})
 	require.NoError(t, err)
@@ -262,25 +301,37 @@ func TestRingBuffer_WrapAround(t *testing.T) {
 func TestBinarySearch_FindSequencePosition(t *testing.T) {
 	t.Parallel()
 
-	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "bsearch-stream"}))
-
-	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "bsearch-stream"})
-	require.NoError(t, err)
-	shardID := desc.Shards[0].ShardID
-
-	// Push 100 records.
+	var bk *kinesis.InMemoryBackend
+	var shardID string
 	seqs := make([]string, 100)
 
-	for i := range 100 {
-		out, putErr := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
-			StreamName:   "bsearch-stream",
-			PartitionKey: "pk",
-			Data:         []byte("data"),
-		})
-		require.NoError(t, putErr)
-		seqs[i] = out.SequenceNumber
-	}
+	// Setup runs inside a synctest bubble so the 100 PutRecord calls land
+	// after the stream's CREATING->ACTIVE deadline lazily elapses, without a
+	// real time.Sleep -- see PARITY.md. Only setup needs this: the subtests
+	// below only call GetShardIterator/GetRecords, which do not gate on
+	// stream status.
+	synctest.Test(t, func(t *testing.T) {
+		bk = kinesis.NewInMemoryBackend()
+		require.NoError(
+			t,
+			bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "bsearch-stream"}),
+		)
+		time.Sleep(streamSettleWait)
+
+		desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "bsearch-stream"})
+		require.NoError(t, err)
+		shardID = desc.Shards[0].ShardID
+
+		for i := range 100 {
+			out, putErr := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
+				StreamName:   "bsearch-stream",
+				PartitionKey: "pk",
+				Data:         []byte("data"),
+			})
+			require.NoError(t, putErr)
+			seqs[i] = out.SequenceNumber
+		}
+	})
 
 	tests := []struct {
 		name      string
@@ -438,10 +489,19 @@ func TestKinesisJanitor_DefaultInterval(t *testing.T) {
 func TestRetentionPeriod_JanitorEvictsOldRecords(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testRetentionPeriodJanitorEvictsOldRecords(t)
+	})
+}
+
+func testRetentionPeriodJanitorEvictsOldRecords(t *testing.T) {
+	t.Helper()
+
 	b := newParityBackend(t)
 	ctx := context.Background()
 
 	createParityStream(t, b, "retention-test", 1)
+	time.Sleep(streamSettleWait)
 
 	err := b.SetRetentionPeriodForTest("retention-test", 1)
 	require.NoError(t, err)

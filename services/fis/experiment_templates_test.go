@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -293,39 +294,41 @@ func TestExperimentTemplateARN_Shape(t *testing.T) {
 func TestUpdateTemplate_LastUpdateTime_Changes(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	tplID := seedTemplate(t, h)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		tplID := seedTemplate(t, h)
 
-	rec := doRequest(t, h, http.MethodGet, "/experimentTemplates/"+tplID, nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+		rec := doRequest(t, h, http.MethodGet, "/experimentTemplates/"+tplID, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
 
-	var before struct {
-		ExperimentTemplate struct {
-			CreationTime   float64 `json:"creationTime"`
-			LastUpdateTime float64 `json:"lastUpdateTime"`
-		} `json:"experimentTemplate"`
-	}
+		var before struct {
+			ExperimentTemplate struct {
+				CreationTime   float64 `json:"creationTime"`
+				LastUpdateTime float64 `json:"lastUpdateTime"`
+			} `json:"experimentTemplate"`
+		}
 
-	mustJSON(t, rec, &before)
+		mustJSON(t, rec, &before)
 
-	time.Sleep(5 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 
-	rec2 := doRequest(t, h, http.MethodPatch, "/experimentTemplates/"+tplID, map[string]any{
-		"description": "updated description",
+		rec2 := doRequest(t, h, http.MethodPatch, "/experimentTemplates/"+tplID, map[string]any{
+			"description": "updated description",
+		})
+		require.Equal(t, http.StatusOK, rec2.Code)
+
+		var after struct {
+			ExperimentTemplate struct {
+				Description    string  `json:"description"`
+				LastUpdateTime float64 `json:"lastUpdateTime"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec2, &after)
+		assert.Equal(t, "updated description", after.ExperimentTemplate.Description)
+		assert.GreaterOrEqual(t, after.ExperimentTemplate.LastUpdateTime, before.ExperimentTemplate.LastUpdateTime,
+			"lastUpdateTime must not decrease after PATCH")
 	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var after struct {
-		ExperimentTemplate struct {
-			Description    string  `json:"description"`
-			LastUpdateTime float64 `json:"lastUpdateTime"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec2, &after)
-	assert.Equal(t, "updated description", after.ExperimentTemplate.Description)
-	assert.GreaterOrEqual(t, after.ExperimentTemplate.LastUpdateTime, before.ExperimentTemplate.LastUpdateTime,
-		"lastUpdateTime must not decrease after PATCH")
 }
 
 // ----------------------------------------

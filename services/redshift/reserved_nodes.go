@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// reservedNodeIDHexBytes is the byte length of a ReservedNode's random ID
+// suffix (16 hex chars), keeping the existing "rn-" prefix convention.
+const reservedNodeIDHexBytes = 8
+
 const (
 	offeringClassRegular = "Regular"
 	currencyUSD          = "USD"
@@ -172,7 +176,7 @@ func (b *InMemoryBackend) PurchaseReservedNodeOffering(
 	}
 
 	if reservedNodeID == "" {
-		reservedNodeID = fmt.Sprintf("rn-%d", time.Now().UnixNano())
+		reservedNodeID = fmt.Sprintf("rn-%s", randomHex(reservedNodeIDHexBytes))
 	}
 
 	b.mu.Lock("PurchaseReservedNodeOffering")

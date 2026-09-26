@@ -45,6 +45,23 @@ func invocationChainContains(ctx context.Context, functionName string) bool {
 	return slices.Contains(chain, functionName)
 }
 
+// durableExecARNKeyType carries an Event invocation's durable execution ARN to
+// invokeEvent without widening InvokeFunctionWithQualifier.
+type durableExecARNKeyType struct{}
+
+// withDurableExecARN returns a context carrying arn for a pending Event invocation.
+func withDurableExecARN(ctx context.Context, arn string) context.Context {
+	return context.WithValue(ctx, durableExecARNKeyType{}, arn)
+}
+
+// durableExecARNFromContext returns the durable execution ARN set by
+// withDurableExecARN, or "" when none was set (non-durable or non-Event invocation).
+func durableExecARNFromContext(ctx context.Context) string {
+	arn, _ := ctx.Value(durableExecARNKeyType{}).(string)
+
+	return arn
+}
+
 // InvokeFunction invokes a Lambda function without a qualifier (equivalent to "$LATEST").
 // For qualified invocations (alias or version number), use InvokeFunctionWithQualifier.
 func (b *InMemoryBackend) InvokeFunction(
@@ -233,12 +250,13 @@ func (b *InMemoryBackend) invokeEvent(
 	trackConcurrency bool,
 ) {
 	inv := &pendingInvocation{
-		requestID:     uuid.New().String(),
-		payload:       payload,
-		clientContext: clientContext,
-		deadline:      time.Now().Add(timeout),
-		createdAt:     time.Now(),
-		result:        make(chan invocationResult, 1),
+		requestID:      uuid.New().String(),
+		payload:        payload,
+		clientContext:  clientContext,
+		deadline:       time.Now().Add(timeout),
+		createdAt:      time.Now(),
+		result:         make(chan invocationResult, 1),
+		durableExecARN: durableExecARNFromContext(ctx),
 	}
 
 	b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
@@ -406,6 +424,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 					"function", functionName, "attempts", attempt+1)
 			}
 
+			b.completeAsyncDurableExecution(currentInv.durableExecARN, !isError, result.payload)
 			b.dispatchAsyncOutcome(context.WithoutCancel(b.ctx), outcome)
 
 			return
@@ -418,6 +437,16 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 
 		currentInv = newInv
 	}
+}
+
+// completeAsyncDurableExecution records an Event invocation's final outcome;
+// no-op when arn is empty.
+func (b *InMemoryBackend) completeAsyncDurableExecution(arn string, succeeded bool, result []byte) {
+	if arn == "" || b.durableExecs == nil {
+		return
+	}
+
+	b.durableExecs.completeExecution(arn, succeeded, string(result))
 }
 
 // readAsyncRetryConfig returns the effective maximum retry attempts and the event-age deadline
@@ -510,11 +539,12 @@ func scheduleAsyncRetry(
 	}
 
 	newInv := &pendingInvocation{
-		requestID: uuid.New().String(),
-		payload:   original.payload,
-		deadline:  time.Now().Add(timeout),
-		result:    make(chan invocationResult, 1),
-		createdAt: original.createdAt,
+		requestID:      uuid.New().String(),
+		payload:        original.payload,
+		deadline:       time.Now().Add(timeout),
+		result:         make(chan invocationResult, 1),
+		createdAt:      original.createdAt,
+		durableExecARN: original.durableExecARN,
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, asyncInvocationEnqueueTimeout)

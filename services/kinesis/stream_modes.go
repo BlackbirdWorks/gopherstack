@@ -5,10 +5,10 @@ import "context"
 // UpdateStreamWarmThroughput configures pre-warmed throughput for a stream
 // (kinesis@v1.46.4 api_op_UpdateStreamWarmThroughput.go:63-70, required
 // WarmThroughputMiBps). Real AWS applies this asynchronously (stream goes
-// UPDATING then back to ACTIVE); this backend has no transient-state model
-// for that (streams are always ACTIVE), so the change is applied
+// UPDATING then back to ACTIVE); this backend applies the change
 // synchronously and Current/Target always match on read -- see
-// UpdateStreamWarmThroughputOutput and PARITY.md.
+// UpdateStreamWarmThroughputOutput and PARITY.md -- but does now reject a
+// non-ACTIVE stream with ResourceInUseException, matching the declared error.
 func (b *InMemoryBackend) UpdateStreamWarmThroughput(
 	ctx context.Context,
 	input *UpdateStreamWarmThroughputInput,
@@ -19,25 +19,27 @@ func (b *InMemoryBackend) UpdateStreamWarmThroughput(
 
 	region := regionFromARNOrCtx(ctx, input.StreamARN, b.region)
 
-	b.mu.RLock("UpdateStreamWarmThroughput")
+	b.mu.Lock("UpdateStreamWarmThroughput")
+	defer b.mu.Unlock()
 
 	streamName := input.StreamName
 	if streamName == "" {
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streams.Get(streamKey(region, streamName))
-	if !ok {
-		b.mu.RUnlock()
-
-		return nil, ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, streamName)
+	if err != nil {
+		return nil, err
 	}
 	stream.mu.Lock("UpdateStreamWarmThroughput.stream")
-	b.mu.RUnlock()
+	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return nil, ErrStreamNotActive
+	}
 
 	stream.WarmThroughputMiBps = input.WarmThroughputMiBps
 	arnOut, nameOut := stream.ARN, stream.Name
-	stream.mu.Unlock()
 
 	return &UpdateStreamWarmThroughputOutput{
 		StreamARN:  arnOut,
@@ -57,12 +59,16 @@ func (b *InMemoryBackend) UpdateStreamMode(ctx context.Context, input *UpdateStr
 	defer b.mu.Unlock()
 
 	streamName := streamNameFromARN(input.StreamARN)
-	stream, ok := b.streams.Get(streamKey(region, streamName))
-	if !ok {
-		return ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, streamName)
+	if err != nil {
+		return err
 	}
 	stream.mu.Lock("UpdateStreamMode.stream")
 	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return ErrStreamNotActive
+	}
 
 	newMode := input.StreamModeDetails.StreamMode
 	if newMode != streamModeProvisioned && newMode != streamModeOnDemand {
@@ -97,6 +103,9 @@ func (b *InMemoryBackend) UpdateStreamMode(ctx context.Context, input *UpdateStr
 		}
 		stream.WarmThroughputMiBps = v
 	}
+
+	stream.Status = streamStatusUpdating
+	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 
 	return nil
 }

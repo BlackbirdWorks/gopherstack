@@ -17,6 +17,23 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// parseListObjectsMaxKeys parses ListObjects (V1)'s max-keys query param. The
+// result is provably in [0, defaultMaxKeys]: it starts at the constant
+// default and is only reassigned to a parsed value that is non-negative and
+// strictly less than defaultMaxKeys. AWS clamps MaxKeys to [0, 1000] rather
+// than rejecting an over-limit value, so a value at or above the limit is
+// treated as the limit.
+func parseListObjectsMaxKeys(r *http.Request) int32 {
+	n := defaultMaxKeys
+	if mk := r.URL.Query().Get("max-keys"); mk != "" {
+		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v < defaultMaxKeys {
+			n = v
+		}
+	}
+
+	return int32(n)
+}
+
 func (h *S3Handler) listObjects(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -27,6 +44,12 @@ func (h *S3Handler) listObjects(
 
 	if err := h.authorizeObjectAccess(ctx, r, bucketName, "", actionListBucket); err != nil {
 		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	if h.Backend.IsDirectoryBucket(bucketName) {
+		WriteError(ctx, w, r, ErrListObjectsNotSupportedForDirectoryBucket)
 
 		return
 	}
@@ -42,18 +65,7 @@ func (h *S3Handler) listObjects(
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
 	)
 
-	// n is provably in [0, defaultMaxKeys] before the int32 conversion: it
-	// starts at the constant default and is only reassigned to a parsed value
-	// that is non-negative and strictly less than defaultMaxKeys. AWS clamps
-	// MaxKeys to [0, 1000] rather than rejecting an over-limit value, so a
-	// value at or above the limit is treated as the limit.
-	n := defaultMaxKeys
-	if mk := r.URL.Query().Get("max-keys"); mk != "" {
-		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v < defaultMaxKeys {
-			n = v
-		}
-	}
-	maxKeys := int32(n)
+	maxKeys := parseListObjectsMaxKeys(r)
 
 	// Pass marker and delimiter to backend so it can seek and group correctly.
 	out, err := h.Backend.ListObjects(ctx, &s3.ListObjectsInput{
@@ -128,7 +140,11 @@ func (h *S3Handler) listObjects(
 		}
 	}
 
-	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+	buf := httputils.GetBuffer()
+	defer httputils.PutBuffer(buf)
+	buf.WriteString(xml.Header)
+	writeListBucketXML(buf, &resp)
+	writeListXMLResponse(ctx, w, http.StatusOK, buf)
 }
 
 func (h *S3Handler) mapObjectsToXML(
@@ -365,23 +381,23 @@ func (h *S3Handler) handleListDirectoryBuckets(
 		s3DirectoryBucketsResult{Xmlns: xmlNamespaceS3, Buckets: entries})
 }
 
-// isListDirectoryBucketsRequest returns true when the request targets ListDirectoryBuckets.
+// isListDirectoryBucketsRequest returns true when the request targets
+// ListDirectoryBuckets.
 //
-// "list-type=directory" is not a real signal: the pinned SDK
-// (s3@v1.106.5 api_op_ListDirectoryBuckets.go/serializers.go) never sends
-// it -- ListDirectoryBucketsInput.bindEndpointParams sets
-// UseS3ExpressControlEndpoint, and real AWS distinguishes the two ops
-// purely by literal hostname (s3express-control.<region>.amazonaws.com
-// vs s3.<region>.amazonaws.com), not by any query/path/header on the
-// request itself. Against gopherstack's single local endpoint (the only
-// way any client can reach it), a real ListDirectoryBuckets() call is
-// wire-identical to ListBuckets() -- no query param, path, or header
-// differs -- so this check can never be satisfied by an unmodified SDK
-// client and every real call silently falls through to listBuckets
-// instead (200 success, wrong bucket set). This is structural, not a
-// routing bug fixable by correcting a discriminator: there is no real one
-// to key on. Left as documented dead code (gopherstack-0bq8) rather than
-// deleted, since it is the only way to reach this op at all in tests.
+// Real AWS distinguishes ListDirectoryBuckets from ListBuckets purely by
+// literal hostname (s3express-control.<region>.amazonaws.com vs
+// s3.<region>.amazonaws.com), which gopherstack's single local endpoint has
+// no way to key on. But every S3 restXml operation the pinned SDK sends
+// (confirmed against s3@v1.111.0 by driving both ops through a real client
+// with a custom BaseEndpoint) carries its own operation name in the "x-id"
+// query parameter -- "GET /?x-id=ListBuckets" vs "GET /?x-id=ListDirectoryBuckets"
+// -- so that param is a real, always-present signal rather than an invented
+// one. Reaching ListDirectoryBuckets against a custom BaseEndpoint also
+// requires the client to set Options.DisableS3ExpressSessionAuth = true:
+// without it, the pinned SDK's own S3Express identity resolver requires a
+// bucket name that this bucket-less operation never has, and the request
+// never reaches the wire at all (client-side error "get identity: bucket
+// name is missing", not a gopherstack bug -- see PARITY.md).
 func isListDirectoryBucketsRequest(r *http.Request) bool {
-	return r.URL.Query().Get("list-type") == "directory"
+	return r.URL.Query().Get("x-id") == "ListDirectoryBuckets"
 }

@@ -3,10 +3,9 @@ package eventbridge_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,40 +34,42 @@ func (f *auditFailingSQSSender) SendMessageToQueue(ctx context.Context, queueARN
 
 func TestDelivery_DLQCalledOnFailure(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
 
-	dlqSink := newMockSQSSender()
-	dlqARN := "arn:aws:sqs:us-east-1:123456789012:my-dlq"
-	targetARN := "arn:aws:sqs:us-east-1:123456789012:my-queue"
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend()
 
-	sender := &auditFailingSQSSender{delegate: dlqSink, failARN: targetARN}
-	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sender})
+		dlqSink := newMockSQSSender()
+		dlqARN := "arn:aws:sqs:us-east-1:123456789012:my-dlq"
+		targetARN := "arn:aws:sqs:us-east-1:123456789012:my-queue"
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         "rule",
-		EventPattern: `{"source":["dlq-test"]}`,
-	})
-	require.NoError(t, err)
+		sender := &auditFailingSQSSender{delegate: dlqSink, failARN: targetARN}
+		b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sender})
 
-	_, err = b.PutTargets(context.Background(), "rule", "", []eventbridge.Target{
-		{
-			ID:               "t1",
-			Arn:              targetARN,
-			DeadLetterConfig: &eventbridge.DeadLetterConfig{Arn: dlqARN},
-			RetryPolicy: &eventbridge.RetryPolicy{
-				MaximumRetryAttempts: 0,
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         "rule",
+			EventPattern: `{"source":["dlq-test"]}`,
+		})
+		require.NoError(t, err)
+
+		_, err = b.PutTargets(context.Background(), "rule", "", []eventbridge.Target{
+			{
+				ID:               "t1",
+				Arn:              targetARN,
+				DeadLetterConfig: &eventbridge.DeadLetterConfig{Arn: dlqARN},
+				RetryPolicy: &eventbridge.RetryPolicy{
+					MaximumRetryAttempts: 0,
+				},
 			},
-		},
-	})
-	require.NoError(t, err)
+		})
+		require.NoError(t, err)
 
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "dlq-test", DetailType: "T", Detail: `{}`},
-	})
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "dlq-test", DetailType: "T", Detail: `{}`},
+		})
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
-		return len(dlqSink.MessagesFor(dlqARN)) > 0
-	}, 2*time.Second, 10*time.Millisecond, "DLQ should have received the failed event")
+		require.NotEmpty(t, dlqSink.MessagesFor(dlqARN), "DLQ should have received the failed event")
+	})
 }
 
 // auditCountingSQSSender counts calls per queue and always fails delivery.
@@ -94,153 +95,152 @@ func (c *auditCountingSQSSender) CountFor(queueARN string) int {
 
 func TestDelivery_RetryPolicyZeroAttemptsNeverRetries(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
 
-	counter := &auditCountingSQSSender{count: make(map[string]int)}
-	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: counter})
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend()
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         "retry-rule",
-		EventPattern: `{"source":["retry-test"]}`,
-	})
-	require.NoError(t, err)
+		counter := &auditCountingSQSSender{count: make(map[string]int)}
+		b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: counter})
 
-	targetARN := "arn:aws:sqs:us-east-1:123456789012:target-q"
-	_, err = b.PutTargets(context.Background(), "retry-rule", "", []eventbridge.Target{
-		{
-			ID:  "t1",
-			Arn: targetARN,
-			RetryPolicy: &eventbridge.RetryPolicy{
-				MaximumRetryAttempts: 0,
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         "retry-rule",
+			EventPattern: `{"source":["retry-test"]}`,
+		})
+		require.NoError(t, err)
+
+		targetARN := "arn:aws:sqs:us-east-1:123456789012:target-q"
+		_, err = b.PutTargets(context.Background(), "retry-rule", "", []eventbridge.Target{
+			{
+				ID:  "t1",
+				Arn: targetARN,
+				RetryPolicy: &eventbridge.RetryPolicy{
+					MaximumRetryAttempts: 0,
+				},
 			},
-		},
+		})
+		require.NoError(t, err)
+
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "retry-test", DetailType: "T", Detail: `{}`},
+		})
+		synctest.Wait()
+
+		// With 0 retry attempts, should call exactly once.
+		assert.Equal(t, 1, counter.CountFor(targetARN))
 	})
-	require.NoError(t, err)
-
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "retry-test", DetailType: "T", Detail: `{}`},
-	})
-
-	// Wait for delivery to complete (1 attempt only).
-	require.Eventually(t, func() bool {
-		return counter.CountFor(targetARN) >= 1
-	}, 2*time.Second, 10*time.Millisecond)
-
-	time.Sleep(50 * time.Millisecond)
-	// With 0 retry attempts, should call exactly once.
-	assert.Equal(t, 1, counter.CountFor(targetARN))
 }
 
 func TestDelivery_DefaultRetryAttempts(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
 
-	counter := &auditCountingSQSSender{count: make(map[string]int)}
-	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: counter})
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend()
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         "default-retry-rule",
-		EventPattern: `{"source":["default-retry"]}`,
+		counter := &auditCountingSQSSender{count: make(map[string]int)}
+		b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: counter})
+
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         "default-retry-rule",
+			EventPattern: `{"source":["default-retry"]}`,
+		})
+		require.NoError(t, err)
+
+		targetARN := "arn:aws:sqs:us-east-1:123456789012:target-q2"
+		_, err = b.PutTargets(context.Background(), "default-retry-rule", "", []eventbridge.Target{
+			{
+				ID:  "t1",
+				Arn: targetARN,
+				// No RetryPolicy set → use defaults (2 retries = 3 total attempts).
+			},
+		})
+		require.NoError(t, err)
+
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "default-retry", DetailType: "T", Detail: `{}`},
+		})
+		synctest.Wait()
+
+		// Default 2 retries = 1 initial + 2 retries = 3 total attempts.
+		assert.Equal(t, 3, counter.CountFor(targetARN))
 	})
-	require.NoError(t, err)
-
-	targetARN := "arn:aws:sqs:us-east-1:123456789012:target-q2"
-	_, err = b.PutTargets(context.Background(), "default-retry-rule", "", []eventbridge.Target{
-		{
-			ID:  "t1",
-			Arn: targetARN,
-			// No RetryPolicy set → use defaults (2 retries = 3 total attempts).
-		},
-	})
-	require.NoError(t, err)
-
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "default-retry", DetailType: "T", Detail: `{}`},
-	})
-
-	// Default 2 retries = 1 initial + 2 retries = 3 total attempts.
-	require.Eventually(t, func() bool {
-		return counter.CountFor(targetARN) >= 3
-	}, 2*time.Second, 10*time.Millisecond)
-
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, 3, counter.CountFor(targetARN))
 }
 
 func TestCustomBus_DeliverToSQS(t *testing.T) {
 	t.Parallel()
 
-	sqsMock := newMockSQSSender()
-	b := setupDeliveryBackend(t, sqsMock, newMockLambdaInvoker())
-	const (
-		busName  = "my-custom-bus"
-		queueARN = "arn:aws:sqs:us-east-1:123456789012:custom-bus-queue"
-		ruleName = "custom-rule"
-	)
+	synctest.Test(t, func(t *testing.T) {
+		sqsMock := newMockSQSSender()
+		b := setupDeliveryBackend(t, sqsMock, newMockLambdaInvoker())
+		const (
+			busName  = "my-custom-bus"
+			queueARN = "arn:aws:sqs:us-east-1:123456789012:custom-bus-queue"
+			ruleName = "custom-rule"
+		)
 
-	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: busName})
-	require.NoError(t, err)
+		_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: busName})
+		require.NoError(t, err)
 
-	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         ruleName,
-		EventBusName: busName,
-		EventPattern: `{"source": ["custom.src"]}`,
-		State:        "ENABLED",
+		_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         ruleName,
+			EventBusName: busName,
+			EventPattern: `{"source": ["custom.src"]}`,
+			State:        "ENABLED",
+		})
+		require.NoError(t, err)
+
+		_, err = b.PutTargets(context.Background(), ruleName, busName, []eventbridge.Target{
+			{ID: "t1", Arn: queueARN},
+		})
+		require.NoError(t, err)
+
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "custom.src", DetailType: "Evt", Detail: `{"x":1}`, EventBusName: busName},
+		})
+		synctest.Wait()
+
+		require.NotEmpty(t, sqsMock.MessagesFor(queueARN), "expected delivery to custom bus SQS target")
 	})
-	require.NoError(t, err)
-
-	_, err = b.PutTargets(context.Background(), ruleName, busName, []eventbridge.Target{
-		{ID: "t1", Arn: queueARN},
-	})
-	require.NoError(t, err)
-
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "custom.src", DetailType: "Evt", Detail: `{"x":1}`, EventBusName: busName},
-	})
-
-	require.Eventually(t, func() bool {
-		return len(sqsMock.MessagesFor(queueARN)) > 0
-	}, 2*time.Second, 20*time.Millisecond, "expected delivery to custom bus SQS target")
 }
 
 func TestInputTransformer_TemplateApplied(t *testing.T) {
 	t.Parallel()
 
-	sqsMock := newMockSQSSender()
-	b := setupDeliveryBackend(t, sqsMock, newMockLambdaInvoker())
-	const (
-		queueARN = "arn:aws:sqs:us-east-1:123456789012:transformer-queue"
-		ruleName = "transformer-rule"
-	)
+	synctest.Test(t, func(t *testing.T) {
+		sqsMock := newMockSQSSender()
+		b := setupDeliveryBackend(t, sqsMock, newMockLambdaInvoker())
+		const (
+			queueARN = "arn:aws:sqs:us-east-1:123456789012:transformer-queue"
+			ruleName = "transformer-rule"
+		)
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         ruleName,
-		EventPattern: `{"source": ["svc"]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         ruleName,
+			EventPattern: `{"source": ["svc"]}`,
+			State:        "ENABLED",
+		})
+		require.NoError(t, err)
 
-	_, err = b.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
-		{
-			ID:  "t1",
-			Arn: queueARN,
-			InputTransformer: &eventbridge.InputTransformer{
-				InputPathsMap: map[string]string{"env": "$.detail.env"},
-				InputTemplate: `{"environment": "<env>"}`,
+		_, err = b.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
+			{
+				ID:  "t1",
+				Arn: queueARN,
+				InputTransformer: &eventbridge.InputTransformer{
+					InputPathsMap: map[string]string{"env": "$.detail.env"},
+					InputTemplate: `{"environment": "<env>"}`,
+				},
 			},
-		},
-	})
-	require.NoError(t, err)
+		})
+		require.NoError(t, err)
 
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "svc", DetailType: "Evt", Detail: `{"env": "production"}`},
-	})
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "svc", DetailType: "Evt", Detail: `{"env": "production"}`},
+		})
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
 		msgs := sqsMock.MessagesFor(queueARN)
-
-		return len(msgs) > 0 && strings.Contains(msgs[0], "production")
-	}, 2*time.Second, 20*time.Millisecond)
+		require.NotEmpty(t, msgs)
+		assert.Contains(t, msgs[0], "production")
+	})
 }
 
 var errSimulatedLambdaFailure = errors.New("simulated lambda invocation failure")
@@ -285,55 +285,53 @@ func TestDLQ_RoutedOnDeliveryFailure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sqsMock := newMockSQSSender()
-			backend := eventbridge.NewInMemoryBackend()
-			backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
-				SQS:    sqsMock,
-				Lambda: &failingLambdaInvoker{},
+			synctest.Test(t, func(t *testing.T) {
+				sqsMock := newMockSQSSender()
+				backend := eventbridge.NewInMemoryBackend()
+				backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+					SQS:    sqsMock,
+					Lambda: &failingLambdaInvoker{},
+				})
+
+				_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         "dlq-rule-" + tt.name,
+					EventPattern: `{"source": ["parity.test"]}`,
+					State:        "ENABLED",
+				})
+				require.NoError(t, err)
+
+				target := eventbridge.Target{
+					ID:  "t1",
+					Arn: lambdaARN,
+					RetryPolicy: &eventbridge.RetryPolicy{
+						MaximumRetryAttempts: 0,
+					},
+				}
+				if tt.dlqARN != "" {
+					target.DeadLetterConfig = &eventbridge.DeadLetterConfig{Arn: tt.dlqARN}
+				}
+
+				_, err = backend.PutTargets(
+					context.Background(),
+					"dlq-rule-"+tt.name,
+					"default",
+					[]eventbridge.Target{target},
+				)
+				require.NoError(t, err)
+
+				backend.PutEvents(context.Background(), []eventbridge.EventEntry{
+					{Source: "parity.test", DetailType: "TestEvent", Detail: `{"key": "val"}`},
+				})
+				synctest.Wait()
+
+				if tt.wantInDLQ {
+					msgs := sqsMock.MessagesFor(tt.dlqARN)
+					assert.NotEmpty(t, msgs, "DLQ should receive the failed event")
+				} else {
+					// No DLQ configured — nothing should be sent anywhere.
+					assert.Empty(t, sqsMock.MessagesFor(dlqARN))
+				}
 			})
-
-			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         "dlq-rule-" + tt.name,
-				EventPattern: `{"source": ["parity.test"]}`,
-				State:        "ENABLED",
-			})
-			require.NoError(t, err)
-
-			target := eventbridge.Target{
-				ID:  "t1",
-				Arn: lambdaARN,
-				RetryPolicy: &eventbridge.RetryPolicy{
-					MaximumRetryAttempts: 0,
-				},
-			}
-			if tt.dlqARN != "" {
-				target.DeadLetterConfig = &eventbridge.DeadLetterConfig{Arn: tt.dlqARN}
-			}
-
-			_, err = backend.PutTargets(
-				context.Background(),
-				"dlq-rule-"+tt.name,
-				"default",
-				[]eventbridge.Target{target},
-			)
-			require.NoError(t, err)
-
-			backend.PutEvents(context.Background(), []eventbridge.EventEntry{
-				{Source: "parity.test", DetailType: "TestEvent", Detail: `{"key": "val"}`},
-			})
-
-			if tt.wantInDLQ {
-				require.Eventually(t, func() bool {
-					return len(sqsMock.MessagesFor(tt.dlqARN)) > 0
-				}, 2*time.Second, 10*time.Millisecond, "DLQ should receive the failed event")
-
-				msgs := sqsMock.MessagesFor(tt.dlqARN)
-				assert.NotEmpty(t, msgs)
-			} else {
-				time.Sleep(150 * time.Millisecond)
-				// No DLQ configured — nothing should be sent anywhere.
-				assert.Empty(t, sqsMock.MessagesFor(dlqARN))
-			}
 		})
 	}
 }

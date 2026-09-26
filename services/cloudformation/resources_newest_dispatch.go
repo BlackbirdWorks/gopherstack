@@ -53,8 +53,59 @@ func (rc *ResourceCreator) createNewestSupplementalResource(
 	if id, ok, err := rc.createRedshiftMoreResource(logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
+	if id, ok, err := rc.createKinesisVideoResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createECRPublicResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createKafkaConnectResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
 
-	return "", false, nil
+	return rc.createEC2AdvancedNetworkingResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createEC2AdvancedNetworkingResource chains the EC2 VPN/networking-extras/
+// transit-gateway/traffic-mirror/route-server/network-insights families
+// ahead of IAM, ElastiCache, and API Gateway V2's own new-type families
+// added in this sweep.
+func (rc *ResourceCreator) createEC2AdvancedNetworkingResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if id, ok, err := rc.createEC2VPNResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEC2NetworkingExtrasResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEC2TransitGatewayMoreResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEC2TrafficMirrorResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEC2RouteServerResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEC2NetworkInsightsResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createIAMExtrasResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createElastiCacheUserResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
+	return rc.createAPIGatewayV2VpcLinkResource(logicalID, resourceType, props, params, physicalIDs)
 }
 
 // deleteNewestSupplementalResource mirrors createNewestSupplementalResource
@@ -95,8 +146,49 @@ func (rc *ResourceCreator) deleteNewestSupplementalResource(
 	if handled, err := rc.deleteRedshiftMoreResource(resourceType, physicalID); handled {
 		return true, err
 	}
+	if handled, err := rc.deleteKinesisVideoResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteECRPublicResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteKafkaConnectResource(resourceType, physicalID); handled {
+		return true, err
+	}
 
-	return false, nil
+	return rc.deleteEC2AdvancedNetworkingResource(ctx, resourceType, physicalID)
+}
+
+// deleteEC2AdvancedNetworkingResource mirrors createEC2AdvancedNetworkingResource.
+func (rc *ResourceCreator) deleteEC2AdvancedNetworkingResource(
+	ctx context.Context, resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteEC2VPNResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEC2NetworkingExtrasResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEC2TransitGatewayMoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEC2TrafficMirrorResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEC2RouteServerResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEC2NetworkInsightsResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteIAMExtrasResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteElastiCacheUserResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deleteAPIGatewayV2VpcLinkResource(resourceType, physicalID)
 }
 
 // deleteNewestPropsBasedResource handles deletes needing sibling CFN

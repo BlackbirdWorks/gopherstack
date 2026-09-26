@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -82,12 +83,21 @@ func TestListShards_DefaultMaxResults(t *testing.T) {
 func TestListShards_ShardFilterType_AtTimestamp(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testListShardsShardFilterTypeAtTimestamp(t)
+	})
+}
+
+func testListShardsShardFilterTypeAtTimestamp(t *testing.T) {
+	t.Helper()
+
 	b := NewInMemoryBackend()
 	ctx := context.Background()
 	require.NoError(t, b.CreateStream(ctx, &CreateStreamInput{
 		StreamName: "at-ts-stream",
 		ShardCount: 1,
 	}))
+	time.Sleep(streamSettleWaitInternal)
 
 	now := time.Now()
 	oldStart := now.Add(-3 * time.Hour)
@@ -137,12 +147,21 @@ func TestListShards_ShardFilterType_AtTimestamp(t *testing.T) {
 func TestListShards_ShardFilterType_FromTimestamp(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testListShardsShardFilterTypeFromTimestamp(t)
+	})
+}
+
+func testListShardsShardFilterTypeFromTimestamp(t *testing.T) {
+	t.Helper()
+
 	b := NewInMemoryBackend()
 	ctx := context.Background()
 	require.NoError(t, b.CreateStream(ctx, &CreateStreamInput{
 		StreamName: "from-ts-stream",
 		ShardCount: 1,
 	}))
+	time.Sleep(streamSettleWaitInternal)
 
 	now := time.Now()
 	oldStart := now.Add(-3 * time.Hour)

@@ -149,7 +149,10 @@ func (b *InMemoryBackend) DescribeStreamConsumer(
 		return nil, ErrConsumerNotFound
 	}
 
-	return &DescribeStreamConsumerOutput{ConsumerDescription: *consumer}, nil
+	cd := *consumer
+	cd.Tags = maps.Clone(consumer.Tags)
+
+	return &DescribeStreamConsumerOutput{ConsumerDescription: cd}, nil
 }
 
 // ListStreamConsumers lists all registered consumers for a stream.
@@ -175,7 +178,9 @@ func (b *InMemoryBackend) ListStreamConsumers(
 
 	consumers := make([]Consumer, 0, len(stream.Consumers))
 	for _, c := range stream.Consumers {
-		consumers = append(consumers, *c)
+		cp := *c
+		cp.Tags = maps.Clone(c.Tags)
+		consumers = append(consumers, cp)
 	}
 
 	// Sort for deterministic ordering.

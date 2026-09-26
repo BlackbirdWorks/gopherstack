@@ -55,6 +55,10 @@ func (b *InMemoryBackend) GetShardIterator(
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
 
+	if streamEffectivelyGone(stream, b.nowFunc()) {
+		return nil, ErrStreamNotFound
+	}
+
 	// Find the shard
 	shard := findShard(stream.Shards, input.ShardID)
 

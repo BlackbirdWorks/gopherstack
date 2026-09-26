@@ -124,6 +124,7 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 	b.portals.Put(portal)
 
 	cp := *portal
+	cp.Tags = copyTags(portal.Tags)
 
 	return &cp, nil
 }
@@ -174,6 +175,7 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 	b.portalProducts.Put(product)
 
 	cp := *product
+	cp.Tags = copyTags(product.Tags)
 
 	return &cp, nil
 }
@@ -404,6 +406,7 @@ func (b *InMemoryBackend) GetPortal(portalID string) (*Portal, error) {
 	}
 
 	cp := *p
+	cp.Tags = copyTags(p.Tags)
 
 	return &cp, nil
 }
@@ -417,7 +420,9 @@ func (b *InMemoryBackend) ListPortals() ([]Portal, error) {
 	result := make([]Portal, 0, len(all))
 
 	for _, p := range all {
-		result = append(result, *p)
+		cp := *p
+		cp.Tags = copyTags(p.Tags)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -438,6 +443,7 @@ func (b *InMemoryBackend) GetPortalProduct(portalProductID string) (*PortalProdu
 	}
 
 	cp := *pp
+	cp.Tags = copyTags(pp.Tags)
 
 	return &cp, nil
 }
@@ -451,7 +457,9 @@ func (b *InMemoryBackend) ListPortalProducts() ([]PortalProduct, error) {
 	result := make([]PortalProduct, 0, len(all))
 
 	for _, pp := range all {
-		result = append(result, *pp)
+		cp := *pp
+		cp.Tags = copyTags(pp.Tags)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -537,6 +545,7 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 	p.LastModified = &now
 
 	cp := *p
+	cp.Tags = copyTags(p.Tags)
 
 	return &cp, nil
 }
@@ -573,6 +582,7 @@ func (b *InMemoryBackend) UpdatePortalProduct(
 	pp.LastModified = &now
 
 	cp := *pp
+	cp.Tags = copyTags(pp.Tags)
 
 	return &cp, nil
 }

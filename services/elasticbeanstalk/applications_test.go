@@ -3,6 +3,7 @@ package elasticbeanstalk_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -204,14 +205,16 @@ func TestInMemoryBackend_DeleteApplication_ClearsManagedActionHistory(t *testing
 func TestInMemoryBackend_UpdateApplication_BumpsDateUpdated(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend()
-	app, err := b.CreateApplication(context.Background(), "app1", "orig", nil)
-	require.NoError(t, err)
-	created := app.DateUpdated
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
+		app, err := b.CreateApplication(context.Background(), "app1", "orig", nil)
+		require.NoError(t, err)
+		created := app.DateUpdated
 
-	time.Sleep(time.Second)
+		time.Sleep(time.Second)
 
-	updated, err := b.UpdateApplication(context.Background(), "app1", "new desc")
-	require.NoError(t, err)
-	assert.NotEqual(t, created, updated.DateUpdated)
+		updated, err := b.UpdateApplication(context.Background(), "app1", "new desc")
+		require.NoError(t, err)
+		assert.NotEqual(t, created, updated.DateUpdated)
+	})
 }

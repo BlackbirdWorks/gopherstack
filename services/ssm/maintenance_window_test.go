@@ -59,8 +59,9 @@ func TestStubOps_DescribeMaintenanceWindows(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestStubOps_UpdateMaintenanceWindowTarget exercises that stub.
-func TestStubOps_UpdateMaintenanceWindowTarget(t *testing.T) {
+// TestUpdateMaintenanceWindowTarget_NotFound verifies a non-existent target
+// returns the real DoesNotExistException instead of a fabricated success.
+func TestUpdateMaintenanceWindowTarget_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newTestHandler(t)
@@ -70,11 +71,13 @@ func TestStubOps_UpdateMaintenanceWindowTarget(t *testing.T) {
 		"UpdateMaintenanceWindowTarget",
 		`{"WindowId":"mw-1234","WindowTargetId":"tgt-1234"}`,
 	)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertBodyContains(t, rec, "DoesNotExistException")
 }
 
-// TestStubOps_UpdateMaintenanceWindowTask exercises that stub.
-func TestStubOps_UpdateMaintenanceWindowTask(t *testing.T) {
+// TestUpdateMaintenanceWindowTask_NotFound verifies a non-existent task
+// returns the real DoesNotExistException instead of a fabricated success.
+func TestUpdateMaintenanceWindowTask_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newTestHandler(t)
@@ -84,7 +87,8 @@ func TestStubOps_UpdateMaintenanceWindowTask(t *testing.T) {
 		"UpdateMaintenanceWindowTask",
 		`{"WindowId":"mw-1234","WindowTaskId":"task-1234"}`,
 	)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertBodyContains(t, rec, "DoesNotExistException")
 }
 
 // TestSSMHandler_ChaosOps verifies the chaos interface methods compile and return.

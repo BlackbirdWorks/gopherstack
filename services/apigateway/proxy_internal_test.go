@@ -372,18 +372,23 @@ func TestDeleteRestAPI_EvictsTrieCache(t *testing.T) {
 	api, err := backend.CreateRestAPI(CreateRestAPIInput{Name: "leak-api"})
 	require.NoError(t, err)
 
-	// Prime the trie cache the same way a proxied request would.
-	_, err = h.routingTrie(api.ID)
+	depl, err := backend.CreateDeployment(api.ID, "prod", "")
 	require.NoError(t, err)
 
-	_, cached := h.trieCache.Load(api.ID)
+	cfg, err := backend.DeploymentConfig(api.ID, depl.ID)
+	require.NoError(t, err)
+
+	// Prime the trie cache the same way a proxied request would.
+	h.routingTrie(depl.ID, cfg)
+
+	_, cached := h.trieCache.Load(depl.ID)
 	require.True(t, cached, "trie cache should hold an entry after routingTrie")
 
 	status, _, err := h.deleteRestAPIAction([]byte(`{"restApiId":"` + api.ID + `"}`))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusAccepted, status)
 
-	_, stillCached := h.trieCache.Load(api.ID)
+	_, stillCached := h.trieCache.Load(depl.ID)
 	assert.False(t, stillCached, "trie cache entry must be evicted on DeleteRestApi")
 }
 

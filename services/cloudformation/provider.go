@@ -30,6 +30,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
@@ -42,7 +43,9 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
@@ -154,6 +157,9 @@ type BackendsProvider interface {
 	GetGuardDutyHandler() service.Registerable
 	GetAccessAnalyzerHandler() service.Registerable
 	GetAmplifyHandler() service.Registerable
+	GetKinesisVideoHandler() service.Registerable
+	GetECRPublicHandler() service.Registerable
+	GetKafkaConnectHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -205,6 +211,9 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.GuardDuty, _ = getHandler[*guarddutybackend.Handler](bp.GetGuardDutyHandler())
 	backends.AccessAnalyzer, _ = getHandler[*accessanalyzerbackend.Handler](bp.GetAccessAnalyzerHandler())
 	backends.Amplify, _ = getHandler[*amplifybackend.Handler](bp.GetAmplifyHandler())
+	backends.KinesisVideo, _ = getHandler[*kinesisvideobackend.Handler](bp.GetKinesisVideoHandler())
+	backends.ECRPublic, _ = getHandler[*ecrpublicbackend.Handler](bp.GetECRPublicHandler())
+	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

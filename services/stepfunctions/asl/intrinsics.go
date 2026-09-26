@@ -209,7 +209,7 @@ func evalIntrinsicArg(arg string, input any) (any, error) {
 	}
 
 	// Null literal.
-	if arg == "null" {
+	if arg == aslNullLiteral {
 		return nil, nil //nolint:nilnil // null is a valid ASL literal value
 	}
 

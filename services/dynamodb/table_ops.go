@@ -1159,7 +1159,7 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 
 			db.tables.Put(replica)
 		} else {
-			existing.GlobalTableName = tableName
+			setTableGlobalTableNameLocked(existing, tableName)
 		}
 
 	case update.Delete != nil:

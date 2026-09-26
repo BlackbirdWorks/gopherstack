@@ -3,6 +3,7 @@ package ec2_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -166,29 +167,28 @@ func TestEC2Lifecycle_StopPendingInstance(t *testing.T) {
 func TestEC2Lifecycle_BackgroundReconciler(t *testing.T) {
 	t.Parallel()
 
-	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	// This test exercises the production background reconciler, so it starts the
-	// goroutine explicitly and stops it on cleanup. All other tests drive
-	// lifecycle transitions via TickLifecycleForTest and leave it stopped.
-	b.StartLifecycleReconciler(context.Background())
-	t.Cleanup(b.StopLifecycleReconciler)
+	synctest.Test(t, func(t *testing.T) {
+		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+		// This test exercises the production background reconciler, so it
+		// starts the goroutine explicitly and stops it before the bubble
+		// exits (StopLifecycleReconciler must run inside the bubble, or the
+		// still-running ticker goroutine deadlocks the bubble on exit). All
+		// other tests drive lifecycle transitions via TickLifecycleForTest
+		// and leave it stopped.
+		b.StartLifecycleReconciler(context.Background())
 
-	instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
-	require.NoError(t, err)
+		instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
+		require.NoError(t, err)
 
-	// Wait up to 500ms for the goroutine to advance state.
-	deadline := time.Now().Add(500 * time.Millisecond)
+		// lifecycleReconcileInterval is 50ms; cross a few ticks.
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
 
-	for time.Now().Before(deadline) {
 		all := b.DescribeInstances([]string{instances[0].ID}, "")
 		require.Len(t, all, 1)
+		assert.Equal(t, "running", all[0].State.Name, "instance did not advance from pending to running")
 
-		if all[0].State.Name == "running" {
-			return
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	t.Fatal("instance did not advance from pending to running within 500ms")
+		b.StopLifecycleReconciler()
+		synctest.Wait()
+	})
 }

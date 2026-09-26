@@ -319,7 +319,15 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		b.kinesisPoller.Notify()
 	}
 
-	return m, nil
+	return cloneESM(m), nil
+}
+
+// cloneESM stops a caller from racing UpdateEventSourceMapping or the
+// janitor's sweepESMs, which mutate m's fields under the lock.
+func cloneESM(m *EventSourceMapping) *EventSourceMapping {
+	cp := *m
+
+	return &cp
 }
 
 // GetEventSourceMapping retrieves an event source mapping by UUID.
@@ -332,7 +340,7 @@ func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMappin
 		return nil, ErrESMNotFound
 	}
 
-	return m, nil
+	return cloneESM(m), nil
 }
 
 // ListEventSourceMappings returns a page of event source mappings, optionally filtered by function name.
@@ -356,11 +364,16 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 		result = make([]*EventSourceMapping, 0, len(ids))
 		for id := range ids {
 			if m, ok := b.eventSourceMappings.Get(id); ok {
-				result = append(result, m)
+				result = append(result, cloneESM(m))
 			}
 		}
 	} else {
-		result = b.eventSourceMappings.All()
+		stored := b.eventSourceMappings.All()
+		result = make([]*EventSourceMapping, len(stored))
+
+		for i, m := range stored {
+			result[i] = cloneESM(m)
+		}
 	}
 
 	// Apply optional EventSourceArn filter.
@@ -402,7 +415,7 @@ func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMappi
 		b.kinesisPoller.RemoveMapping(id)
 	}
 
-	return m, nil
+	return cloneESM(m), nil
 }
 
 // applyESMUpdate patches esm fields from input (non-zero / non-nil values only).
@@ -495,7 +508,7 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	input *UpdateEventSourceMappingInput,
 ) (*EventSourceMapping, error) {
 	var (
-		esm        *EventSourceMapping
+		result     *EventSourceMapping
 		found      bool
 		nowEnabled bool
 		poller     *EventSourcePoller
@@ -505,9 +518,7 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		b.mu.Lock("UpdateEventSourceMapping")
 		defer b.mu.Unlock()
 
-		var ok bool
-
-		esm, ok = b.eventSourceMappings.Get(id)
+		esm, ok := b.eventSourceMappings.Get(id)
 		if !ok {
 			return
 		}
@@ -515,6 +526,7 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		found = true
 		nowEnabled = applyESMUpdate(esm, input)
 		poller = b.kinesisPoller
+		result = cloneESM(esm)
 	}()
 
 	if !found {
@@ -525,5 +537,5 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		poller.Notify()
 	}
 
-	return esm, nil
+	return result, nil
 }

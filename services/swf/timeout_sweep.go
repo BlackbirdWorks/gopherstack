@@ -6,6 +6,47 @@ import (
 	"time"
 )
 
+// closedExecutionRetentionCutoffLocked returns the epoch cutoff for closed executions
+// and false when retention is NONE/unset. Caller holds the read lock.
+// https://docs.aws.amazon.com/amazonswf/latest/apireference/API_RegisterDomain.html
+func (b *InMemoryBackend) closedExecutionRetentionCutoffLocked(domain string, now time.Time) (float64, bool) {
+	d, ok := b.domains.Get(domain)
+	if !ok || d.WorkflowExecutionRetentionPeriodInDays == "" ||
+		d.WorkflowExecutionRetentionPeriodInDays == retentionNone {
+		return 0, false
+	}
+
+	days, err := strconv.Atoi(d.WorkflowExecutionRetentionPeriodInDays)
+	if err != nil || days < 0 {
+		return 0, false
+	}
+
+	return float64(now.AddDate(0, 0, -days).Unix()), true
+}
+
+// sweepExpiredClosedExecutionsLocked evicts closed executions past their domain's
+// retention. Caller holds the write lock.
+func (b *InMemoryBackend) sweepExpiredClosedExecutionsLocked(now time.Time) {
+	var toEvict []string
+
+	for _, exec := range b.executions.All() {
+		if exec.Status == statusRunning || exec.CloseTimestamp == 0 {
+			continue
+		}
+
+		cutoff, finite := b.closedExecutionRetentionCutoffLocked(exec.Domain, now)
+		if !finite || exec.CloseTimestamp >= cutoff {
+			continue
+		}
+
+		toEvict = append(toEvict, executionKey(exec.Domain, exec.WorkflowID, exec.RunID))
+	}
+
+	for _, key := range toEvict {
+		b.evictExecutionLocked(key)
+	}
+}
+
 // executionDeadline returns exec's ExecutionStartToCloseTimeout deadline as
 // epoch seconds, and whether one is configured at all -- an empty or "NONE"
 // timeout (validateDuration's accepted sentinel for "no timeout") never
@@ -34,8 +75,8 @@ func executionDeadline(exec *WorkflowExecution) (float64, bool) {
 // the next such call rather than at the real wall-clock instant it expired.
 // now is a parameter rather than an internal time.Now() call so the sweep's
 // evaluation instant is directly controllable in tests, without sleeping or
-// a background goroutine. Caller must hold the write lock. Returns the
-// number of executions closed (timer fires are not counted).
+// a background goroutine, and evicts closed executions past retention. Caller must
+// hold the write lock. Returns executions closed (evictions not counted).
 func (b *InMemoryBackend) sweepTimedOutExecutionsLocked(now time.Time) int {
 	nowEpoch := float64(now.UnixMilli()) / milliDivisor
 
@@ -55,6 +96,8 @@ func (b *InMemoryBackend) sweepTimedOutExecutionsLocked(now time.Time) int {
 		b.timeoutExecutionLocked(exec.Domain, exec, nowEpoch)
 		swept++
 	}
+
+	b.sweepExpiredClosedExecutionsLocked(now)
 
 	return swept
 }

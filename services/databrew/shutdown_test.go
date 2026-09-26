@@ -3,8 +3,10 @@ package databrew_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/databrew"
@@ -135,18 +137,23 @@ func TestBackendShutdown(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b, job := tt.build(t)
-			if job == "" {
-				return
-			}
 
-			// Give any (incorrectly) leaked goroutine time to fire so a
-			// false negative would surface.
-			require.Never(t, func() bool {
+			synctest.Test(t, func(t *testing.T) {
+				b, job := tt.build(t)
+				if job == "" {
+					return
+				}
+
+				// Cross the 100ms transition delay: a leaked goroutine would
+				// have fired by now.
+				time.Sleep(250 * time.Millisecond)
+				synctest.Wait()
+
 				runs, _, err := b.ListJobRuns(context.Background(), job, 100, "")
-
-				return err == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
-			}, 250*time.Millisecond, 25*time.Millisecond)
+				require.NoError(t, err)
+				require.Len(t, runs, 1)
+				assert.NotEqual(t, "SUCCEEDED", runs[0].State)
+			})
 		})
 	}
 }
@@ -156,38 +163,42 @@ func TestBackendShutdown(t *testing.T) {
 func TestResetDoesNotStopTransitions(t *testing.T) {
 	t.Parallel()
 
-	b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
-	b.Reset()
+	synctest.Test(t, func(t *testing.T) {
+		b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
+		b.Reset()
 
-	_, err := b.CreateDataset(
-		context.Background(),
-		"ds",
-		"CSV",
-		s3Input("b", ""),
-		databrew.DatasetFormatOptions{},
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	_, err = b.CreateJob(
-		context.Background(),
-		"post-reset",
-		"PROFILE",
-		"ds",
-		"",
-		"",
-		"",
-		nil,
-		nil,
-		databrew.JobExtras{},
-	)
-	require.NoError(t, err)
-	_, err = b.StartJobRun(context.Background(), "post-reset")
-	require.NoError(t, err)
+		_, err := b.CreateDataset(
+			context.Background(),
+			"ds",
+			"CSV",
+			s3Input("b", ""),
+			databrew.DatasetFormatOptions{},
+			nil,
+			nil,
+		)
+		require.NoError(t, err)
+		_, err = b.CreateJob(
+			context.Background(),
+			"post-reset",
+			"PROFILE",
+			"ds",
+			"",
+			"",
+			"",
+			nil,
+			nil,
+			databrew.JobExtras{},
+		)
+		require.NoError(t, err)
+		_, err = b.StartJobRun(context.Background(), "post-reset")
+		require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		runs, _, listErr := b.ListJobRuns(context.Background(), "post-reset", 100, "")
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
 
-		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
-	}, 3*time.Second, 25*time.Millisecond)
+		runs, _, err := b.ListJobRuns(context.Background(), "post-reset", 100, "")
+		require.NoError(t, err)
+		require.Len(t, runs, 1)
+		assert.Equal(t, "SUCCEEDED", runs[0].State)
+	})
 }

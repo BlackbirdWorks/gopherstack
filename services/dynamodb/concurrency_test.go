@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 
@@ -77,7 +76,6 @@ func TestBatchConcurrency(t *testing.T) {
 						}
 						_, writeErr := db.BatchWriteItem(ctx, input)
 						require.NoError(t, writeErr)
-						time.Sleep(1 * time.Millisecond)
 					}
 				})
 			}
@@ -100,7 +98,6 @@ func TestBatchConcurrency(t *testing.T) {
 						}
 						_, readErr := db.BatchGetItem(ctx, input)
 						require.NoError(t, readErr)
-						time.Sleep(1 * time.Millisecond)
 					}
 				})
 			}

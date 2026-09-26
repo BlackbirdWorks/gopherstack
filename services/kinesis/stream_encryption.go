@@ -89,12 +89,16 @@ func (b *InMemoryBackend) StartStreamEncryption(ctx context.Context, input *Star
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streams.Get(streamKey(region, streamName))
-	if !ok {
-		return ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, streamName)
+	if err != nil {
+		return err
 	}
 	stream.mu.Lock("StartStreamEncryption.stream")
 	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return ErrStreamNotActive
+	}
 
 	if input.EncryptionType != encryptionTypeKMS {
 		return ErrInvalidArgument
@@ -105,12 +109,14 @@ func (b *InMemoryBackend) StartStreamEncryption(ctx context.Context, input *Star
 	// checks above, matching the "stream not found" test expectations that
 	// predate KMS validation -- a malformed KeyId against a nonexistent
 	// stream still surfaces ResourceNotFoundException, not InvalidArgumentException.
-	if err := b.resolveKMSKey(ctx, input.KeyID); err != nil {
-		return err
+	if kmsErr := b.resolveKMSKey(ctx, input.KeyID); kmsErr != nil {
+		return kmsErr
 	}
 
 	stream.EncryptionType = input.EncryptionType
 	stream.KeyID = input.KeyID
+	stream.Status = streamStatusUpdating
+	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 
 	return nil
 }
@@ -127,12 +133,16 @@ func (b *InMemoryBackend) StopStreamEncryption(ctx context.Context, input *StopS
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streams.Get(streamKey(region, streamName))
-	if !ok {
-		return ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, streamName)
+	if err != nil {
+		return err
 	}
 	stream.mu.Lock("StopStreamEncryption.stream")
 	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return ErrStreamNotActive
+	}
 
 	// KeyId is a required field on StopStreamEncryptionInput per the real SDK
 	// model even though stopping encryption never needs to look the key up;
@@ -143,6 +153,8 @@ func (b *InMemoryBackend) StopStreamEncryption(ctx context.Context, input *StopS
 
 	stream.EncryptionType = encryptionTypeNone
 	stream.KeyID = ""
+	stream.Status = streamStatusUpdating
+	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 
 	return nil
 }

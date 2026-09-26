@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
-| Feature families | 3 (3 ok) |
+| Feature families | 4 (4 ok) |
 | Known gaps | 4 |
 | Deferred items | 2 |
 | Resource leaks | clean |

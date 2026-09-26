@@ -118,7 +118,9 @@ func (b *InMemoryBackend) ListAccessGrantsInstances(accountID string) []*AccessG
 		return nil
 	}
 
-	return []*AccessGrantsInstance{inst}
+	cp := *inst
+
+	return []*AccessGrantsInstance{&cp}
 }
 
 func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGrantsInstance, error) {
@@ -130,7 +132,9 @@ func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGran
 		return nil, awserr.New("AccessGrantsInstanceNotExistsError", awserr.ErrNotFound)
 	}
 
-	return inst, nil
+	cp := *inst
+
+	return &cp, nil
 }
 
 // errAccessGrantsInstanceNotEmpty is returned when DeleteAccessGrantsInstance
@@ -231,7 +235,9 @@ func (b *InMemoryBackend) GetAccessGrantsInstanceForPrefix(
 	}
 	_ = prefix
 
-	return inst, nil
+	cp := *inst
+
+	return &cp, nil
 }
 
 // ---- Access Grants CRUD ----
@@ -342,7 +348,9 @@ func (b *InMemoryBackend) GetAccessGrantsLocation(
 		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
 
-	return loc, nil
+	cp := *loc
+
+	return &cp, nil
 }
 
 // errAccessGrantsLocationNotEmpty is returned when DeleteAccessGrantsLocation
@@ -399,8 +407,9 @@ func (b *InMemoryBackend) UpdateAccessGrantsLocation(
 		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
 	loc.IAMRoleArn = iamRoleArn
+	cp := *loc
 
-	return loc, nil
+	return &cp, nil
 }
 
 // ListAccessGrantsLocations returns all locations for an account.

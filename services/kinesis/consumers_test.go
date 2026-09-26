@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -110,11 +112,20 @@ func TestSubscribeToShard_StreamClosesAfterIdle(t *testing.T) {
 func TestSubscribeToShard_DeliversRecords(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	// Uses a real-time-based fakeClock (not synctest): SubscribeToShard reads
+	// records back via TRIM_HORIZON, which compares record timestamps against
+	// a retention cutoff computed from "now" -- mixing a synctest bubble's
+	// fake epoch (used while creating/putting) with real wall-clock time
+	// (used by subscribeAndCollect afterward) would make the just-written
+	// records look expired. clock starts at real time.Now() and only
+	// advances forward, keeping retention math consistent throughout.
+	clock := newFakeClock(time.Now())
+	h := newTestHandlerWithBackend(t, kinesis.NewInMemoryBackend().WithClock(clock.Now))
 	streamName := "sub-records-stream"
 
 	streamARN := createStreamAndGetARN(t, h, streamName)
 	shardID := getFirstShardID(t, h, streamName)
+	clock.Advance(streamSettleWait)
 
 	tests := []struct {
 		label string
@@ -149,11 +160,13 @@ func TestSubscribeToShard_DeliversRecords(t *testing.T) {
 func TestSubscribeToShard_MultipleSubscriptions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	clock := newFakeClock(time.Now())
+	h := newTestHandlerWithBackend(t, kinesis.NewInMemoryBackend().WithClock(clock.Now))
 	streamName := "sub-multi-stream"
 
 	streamARN := createStreamAndGetARN(t, h, streamName)
 	shardID := getFirstShardID(t, h, streamName)
+	clock.Advance(streamSettleWait)
 
 	doRequest(t, h, "PutRecord", map[string]any{
 		"StreamName":   streamName,
@@ -484,46 +497,49 @@ func TestConsumerRegistrationAndList(t *testing.T) {
 func TestSubscribeToShard_ReturnsRecords(t *testing.T) {
 	t.Parallel()
 
-	bk := kinesis.NewInMemoryBackend()
-	require.NoError(
-		t,
-		bk.CreateStream(
-			context.Background(),
-			&kinesis.CreateStreamInput{StreamName: "subscribe-stream", ShardCount: 1},
-		),
-	)
+	synctest.Test(t, func(t *testing.T) {
+		bk := kinesis.NewInMemoryBackend()
+		require.NoError(
+			t,
+			bk.CreateStream(
+				context.Background(),
+				&kinesis.CreateStreamInput{StreamName: "subscribe-stream", ShardCount: 1},
+			),
+		)
+		time.Sleep(streamSettleWait)
 
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/subscribe-stream"
+		streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/subscribe-stream"
 
-	regOut, err := bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
-		StreamARN:    streamARN,
-		ConsumerName: "reader",
+		regOut, err := bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
+			StreamARN:    streamARN,
+			ConsumerName: "reader",
+		})
+		require.NoError(t, err)
+
+		// Put some records.
+		_, err = bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
+			StreamName:   "subscribe-stream",
+			PartitionKey: "pk1",
+			Data:         []byte("hello"),
+		})
+		require.NoError(t, err)
+
+		shardOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "subscribe-stream"})
+		require.NoError(t, err)
+		require.Len(t, shardOut.Shards, 1)
+		shardID := shardOut.Shards[0].ShardID
+
+		subOut, err := bk.SubscribeToShard(context.Background(), &kinesis.SubscribeToShardInput{
+			ConsumerARN: regOut.Consumer.ConsumerARN,
+			ShardID:     shardID,
+			StartingPosition: kinesis.StartingPosition{
+				Type: "TRIM_HORIZON",
+			},
+		})
+		require.NoError(t, err)
+		assert.Len(t, subOut.Event.Records, 1)
+		assert.Equal(t, []byte("hello"), subOut.Event.Records[0].Data)
 	})
-	require.NoError(t, err)
-
-	// Put some records.
-	_, err = bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
-		StreamName:   "subscribe-stream",
-		PartitionKey: "pk1",
-		Data:         []byte("hello"),
-	})
-	require.NoError(t, err)
-
-	shardOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "subscribe-stream"})
-	require.NoError(t, err)
-	require.Len(t, shardOut.Shards, 1)
-	shardID := shardOut.Shards[0].ShardID
-
-	subOut, err := bk.SubscribeToShard(context.Background(), &kinesis.SubscribeToShardInput{
-		ConsumerARN: regOut.Consumer.ConsumerARN,
-		ShardID:     shardID,
-		StartingPosition: kinesis.StartingPosition{
-			Type: "TRIM_HORIZON",
-		},
-	})
-	require.NoError(t, err)
-	assert.Len(t, subOut.Event.Records, 1)
-	assert.Equal(t, []byte("hello"), subOut.Event.Records[0].Data)
 }
 
 // TestSubscribeToShard_AtTimestampRequiresTimestamp verifies AT_TIMESTAMP
@@ -624,84 +640,87 @@ func TestDeregisterStreamConsumer_ByIdentifier(t *testing.T) {
 func TestConsumer_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	b := newParityBackend(t)
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		b := newParityBackend(t)
+		ctx := context.Background()
 
-	createParityStream(t, b, "consumer-test", 1)
+		createParityStream(t, b, "consumer-test", 1)
+		time.Sleep(streamSettleWait)
 
-	desc, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "consumer-test"})
-	require.NoError(t, err)
+		desc, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "consumer-test"})
+		require.NoError(t, err)
 
-	streamARN := desc.StreamARN
+		streamARN := desc.StreamARN
 
-	// Step 1: register.
-	regOut, err := b.RegisterStreamConsumer(ctx, &kinesis.RegisterStreamConsumerInput{
-		StreamARN:    streamARN,
-		ConsumerName: "my-consumer",
+		// Step 1: register.
+		regOut, err := b.RegisterStreamConsumer(ctx, &kinesis.RegisterStreamConsumerInput{
+			StreamARN:    streamARN,
+			ConsumerName: "my-consumer",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "my-consumer", regOut.Consumer.ConsumerName)
+		assert.Equal(t, "ACTIVE", regOut.Consumer.ConsumerStatus)
+		assert.NotEmpty(t, regOut.Consumer.ConsumerARN)
+
+		// Step 2: describe by name.
+		descOut, err := b.DescribeStreamConsumer(ctx, &kinesis.DescribeStreamConsumerInput{
+			StreamARN:    streamARN,
+			ConsumerName: "my-consumer",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "my-consumer", descOut.ConsumerDescription.ConsumerName)
+
+		// Step 3: list.
+		listOut, err := b.ListStreamConsumers(ctx, &kinesis.ListStreamConsumersInput{StreamARN: streamARN})
+		require.NoError(t, err)
+		require.Len(t, listOut.Consumers, 1)
+		assert.Equal(t, "my-consumer", listOut.Consumers[0].ConsumerName)
+
+		// Step 4: subscribe delivers records.
+		_, err = b.PutRecord(ctx, &kinesis.PutRecordInput{
+			StreamName:   "consumer-test",
+			PartitionKey: "pk",
+			Data:         []byte("fan-out"),
+		})
+		require.NoError(t, err)
+
+		consumerARN := descOut.ConsumerDescription.ConsumerARN
+
+		subOut, err := b.SubscribeToShard(ctx, &kinesis.SubscribeToShardInput{
+			ConsumerARN: consumerARN,
+			ShardID:     "shardId-000000000000",
+			StartingPosition: kinesis.StartingPosition{
+				Type: "TRIM_HORIZON",
+			},
+		})
+		require.NoError(t, err)
+		assert.Len(t, subOut.Event.Records, 1)
+		assert.Equal(t, []byte("fan-out"), subOut.Event.Records[0].Data)
+
+		// Step 5: deregister.
+		err = b.DeregisterStreamConsumer(ctx, &kinesis.DeregisterStreamConsumerInput{
+			StreamARN:    streamARN,
+			ConsumerName: "my-consumer",
+		})
+		require.NoError(t, err)
+
+		listOut2, err := b.ListStreamConsumers(ctx, &kinesis.ListStreamConsumersInput{StreamARN: streamARN})
+		require.NoError(t, err)
+		assert.Empty(t, listOut2.Consumers)
+
+		// Step 6: duplicate registration rejected.
+		_, err = b.RegisterStreamConsumer(ctx, &kinesis.RegisterStreamConsumerInput{
+			StreamARN:    streamARN,
+			ConsumerName: "dup-consumer",
+		})
+		require.NoError(t, err)
+
+		_, err = b.RegisterStreamConsumer(ctx, &kinesis.RegisterStreamConsumerInput{
+			StreamARN:    streamARN,
+			ConsumerName: "dup-consumer",
+		})
+		require.Error(t, err, "duplicate consumer registration must be rejected")
 	})
-	require.NoError(t, err)
-	assert.Equal(t, "my-consumer", regOut.Consumer.ConsumerName)
-	assert.Equal(t, "ACTIVE", regOut.Consumer.ConsumerStatus)
-	assert.NotEmpty(t, regOut.Consumer.ConsumerARN)
-
-	// Step 2: describe by name.
-	descOut, err := b.DescribeStreamConsumer(ctx, &kinesis.DescribeStreamConsumerInput{
-		StreamARN:    streamARN,
-		ConsumerName: "my-consumer",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "my-consumer", descOut.ConsumerDescription.ConsumerName)
-
-	// Step 3: list.
-	listOut, err := b.ListStreamConsumers(ctx, &kinesis.ListStreamConsumersInput{StreamARN: streamARN})
-	require.NoError(t, err)
-	require.Len(t, listOut.Consumers, 1)
-	assert.Equal(t, "my-consumer", listOut.Consumers[0].ConsumerName)
-
-	// Step 4: subscribe delivers records.
-	_, err = b.PutRecord(ctx, &kinesis.PutRecordInput{
-		StreamName:   "consumer-test",
-		PartitionKey: "pk",
-		Data:         []byte("fan-out"),
-	})
-	require.NoError(t, err)
-
-	consumerARN := descOut.ConsumerDescription.ConsumerARN
-
-	subOut, err := b.SubscribeToShard(ctx, &kinesis.SubscribeToShardInput{
-		ConsumerARN: consumerARN,
-		ShardID:     "shardId-000000000000",
-		StartingPosition: kinesis.StartingPosition{
-			Type: "TRIM_HORIZON",
-		},
-	})
-	require.NoError(t, err)
-	assert.Len(t, subOut.Event.Records, 1)
-	assert.Equal(t, []byte("fan-out"), subOut.Event.Records[0].Data)
-
-	// Step 5: deregister.
-	err = b.DeregisterStreamConsumer(ctx, &kinesis.DeregisterStreamConsumerInput{
-		StreamARN:    streamARN,
-		ConsumerName: "my-consumer",
-	})
-	require.NoError(t, err)
-
-	listOut2, err := b.ListStreamConsumers(ctx, &kinesis.ListStreamConsumersInput{StreamARN: streamARN})
-	require.NoError(t, err)
-	assert.Empty(t, listOut2.Consumers)
-
-	// Step 6: duplicate registration rejected.
-	_, err = b.RegisterStreamConsumer(ctx, &kinesis.RegisterStreamConsumerInput{
-		StreamARN:    streamARN,
-		ConsumerName: "dup-consumer",
-	})
-	require.NoError(t, err)
-
-	_, err = b.RegisterStreamConsumer(ctx, &kinesis.RegisterStreamConsumerInput{
-		StreamARN:    streamARN,
-		ConsumerName: "dup-consumer",
-	})
-	require.Error(t, err, "duplicate consumer registration must be rejected")
 }
 
 // createStreamAndGetARN is a helper that creates a stream with one shard and returns its ARN.

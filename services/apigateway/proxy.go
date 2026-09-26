@@ -179,20 +179,39 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		// 403 "Missing Authentication Token", not 404. Gate on that here so an API with
 		// resources/methods/integrations configured but never deployed (or invoked with a
 		// made-up stage name) cannot be routed to.
-		if _, err := h.Backend.GetStage(apiID, stageName); err != nil {
+		stage, err := h.Backend.GetStage(apiID, stageName)
+		if err != nil {
 			writeMissingAuthenticationTokenResponse(w)
 
 			return
 		}
 
-		// Resolve the routing trie (cached per resource-set version) and match.
-		trie, err := h.routingTrie(apiID)
-		if err != nil {
-			logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: failed to get resources", "error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		// A stage with no deployment is exactly as uninvocable as an
+		// undeployed API: real API Gateway returns the same 403 "Missing
+		// Authentication Token" ("Why did I receive a 403 Missing
+		// Authentication Token error from an API Gateway API endpoint?" lists
+		// "you didn't deploy the API" alongside a bad resource path/method).
+		if stage.DeploymentID == "" {
+			writeMissingAuthenticationTokenResponse(w)
 
 			return
 		}
+
+		// Resolve the stage's deployment snapshot: real API Gateway serves the
+		// resources/methods/integrations captured at CreateDeployment time, not
+		// whatever has been edited live since (api-gateway-basic-concept.html).
+		cfg, err := h.Backend.DeploymentConfig(apiID, stage.DeploymentID)
+		if err != nil {
+			logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: deployment snapshot missing",
+				"apiId", apiID, "deploymentId", stage.DeploymentID, "error", err)
+			writeMissingAuthenticationTokenResponse(w)
+
+			return
+		}
+
+		// Resolve the routing trie (cached per deployment, which is immutable
+		// once created) and match.
+		trie := h.routingTrie(stage.DeploymentID, cfg)
 
 		// Match request path to resource path, extracting any path parameters.
 		resource, pathParams := matchResourceTrie(trie, r.URL.Path, stageName)
@@ -216,46 +235,50 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			h.addCORSHeaders(w, r, resource.CorsConfiguration)
 		}
 
+		method := deployedResourceMethod(resource, r.Method)
+
 		// Apply method-level access controls (throttle, authorizer, request validator).
-		denied := h.applyMethodControls(
-			ctx, w, r, apiID, stageName, resource.ID, resource.Path, pathParams,
-		)
+		denied := h.applyMethodControls(ctx, w, r, apiID, stageName, cfg, method, resource.Path, pathParams)
 		if denied {
 			return
 		}
 
-		// Get the integration.
-		integration, err := h.Backend.GetIntegration(apiID, resource.ID, r.Method)
-		if err != nil {
-			// Fall back to any method.
-			integration, err = h.Backend.GetIntegration(apiID, resource.ID, "ANY")
-			if err != nil {
-				writeMissingAuthenticationTokenResponse(w)
+		if method == nil || method.MethodIntegration == nil {
+			writeMissingAuthenticationTokenResponse(w)
 
-				return
-			}
+			return
 		}
 
-		h.dispatchIntegration(ctx, w, r, apiID, stageName, resource, integration, pathParams)
+		h.dispatchIntegration(ctx, w, r, apiID, stageName, resource, method.MethodIntegration, pathParams)
 	}
 }
 
+// deployedResourceMethod returns resource's method for httpMethod from the
+// deployment snapshot, falling back to the catch-all ANY method AWS allows,
+// or nil when neither is configured.
+func deployedResourceMethod(resource *Resource, httpMethod string) *Method {
+	if m, ok := resource.ResourceMethods[httpMethod]; ok {
+		return m
+	}
+
+	return resource.ResourceMethods["ANY"]
+}
+
 // applyMethodControls runs the throttle, authorizer, and request validator checks for the
-// matched method. Returns true if the request was denied and the response has already been
-// written.
+// matched method (nil when the resource has no method for this request's HTTP verb, in
+// which case there is nothing to enforce). Returns true if the request was denied and the
+// response has already been written.
 func (h *Handler) applyMethodControls(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID, stageName, resourceID, resourcePath string,
+	apiID, stageName string,
+	cfg *DeploymentConfig,
+	method *Method,
+	resourcePath string,
 	pathParams map[string]string,
 ) bool {
-	method, methodErr := h.Backend.GetMethod(apiID, resourceID, r.Method)
-	if methodErr != nil {
-		method, methodErr = h.Backend.GetMethod(apiID, resourceID, "ANY")
-	}
-
-	if methodErr != nil || method == nil {
+	if method == nil {
 		return false
 	}
 
@@ -273,13 +296,13 @@ func (h *Handler) applyMethodControls(
 	}
 
 	if method.AuthorizerID != "" {
-		if h.runAuthorizer(ctx, w, r, apiID, stageName, method.AuthorizerID) {
+		if h.runAuthorizer(ctx, w, r, apiID, stageName, cfg, method.AuthorizerID) {
 			return true
 		}
 	}
 
 	if method.RequestValidatorID != "" {
-		if h.runRequestValidator(ctx, w, r, apiID, method, pathParams) {
+		if h.runRequestValidator(ctx, w, r, cfg, method, pathParams) {
 			return true
 		}
 	}

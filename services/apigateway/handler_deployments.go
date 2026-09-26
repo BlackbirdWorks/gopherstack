@@ -133,6 +133,11 @@ func (h *Handler) deleteDeploymentAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
+	// Free the deployment's cached routing trie along with its snapshot --
+	// otherwise a long-lived API that churns through many deployments leaks
+	// one trie per deleted deployment for the life of the process.
+	h.trieCache.Delete(input.DeploymentID)
+
 	return http.StatusNoContent, map[string]any{}, nil
 }
 

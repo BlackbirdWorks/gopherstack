@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -18,36 +19,41 @@ import (
 func TestACMHandler_ListCertificates_StatusFilter(t *testing.T) {
 	t.Parallel()
 
-	h := newACMHandler()
+	synctest.Test(t, func(t *testing.T) {
+		h := newACMHandler()
 
-	// Create one regular (ISSUED) cert
-	rec1 := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"issued-filter.example.com"}`)
-	require.Equal(t, http.StatusOK, rec1.Code)
+		// Create one regular (ISSUED) cert
+		rec1 := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"issued-filter.example.com"}`)
+		require.Equal(t, http.StatusOK, rec1.Code)
 
-	// Create one cert that starts in PENDING_VALIDATION
-	rec2 := postACMJSON(t, h, "RequestCertificate",
-		`{"DomainName":"pending-filter.example.com","ValidationMethod":"DNS"}`)
-	require.Equal(t, http.StatusOK, rec2.Code)
+		// Create one cert that starts in PENDING_VALIDATION
+		rec2 := postACMJSON(t, h, "RequestCertificate",
+			`{"DomainName":"pending-filter.example.com","ValidationMethod":"DNS"}`)
+		require.Equal(t, http.StatusOK, rec2.Code)
 
-	// Filter for ISSUED only (immediately-issued should show; wait for pending to not match)
-	time.Sleep(10 * time.Millisecond) // give autoValidate timer a head start
+		// autoValidateDelayMS is 100ms; stay well under it so the pending
+		// cert's timer cannot have fired yet.
+		time.Sleep(10 * time.Millisecond)
+		synctest.Wait()
 
-	filterRec := postACMJSON(t, h, "ListCertificates",
-		`{"CertificateStatuses":["ISSUED"]}`)
-	require.Equal(t, http.StatusOK, filterRec.Code)
+		filterRec := postACMJSON(t, h, "ListCertificates",
+			`{"CertificateStatuses":["ISSUED"]}`)
+		require.Equal(t, http.StatusOK, filterRec.Code)
 
-	var out struct {
-		CertificateSummaryList []struct {
-			DomainName string `json:"DomainName"`
-			Status     string `json:"Status"`
-		} `json:"CertificateSummaryList"`
-	}
-	require.NoError(t, json.Unmarshal(filterRec.Body.Bytes(), &out))
+		var out struct {
+			CertificateSummaryList []struct {
+				DomainName string `json:"DomainName"`
+				Status     string `json:"Status"`
+			} `json:"CertificateSummaryList"`
+		}
+		require.NoError(t, json.Unmarshal(filterRec.Body.Bytes(), &out))
+		require.Len(t, out.CertificateSummaryList, 1, "only the immediately-issued cert should match")
 
-	for _, s := range out.CertificateSummaryList {
-		assert.Equal(t, "ISSUED", s.Status,
-			"filtered list should only contain ISSUED certs; got %s for %s", s.Status, s.DomainName)
-	}
+		for _, s := range out.CertificateSummaryList {
+			assert.Equal(t, "ISSUED", s.Status,
+				"filtered list should only contain ISSUED certs; got %s for %s", s.Status, s.DomainName)
+		}
+	})
 }
 
 // TestACMHandler_ListCertificates_EnrichedSummary verifies that summary includes Status and KeyAlgorithm.
@@ -607,30 +613,32 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 			run: func(t *testing.T, h *acm.Handler) {
 				t.Helper()
 
-				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"sort-first.example.com"}`)
-				time.Sleep(2 * time.Millisecond)
-				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"sort-second.example.com"}`)
+				synctest.Test(t, func(t *testing.T) {
+					postACMJSON(t, h, "RequestCertificate", `{"DomainName":"sort-first.example.com"}`)
+					time.Sleep(2 * time.Millisecond)
+					postACMJSON(t, h, "RequestCertificate", `{"DomainName":"sort-second.example.com"}`)
 
-				body := `{"SortBy":"CREATED_AT","SortOrder":"DESCENDING"}`
-				rec := postACMJSON(t, h, "SearchCertificates", body)
-				require.Equal(t, http.StatusOK, rec.Code)
+					body := `{"SortBy":"CREATED_AT","SortOrder":"DESCENDING"}`
+					rec := postACMJSON(t, h, "SearchCertificates", body)
+					require.Equal(t, http.StatusOK, rec.Code)
 
-				var out struct {
-					Results []struct {
-						CertificateMetadata struct {
-							AcmCertificateMetadata struct {
-								CreatedAt int64 `json:"CreatedAt"`
-							} `json:"AcmCertificateMetadata"`
-						} `json:"CertificateMetadata"`
-					} `json:"Results"`
-				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				require.Len(t, out.Results, 2)
-				assert.GreaterOrEqual(t,
-					out.Results[0].CertificateMetadata.AcmCertificateMetadata.CreatedAt,
-					out.Results[1].CertificateMetadata.AcmCertificateMetadata.CreatedAt,
-					"DESCENDING sort must put the newer cert first",
-				)
+					var out struct {
+						Results []struct {
+							CertificateMetadata struct {
+								AcmCertificateMetadata struct {
+									CreatedAt int64 `json:"CreatedAt"`
+								} `json:"AcmCertificateMetadata"`
+							} `json:"CertificateMetadata"`
+						} `json:"Results"`
+					}
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+					require.Len(t, out.Results, 2)
+					assert.GreaterOrEqual(t,
+						out.Results[0].CertificateMetadata.AcmCertificateMetadata.CreatedAt,
+						out.Results[1].CertificateMetadata.AcmCertificateMetadata.CreatedAt,
+						"DESCENDING sort must put the newer cert first",
+					)
+				})
 			},
 		},
 	}

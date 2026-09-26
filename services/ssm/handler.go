@@ -368,6 +368,8 @@ func classifySSMOpsError(reqErr error) (string, int, bool) {
 		return "OpsMetadataNotFoundException", statusCode, true
 	case errors.Is(reqErr, ErrOpsMetadataAlreadyExists):
 		return "OpsMetadataAlreadyExistsException", statusCode, true
+	case errors.Is(reqErr, ErrOpsItemRelatedItemAssociationNotFound):
+		return "OpsItemRelatedItemAssociationNotFoundException", statusCode, true
 	default:
 		return "", 0, false
 	}

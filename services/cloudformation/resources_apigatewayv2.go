@@ -2,7 +2,6 @@ package cloudformation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -198,12 +197,7 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Stage(physicalID string) error {
 	apiID := physicalID[:idx]
 	stageName := physicalID[idx+1:]
 
-	err := rc.backends.APIGatewayV2.Backend.DeleteStage(apiID, stageName)
-	if errors.Is(err, apigatewayv2backend.ErrStageNotFound) || errors.Is(err, apigatewayv2backend.ErrAPINotFound) {
-		return nil
-	}
-
-	return err
+	return rc.backends.APIGatewayV2.Backend.DeleteStage(apiID, stageName)
 }
 
 func (rc *ResourceCreator) createAPIGatewayV2Integration(
@@ -249,13 +243,7 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Integration(physicalID string) erro
 	apiID := physicalID[:idx]
 	integrationID := physicalID[idx+1:]
 
-	err := rc.backends.APIGatewayV2.Backend.DeleteIntegration(apiID, integrationID)
-	if errors.Is(err, apigatewayv2backend.ErrIntegrationNotFound) ||
-		errors.Is(err, apigatewayv2backend.ErrAPINotFound) {
-		return nil
-	}
-
-	return err
+	return rc.backends.APIGatewayV2.Backend.DeleteIntegration(apiID, integrationID)
 }
 
 func (rc *ResourceCreator) createAPIGatewayV2Route(
@@ -298,12 +286,7 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Route(physicalID string) error {
 	apiID := physicalID[:idx]
 	routeID := physicalID[idx+1:]
 
-	err := rc.backends.APIGatewayV2.Backend.DeleteRoute(apiID, routeID)
-	if errors.Is(err, apigatewayv2backend.ErrRouteNotFound) || errors.Is(err, apigatewayv2backend.ErrAPINotFound) {
-		return nil
-	}
-
-	return err
+	return rc.backends.APIGatewayV2.Backend.DeleteRoute(apiID, routeID)
 }
 
 // ---- API Gateway v2 supplemental ----

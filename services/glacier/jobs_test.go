@@ -2,6 +2,7 @@ package glacier_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -118,28 +119,28 @@ func TestRetrievalJobAsyncLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := glacier.NewInMemoryBackend()
-			glacier.SetRetrievalDelay(bk, tt.delay)
+			synctest.Test(t, func(t *testing.T) {
+				bk := glacier.NewInMemoryBackend()
+				glacier.SetRetrievalDelay(bk, tt.delay)
 
-			_, err := bk.CreateVault(testAccountID, testRegion, "vault")
-			require.NoError(t, err)
+				_, err := bk.CreateVault(testAccountID, testRegion, "vault")
+				require.NoError(t, err)
 
-			j, err := bk.InitiateJob(testAccountID, testRegion, "vault",
-				&glacier.ExportedInitiateJobRequest{Type: "InventoryRetrieval"})
-			require.NoError(t, err)
+				j, err := bk.InitiateJob(testAccountID, testRegion, "vault",
+					&glacier.ExportedInitiateJobRequest{Type: "InventoryRetrieval"})
+				require.NoError(t, err)
 
-			if tt.waitForReady {
-				require.Eventually(t, func() bool {
-					got, descErr := bk.DescribeJob(testAccountID, testRegion, "vault", j.JobID)
+				if tt.waitForReady {
+					// Completion is lazy-on-read (readyAt vs now): sleep past the
+					// window, then assert directly instead of polling.
+					time.Sleep(tt.delay + time.Millisecond)
+				}
 
-					return descErr == nil && got.Completed
-				}, time.Second, 2*time.Millisecond)
-			}
-
-			got, err := bk.DescribeJob(testAccountID, testRegion, "vault", j.JobID)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantCompleted, got.Completed)
-			assert.Equal(t, tt.wantStatus, got.StatusCode)
+				got, err := bk.DescribeJob(testAccountID, testRegion, "vault", j.JobID)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantCompleted, got.Completed)
+				assert.Equal(t, tt.wantStatus, got.StatusCode)
+			})
 		})
 	}
 }

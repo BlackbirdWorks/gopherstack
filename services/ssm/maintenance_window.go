@@ -1064,7 +1064,6 @@ func (b *InMemoryBackend) DeleteMaintenanceWindow(
 }
 
 // GetMaintenanceWindowTask retrieves a task by WindowId and WindowTaskId.
-// Returns an empty task when WindowTaskID is empty (stub compat).
 func (b *InMemoryBackend) GetMaintenanceWindowTask(
 	ctx context.Context,
 	input *GetMaintenanceWindowTaskInput,
@@ -1187,29 +1186,9 @@ func windowTargetMatchesFilters(registered []WindowTarget, requested []WindowTar
 	return false
 }
 
-// UpdateMaintenanceWindowTarget updates target fields.
-// Returns an empty response when the target is not found (stub compat for empty ID).
-func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
-	ctx context.Context,
-	input *UpdateMaintenanceWindowTargetInput,
-) (*UpdateMaintenanceWindowTargetOutput, error) {
-	region := getRegion(ctx)
-	b.mu.Lock("UpdateMaintenanceWindowTarget")
-	defer b.mu.Unlock()
-
-	store := b.maintenanceWindowTargetsStore(region)
-	targetPtr, exists := store.Get(input.WindowTargetID)
-	if !exists || targetPtr.WindowID != input.WindowID {
-		// Return a no-op success rather than error to preserve stub compat for
-		// callers that send non-existent IDs (e.g. the simple stub coverage test).
-		return &UpdateMaintenanceWindowTargetOutput{
-			WindowID:       input.WindowID,
-			WindowTargetID: input.WindowTargetID,
-		}, nil
-	}
-
-	target := *targetPtr
-
+// mergeMaintenanceWindowTargetUpdate applies Replace=false semantics: only
+// fields the caller set are modified.
+func mergeMaintenanceWindowTargetUpdate(target *MaintenanceWindowTarget, input *UpdateMaintenanceWindowTargetInput) {
 	if input.OwnerInfo != nil {
 		target.OwnerInfo = *input.OwnerInfo
 	}
@@ -1225,6 +1204,47 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 	if len(input.Targets) > 0 {
 		target.Targets = input.Targets
 	}
+}
+
+// replaceMaintenanceWindowTargetUpdate applies Replace=true: omitted fields are nulled.
+func replaceMaintenanceWindowTargetUpdate(target *MaintenanceWindowTarget, input *UpdateMaintenanceWindowTargetInput) {
+	target.OwnerInfo = ptrconv.String(input.OwnerInfo)
+	target.Name = ptrconv.String(input.Name)
+	target.Description = ptrconv.String(input.Description)
+	target.Targets = input.Targets
+}
+
+// UpdateMaintenanceWindowTarget updates target fields.
+func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
+	ctx context.Context,
+	input *UpdateMaintenanceWindowTargetInput,
+) (*UpdateMaintenanceWindowTargetOutput, error) {
+	if input.WindowID == "" || input.WindowTargetID == "" {
+		return nil, fmt.Errorf("%w: WindowId and WindowTargetId are required", ErrValidationException)
+	}
+
+	replace := ptrconv.Bool(input.Replace)
+	if replace && len(input.Targets) == 0 {
+		return nil, fmt.Errorf("%w: Targets is required when Replace is true", ErrValidationException)
+	}
+
+	region := getRegion(ctx)
+	b.mu.Lock("UpdateMaintenanceWindowTarget")
+	defer b.mu.Unlock()
+
+	store := b.maintenanceWindowTargetsStore(region)
+	targetPtr, exists := store.Get(input.WindowTargetID)
+	if !exists || targetPtr.WindowID != input.WindowID {
+		return nil, ErrMaintenanceWindowNotFound
+	}
+
+	target := *targetPtr
+
+	if replace {
+		replaceMaintenanceWindowTargetUpdate(&target, input)
+	} else {
+		mergeMaintenanceWindowTargetUpdate(&target, input)
+	}
 
 	store.Put(&target)
 
@@ -1238,35 +1258,9 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 	}, nil
 }
 
-// UpdateMaintenanceWindowTask updates task fields.
-// Returns a no-op success when the task is not found (stub compat for non-existent IDs).
-func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
-	ctx context.Context,
-	input *UpdateMaintenanceWindowTaskInput,
-) (*UpdateMaintenanceWindowTaskOutput, error) {
-	if err := validateMaxConcurrency(ptrconv.String(input.MaxConcurrency)); err != nil {
-		return nil, err
-	}
-
-	if err := validateMaxErrors(ptrconv.String(input.MaxErrors)); err != nil {
-		return nil, err
-	}
-
-	region := getRegion(ctx)
-	b.mu.Lock("UpdateMaintenanceWindowTask")
-	defer b.mu.Unlock()
-
-	store := b.maintenanceWindowTasksStore(region)
-	taskPtr, exists := store.Get(input.WindowTaskID)
-	if !exists || taskPtr.WindowID != input.WindowID {
-		return &UpdateMaintenanceWindowTaskOutput{
-			WindowID:     input.WindowID,
-			WindowTaskID: input.WindowTaskID,
-		}, nil
-	}
-
-	task := *taskPtr
-
+// mergeMaintenanceWindowTaskUpdate applies Replace=false semantics: only
+// fields the caller set are modified.
+func mergeMaintenanceWindowTaskUpdate(task *MaintenanceWindowTask, input *UpdateMaintenanceWindowTaskInput) {
 	if input.TaskArn != nil {
 		task.TaskArn = *input.TaskArn
 	}
@@ -1301,6 +1295,64 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 
 	if len(input.Targets) > 0 {
 		task.Targets = input.Targets
+	}
+}
+
+// replaceMaintenanceWindowTaskUpdate applies Replace=true: omitted fields are nulled.
+func replaceMaintenanceWindowTaskUpdate(task *MaintenanceWindowTask, input *UpdateMaintenanceWindowTaskInput) {
+	task.TaskArn = ptrconv.String(input.TaskArn)
+	task.Name = ptrconv.String(input.Name)
+	task.Description = ptrconv.String(input.Description)
+	task.ServiceRoleArn = ptrconv.String(input.ServiceRoleArn)
+	task.MaxConcurrency = ptrconv.String(input.MaxConcurrency)
+	task.MaxErrors = ptrconv.String(input.MaxErrors)
+	task.CutoffBehavior = input.CutoffBehavior
+	task.Targets = input.Targets
+
+	task.Priority = 0
+	if input.Priority != nil {
+		task.Priority = *input.Priority
+	}
+}
+
+// UpdateMaintenanceWindowTask updates task fields.
+func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
+	ctx context.Context,
+	input *UpdateMaintenanceWindowTaskInput,
+) (*UpdateMaintenanceWindowTaskOutput, error) {
+	if input.WindowID == "" || input.WindowTaskID == "" {
+		return nil, fmt.Errorf("%w: WindowId and WindowTaskId are required", ErrValidationException)
+	}
+
+	if err := validateMaxConcurrency(ptrconv.String(input.MaxConcurrency)); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxErrors(ptrconv.String(input.MaxErrors)); err != nil {
+		return nil, err
+	}
+
+	replace := ptrconv.Bool(input.Replace)
+	if replace && ptrconv.String(input.TaskArn) == "" {
+		return nil, fmt.Errorf("%w: TaskArn is required when Replace is true", ErrValidationException)
+	}
+
+	region := getRegion(ctx)
+	b.mu.Lock("UpdateMaintenanceWindowTask")
+	defer b.mu.Unlock()
+
+	store := b.maintenanceWindowTasksStore(region)
+	taskPtr, exists := store.Get(input.WindowTaskID)
+	if !exists || taskPtr.WindowID != input.WindowID {
+		return nil, ErrMaintenanceWindowNotFound
+	}
+
+	task := *taskPtr
+
+	if replace {
+		replaceMaintenanceWindowTaskUpdate(&task, input)
+	} else {
+		mergeMaintenanceWindowTaskUpdate(&task, input)
 	}
 
 	store.Put(&task)

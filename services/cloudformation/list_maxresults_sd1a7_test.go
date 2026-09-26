@@ -215,7 +215,7 @@ func TestListStackInstances_MaxResults(t *testing.T) {
 	require.NoError(t, err)
 
 	accounts := []string{"111111111111", "222222222222", "333333333333"}
-	_, err = backend.CreateStackInstances(ctx, "maxres-inst-ss", accounts, nil, []string{"us-east-1"})
+	_, err = backend.CreateStackInstances(ctx, "maxres-inst-ss", accounts, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
 
 	page1, err := client.ListStackInstances(ctx, &cfnsdk.ListStackInstancesInput{

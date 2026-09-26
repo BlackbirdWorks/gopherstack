@@ -119,6 +119,7 @@ func (b *InMemoryBackend) CreateDomainName(
 	b.domainNames.Put(dn)
 
 	cp := *dn
+	cp.Tags = copyTags(dn.Tags)
 
 	return &cp, nil
 }
@@ -361,6 +362,7 @@ func (b *InMemoryBackend) GetDomainName(domainName string) (*DomainName, error) 
 	}
 
 	cp := *dn
+	cp.Tags = copyTags(dn.Tags)
 
 	return &cp, nil
 }
@@ -374,7 +376,9 @@ func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
 	result := make([]DomainName, 0, len(all))
 
 	for _, dn := range all {
-		result = append(result, *dn)
+		cp := *dn
+		cp.Tags = copyTags(dn.Tags)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -444,6 +448,7 @@ func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomain
 	}
 
 	cp := *dn
+	cp.Tags = copyTags(dn.Tags)
 
 	return &cp, nil
 }

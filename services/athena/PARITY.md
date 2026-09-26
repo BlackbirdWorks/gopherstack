@@ -20,7 +20,7 @@ ops:
   BatchGetPreparedStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — request field was StatementNames, real wire is PreparedStatementNames; response field was UnprocessedStatementNames, real wire is UnprocessedPreparedStatementNames. Op was silently non-functional for real SDK clients (request always parsed as an empty name list)."}
   GetSessionEndpoint: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — response was {SessionEndpoint: url}; real shape is {EndpointUrl, AuthToken, AuthTokenExpirationTime} (all three required). Client previously got a fully empty result."}
   CreatePresignedNotebookUrl: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — response was {NotebookSessionUrl: url}; real shape is {NotebookUrl, AuthToken, AuthTokenExpirationTime} (all three required). Same class of bug as GetSessionEndpoint; both now share backend.newSessionAuthToken()."}
-  GetResourceDashboard: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — was a disguised no-op ignoring the required ResourceARN input and returning {ResourceDashboard: {}}; real shape is {Url: string}. Now validates ResourceARN is non-empty (InvalidRequestException otherwise) and returns a synthesized dashboard URL."}
+  GetResourceDashboard: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — was a disguised no-op ignoring the required ResourceARN input and returning {ResourceDashboard: {}}; real shape is {Url: string}. Now validates ResourceARN is non-empty (InvalidRequestException otherwise) and returns a synthesized dashboard URL. FIXED 2026-09-26 (gopherstack parity sweep): the prior fix still fabricated a dashboard URL for a session that does not exist -- only the empty-string case was rejected. Real GetResourceDashboard declares ResourceNotFoundException (api_op_GetResourceDashboard.go); now looks up the session and returns that error when it is not found. See wire_get_resource_dashboard_test.go."}
   StartQueryExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-zgfq) — ResultConfiguration.OutputLocation and EncryptionConfiguration were validated, stored, and echoed back, but no S3 object was ever written, so a client that ran a query and then fetched the result file from OutputLocation found nothing. Added athena.S3Storer + SetS3Backend, wired in cli.go's wireAthenaS3 from services/s3's real PutObject (no adapter needed -- s3.InMemoryBackend.PutObject already matches the interface). On a succeeded execution, writes an object to \"<OutputLocation>/<QueryExecutionId>.csv\": DISCLOSED APPROXIMATION, not a verified wire shape -- the pinned SDK (types.ResultConfiguration.OutputLocation doc) states only that results are stored under that S3 location, and documents neither an object key nor a file format. The .csv body is a plain header-row-then-rows encoding/csv dump of the query's result columns; SSE_S3/SSE_KMS map to the object's ServerSideEncryption/SSEKMSKeyId, CSE_KMS (client-side) is accepted but not actually encrypted (no KMS simulation exists to encrypt against). When S3 is unwired (every test that constructs the backend directly), writeResultObject is a no-op and StartQueryExecution's existing store/echo behavior is unchanged."}
   StopQueryExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   GetQueryExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "Query lifecycle is synchronous (QUEUED/RUNNING never observed) — StartQueryExecution runs the statement inline and stores a terminal SUCCEEDED/FAILED state before returning, so SDK poll loops never hang."}
@@ -57,6 +57,16 @@ leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Don
 ---
 
 ## Notes
+
+### 2026-09-26 parity sweep: GetResourceDashboard fabricated a URL for a nonexistent session
+
+The prior fix (see op row) validated ResourceARN was non-empty but never checked
+the referenced session actually existed, so any garbage ARN got back a fake
+dashboard URL instead of the SDK-declared ResourceNotFoundException
+(`api_op_GetResourceDashboard.go`). Fixed by looking the session up in
+`b.sessions` before synthesizing the URL. `wire_get_resource_dashboard_test.go`
+proves both the not-found and found-session paths with a real
+aws-sdk-go-v2/service/athena client.
 
 ### 2026-09-23 lakeformation-appsync-neptune-and-athena terraform coverage
 

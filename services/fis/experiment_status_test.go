@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
+
+// waitActionISODuration is the lifecycle tests' wait-action duration; the fake-clock
+// advance is derived from it.
+const waitActionISODuration = "PT0.05S"
 
 func TestExperiment_EndTime_AbsentBeforeComplete(t *testing.T) {
 	t.Parallel()
@@ -60,85 +65,80 @@ func TestExperiment_EndTime_AbsentBeforeComplete(t *testing.T) {
 func TestExperiment_EndTime_PresentAfterComplete(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions": map[string]any{
-			"wait": map[string]any{
-				"actionId":   "aws:fis:wait",
-				"parameters": map[string]string{"duration": "PT0.05S"},
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets":        map[string]any{},
+			"actions": map[string]any{
+				"wait": map[string]any{
+					"actionId":   "aws:fis:wait",
+					"parameters": map[string]string{"duration": waitActionISODuration},
+				},
 			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Poll until completed.
-	require.Eventually(t, func() bool {
-		r := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if r.Code != http.StatusOK {
-			return false
 		}
 
-		var gr struct {
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec, &tplResp)
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var expResp struct {
 			Experiment struct {
-				Status struct {
-					Status string `json:"status"`
-				} `json:"status"`
+				ID string `json:"id"`
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(r.Body.Bytes(), &gr); err != nil {
-			return false
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
+
+		// Advance the fake clock past initiating -> running -> wait action ->
+		// completing -> completed; margin avoids a same-instant timer race.
+		time.Sleep(2*fis.LifecycleDelayForTest + fis.ParseISODurationForTest(waitActionISODuration) + time.Millisecond)
+		synctest.Wait()
+
+		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+		require.Equal(t, http.StatusOK, rec3.Code)
+
+		var raw map[string]json.RawMessage
+
+		mustJSON(t, rec3, &raw)
+
+		var expRaw map[string]json.RawMessage
+
+		require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw))
+
+		statusRaw, hasStatus := expRaw["status"]
+		require.True(t, hasStatus)
+
+		var status struct {
+			Status string `json:"status"`
 		}
 
-		return gr.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 20*time.Millisecond)
+		require.NoError(t, json.Unmarshal(statusRaw, &status))
+		require.Equal(t, "completed", status.Status)
 
-	rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-	require.Equal(t, http.StatusOK, rec3.Code)
+		endTimeRaw, hasEndTime := expRaw["endTime"]
+		require.True(t, hasEndTime, "endTime must be present after completion")
 
-	var raw map[string]json.RawMessage
+		var endTime float64
 
-	mustJSON(t, rec3, &raw)
-
-	var expRaw map[string]json.RawMessage
-
-	require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw))
-
-	endTimeRaw, hasEndTime := expRaw["endTime"]
-	require.True(t, hasEndTime, "endTime must be present after completion")
-
-	var endTime float64
-
-	require.NoError(t, json.Unmarshal(endTimeRaw, &endTime))
-	assert.Greater(t, endTime, 0.0, "endTime must be a positive Unix timestamp")
+		require.NoError(t, json.Unmarshal(endTimeRaw, &endTime))
+		assert.Greater(t, endTime, 0.0, "endTime must be a positive Unix timestamp")
+	})
 }
 
 // ----------------------------------------
@@ -148,77 +148,60 @@ func TestExperiment_EndTime_PresentAfterComplete(t *testing.T) {
 func TestStopExperiment_AlreadyStopped_Returns409(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Poll until terminal.
-	require.Eventually(t, func() bool {
-		r := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if r.Code != http.StatusOK {
-			return false
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets":        map[string]any{},
+			"actions":        map[string]any{},
 		}
 
-		var gr struct {
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec, &tplResp)
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var expResp struct {
 			Experiment struct {
-				Status struct {
-					Status string `json:"status"`
-				} `json:"status"`
+				ID string `json:"id"`
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(r.Body.Bytes(), &gr); err != nil {
-			return false
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
+
+		// No actions: lifecycle is just initiating -> running -> completing ->
+		// completed, each gated by lifecycleDelay.
+		time.Sleep(2*fis.LifecycleDelayForTest + time.Millisecond)
+		synctest.Wait()
+
+		// Stop an already-terminal experiment → 400 ValidationException. StopExperiment's
+		// generated deserializer in aws-sdk-go-v2/service/fis only recognizes
+		// ResourceNotFoundException and ValidationException — it has no ConflictException
+		// case — so this must not be reported as a conflict.
+		rec3 := doRequest(t, h, http.MethodPost, "/experiments/"+expID+"/stop", nil)
+		assert.Equal(t, http.StatusBadRequest, rec3.Code)
+
+		var errResp struct {
+			Type string `json:"__type"`
 		}
 
-		s := gr.Experiment.Status.Status
-
-		return s == "completed" || s == "failed" || s == "stopped"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	// Stop an already-terminal experiment → 400 ValidationException. StopExperiment's
-	// generated deserializer in aws-sdk-go-v2/service/fis only recognizes
-	// ResourceNotFoundException and ValidationException — it has no ConflictException
-	// case — so this must not be reported as a conflict.
-	rec3 := doRequest(t, h, http.MethodPost, "/experiments/"+expID+"/stop", nil)
-	assert.Equal(t, http.StatusBadRequest, rec3.Code)
-
-	var errResp struct {
-		Type string `json:"__type"`
-	}
-
-	mustJSON(t, rec3, &errResp)
-	assert.Equal(t, "ValidationException", errResp.Type)
+		mustJSON(t, rec3, &errResp)
+		assert.Equal(t, "ValidationException", errResp.Type)
+	})
 }
 
 // ----------------------------------------
@@ -285,93 +268,80 @@ func TestExperimentOptions_PassThrough(t *testing.T) {
 func TestExperiment_ActionStatus_AfterComplete(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions": map[string]any{
-			"myWait": map[string]any{
-				"actionId":   "aws:fis:wait",
-				"parameters": map[string]string{"duration": "PT0.05S"},
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets":        map[string]any{},
+			"actions": map[string]any{
+				"myWait": map[string]any{
+					"actionId":   "aws:fis:wait",
+					"parameters": map[string]string{"duration": waitActionISODuration},
+				},
 			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Poll until completed.
-	require.Eventually(t, func() bool {
-		r := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if r.Code != http.StatusOK {
-			return false
 		}
 
-		var gr struct {
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec, &tplResp)
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var expResp struct {
 			Experiment struct {
+				ID string `json:"id"`
+			} `json:"experiment"`
+		}
+
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
+
+		time.Sleep(2*fis.LifecycleDelayForTest + fis.ParseISODurationForTest(waitActionISODuration) + time.Millisecond)
+		synctest.Wait()
+
+		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+		require.Equal(t, http.StatusOK, rec3.Code)
+
+		var resp struct {
+			Experiment struct {
+				Actions map[string]struct {
+					Status *struct {
+						Status string `json:"status"`
+					} `json:"status"`
+					State *struct {
+						Status string `json:"status"`
+					} `json:"state"`
+					ActionID string `json:"actionId"`
+				} `json:"actions"`
 				Status struct {
 					Status string `json:"status"`
 				} `json:"status"`
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(r.Body.Bytes(), &gr); err != nil {
-			return false
-		}
-
-		return gr.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-	require.Equal(t, http.StatusOK, rec3.Code)
-
-	var resp struct {
-		Experiment struct {
-			Actions map[string]struct {
-				Status *struct {
-					Status string `json:"status"`
-				} `json:"status"`
-				State *struct {
-					Status string `json:"status"`
-				} `json:"state"`
-				ActionID string `json:"actionId"`
-			} `json:"actions"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec3, &resp)
-	action, ok := resp.Experiment.Actions["myWait"]
-	require.True(t, ok, "myWait action must be in experiment response")
-	assert.Equal(t, "aws:fis:wait", action.ActionID)
-	require.NotNil(t, action.Status, "action.status must not be nil")
-	assert.NotEmpty(t, action.Status.Status, "action.status.status must be set")
-	// Both status and state aliases must be present.
-	require.NotNil(t, action.State, "action.state must not be nil")
-	assert.Equal(t, action.Status.Status, action.State.Status, "action.status and action.state must agree")
+		mustJSON(t, rec3, &resp)
+		require.Equal(t, "completed", resp.Experiment.Status.Status)
+		action, ok := resp.Experiment.Actions["myWait"]
+		require.True(t, ok, "myWait action must be in experiment response")
+		assert.Equal(t, "aws:fis:wait", action.ActionID)
+		require.NotNil(t, action.Status, "action.status must not be nil")
+		assert.NotEmpty(t, action.Status.Status, "action.status.status must be set")
+		// Both status and state aliases must be present.
+		require.NotNil(t, action.State, "action.state must not be nil")
+		assert.Equal(t, action.Status.Status, action.State.Status, "action.status and action.state must agree")
+	})
 }
 
 // ----------------------------------------
@@ -409,52 +379,53 @@ func TestExperiment_StatusAndState_BothPresent(t *testing.T) {
 func TestExperimentStatusLifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	// Template with a very short wait to observe lifecycle transitions.
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions": map[string]any{
-			"wait": map[string]any{
-				"actionId":   "aws:fis:wait",
-				"parameters": map[string]string{"duration": "PT0.05S"},
+		// Template with a very short wait to observe lifecycle transitions.
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets":        map[string]any{},
+			"actions": map[string]any{
+				"wait": map[string]any{
+					"actionId":   "aws:fis:wait",
+					"parameters": map[string]string{"duration": waitActionISODuration},
+				},
 			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Poll for completed status — lifecycle goes pending→initiating→running→completing→completed.
-	require.Eventually(t, func() bool {
-		r := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if r.Code != http.StatusOK {
-			return false
 		}
+
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec, &tplResp)
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var expResp struct {
+			Experiment struct {
+				ID string `json:"id"`
+			} `json:"experiment"`
+		}
+
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
+
+		// Lifecycle goes pending→initiating→running→completing→completed.
+		time.Sleep(2*fis.LifecycleDelayForTest + fis.ParseISODurationForTest(waitActionISODuration) + time.Millisecond)
+		synctest.Wait()
+
+		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+		require.Equal(t, http.StatusOK, rec3.Code)
 
 		var gr struct {
 			Experiment struct {
@@ -464,12 +435,9 @@ func TestExperimentStatusLifecycle(t *testing.T) {
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(r.Body.Bytes(), &gr); err != nil {
-			return false
-		}
-
-		return gr.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 20*time.Millisecond)
+		mustJSON(t, rec3, &gr)
+		require.Equal(t, "completed", gr.Experiment.Status.Status)
+	})
 }
 
 // ----------------------------------------

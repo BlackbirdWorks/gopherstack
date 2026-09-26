@@ -118,10 +118,9 @@ func TestHandlerShutdownDrainsBrokerGoroutine(t *testing.T) {
 
 	require.NoError(t, h.StartWorker(runCtx))
 
-	// Give the broker goroutine a moment to actually start listening before
-	// asking it to stop.
-	time.Sleep(20 * time.Millisecond)
-
+	// No readiness wait needed: worker.SingleRun.Stop cancels and blocks on
+	// the run's done channel, which is registered synchronously by Start
+	// before its goroutine runs, so Stop can't race a not-yet-started run.
 	done := make(chan struct{})
 	go func() {
 		h.Shutdown(t.Context())

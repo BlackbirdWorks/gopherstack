@@ -304,6 +304,60 @@ func TestEvaluatePolicies_Conditions_NotIpAddress(t *testing.T) {
 	}
 }
 
+// TestEvaluatePolicies_Conditions_IpAddressIPv6 proves IpAddress supports
+// IPv6 CIDR ranges and bare literals, matching AWS's documented IPv6 support.
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_IPAddress
+//
+//nolint:lll // AWS doc URL, cannot be split
+func TestEvaluatePolicies_Conditions_IpAddressIPv6(t *testing.T) {
+	t.Parallel()
+
+	policy := `{"Version":"2012-10-17","Statement":[{
+		"Effect":"Allow",
+		"Action":"s3:*",
+		"Resource":"*",
+		"Condition":{
+			"IpAddress":{"aws:SourceIp":["2001:DB8:1234:5678::/64","203.0.113.7"]}
+		}
+	}]}`
+
+	tests := []struct {
+		ctx  iam.ConditionContext
+		name string
+		want iam.EvaluationResult
+	}{
+		{
+			name: "ipv6_in_cidr",
+			ctx:  iam.ConditionContext{SourceIP: "2001:db8:1234:5678::1"},
+			want: iam.EvalAllow,
+		},
+		{
+			name: "ipv6_outside_cidr",
+			ctx:  iam.ConditionContext{SourceIP: "2001:db8:9999::1"},
+			want: iam.EvalImplicitDeny,
+		},
+		{
+			name: "ipv4_bare_literal_default_slash32",
+			ctx:  iam.ConditionContext{SourceIP: "203.0.113.7"},
+			want: iam.EvalAllow,
+		},
+		{
+			name: "ipv4_bare_literal_mismatch",
+			ctx:  iam.ConditionContext{SourceIP: "203.0.113.8"},
+			want: iam.EvalImplicitDeny,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := iam.EvaluatePolicies([]string{policy}, "s3:GetObject", "*", tt.ctx)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestEvaluatePolicies_Conditions_ArnLike(t *testing.T) {
 	t.Parallel()
 
@@ -343,6 +397,73 @@ func TestEvaluatePolicies_Conditions_ArnLike(t *testing.T) {
 	}
 }
 
+// TestConditionArnSegmentWise proves ArnEquals/ArnLike compare each of the
+// six colon-delimited ARN components separately (rather than one wildcard
+// glob over the whole string), and that matching is case-sensitive.
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_ARN
+func TestConditionArnSegmentWise(t *testing.T) {
+	t.Parallel()
+
+	const key = "aws:sourcearn"
+
+	tests := []condCase{
+		{
+			name:     "wildcard_confined_to_last_segment",
+			operator: "ArnLike",
+			ctxVal:   "arn:aws:sqs:us-east-1:123456789012:my-queue",
+			condVal:  "arn:aws:sqs:us-east-1:123456789012:my-*",
+			want:     true,
+		},
+		{
+			// A malformed pattern missing a colon must not match by letting
+			// '*' span the region+account segment boundary, which a naive
+			// single-string glob (pre-fix) would have allowed.
+			name:     "wildcard_does_not_span_segments",
+			operator: "ArnLike",
+			ctxVal:   "arn:aws:s3:us-east-1:123456789012:mybucket",
+			condVal:  "arn:aws:s3:*:mybucket",
+			want:     false,
+		},
+		{
+			name:     "wildcard_confined_within_one_segment_still_matches",
+			operator: "ArnLike",
+			ctxVal:   "arn:aws:iam::123456789012:role/prod/deploy",
+			condVal:  "arn:aws:iam::123456789012:role*",
+			want:     true,
+		},
+		{
+			name:     "region_segment_mismatch_no_match",
+			operator: "ArnEquals",
+			ctxVal:   "arn:aws:iam::123456789012:role/prod",
+			condVal:  "arn:aws:iam:us-east-1:123456789012:role/prod",
+			want:     false,
+		},
+		{
+			name:     "differing_segment_count_no_match",
+			operator: "ArnEquals",
+			ctxVal:   "not-an-arn-at-all",
+			condVal:  "arn:aws:iam::123456789012:role/prod",
+			want:     false,
+		},
+		{
+			name:     "case_sensitive_no_match",
+			operator: "ArnEquals",
+			ctxVal:   "arn:aws:iam::123456789012:role/Prod",
+			condVal:  "arn:aws:iam::123456789012:role/prod",
+			want:     false,
+		},
+		{
+			name:     "arnnotlike_confined_to_segment",
+			operator: "ArnNotLike",
+			ctxVal:   "arn:aws:sqs:us-east-1:123456789012:my-queue",
+			condVal:  "arn:aws:sqs:us-east-1:123456789012:other-*",
+			want:     true,
+		},
+	}
+
+	runCondCases(t, key, tests)
+}
+
 func TestEvaluatePolicies_Conditions_Bool(t *testing.T) {
 	t.Parallel()
 
@@ -373,6 +494,14 @@ func TestEvaluatePolicies_Conditions_Bool(t *testing.T) {
 				Extra: map[string]string{"aws:securetransport": "false"},
 			},
 			want: iam.EvalImplicitDeny,
+		},
+		{
+			// SecureTransport is a dedicated ConditionContext field (populated
+			// by the enforcement middleware from the request's TLS state),
+			// not just an Extra entry.
+			name: "secure_transport_dedicated_field",
+			ctx:  iam.ConditionContext{SecureTransport: "true"},
+			want: iam.EvalAllow,
 		},
 	}
 
@@ -444,6 +573,27 @@ func TestEvaluatePolicies_Conditions_Null(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// TestEvaluatePolicies_Conditions_NullIfExistsUnrecognized proves "NullIfExists"
+// is not treated as a stripped-suffix alias for Null: AWS documents IfExists
+// as valid on any operator except Null (Null already tests key presence), so
+// gopherstack's evaluator must not silently accept the combination.
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_IfExists
+//
+//nolint:lll // AWS doc URL, cannot be split
+func TestEvaluatePolicies_Conditions_NullIfExistsUnrecognized(t *testing.T) {
+	t.Parallel()
+
+	policy := `{"Version":"2012-10-17","Statement":[{
+		"Effect":"Allow",
+		"Action":"s3:*",
+		"Resource":"*",
+		"Condition":{"NullIfExists":{"aws:username":"true"}}
+	}]}`
+
+	got := iam.EvaluatePolicies([]string{policy}, "s3:GetObject", "*", iam.ConditionContext{})
+	assert.Equal(t, iam.EvalImplicitDeny, got, "an unrecognized operator must not match")
 }
 
 func TestEvaluatePolicies_Conditions_IfExists(t *testing.T) {
@@ -692,6 +842,20 @@ func TestConditionDateOperators(t *testing.T) {
 			condVal:  []any{"bad", mid},
 			want:     true,
 		},
+		// AWS accepts epoch (UNIX) seconds interchangeably with ISO 8601:
+		//nolint:lll // AWS doc URL, cannot be split
+		// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_Date
+		{name: "epoch_ctx_matches_iso_cond", operator: "DateEquals", ctxVal: "1686830400", condVal: mid, want: true},
+		{name: "iso_ctx_matches_epoch_cond", operator: "DateEquals", ctxVal: mid, condVal: "1686830400", want: true},
+		{name: "epoch_both_sides", operator: "DateLessThan", ctxVal: "1672531200", condVal: "1686830400", want: true},
+		{
+			name:     "epoch_fractional_seconds",
+			operator: "DateEquals",
+			ctxVal:   "1686830400.000",
+			condVal:  mid,
+			want:     true,
+		},
+		{name: "date_only_iso", operator: "DateLessThan", ctxVal: "2023-01-01", condVal: mid, want: true},
 	}
 
 	runCondCases(t, key, tests)

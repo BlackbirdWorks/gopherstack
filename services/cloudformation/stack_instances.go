@@ -19,19 +19,33 @@ type instanceTarget struct {
 	ouID    string
 }
 
-// resolveInstanceTargets merges explicit accounts with OU-expanded accounts.
+// Account filter type values (DeploymentTargets.AccountFilterType,
+// cloudformation@v1.76.1 types/enums.go AccountFilterType). "" is the wire
+// default, equivalent to accountFilterUnion (docs.aws.amazon.com/
+// AWSCloudFormation/latest/APIReference/API_DeploymentTargets.html: "This is
+// the default value if AccountFilterType is not provided").
+const (
+	accountFilterIntersection = "INTERSECTION"
+	accountFilterDifference   = "DIFFERENCE"
+	accountFilterUnion        = "UNION"
+)
+
+// resolveInstanceTargets merges explicit accounts with OU-expanded accounts
+// according to filterType (DeploymentTargets.AccountFilterType), matching
+// API_DeploymentTargets.html:
+//   - "" / UNION: OU accounts plus the explicit accounts.
+//   - NONE: the OU accounts only (explicit accounts are ignored).
+//   - INTERSECTION: only explicit accounts that also belong to the OUs.
+//   - DIFFERENCE: OU accounts minus the explicit accounts.
+//
 // ouIDs requires the StackSet's PermissionModel to be SERVICE_MANAGED,
 // matching real AWS, which rejects OU-based deployment targets on
 // self-managed StackSets. Must be called with b.mu held.
 func (b *InMemoryBackend) resolveInstanceTargets(
-	ss *StackSet, accounts, ouIDs []string,
+	ss *StackSet, accounts, ouIDs []string, filterType string,
 ) ([]instanceTarget, error) {
-	targets := make([]instanceTarget, 0, len(accounts)+len(ouIDs))
-	for _, a := range accounts {
-		targets = append(targets, instanceTarget{account: a})
-	}
 	if len(ouIDs) == 0 {
-		return targets, nil
+		return combineAccountFilter(filterType, accounts, nil), nil
 	}
 	if ss.PermissionModel != stackSetPermissionServiceManaged {
 		return nil, ErrServiceManagedRequired
@@ -44,6 +58,7 @@ func (b *InMemoryBackend) resolveInstanceTargets(
 	}
 
 	seen := make(map[string]bool)
+	ouAccounts := make([]instanceTarget, 0, len(ouIDs))
 	for _, ou := range ouIDs {
 		accts, err := b.orgDirectory.ResolveAccountIDsUnderParent(ou)
 		if err != nil {
@@ -54,17 +69,86 @@ func (b *InMemoryBackend) resolveInstanceTargets(
 				continue
 			}
 			seen[a] = true
-			targets = append(targets, instanceTarget{account: a, ouID: ou})
+			ouAccounts = append(ouAccounts, instanceTarget{account: a, ouID: ou})
 		}
 	}
 
-	return targets, nil
+	return combineAccountFilter(filterType, accounts, ouAccounts), nil
+}
+
+// combineAccountFilter applies filterType's documented set operation between
+// the explicit account list and the OU-resolved accounts. ouAccounts' order
+// is preserved for NONE/INTERSECTION/DIFFERENCE; explicit-then-OU order is
+// preserved for UNION, matching the pre-existing union behavior.
+func combineAccountFilter(filterType string, explicit []string, ouAccounts []instanceTarget) []instanceTarget {
+	ouByAccount := make(map[string]string, len(ouAccounts))
+	ouOrder := make([]string, 0, len(ouAccounts))
+
+	for _, t := range ouAccounts {
+		if _, ok := ouByAccount[t.account]; !ok {
+			ouOrder = append(ouOrder, t.account)
+		}
+
+		ouByAccount[t.account] = t.ouID
+	}
+
+	explicitSet := make(map[string]bool, len(explicit))
+	for _, a := range explicit {
+		explicitSet[a] = true
+	}
+
+	switch filterType {
+	case valueNone:
+		return filterOUAccounts(ouOrder, ouByAccount, func(string) bool { return true })
+	case accountFilterIntersection:
+		return filterOUAccounts(ouOrder, ouByAccount, func(a string) bool { return explicitSet[a] })
+	case accountFilterDifference:
+		return filterOUAccounts(ouOrder, ouByAccount, func(a string) bool { return !explicitSet[a] })
+	default: // "" or UNION
+		out := make([]instanceTarget, 0, len(explicit)+len(ouOrder))
+		seen := make(map[string]bool, len(explicit)+len(ouOrder))
+
+		for _, a := range explicit {
+			if seen[a] {
+				continue
+			}
+
+			seen[a] = true
+			out = append(out, instanceTarget{account: a, ouID: ouByAccount[a]})
+		}
+
+		for _, a := range ouOrder {
+			if seen[a] {
+				continue
+			}
+
+			seen[a] = true
+			out = append(out, instanceTarget{account: a, ouID: ouByAccount[a]})
+		}
+
+		return out
+	}
+}
+
+// filterOUAccounts returns the ouOrder accounts (in order) for which keep
+// reports true, each carrying its resolved OU ID.
+func filterOUAccounts(ouOrder []string, ouByAccount map[string]string, keep func(string) bool) []instanceTarget {
+	out := make([]instanceTarget, 0, len(ouOrder))
+
+	for _, a := range ouOrder {
+		if keep(a) {
+			out = append(out, instanceTarget{account: a, ouID: ouByAccount[a]})
+		}
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) CreateStackInstances(
 	ctx context.Context,
 	stackSetName string,
 	accounts, ouIDs, regions []string,
+	filterType string,
 ) (string, error) {
 	b.mu.Lock("CreateStackInstances")
 	defer b.mu.Unlock()
@@ -73,7 +157,7 @@ func (b *InMemoryBackend) CreateStackInstances(
 		return "", ErrStackSetNotFound
 	}
 
-	targets, err := b.resolveInstanceTargets(ss, accounts, ouIDs)
+	targets, err := b.resolveInstanceTargets(ss, accounts, ouIDs, filterType)
 	if err != nil {
 		return "", err
 	}
@@ -250,6 +334,7 @@ func (b *InMemoryBackend) DeleteStackInstances(
 	stackSetName string,
 	accounts, ouIDs, regions []string,
 	retainStacks bool,
+	filterType string,
 ) (string, error) {
 	b.mu.Lock("DeleteStackInstances")
 	defer b.mu.Unlock()
@@ -257,18 +342,16 @@ func (b *InMemoryBackend) DeleteStackInstances(
 	if !ok {
 		return "", ErrStackSetNotFound
 	}
-	if len(ouIDs) > 0 {
-		targets, err := b.resolveInstanceTargets(ss, nil, ouIDs)
-		if err != nil {
-			return "", err
-		}
-		for _, t := range targets {
-			accounts = append(accounts, t.account)
-		}
+
+	targets, err := b.resolveInstanceTargets(ss, accounts, ouIDs, filterType)
+	if err != nil {
+		return "", err
 	}
-	failed := b.deleteMatchingStackInstances(ctx, stackSetName, accounts, regions, retainStacks)
+
+	targetAccounts := instanceTargetAccounts(targets)
+	failed := b.deleteMatchingStackInstances(ctx, stackSetName, targetAccounts, regions, retainStacks)
 	opID := b.recordStackSetOperation(stackSetName, "DELETE")
-	b.recordStackInstanceDeleteResults(stackSetName, opID, accounts, regions, failed)
+	b.recordStackInstanceDeleteResults(stackSetName, opID, targetAccounts, regions, failed)
 
 	return opID, nil
 }
@@ -276,6 +359,7 @@ func (b *InMemoryBackend) DeleteStackInstances(
 func (b *InMemoryBackend) UpdateStackInstances(
 	stackSetName string,
 	accounts, ouIDs, regions []string,
+	filterType string,
 ) (string, error) {
 	b.mu.Lock("UpdateStackInstances")
 	defer b.mu.Unlock()
@@ -283,21 +367,29 @@ func (b *InMemoryBackend) UpdateStackInstances(
 	if !ok {
 		return "", ErrStackSetNotFound
 	}
-	if len(ouIDs) > 0 {
-		targets, err := b.resolveInstanceTargets(ss, nil, ouIDs)
-		if err != nil {
-			return "", err
-		}
-		for _, t := range targets {
-			accounts = append(accounts, t.account)
-		}
+
+	targets, err := b.resolveInstanceTargets(ss, accounts, ouIDs, filterType)
+	if err != nil {
+		return "", err
 	}
+
+	targetAccounts := instanceTargetAccounts(targets)
 	opID := b.recordStackSetOperation(stackSetName, "UPDATE")
-	if len(accounts) > 0 && len(regions) > 0 {
-		b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
+	if len(targetAccounts) > 0 && len(regions) > 0 {
+		b.recordOpResults(stackSetName, opID, targetAccounts, regions, "SUCCEEDED")
 	}
 
 	return opID, nil
+}
+
+// instanceTargetAccounts extracts the account ID from each resolved target.
+func instanceTargetAccounts(targets []instanceTarget) []string {
+	accounts := make([]string, 0, len(targets))
+	for _, t := range targets {
+		accounts = append(accounts, t.account)
+	}
+
+	return accounts
 }
 
 // ListStackInstancesFilter holds ListStackInstancesInput's optional

@@ -9,8 +9,24 @@ import (
 )
 
 const (
+	// streamStatusCreating is the status while a newly created stream is not
+	// yet ready for use.
+	streamStatusCreating = "CREATING"
+
+	// streamStatusUpdating is the status while a shard/config change
+	// (UpdateShardCount, MergeShards, SplitShard, StartStreamEncryption,
+	// StopStreamEncryption, UpdateStreamMode) is in flight.
+	streamStatusUpdating = "UPDATING"
+
 	// streamStatusActive is the status when a stream is ready for use.
 	streamStatusActive = "ACTIVE"
+
+	// streamTransitionDelay is how long a stream stays CREATING/UPDATING/
+	// DELETING before the next resolving call lazily advances it to ACTIVE
+	// (or, for DELETING, removes it) -- see resolveStreamTransitionLocked.
+	// Kept short so Terraform/SDK waiters (StreamExistsWaiter etc.) converge
+	// quickly; mirrors services/rds's instanceTransitionDelay convention.
+	streamTransitionDelay = 250 * time.Millisecond
 
 	// encryptionTypeKMS is the KMS encryption type.
 	encryptionTypeKMS = "KMS"
@@ -137,6 +153,11 @@ const (
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
 	CreatedAt time.Time `json:"createdAt"`
+	// ReadyAt is the deadline at which a CREATING/UPDATING/DELETING stream
+	// lazily advances to its terminal state (ACTIVE, or removed for
+	// DELETING) -- see resolveStreamTransitionLocked. Zero when Status is
+	// not mid-transition. Additive persisted field.
+	ReadyAt   time.Time `json:"readyAt"`
 	mu        *lockmetrics.RWMutex
 	Tags      *tags.Tags           `json:"tags,omitempty"`
 	Consumers map[string]*Consumer `json:"consumers,omitempty"`

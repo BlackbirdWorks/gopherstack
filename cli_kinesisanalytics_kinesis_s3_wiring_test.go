@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -69,6 +70,8 @@ func TestInitializeServices_KinesisAnalyticsKinesisS3Wiring(t *testing.T) {
 
 	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
 	require.True(t, ok, "Kinesis backend must be an InMemoryBackend")
+	kinesisClock := newKinesisFakeClock(time.Now())
+	kinesisBk.WithClock(kinesisClock.Now)
 
 	s3H, ok := byName["S3"].(*s3backend.S3Handler)
 	require.True(t, ok, "S3 handler must be registered")
@@ -156,6 +159,7 @@ func TestInitializeServices_KinesisAnalyticsKinesisS3Wiring(t *testing.T) {
 			ShardCount: 1,
 		})
 		require.NoError(t, createErr)
+		kinesisClock.Advance(kinesisStreamSettleWait)
 
 		for _, data := range []string{`{"id":1,"name":"a"}`, `{"id":2,"name":"bb"}`} {
 			_, putErr := kinesisBk.PutRecord(ctx, &kinesisbackend.PutRecordInput{

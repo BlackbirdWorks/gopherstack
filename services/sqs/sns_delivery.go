@@ -192,6 +192,8 @@ func parseQueueARNOrURL(endpoint string) (string, string) {
 func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 	ts := ev.Timestamp
 	if ts == "" {
+		// Cosmetic payload fallback only, not compared against any internal
+		// deadline/expiry, so it stays on wall-clock time rather than b.now().
 		ts = time.Now().UTC().Format(time.RFC3339)
 	}
 

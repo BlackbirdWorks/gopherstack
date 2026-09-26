@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -489,41 +490,41 @@ func TestListExperiments_Pagination(t *testing.T) {
 func TestListExperiments_FilterByStatus(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	tplID := seedTemplate(t, h)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		tplID := seedTemplate(t, h)
 
-	// Create one experiment that immediately completes (no timed actions).
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	_ = tplID // used above for experiment
-
-	// Filter by status=pending or status=initiating (experiment is in early lifecycle).
-	require.Eventually(t, func() bool {
-		r := doRequest(t, h, http.MethodGet, "/experiments?status=completed", nil)
-		if r.Code != http.StatusOK {
-			return false
+		// Create one experiment that immediately completes (no timed actions).
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets":        map[string]any{},
+			"actions":        map[string]any{},
 		}
+
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec, &tplResp)
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		_ = tplID // used above for experiment
+
+		time.Sleep(2*fis.LifecycleDelayForTest + time.Millisecond)
+		synctest.Wait()
+
+		r := doRequest(t, h, http.MethodGet, "/experiments?status=completed", nil)
+		require.Equal(t, http.StatusOK, r.Code)
 
 		var gr struct {
 			Experiments []struct {
@@ -531,12 +532,9 @@ func TestListExperiments_FilterByStatus(t *testing.T) {
 			} `json:"experiments"`
 		}
 
-		if err := json.Unmarshal(r.Body.Bytes(), &gr); err != nil {
-			return false
-		}
-
-		return len(gr.Experiments) > 0
-	}, 5*time.Second, 50*time.Millisecond)
+		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &gr))
+		assert.NotEmpty(t, gr.Experiments)
+	})
 }
 
 func TestListExperiments_FilterByTemplateID(t *testing.T) {

@@ -336,11 +336,15 @@ type Deployment struct {
 	// APISummary is a snapshot, taken at deployment time, of every resource
 	// path's methods (types.Deployment.ApiSummary in the SDK), keyed
 	// resourcePath -> httpMethod.
-	APISummary  map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
-	CreatedDate unixEpochTime                        `json:"createdDate"`
-	ID          string                               `json:"id"`
-	RestAPIID   string                               `json:"-"`
-	Description string                               `json:"description,omitempty"`
+	APISummary map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
+	// Config is the full invoke-time configuration snapshot (see
+	// DeploymentConfig's doc) -- internal state, never part of the wire
+	// response, matching the RestAPIID json:"-" convention below.
+	Config      *DeploymentConfig `json:"-"`
+	CreatedDate unixEpochTime     `json:"createdDate"`
+	ID          string            `json:"id"`
+	RestAPIID   string            `json:"-"`
+	Description string            `json:"description,omitempty"`
 }
 
 // PutMethodInput is the input for PutMethod.

@@ -71,6 +71,16 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service, incl
 
 ## Notes
 
+### 2026-09-26: closed-execution retention pruning (unbounded-growth audit)
+
+Closed workflow executions were only ever removed by the unrelated
+maxWorkflowExecutions=10_000 FIFO cap, never by the domain's own
+workflowExecutionRetentionPeriodInDays (AWS RegisterDomain doc). Added
+sweepExpiredClosedExecutionsLocked (timeout_sweep.go), wired into the same
+lazy per-op sweep as timeout enforcement -- no new goroutine. See
+TestSweepExpiredClosedExecutionsLocked_Evaluation /
+TestListClosedWorkflowExecutions_SweepsRetentionOnRead.
+
 ### 2026-09-19 over-wide-response sweep
 
 cmd/overwidecandidates flagged all 5 List ops. All 5 already emitted exactly

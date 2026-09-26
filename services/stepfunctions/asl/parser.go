@@ -53,26 +53,42 @@ type ItemReader struct {
 }
 
 // ReaderConfig describes how the ItemReader should interpret S3 object data.
-// InputType: "JSON" (default), "JSONL", or "CSV".
+// InputType: "JSON" (default), "JSONL", "CSV", "MANIFEST", or "PARQUET"
+// (PARQUET is parsed but not decoded -- see PARITY.md).
 // CSVHeaderLocation: "FIRST_ROW" or "GIVEN".
 // CSVHeaders: explicit headers when CSVHeaderLocation == "GIVEN".
+// CSVDelimiter: "COMMA" (default), "PIPE", "SEMICOLON", "SPACE", or "TAB" --
+// only meaningful when InputType is CSV or MANIFEST.
+// ItemsPointer: an RFC 6901 JSON Pointer ("/data/items") selecting a nested
+// array within a JSON InputType file; only meaningful when InputType is
+// JSON (or omitted).
 // MaxItems: optional cap on number of items returned (0 = unlimited).
 // MaxItemsPath is MaxItems' reference-path sibling, mutually exclusive with
-// it and resolved against the Map state's pre-Parameters input (AWS docs:
-// input-output-itemreader.html).
+// it and resolved against the Map state's pre-Parameters input.
+// Transformation ("NONE" default, or "LOAD_AND_FLATTEN") only applies to the
+// s3:listObjectsV2 Resource: LOAD_AND_FLATTEN reads and decodes each listed
+// object's content (per InputType) instead of returning object metadata.
+// ManifestType ("S3_INVENTORY" or "ATHENA_DATA", only ATHENA_DATA unsupported
+// -- see PARITY.md) or InputType "MANIFEST" treats the fetched object as an
+// S3 Inventory manifest.json listing CSV data files.
+// (AWS docs: input-output-itemreader.html).
 type ReaderConfig struct {
 	InputType         string   `json:"InputType,omitempty"`
 	CSVHeaderLocation string   `json:"CSVHeaderLocation,omitempty"`
+	CSVDelimiter      string   `json:"CSVDelimiter,omitempty"`
 	MaxItemsPath      string   `json:"MaxItemsPath,omitempty"`
+	Transformation    string   `json:"Transformation,omitempty"`
+	ManifestType      string   `json:"ManifestType,omitempty"`
+	ItemsPointer      string   `json:"ItemsPointer,omitempty"`
 	CSVHeaders        []string `json:"CSVHeaders,omitempty"`
 	MaxItems          int      `json:"MaxItems,omitempty"`
 }
 
 // ResultWriter configures exporting a Distributed Map state's per-item
-// results to S3 instead of returning them inline as the state's output
-// (AWS docs: input-output-resultwriter.html). Only the Resource+Parameters
-// (S3 export) combination is applied; WriterConfig is parsed but not
-// honored -- see Executor.exportMapResults.
+// results to S3, and/or formatting the state's own output, per AWS docs:
+// input-output-resultwriter.html. Resource+Parameters name the S3
+// destination; WriterConfig controls formatting -- see
+// Executor.exportMapResults.
 type ResultWriter struct {
 	Parameters   map[string]any      `json:"Parameters,omitempty"`
 	WriterConfig *ResultWriterConfig `json:"WriterConfig,omitempty"`
@@ -80,8 +96,8 @@ type ResultWriter struct {
 }
 
 // ResultWriterConfig is ResultWriter.WriterConfig: Transformation
-// ("NONE"|"COMPACT"|"FLATTEN") and OutputType ("JSON"|"JSONL"). Parsed for
-// forward compatibility but not currently applied.
+// ("NONE"|"COMPACT"|"FLATTEN") and OutputType ("JSON"|"JSONL") -- AWS docs:
+// input-output-resultwriter.html.
 type ResultWriterConfig struct {
 	Transformation string `json:"Transformation,omitempty"`
 	OutputType     string `json:"OutputType,omitempty"`

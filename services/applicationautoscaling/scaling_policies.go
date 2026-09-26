@@ -71,35 +71,49 @@ func stepAdjustmentCount(stepScalingConfig map[string]any) int {
 	return len(list)
 }
 
+// validatePutScalingPolicyBasics checks the fields required regardless of
+// policy type.
+func validatePutScalingPolicyBasics(
+	serviceNamespace, resourceID, scalableDimension, policyName, policyType string,
+) error {
+	if serviceNamespace == "" {
+		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	}
+
+	if resourceID == "" {
+		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+
+	if scalableDimension == "" {
+		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
+	}
+
+	if policyName == "" {
+		return fmt.Errorf("%w: PolicyName is required", ErrValidation)
+	}
+
+	// Validate PolicyType if provided; do not default yet -- defaulting only
+	// applies when creating a brand-new policy (see PutScalingPolicy).
+	if policyType != "" && !isValidPolicyType(policyType) {
+		return fmt.Errorf(
+			"%w: invalid PolicyType %q; must be one of StepScaling, TargetTrackingScaling, PredictiveScaling",
+			ErrValidation,
+			policyType,
+		)
+	}
+
+	return nil
+}
+
 // PutScalingPolicy upserts a scaling policy (update if policyName matches for resource, create otherwise).
 func (b *InMemoryBackend) PutScalingPolicy(
 	serviceNamespace, resourceID, scalableDimension, policyName, policyType string,
 	targetTrackingConfig, stepScalingConfig, predictiveScalingConfig map[string]any,
 ) (*ScalingPolicy, error) {
-	if serviceNamespace == "" {
-		return nil, fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
-	}
-
-	if resourceID == "" {
-		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
-	}
-
-	if scalableDimension == "" {
-		return nil, fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
-	}
-
-	if policyName == "" {
-		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
-	}
-
-	// Validate PolicyType if provided; do not default yet — defaulting only
-	// applies when creating a brand-new policy (see below).
-	if policyType != "" && !isValidPolicyType(policyType) {
-		return nil, fmt.Errorf(
-			"%w: invalid PolicyType %q; must be one of StepScaling, TargetTrackingScaling, PredictiveScaling",
-			ErrValidation,
-			policyType,
-		)
+	if err := validatePutScalingPolicyBasics(
+		serviceNamespace, resourceID, scalableDimension, policyName, policyType,
+	); err != nil {
+		return nil, err
 	}
 
 	if stepAdjustmentCount(stepScalingConfig) > maxStepAdjustmentsPerPolicy {
@@ -135,6 +149,12 @@ func (b *InMemoryBackend) PutScalingPolicy(
 			p.PolicyType = policyType
 		}
 
+		if err := b.pushDynamoDBPolicyIfApplicable(
+			serviceNamespace, resourceID, scalableDimension, p.PolicyType, policyName, targetTrackingConfig,
+		); err != nil {
+			return nil, err
+		}
+
 		p.TargetTrackingConfig = maps.Clone(targetTrackingConfig)
 		p.StepScalingConfig = maps.Clone(stepScalingConfig)
 		p.PredictiveScalingConfig = maps.Clone(predictiveScalingConfig)
@@ -159,6 +179,12 @@ func (b *InMemoryBackend) PutScalingPolicy(
 	// TargetTrackingScaling.
 	if policyType == "" {
 		policyType = policyTypeStepScaling
+	}
+
+	if err := b.pushDynamoDBPolicyIfApplicable(
+		serviceNamespace, resourceID, scalableDimension, policyType, policyName, targetTrackingConfig,
+	); err != nil {
+		return nil, err
 	}
 
 	// Real AWS policy ARNs separate the policyName segment from the
@@ -305,16 +331,24 @@ func policyMatchesFilter(p *ScalingPolicy, f DescribeScalingPoliciesFilter, name
 // Returns ErrInvalidNextToken if f.NextToken fails to decode.
 func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilter) ([]*ScalingPolicy, string, error) {
 	b.mu.RLock("DescribeScalingPolicies")
-	defer b.mu.RUnlock()
 
 	nameSet := buildStringSet(f.PolicyNames)
 
 	list := make([]*ScalingPolicy, 0, b.scalingPolicies.Len())
+	known := make(map[string]bool, b.scalingPolicies.Len())
+
 	for _, p := range b.scalingPolicies.All() {
+		known[policyNameKey(p.ServiceNamespace, p.ResourceID, p.ScalableDimension, p.PolicyName)] = true
+
 		if policyMatchesFilter(p, f, nameSet) {
 			list = append(list, cloneScalingPolicy(p))
 		}
 	}
+
+	b.mu.RUnlock()
+
+	// A policy set via DynamoDB's own API must show up here too.
+	list = append(list, b.dynamodbSiblingScalingPolicies(f, known)...)
 
 	return paginate(list, f.MaxResults, f.NextToken, func(p *ScalingPolicy) string {
 		return p.ARN

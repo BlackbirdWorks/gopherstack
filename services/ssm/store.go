@@ -24,6 +24,9 @@ const (
 	// defaultCommandExpirySecs is the default TTL for SSM commands in seconds (1 hour).
 	// AWS SSM commands expire after 1 hour by default.
 	defaultCommandExpirySecs = 3600
+	// defaultCommandHistoryRetentionSecs is the janitor's command-history
+	// window (30 days, running-commands.html), independent of ExpiresAfter.
+	defaultCommandHistoryRetentionSecs = 30 * 24 * 60 * 60
 	// maxHistoryCap is the maximum number of history entries retained per parameter.
 	// Older entries beyond this cap are evicted to prevent unbounded growth.
 	maxHistoryCap = 100
@@ -45,106 +48,108 @@ type KMSEncryptor interface {
 
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
-	kms                        KMSEncryptor
-	gcm                        cipher.AEAD
-	parameterPolicyNotifier    ParameterPolicyNotifier
-	registry                   *store.Registry
-	parameters                 map[string]*store.Table[Parameter]
-	maintenanceWindows         map[string]*store.Table[MaintenanceWindow]
-	maintenanceWindowTargets   map[string]*store.Table[MaintenanceWindowTarget]
-	maintenanceWindowTasks     map[string]*store.Table[MaintenanceWindowTask]
-	sessions                   map[string]*store.Table[Session]
-	accessRequests             map[string]*store.Table[AccessRequest]
-	patchGroupToBaseline       map[string]map[string]string
-	tags                       map[string]map[string]*tags.Tags
-	associations               map[string]*store.Table[Association]
-	documentVersions           map[string]map[string][]DocumentVersion
-	documentPermissions        map[string]map[string][]string
-	documentSharedVersions     map[string]map[string]map[string]string
-	commands                   map[string]*store.Table[Command]
-	commandInvocations         map[string]map[string][]CommandInvocation
-	history                    map[string]map[string][]ParameterHistory
-	resourceDataSyncs          map[string]*store.Table[ResourceDataSync]
-	documents                  map[string]*store.Table[Document]
-	opsItems                   map[string]*store.Table[OpsItem]
-	opsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem
-	opsMetadata                map[string]*store.Table[OpsMetadata]
-	compliance                 map[string]map[string][]ComplianceItem
-	activations                map[string]*store.Table[Activation]
-	cloudConnectors            map[string]*store.Table[CloudConnector]
-	inventory                  map[string]map[string][]InventoryItem
-	associationExecutions      map[string]map[string][]AssociationExecution
-	automationExecutions       map[string]*store.Table[AutomationExecution]
-	serviceSettings            map[string]*store.Table[ServiceSetting]
-	resourcePolicies           map[string]map[string][]*ResourcePolicy
-	executionPreviews          map[string]*store.Table[ExecutionPreview]
-	instancePatchStates        map[string]*store.Table[InstancePatchState]
-	instancePatches            map[string]map[string][]PatchComplianceData
-	instanceProperties         map[string]*store.Table[InstanceProperty]
-	availablePatches           map[string][]Patch
-	mu                         *lockmetrics.RWMutex
-	inventoryDeletions         map[string][]InventoryDeletion
-	miscResourceTags           map[string]map[string]map[string]string
-	resourceIDToOpsMetadataArn map[string]map[string]string
-	opsItemEvents              map[string][]OpsItemEventSummary
-	parameterLabels            map[string]map[string]map[int64][]string
-	associationExecTargets     map[string]map[string][]AssociationExecutionTarget
-	patchBaselines             map[string]*store.Table[PatchBaseline]
-	notifiedParameterPolicies  map[string]map[string]map[string]struct{}
-	automationExecDelaySecs    float64
-	commandExecDelaySecs       float64
-	commandExpirySecs          float64
-	tableMu                    sync.Mutex
+	kms                         KMSEncryptor
+	gcm                         cipher.AEAD
+	parameterPolicyNotifier     ParameterPolicyNotifier
+	registry                    *store.Registry
+	parameters                  map[string]*store.Table[Parameter]
+	maintenanceWindows          map[string]*store.Table[MaintenanceWindow]
+	maintenanceWindowTargets    map[string]*store.Table[MaintenanceWindowTarget]
+	maintenanceWindowTasks      map[string]*store.Table[MaintenanceWindowTask]
+	sessions                    map[string]*store.Table[Session]
+	accessRequests              map[string]*store.Table[AccessRequest]
+	patchGroupToBaseline        map[string]map[string]string
+	tags                        map[string]map[string]*tags.Tags
+	associations                map[string]*store.Table[Association]
+	documentVersions            map[string]map[string][]DocumentVersion
+	documentPermissions         map[string]map[string][]string
+	documentSharedVersions      map[string]map[string]map[string]string
+	commands                    map[string]*store.Table[Command]
+	commandInvocations          map[string]map[string][]CommandInvocation
+	history                     map[string]map[string][]ParameterHistory
+	resourceDataSyncs           map[string]*store.Table[ResourceDataSync]
+	documents                   map[string]*store.Table[Document]
+	opsItems                    map[string]*store.Table[OpsItem]
+	opsItemRelatedItems         map[string]map[string][]OpsItemRelatedItem
+	opsMetadata                 map[string]*store.Table[OpsMetadata]
+	compliance                  map[string]map[string][]ComplianceItem
+	activations                 map[string]*store.Table[Activation]
+	cloudConnectors             map[string]*store.Table[CloudConnector]
+	inventory                   map[string]map[string][]InventoryItem
+	associationExecutions       map[string]map[string][]AssociationExecution
+	automationExecutions        map[string]*store.Table[AutomationExecution]
+	serviceSettings             map[string]*store.Table[ServiceSetting]
+	resourcePolicies            map[string]map[string][]*ResourcePolicy
+	executionPreviews           map[string]*store.Table[ExecutionPreview]
+	instancePatchStates         map[string]*store.Table[InstancePatchState]
+	instancePatches             map[string]map[string][]PatchComplianceData
+	instanceProperties          map[string]*store.Table[InstanceProperty]
+	availablePatches            map[string][]Patch
+	mu                          *lockmetrics.RWMutex
+	inventoryDeletions          map[string][]InventoryDeletion
+	miscResourceTags            map[string]map[string]map[string]string
+	resourceIDToOpsMetadataArn  map[string]map[string]string
+	opsItemEvents               map[string][]OpsItemEventSummary
+	parameterLabels             map[string]map[string]map[int64][]string
+	associationExecTargets      map[string]map[string][]AssociationExecutionTarget
+	patchBaselines              map[string]*store.Table[PatchBaseline]
+	notifiedParameterPolicies   map[string]map[string]map[string]struct{}
+	automationExecDelaySecs     float64
+	commandExecDelaySecs        float64
+	commandExpirySecs           float64
+	commandHistoryRetentionSecs float64
+	tableMu                     sync.Mutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		gcm:                        newInstanceGCM(),
-		registry:                   store.NewRegistry(),
-		parameters:                 make(map[string]*store.Table[Parameter]),
-		history:                    make(map[string]map[string][]ParameterHistory),
-		tags:                       make(map[string]map[string]*tags.Tags),
-		documents:                  make(map[string]*store.Table[Document]),
-		documentVersions:           make(map[string]map[string][]DocumentVersion),
-		documentPermissions:        make(map[string]map[string][]string),
-		documentSharedVersions:     make(map[string]map[string]map[string]string),
-		commands:                   make(map[string]*store.Table[Command]),
-		commandInvocations:         make(map[string]map[string][]CommandInvocation),
-		activations:                make(map[string]*store.Table[Activation]),
-		cloudConnectors:            make(map[string]*store.Table[CloudConnector]),
-		associations:               make(map[string]*store.Table[Association]),
-		maintenanceWindows:         make(map[string]*store.Table[MaintenanceWindow]),
-		maintenanceWindowTargets:   make(map[string]*store.Table[MaintenanceWindowTarget]),
-		maintenanceWindowTasks:     make(map[string]*store.Table[MaintenanceWindowTask]),
-		sessions:                   make(map[string]*store.Table[Session]),
-		accessRequests:             make(map[string]*store.Table[AccessRequest]),
-		patchGroupToBaseline:       make(map[string]map[string]string),
-		opsItems:                   make(map[string]*store.Table[OpsItem]),
-		opsItemRelatedItems:        make(map[string]map[string][]OpsItemRelatedItem),
-		opsMetadata:                make(map[string]*store.Table[OpsMetadata]),
-		patchBaselines:             make(map[string]*store.Table[PatchBaseline]),
-		inventory:                  make(map[string]map[string][]InventoryItem),
-		compliance:                 make(map[string]map[string][]ComplianceItem),
-		resourceDataSyncs:          make(map[string]*store.Table[ResourceDataSync]),
-		parameterLabels:            make(map[string]map[string]map[int64][]string),
-		automationExecutions:       make(map[string]*store.Table[AutomationExecution]),
-		serviceSettings:            make(map[string]*store.Table[ServiceSetting]),
-		resourcePolicies:           make(map[string]map[string][]*ResourcePolicy),
-		executionPreviews:          make(map[string]*store.Table[ExecutionPreview]),
-		instancePatchStates:        make(map[string]*store.Table[InstancePatchState]),
-		instancePatches:            make(map[string]map[string][]PatchComplianceData),
-		instanceProperties:         make(map[string]*store.Table[InstanceProperty]),
-		availablePatches:           make(map[string][]Patch),
-		commandExpirySecs:          defaultCommandExpirySecs,
-		mu:                         lockmetrics.New("ssm"),
-		resourceIDToOpsMetadataArn: make(map[string]map[string]string),
-		miscResourceTags:           make(map[string]map[string]map[string]string),
-		opsItemEvents:              make(map[string][]OpsItemEventSummary),
-		associationExecutions:      make(map[string]map[string][]AssociationExecution),
-		associationExecTargets:     make(map[string]map[string][]AssociationExecutionTarget),
-		inventoryDeletions:         make(map[string][]InventoryDeletion),
-		notifiedParameterPolicies:  make(map[string]map[string]map[string]struct{}),
+		gcm:                         newInstanceGCM(),
+		registry:                    store.NewRegistry(),
+		parameters:                  make(map[string]*store.Table[Parameter]),
+		history:                     make(map[string]map[string][]ParameterHistory),
+		tags:                        make(map[string]map[string]*tags.Tags),
+		documents:                   make(map[string]*store.Table[Document]),
+		documentVersions:            make(map[string]map[string][]DocumentVersion),
+		documentPermissions:         make(map[string]map[string][]string),
+		documentSharedVersions:      make(map[string]map[string]map[string]string),
+		commands:                    make(map[string]*store.Table[Command]),
+		commandInvocations:          make(map[string]map[string][]CommandInvocation),
+		activations:                 make(map[string]*store.Table[Activation]),
+		cloudConnectors:             make(map[string]*store.Table[CloudConnector]),
+		associations:                make(map[string]*store.Table[Association]),
+		maintenanceWindows:          make(map[string]*store.Table[MaintenanceWindow]),
+		maintenanceWindowTargets:    make(map[string]*store.Table[MaintenanceWindowTarget]),
+		maintenanceWindowTasks:      make(map[string]*store.Table[MaintenanceWindowTask]),
+		sessions:                    make(map[string]*store.Table[Session]),
+		accessRequests:              make(map[string]*store.Table[AccessRequest]),
+		patchGroupToBaseline:        make(map[string]map[string]string),
+		opsItems:                    make(map[string]*store.Table[OpsItem]),
+		opsItemRelatedItems:         make(map[string]map[string][]OpsItemRelatedItem),
+		opsMetadata:                 make(map[string]*store.Table[OpsMetadata]),
+		patchBaselines:              make(map[string]*store.Table[PatchBaseline]),
+		inventory:                   make(map[string]map[string][]InventoryItem),
+		compliance:                  make(map[string]map[string][]ComplianceItem),
+		resourceDataSyncs:           make(map[string]*store.Table[ResourceDataSync]),
+		parameterLabels:             make(map[string]map[string]map[int64][]string),
+		automationExecutions:        make(map[string]*store.Table[AutomationExecution]),
+		serviceSettings:             make(map[string]*store.Table[ServiceSetting]),
+		resourcePolicies:            make(map[string]map[string][]*ResourcePolicy),
+		executionPreviews:           make(map[string]*store.Table[ExecutionPreview]),
+		instancePatchStates:         make(map[string]*store.Table[InstancePatchState]),
+		instancePatches:             make(map[string]map[string][]PatchComplianceData),
+		instanceProperties:          make(map[string]*store.Table[InstanceProperty]),
+		availablePatches:            make(map[string][]Patch),
+		commandExpirySecs:           defaultCommandExpirySecs,
+		commandHistoryRetentionSecs: defaultCommandHistoryRetentionSecs,
+		mu:                          lockmetrics.New("ssm"),
+		resourceIDToOpsMetadataArn:  make(map[string]map[string]string),
+		miscResourceTags:            make(map[string]map[string]map[string]string),
+		opsItemEvents:               make(map[string][]OpsItemEventSummary),
+		associationExecutions:       make(map[string]map[string][]AssociationExecution),
+		associationExecTargets:      make(map[string]map[string][]AssociationExecutionTarget),
+		inventoryDeletions:          make(map[string][]InventoryDeletion),
+		notifiedParameterPolicies:   make(map[string]map[string]map[string]struct{}),
 	}
 
 	b.registerDefaultDocuments(defaultRegion)
@@ -166,6 +171,16 @@ func (b *InMemoryBackend) WithKMS(e KMSEncryptor) *InMemoryBackend {
 func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
 	if d > 0 {
 		b.commandExpirySecs = d.Seconds()
+	}
+
+	return b
+}
+
+// WithCommandHistoryRetention sets the janitor's command-history window,
+// independent of WithCommandTTL. A zero or negative value keeps the default.
+func (b *InMemoryBackend) WithCommandHistoryRetention(d time.Duration) *InMemoryBackend {
+	if d > 0 {
+		b.commandHistoryRetentionSecs = d.Seconds()
 	}
 
 	return b

@@ -2,6 +2,7 @@ package xray_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -247,22 +248,24 @@ func TestDeleteSamplingRule_ClearsResourceTagsOnRecreate(t *testing.T) {
 func TestModifiedAtTracking(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	synctest.Test(t, func(t *testing.T) {
+		b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
-	r, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: "track-rule", FixedRate: 0.1, Priority: 1})
-	require.NoError(t, err)
+		r, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: "track-rule", FixedRate: 0.1, Priority: 1})
+		require.NoError(t, err)
 
-	createdAt := r.CreatedAt
-	modifiedAt := r.ModifiedAt
+		createdAt := r.CreatedAt
+		modifiedAt := r.ModifiedAt
 
-	// Small sleep to ensure timestamps differ.
-	time.Sleep(time.Millisecond)
+		// Small sleep to ensure timestamps differ.
+		time.Sleep(time.Millisecond)
 
-	updated, err := b.UpdateSamplingRule("track-rule", xray.SamplingRule{ServiceName: "svc"})
-	require.NoError(t, err)
+		updated, err := b.UpdateSamplingRule("track-rule", xray.SamplingRule{ServiceName: "svc"})
+		require.NoError(t, err)
 
-	assert.Equal(t, createdAt, updated.CreatedAt)
-	assert.True(t, updated.ModifiedAt.After(modifiedAt))
+		assert.Equal(t, createdAt, updated.CreatedAt)
+		assert.True(t, updated.ModifiedAt.After(modifiedAt))
+	})
 }
 
 // TestAddSamplingRuleInternal verifies the seed helper.

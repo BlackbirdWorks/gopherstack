@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -60,31 +61,34 @@ func TestTableStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db := ddb.NewInMemoryDB()
-			if tt.createDelay > 0 {
-				db.SetCreateDelay(tt.createDelay)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				db := ddb.NewInMemoryDB()
+				if tt.createDelay > 0 {
+					db.SetCreateDelay(tt.createDelay)
+				}
 
-			out, err := db.CreateTable(t.Context(), createInput(tt.tableName))
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantInitStatus, out.TableDescription.TableStatus)
+				out, err := db.CreateTable(t.Context(), createInput(tt.tableName))
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantInitStatus, out.TableDescription.TableStatus)
 
-			desc, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
-				TableName: aws.String(tt.tableName),
-			})
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantInitStatus, desc.Table.TableStatus)
-
-			if tt.finalSleep > 0 {
-				time.Sleep(tt.finalSleep)
-
-				desc2, err2 := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+				desc, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
 					TableName: aws.String(tt.tableName),
 				})
-				require.NoError(t, err2)
-				assert.Equal(t, tt.wantFinalStatus, desc2.Table.TableStatus,
-					"expected ACTIVE after delay elapsed")
-			}
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantInitStatus, desc.Table.TableStatus)
+
+				if tt.finalSleep > 0 {
+					time.Sleep(tt.finalSleep)
+					synctest.Wait()
+
+					desc2, err2 := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+						TableName: aws.String(tt.tableName),
+					})
+					require.NoError(t, err2)
+					assert.Equal(t, tt.wantFinalStatus, desc2.Table.TableStatus,
+						"expected ACTIVE after delay elapsed")
+				}
+			})
 		})
 	}
 }
@@ -96,33 +100,37 @@ func TestTableStatus(t *testing.T) {
 func TestDeleteWhileCreating(t *testing.T) {
 	t.Parallel()
 
-	db := ddb.NewInMemoryDB()
-	db.SetCreateDelay(150 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		db := ddb.NewInMemoryDB()
+		db.SetCreateDelay(150 * time.Millisecond)
 
-	out, err := db.CreateTable(t.Context(), createInput("timer-cancel-table"))
-	require.NoError(t, err)
-	require.Equal(t, types.TableStatusCreating, out.TableDescription.TableStatus)
+		out, err := db.CreateTable(t.Context(), createInput("timer-cancel-table"))
+		require.NoError(t, err)
+		require.Equal(t, types.TableStatusCreating, out.TableDescription.TableStatus)
 
-	// Delete while still CREATING must be rejected.
-	_, err = db.DeleteTable(t.Context(), &sdk.DeleteTableInput{
-		TableName: aws.String("timer-cancel-table"),
-	})
-	require.Error(t, err)
-	var ddbErr *ddb.Error
-	require.ErrorAs(t, err, &ddbErr)
-	assert.Contains(t, ddbErr.Type, "ResourceInUseException")
+		// Delete while still CREATING must be rejected.
+		_, err = db.DeleteTable(t.Context(), &sdk.DeleteTableInput{
+			TableName: aws.String("timer-cancel-table"),
+		})
+		require.Error(t, err)
+		var ddbErr *ddb.Error
+		require.ErrorAs(t, err, &ddbErr)
+		assert.Contains(t, ddbErr.Type, "ResourceInUseException")
 
-	require.Eventually(t, func() bool {
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
+
 		desc, descErr := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
 			TableName: aws.String("timer-cancel-table"),
 		})
+		require.NoError(t, descErr)
+		require.Equal(t, types.TableStatusActive, desc.Table.TableStatus,
+			"table should become ACTIVE after the create delay elapses")
 
-		return descErr == nil && desc.Table.TableStatus == types.TableStatusActive
-	}, time.Second, 10*time.Millisecond, "table should become ACTIVE after the create delay elapses")
-
-	// Now that the table is ACTIVE, deletion must succeed.
-	_, err = db.DeleteTable(t.Context(), &sdk.DeleteTableInput{
-		TableName: aws.String("timer-cancel-table"),
+		// Now that the table is ACTIVE, deletion must succeed.
+		_, err = db.DeleteTable(t.Context(), &sdk.DeleteTableInput{
+			TableName: aws.String("timer-cancel-table"),
+		})
+		require.NoError(t, err)
 	})
-	require.NoError(t, err)
 }

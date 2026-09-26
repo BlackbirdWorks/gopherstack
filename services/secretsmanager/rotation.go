@@ -15,6 +15,12 @@ const (
 	rotationSchedulerInterval = time.Second
 	// hoursPerDay is the number of hours in a day, used for day-granularity truncation.
 	hoursPerDay = 24
+	// rateUnitHour/rateUnitDay (+ plurals) are rate() expression unit words, deduplicated
+	// across rotationInterval/scheduleWindowLimit/rotationRateUnit.
+	rateUnitHour  = "hour"
+	rateUnitHours = "hours"
+	rateUnitDay   = "day"
+	rateUnitDays  = "days"
 )
 
 // pendingRotation describes a Lambda-backed rotation awaiting its step invocations.
@@ -25,8 +31,8 @@ type pendingRotation struct {
 	lambdaARN string
 }
 
-// computeNextRotationDate returns the predicted next rotation timestamp for a secret, or nil if
-// rotation is not configured or cannot be computed.
+// computeNextRotationDate returns the secret's next rotation timestamp, or nil if rotation
+// isn't configured. Reports the window start, since gopherstack fires there (rotate-secrets_schedule.html).
 func computeNextRotationDate(secret *Secret) *float64 {
 	if !secret.RotationEnabled || secret.RotationRules == nil {
 		return nil
@@ -43,25 +49,69 @@ func computeNextRotationDate(secret *Secret) *float64 {
 
 	baseTime := time.Unix(0, int64(*base*float64(time.Second)))
 
-	if isCronExpression(secret.RotationRules.ScheduleExpression) {
-		next, ok := nextCronTime(secret.RotationRules.ScheduleExpression, baseTime)
-		if !ok {
-			return nil
-		}
-
-		nextFloat := UnixTimeFloat(next)
-
-		return &nextFloat
-	}
-
-	interval, ok := rotationInterval(secret.RotationRules)
+	next, ok := nextRotationOccurrence(secret.RotationRules, baseTime)
 	if !ok {
 		return nil
 	}
 
-	nextFloat := UnixTimeFloat(baseTime.Add(interval))
+	nextFloat := UnixTimeFloat(next)
 
 	return &nextFloat
+}
+
+// rotationRateUnit reports a rate() ScheduleExpression's unit ("hour" or "day"), or "" for
+// AutomaticallyAfterDays, cron(), or this repo's test-only second/minute rate units.
+func rotationRateUnit(rules *RotationRulesType) string {
+	const rateExpressionParts = 2
+
+	if rules == nil || rules.AutomaticallyAfterDays != nil {
+		return ""
+	}
+
+	expr := strings.TrimSpace(rules.ScheduleExpression)
+	if !strings.HasPrefix(expr, "rate(") || !strings.HasSuffix(expr, ")") {
+		return ""
+	}
+
+	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(expr, "rate("), ")"))
+	if len(parts) != rateExpressionParts {
+		return ""
+	}
+
+	switch parts[1] {
+	case rateUnitHour, rateUnitHours:
+		return rateUnitHour
+	case rateUnitDay, rateUnitDays:
+		return rateUnitDay
+	default:
+		return ""
+	}
+}
+
+// nextRotationOccurrence returns the next rotation window start after base, per
+// rotate-secrets_schedule.html (rate(days) aligns to midnight UTC; cron() is pre-aligned).
+func nextRotationOccurrence(rules *RotationRulesType, base time.Time) (time.Time, bool) {
+	if isCronExpression(rules.ScheduleExpression) {
+		return nextCronTime(rules.ScheduleExpression, base)
+	}
+
+	interval, ok := rotationInterval(rules)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	candidate := base.Add(interval)
+
+	// AWS schedules evaluate in UTC, but base may carry a local Location (e.g. time.Unix).
+	// Date/hour components are read from candidate.UTC() to keep the alignment correct.
+	switch u := candidate.UTC(); rotationRateUnit(rules) {
+	case rateUnitDay:
+		return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC), true
+	case rateUnitHour:
+		return time.Date(u.Year(), u.Month(), u.Day(), u.Hour(), 0, 0, 0, time.UTC), true
+	default:
+		return candidate, true
+	}
 }
 
 // RotateSecret creates a new version of the secret (rotation stub).
@@ -369,9 +419,129 @@ func validateRotationRules(rules *RotationRulesType) error {
 				maxRotationDays,
 			)
 		}
+
+		// AutomaticallyAfterDays and ScheduleExpression are mutually exclusive
+		// (API_RotationRulesType.html).
+		if rules.ScheduleExpression != "" {
+			return fmt.Errorf(
+				"%w: RotationRules must set AutomaticallyAfterDays or ScheduleExpression, not both",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
+	if rules.Duration == "" {
+		return nil
+	}
+
+	durationHours, err := parseRotationDuration(rules.Duration)
+	if err != nil {
+		return err
+	}
+
+	// A Duration must not extend into the next rotation window or the next UTC day
+	// (API_RotationRulesType.html).
+	if limit, ok := scheduleWindowLimit(rules.ScheduleExpression); ok && durationHours > limit {
+		return fmt.Errorf(
+			"%w: Duration %s must not extend into the next rotation window or the next UTC day",
+			ErrInvalidParameter, rules.Duration,
+		)
 	}
 
 	return nil
+}
+
+// parseRotationDuration validates and parses a RotationRules.Duration string. Per
+// API_RotationRulesType.html: pattern "[0-9]+h", length 2-3 (i.e. 1-2 digit hours).
+func parseRotationDuration(s string) (int, error) {
+	const minLen, maxLen = 2, 3
+
+	invalid := func() error {
+		return fmt.Errorf(
+			"%w: Duration %q must match pattern [0-9]+h with length %d-%d (e.g. \"3h\")",
+			ErrInvalidParameter, s, minLen, maxLen,
+		)
+	}
+
+	if len(s) < minLen || len(s) > maxLen || !strings.HasSuffix(s, "h") {
+		return 0, invalid()
+	}
+
+	digits := strings.TrimSuffix(s, "h")
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return 0, invalid()
+		}
+	}
+
+	hours, err := strconv.Atoi(digits)
+	if err != nil || hours <= 0 {
+		return 0, invalid()
+	}
+
+	return hours, nil
+}
+
+// scheduleWindowLimit returns the max valid Duration, in hours, for a ScheduleExpression
+// (rotate-secrets_schedule.html). ok is false for schedules with no real-AWS window.
+func scheduleWindowLimit(expr string) (int, bool) {
+	const rateExpressionParts = 2
+
+	expr = strings.TrimSpace(expr)
+
+	switch {
+	case isCronExpression(expr):
+		cf, err := parseCronExpr(expr)
+		if err != nil {
+			return 0, false
+		}
+
+		if len(cf.hours) > 1 {
+			return cronHourlyWindowLimit(cf.hours), true
+		}
+
+		return hoursPerDay - cf.hours[0], true
+
+	case strings.HasPrefix(expr, "rate(") && strings.HasSuffix(expr, ")"):
+		parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(expr, "rate("), ")"))
+		if len(parts) != rateExpressionParts {
+			return 0, false
+		}
+
+		n, err := strconv.Atoi(parts[0])
+		if err != nil || n <= 0 {
+			return 0, false
+		}
+
+		switch parts[1] {
+		case rateUnitHour, rateUnitHours:
+			return n, true
+		case rateUnitDay, rateUnitDays:
+			return hoursPerDay, true
+		default:
+			return 0, false
+		}
+
+	default:
+		return 0, false
+	}
+}
+
+// cronHourlyWindowLimit returns the smallest gap, in hours and wrapping past midnight, between
+// an hours-based cron's Hours values -- the max Duration allowed (rotate-secrets_schedule.html).
+func cronHourlyWindowLimit(hours []int) int {
+	minGap := hoursPerDay
+	for i := 1; i < len(hours); i++ {
+		if gap := hours[i] - hours[i-1]; gap < minGap {
+			minGap = gap
+		}
+	}
+
+	if wrapGap := hoursPerDay - hours[len(hours)-1] + hours[0]; wrapGap < minGap {
+		minGap = wrapGap
+	}
+
+	return minGap
 }
 
 // CancelRotateSecret cancels an in-progress rotation by removing the AWSPENDING staging label.
@@ -545,21 +715,12 @@ func rotationDue(rules *RotationRulesType, now time.Time, base *float64) bool {
 		return false
 	}
 
-	if isCronExpression(rules.ScheduleExpression) {
-		next, ok := nextCronTime(rules.ScheduleExpression, baseTime)
-		if !ok {
-			return false
-		}
-
-		return !now.Before(next)
-	}
-
-	interval, ok := rotationInterval(rules)
+	next, ok := nextRotationOccurrence(rules, baseTime)
 	if !ok {
 		return false
 	}
 
-	return now.Sub(baseTime) >= interval
+	return !now.Before(next)
 }
 
 func rotationInterval(rules *RotationRulesType) (time.Duration, bool) {
@@ -597,9 +758,9 @@ func rotationInterval(rules *RotationRulesType) (time.Duration, bool) {
 		return time.Duration(n) * time.Second, true
 	case "minute", "minutes":
 		return time.Duration(n) * time.Minute, true
-	case "hour", "hours":
+	case rateUnitHour, rateUnitHours:
 		return time.Duration(n) * time.Hour, true
-	case "day", "days":
+	case rateUnitDay, rateUnitDays:
 		return time.Duration(n) * 24 * time.Hour, true
 	default:
 		return 0, false

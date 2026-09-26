@@ -473,6 +473,30 @@ func (b *InMemoryBackend) storeRefreshTokenLocked(token string, entry *refreshTo
 		b.refreshTokensByUser[userKey] = make(map[string]struct{})
 	}
 	b.refreshTokensByUser[userKey][token] = struct{}{}
+
+	b.maybeEvictExpiredRefreshTokensLocked()
+}
+
+// maybeEvictExpiredRefreshTokensLocked drops expired, never-refreshed tokens
+// once the table is large (same pattern as sts). Caller holds b.mu.
+func (b *InMemoryBackend) maybeEvictExpiredRefreshTokensLocked() {
+	if len(b.refreshTokens) < refreshTokenEvictThreshold {
+		return
+	}
+
+	b.refreshTokenInsertsSinceSweep++
+	if b.refreshTokenInsertsSinceSweep < refreshTokenEvictSweepInterval {
+		return
+	}
+
+	b.refreshTokenInsertsSinceSweep = 0
+
+	now := time.Now().UTC()
+	for token, entry := range b.refreshTokens {
+		if !entry.ExpiresAt.IsZero() && !entry.ExpiresAt.After(now) {
+			b.deleteRefreshTokenLocked(token)
+		}
+	}
 }
 
 // tokenExpiryFor returns the configured token expiry duration for the given token type

@@ -106,6 +106,24 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 
 ## Notes
 
+- **2026-09-26 (gopherstack-lr8qu, rotation window)**: `RotationRules.Duration` was stored
+  but never validated or used — rotation.go fired exactly at the cron/rate boundary with no
+  window concept. Per rotate-secrets_schedule.html ("Secrets Manager rotates your secret at
+  any time during the rotation window"), firing at the window START is a valid deterministic
+  choice, kept as-is; fixed the actual gaps: (1) `rate()` schedules now align their window
+  start per docs — day-based to midnight UTC, hour-based to the top of the hour — instead of
+  literally `lastRotated + interval` at an arbitrary time of day (`nextRotationOccurrence`,
+  rotation.go); cron() was already hour-aligned. (2) `Duration` is now validated: format/length
+  per `API_RotationRulesType.html` (`[0-9]+h`, length 2-3), and "must not extend into the next
+  rotation window or the next UTC day" against the schedule's window limit
+  (`scheduleWindowLimit`/`cronHourlyWindowLimit`). (3) `AutomaticallyAfterDays` and
+  `ScheduleExpression` are now mutually exclusive per the same doc page (previously
+  unenforced). No persisted-field or wire-shape changes — `DescribeSecret`'s `RotationRules`/
+  `NextRotationDate` echo unchanged shapes, just correct values. New tests:
+  `rotation_window_test.go` (table-driven validation + window-alignment cases, one
+  `synctest`-based end-to-end firing test). `go test -race -count=3
+  ./services/secretsmanager/...` and `golangci-lint run ./services/secretsmanager/...` clean.
+
 - **2026-09-19 (gopherstack-1x2u0 leak-audit follow-up)**: retrofitted the ~340 test
   call sites constructing `InMemoryBackend` to register
   `t.Cleanup(b.StopRotationScheduler)` (safe/idempotent even when the scheduler was

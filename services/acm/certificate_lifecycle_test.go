@@ -3,6 +3,7 @@ package acm_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
@@ -16,30 +17,24 @@ import (
 func TestACMBackend_AutoValidation(t *testing.T) {
 	t.Parallel()
 
-	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	cert, err := b.RequestCertificate(context.Background(), "auto.example.com", "", "DNS", "", "", "", "", nil)
-	require.NoError(t, err)
-	assert.Equal(t, "PENDING_VALIDATION", cert.Status)
+	synctest.Test(t, func(t *testing.T) {
+		b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+		cert, err := b.RequestCertificate(context.Background(), "auto.example.com", "", "DNS", "", "", "", "", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "PENDING_VALIDATION", cert.Status)
 
-	// Wait for auto-validation (should happen within 500ms)
-	require.Eventually(t, func() bool {
-		c, descErr := b.DescribeCertificate(context.Background(), cert.ARN)
-		if descErr != nil {
-			return false
-		}
+		// autoValidateDelayMS is 100ms; cross it so auto-validation fires.
+		time.Sleep(150 * time.Millisecond)
+		synctest.Wait()
 
-		if c.Status != "ISSUED" {
-			return false
-		}
+		c, err := b.DescribeCertificate(context.Background(), cert.ARN)
+		require.NoError(t, err)
+		require.Equal(t, "ISSUED", c.Status)
 
 		for _, dvo := range c.DomainValidationOptions {
-			if dvo.ValidationStatus != "SUCCESS" {
-				return false
-			}
+			assert.Equal(t, "SUCCESS", dvo.ValidationStatus)
 		}
-
-		return true
-	}, 2*time.Second, 50*time.Millisecond)
+	})
 }
 
 // TestACMBackend_StatusLifecycle verifies the full certificate status lifecycle transitions.

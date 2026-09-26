@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -15,27 +16,29 @@ import (
 func TestEMR_Janitor_SweepsTerminatedClusters(t *testing.T) {
 	t.Parallel()
 
-	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(
-		context.Background(),
-		emr.RunJobFlowParams{Name: "sweep-test", ReleaseLabel: "emr-6.0.0"},
-	)
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := emr.NewInMemoryBackend(testAccountID, testRegion)
+		cluster, err := b.RunJobFlow(
+			context.Background(),
+			emr.RunJobFlowParams{Name: "sweep-test", ReleaseLabel: "emr-6.0.0"},
+		)
+		require.NoError(t, err)
 
-	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
+		require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
-	janitor := emr.NewJanitor(b, 10*time.Millisecond, 50*time.Millisecond)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+		janitor := emr.NewJanitor(b, 10*time.Millisecond, 50*time.Millisecond)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
 
-	go janitor.Run(ctx)
+		go janitor.Run(ctx)
 
-	// Wait until the cluster is swept from the backend.
-	require.Eventually(t, func() bool {
-		_, descErr := b.DescribeCluster(context.Background(), cluster.ID)
+		// Cross a ticker interval past the TTL so the sweep has run.
+		time.Sleep(70 * time.Millisecond)
+		synctest.Wait()
 
-		return descErr != nil
-	}, 2*time.Second, 20*time.Millisecond, "terminated cluster should be swept")
+		_, err = b.DescribeCluster(context.Background(), cluster.ID)
+		require.Error(t, err, "terminated cluster should be swept")
+	})
 }
 
 func TestEMR_Janitor_ActiveClusterNotSwept(t *testing.T) {
@@ -144,36 +147,38 @@ func TestEMR_Janitor_SweepOnce(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := emr.NewInMemoryBackend(testAccountID, testRegion)
-			cluster, err := b.RunJobFlow(
-				context.Background(),
-				emr.RunJobFlowParams{Name: "sweep-once-test", ReleaseLabel: "emr-6.0.0"},
-			)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := emr.NewInMemoryBackend(testAccountID, testRegion)
+				cluster, err := b.RunJobFlow(
+					context.Background(),
+					emr.RunJobFlowParams{Name: "sweep-once-test", ReleaseLabel: "emr-6.0.0"},
+				)
+				require.NoError(t, err)
 
-			require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
+				require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
-			ttl := 24 * time.Hour
-			if tt.clusterOld {
-				ttl = time.Millisecond // effectively expired immediately
-			}
+				ttl := 24 * time.Hour
+				if tt.clusterOld {
+					ttl = time.Millisecond // effectively expired immediately
+				}
 
-			j := emr.NewJanitor(b, time.Minute, ttl)
+				j := emr.NewJanitor(b, time.Minute, ttl)
 
-			if tt.clusterOld {
-				// Give the TTL time to expire.
-				time.Sleep(5 * time.Millisecond)
-			}
+				if tt.clusterOld {
+					// Give the TTL time to expire.
+					time.Sleep(5 * time.Millisecond)
+				}
 
-			j.SweepOnce(t.Context())
+				j.SweepOnce(t.Context())
 
-			_, err = b.DescribeCluster(context.Background(), cluster.ID)
+				_, err = b.DescribeCluster(context.Background(), cluster.ID)
 
-			if tt.wantSwept {
-				require.Error(t, err, "cluster should have been swept")
-			} else {
-				require.NoError(t, err, "cluster should still exist")
-			}
+				if tt.wantSwept {
+					require.Error(t, err, "cluster should have been swept")
+				} else {
+					require.NoError(t, err, "cluster should still exist")
+				}
+			})
 		})
 	}
 }
