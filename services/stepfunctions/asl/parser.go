@@ -53,17 +53,26 @@ type ItemReader struct {
 }
 
 // ReaderConfig describes how the ItemReader should interpret S3 object data.
-// InputType: "JSON" (default), "JSONL", or "CSV".
+// InputType: "JSON" (default), "JSONL", "CSV", "MANIFEST", or "PARQUET"
+// (PARQUET is parsed but not decoded -- see PARITY.md).
 // CSVHeaderLocation: "FIRST_ROW" or "GIVEN".
 // CSVHeaders: explicit headers when CSVHeaderLocation == "GIVEN".
 // MaxItems: optional cap on number of items returned (0 = unlimited).
 // MaxItemsPath is MaxItems' reference-path sibling, mutually exclusive with
-// it and resolved against the Map state's pre-Parameters input (AWS docs:
-// input-output-itemreader.html).
+// it and resolved against the Map state's pre-Parameters input.
+// Transformation ("NONE" default, or "LOAD_AND_FLATTEN") only applies to the
+// s3:listObjectsV2 Resource: LOAD_AND_FLATTEN reads and decodes each listed
+// object's content (per InputType) instead of returning object metadata.
+// ManifestType ("S3_INVENTORY" or "ATHENA_DATA", only ATHENA_DATA unsupported
+// -- see PARITY.md) or InputType "MANIFEST" treats the fetched object as an
+// S3 Inventory manifest.json listing CSV data files.
+// (AWS docs: input-output-itemreader.html).
 type ReaderConfig struct {
 	InputType         string   `json:"InputType,omitempty"`
 	CSVHeaderLocation string   `json:"CSVHeaderLocation,omitempty"`
 	MaxItemsPath      string   `json:"MaxItemsPath,omitempty"`
+	Transformation    string   `json:"Transformation,omitempty"`
+	ManifestType      string   `json:"ManifestType,omitempty"`
 	CSVHeaders        []string `json:"CSVHeaders,omitempty"`
 	MaxItems          int      `json:"MaxItems,omitempty"`
 }

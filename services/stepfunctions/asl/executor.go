@@ -1,6 +1,8 @@
 package asl
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/base64"
@@ -8,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"math"
 	"math/rand/v2"
@@ -19,6 +22,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // ErrExecutionFailed is returned when a Fail state is reached.
@@ -81,6 +86,12 @@ const (
 	errCodeStatesTimeout                         = "States.Timeout"
 	errCodeStatesTaskFailed                      = "States.TaskFailed"
 	errCodeStatesExceedToleratedFailureThreshold = "States.ExceedToleratedFailureThreshold"
+	errCodeStatesItemReaderFailed                = "States.ItemReaderFailed"
+)
+
+const (
+	itemReaderResourceGetObject     = "arn:aws:states:::s3:getObject"
+	itemReaderResourceListObjectsV2 = "arn:aws:states:::s3:listObjectsV2"
 )
 
 // aslNullLiteral is ASL's "null" string: a ResultPath sentinel, an
@@ -120,6 +131,25 @@ type ActivityInvoker interface {
 type S3Reader interface {
 	// GetObjectBytes returns the raw bytes of an S3 object by bucket and key.
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
+}
+
+// S3ObjectItem is one object's metadata, as returned by S3's ListObjectsV2
+// and consumed by a Map state ItemReader whose Resource is s3:listObjectsV2
+// (AWS docs: input-output-itemreader.html).
+type S3ObjectItem struct {
+	LastModified time.Time
+	Key          string
+	ETag         string
+	StorageClass string
+	Size         int64
+}
+
+// S3ListReader lists objects in an S3 bucket/prefix, for a Map state
+// ItemReader whose Resource is arn:aws:states:::s3:listObjectsV2. Optional:
+// implemented by the same adapter as S3Reader, but checked separately so an
+// S3Reader that predates this capability (e.g. a test double) still compiles.
+type S3ListReader interface {
+	ListObjectsV2Items(ctx context.Context, bucket, prefix string) ([]S3ObjectItem, error)
 }
 
 // S3Writer writes objects to S3 for a Distributed Map state's ResultWriter.
@@ -2150,6 +2180,26 @@ func (e *Executor) getMapIterator(state *State) (*StateMachine, error) {
 // ErrS3ReaderNotConfigured is returned when ItemReader requires S3 but no S3Reader is set.
 var ErrS3ReaderNotConfigured = errors.New("S3 reader not configured for Map state ItemReader")
 
+// ErrS3ListReaderNotConfigured is returned when an ItemReader's Resource is
+// s3:listObjectsV2 but the configured S3Reader doesn't implement S3ListReader.
+var ErrS3ListReaderNotConfigured = errors.New("S3 list reader not configured for Map state ItemReader")
+
+// ErrItemReaderUnsupportedResource is returned for an ItemReader.Resource
+// this emulator doesn't recognize.
+var ErrItemReaderUnsupportedResource = errors.New("ItemReader: unsupported Resource")
+
+// ErrAthenaManifestUnsupported is returned for ReaderConfig.ManifestType
+// ATHENA_DATA, which this emulator doesn't implement -- see PARITY.md.
+var ErrAthenaManifestUnsupported = errors.New(
+	"ItemReader: ManifestType ATHENA_DATA is not supported by this emulator",
+)
+
+// ErrParquetUnsupported is returned for InputType PARQUET, which this
+// emulator doesn't decode (no pure-Go Parquet reader dependency) -- see PARITY.md.
+var ErrParquetUnsupported = errors.New(
+	"ItemReader: InputType PARQUET is not supported by this emulator",
+)
+
 // ErrItemReaderInvalidData is returned when ItemReader S3 object cannot be parsed as items.
 var ErrItemReaderInvalidData = errors.New(
 	"ItemReader: unable to parse S3 object as JSON array or JSON lines",
@@ -2208,9 +2258,34 @@ func (e *Executor) truncateReaderItems(items []any, cfg *ReaderConfig, mapInput 
 	return items, nil
 }
 
-// resolveItemsFromReader reads items from S3 using the ItemReader configuration.
-// Supports JSON arrays, newline-delimited JSON (JSON Lines), and CSV.
+// resolveItemsFromReader reads items from S3 using the ItemReader's Resource
+// and ReaderConfig, wrapping any failure as States.ItemReaderFailed --
+// AWS's documented error for a Distributed Map ItemReader that can't read
+// its dataset (input-output-itemreader.html).
 func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReader) ([]any, error) {
+	items, err := e.readItemReaderSource(ctx, reader)
+	if err != nil {
+		return nil, &FailError{ErrCode: errCodeStatesItemReaderFailed, Cause: err.Error()}
+	}
+
+	return items, nil
+}
+
+func (e *Executor) readItemReaderSource(ctx context.Context, reader *ItemReader) ([]any, error) {
+	switch reader.Resource {
+	case "", itemReaderResourceGetObject:
+		return e.resolveItemsFromS3GetObject(ctx, reader)
+	case itemReaderResourceListObjectsV2:
+		return e.resolveItemsFromS3List(ctx, reader)
+	default:
+		return nil, fmt.Errorf("%w %q", ErrItemReaderUnsupportedResource, reader.Resource)
+	}
+}
+
+// resolveItemsFromS3GetObject implements the s3:getObject Resource: a single
+// S3 object decoded as JSON, JSON Lines, CSV, or (via ManifestType/InputType
+// MANIFEST) an S3 Inventory manifest fanning out to multiple CSV data files.
+func (e *Executor) resolveItemsFromS3GetObject(ctx context.Context, reader *ItemReader) ([]any, error) {
 	if e.s3 == nil {
 		return nil, ErrS3ReaderNotConfigured
 	}
@@ -2223,7 +2298,199 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
 	}
 
-	return decodeReaderItems(data, reader.ReaderConfig)
+	cfg := reader.ReaderConfig
+	if isManifestReaderConfig(cfg) {
+		return e.resolveManifestItems(ctx, bucket, data, cfg)
+	}
+
+	return decodeReaderItems(data, cfg)
+}
+
+// resolveItemsFromS3List implements the s3:listObjectsV2 Resource: by
+// default, one item per listed object's metadata; with
+// ReaderConfig.Transformation LOAD_AND_FLATTEN, each listed object's content
+// is read and decoded, fanning out into per-record items.
+func (e *Executor) resolveItemsFromS3List(ctx context.Context, reader *ItemReader) ([]any, error) {
+	if e.s3 == nil {
+		return nil, ErrS3ReaderNotConfigured
+	}
+
+	lister, ok := e.s3.(S3ListReader)
+	if !ok {
+		return nil, ErrS3ListReaderNotConfigured
+	}
+
+	bucket, _ := reader.Parameters["Bucket"].(string)
+	prefix, _ := reader.Parameters["Prefix"].(string)
+
+	objs, err := lister.ListObjectsV2Items(ctx, bucket, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("ItemReader S3 list error: %w", err)
+	}
+
+	cfg := reader.ReaderConfig
+	if cfg != nil && strings.EqualFold(cfg.Transformation, "LOAD_AND_FLATTEN") {
+		return e.flattenListedObjects(ctx, bucket, objs, cfg)
+	}
+
+	items := make([]any, len(objs))
+	for i, o := range objs {
+		items[i] = map[string]any{
+			"Etag":         o.ETag,
+			"Key":          o.Key,
+			"LastModified": awstime.Epoch(o.LastModified),
+			"Size":         o.Size,
+			"StorageClass": o.StorageClass,
+		}
+	}
+
+	return items, nil
+}
+
+// flattenListedObjects reads and decodes each listed object's content per
+// InputType, fanning out into per-record items (AWS docs: "Processing
+// nested data sets"). Zero-byte keys ending in "/" are S3 console folder
+// placeholders with no content to decode, so they're skipped.
+func (e *Executor) flattenListedObjects(
+	ctx context.Context,
+	bucket string,
+	objs []S3ObjectItem,
+	cfg *ReaderConfig,
+) ([]any, error) {
+	if cfg.InputType == "" {
+		return nil, fmt.Errorf(
+			"%w: InputType is required when Transformation is LOAD_AND_FLATTEN",
+			ErrItemReaderInvalidData,
+		)
+	}
+
+	var items []any
+
+	for _, o := range objs {
+		if o.Size == 0 && strings.HasSuffix(o.Key, "/") {
+			continue
+		}
+
+		data, err := e.s3.GetObjectBytes(ctx, bucket, o.Key)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader flatten %q: %w", o.Key, err)
+		}
+
+		objItems, err := decodeReaderItems(data, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader flatten %q: %w", o.Key, err)
+		}
+
+		items = append(items, objItems...)
+	}
+
+	return items, nil
+}
+
+// isManifestReaderConfig reports whether cfg names an S3 Inventory/Athena
+// manifest rather than a plain data object -- either the legacy
+// InputType=MANIFEST form or the newer ManifestType field.
+func isManifestReaderConfig(cfg *ReaderConfig) bool {
+	if cfg == nil {
+		return false
+	}
+
+	return strings.EqualFold(cfg.InputType, "MANIFEST") || cfg.ManifestType != ""
+}
+
+// s3InventoryManifest is the manifest.json shape AWS S3 Inventory writes
+// alongside its CSV data files (AWS docs: input-output-itemreader.html).
+type s3InventoryManifest struct {
+	FileSchema string `json:"fileSchema"`
+	Files      []struct {
+		Key string `json:"key"`
+	} `json:"files"`
+}
+
+// resolveManifestItems dispatches on ManifestType (S3_INVENTORY, the only
+// InputType=MANIFEST target has ever meant, or ATHENA_DATA, unsupported).
+func (e *Executor) resolveManifestItems(
+	ctx context.Context,
+	bucket string,
+	manifestData []byte,
+	cfg *ReaderConfig,
+) ([]any, error) {
+	manifestType := strings.ToUpper(cfg.ManifestType)
+	if manifestType == "" {
+		manifestType = "S3_INVENTORY"
+	}
+
+	switch manifestType {
+	case "S3_INVENTORY":
+		return e.resolveS3InventoryManifest(ctx, bucket, manifestData)
+	case "ATHENA_DATA":
+		return nil, ErrAthenaManifestUnsupported
+	default:
+		return nil, fmt.Errorf("%w: unsupported ManifestType %q", ErrItemReaderInvalidData, cfg.ManifestType)
+	}
+}
+
+// resolveS3InventoryManifest reads an S3 Inventory manifest.json, then reads
+// and decodes each listed (optionally gzip-compressed) CSV data file, using
+// the manifest's fileSchema as the CSV headers.
+func (e *Executor) resolveS3InventoryManifest(ctx context.Context, bucket string, manifestData []byte) ([]any, error) {
+	var manifest s3InventoryManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return nil, fmt.Errorf("%w: manifest.json: %w", ErrItemReaderInvalidData, err)
+	}
+
+	headers := splitManifestFileSchema(manifest.FileSchema)
+	fileCfg := &ReaderConfig{CSVHeaderLocation: "GIVEN", CSVHeaders: headers}
+
+	var items []any
+
+	for _, f := range manifest.Files {
+		data, err := e.s3.GetObjectBytes(ctx, bucket, f.Key)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader manifest data file %q: %w", f.Key, err)
+		}
+
+		if strings.HasSuffix(strings.ToLower(f.Key), ".gz") {
+			data, err = gunzipBytes(data)
+			if err != nil {
+				return nil, fmt.Errorf("%w: gunzip %q: %w", ErrItemReaderInvalidData, f.Key, err)
+			}
+		}
+
+		fileItems, err := decodeCSVItems(data, fileCfg)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader manifest data file %q: %w", f.Key, err)
+		}
+
+		items = append(items, fileItems...)
+	}
+
+	return items, nil
+}
+
+// splitManifestFileSchema splits an S3 Inventory manifest's fileSchema
+// ("Bucket, Key, Size, LastModifiedDate") into CSV headers.
+func splitManifestFileSchema(schema string) []string {
+	parts := strings.Split(schema, ",")
+	headers := make([]string, len(parts))
+
+	for i, p := range parts {
+		headers[i] = strings.TrimSpace(p)
+	}
+
+	return headers
+}
+
+// gunzipBytes decompresses gzip-compressed S3 object data (AWS docs: ItemReader
+// input files support GZIP/ZSTD external compression; only GZIP is implemented).
+func gunzipBytes(data []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	return io.ReadAll(r)
 }
 
 // decodeReaderItems parses S3 object bytes into Map items based on the
@@ -2241,6 +2508,8 @@ func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 		return decodeJSONLines(data)
 	case "", "JSON":
 		return decodeJSONAuto(data)
+	case "PARQUET":
+		return nil, ErrParquetUnsupported
 	default:
 		return nil, fmt.Errorf("%w: unsupported InputType %q", ErrItemReaderInvalidData, inputType)
 	}
