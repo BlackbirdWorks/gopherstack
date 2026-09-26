@@ -2422,7 +2422,7 @@ func (e *Executor) resolveManifestItems(
 
 	switch manifestType {
 	case "S3_INVENTORY":
-		return e.resolveS3InventoryManifest(ctx, bucket, manifestData)
+		return e.resolveS3InventoryManifest(ctx, bucket, manifestData, cfg)
 	case "ATHENA_DATA":
 		return nil, ErrAthenaManifestUnsupported
 	default:
@@ -2432,8 +2432,15 @@ func (e *Executor) resolveManifestItems(
 
 // resolveS3InventoryManifest reads an S3 Inventory manifest.json, then reads
 // and decodes each listed (optionally gzip-compressed) CSV data file, using
-// the manifest's fileSchema as the CSV headers.
-func (e *Executor) resolveS3InventoryManifest(ctx context.Context, bucket string, manifestData []byte) ([]any, error) {
+// the manifest's fileSchema as the CSV headers. cfg's CSVDelimiter (if any)
+// carries through to the data files, matching AWS's "CSVDelimiter ... when
+// InputType is CSV or MANIFEST".
+func (e *Executor) resolveS3InventoryManifest(
+	ctx context.Context,
+	bucket string,
+	manifestData []byte,
+	cfg *ReaderConfig,
+) ([]any, error) {
 	var manifest s3InventoryManifest
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		return nil, fmt.Errorf("%w: manifest.json: %w", ErrItemReaderInvalidData, err)
@@ -2441,6 +2448,10 @@ func (e *Executor) resolveS3InventoryManifest(ctx context.Context, bucket string
 
 	headers := splitManifestFileSchema(manifest.FileSchema)
 	fileCfg := &ReaderConfig{CSVHeaderLocation: "GIVEN", CSVHeaders: headers}
+
+	if cfg != nil {
+		fileCfg.CSVDelimiter = cfg.CSVDelimiter
+	}
 
 	var items []any
 
@@ -2507,11 +2518,96 @@ func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 	case "JSONL", "JSON_LINES":
 		return decodeJSONLines(data)
 	case "", "JSON":
-		return decodeJSONAuto(data)
+		return decodeJSONItems(data, cfg)
 	case "PARQUET":
 		return nil, ErrParquetUnsupported
 	default:
 		return nil, fmt.Errorf("%w: unsupported InputType %q", ErrItemReaderInvalidData, inputType)
+	}
+}
+
+// decodeJSONItems decodes a JSON InputType object, applying ReaderConfig's
+// ItemsPointer (RFC 6901 JSON Pointer) to select a nested array when set --
+// AWS docs: input-output-itemreader.html, "ItemsPointer". Without it, falls
+// back to the pre-existing JSON-array-then-JSON-lines auto-detection.
+func decodeJSONItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	if cfg == nil || cfg.ItemsPointer == "" {
+		return decodeJSONAuto(data)
+	}
+
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, err)
+	}
+
+	val, err := resolveJSONPointer(doc, cfg.ItemsPointer)
+	if err != nil {
+		return nil, err
+	}
+
+	arr, ok := val.([]any)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: ItemsPointer %q does not reference a JSON array",
+			ErrItemReaderInvalidData, cfg.ItemsPointer,
+		)
+	}
+
+	return arr, nil
+}
+
+// errJSONPointerNotFound is resolveJSONPointer's internal not-found signal,
+// always re-wrapped as ErrItemReaderInvalidData before it leaves this file.
+var errJSONPointerNotFound = errors.New("path not found")
+
+// resolveJSONPointer resolves an RFC 6901 JSON Pointer ("/data/items")
+// against a decoded JSON document: forward slashes separate nesting levels,
+// array indices are plain decimal integers, and "~1"/"~0" escape "/" and "~"
+// in a token (AWS docs: ItemsPointer "JSONPointer syntax").
+func resolveJSONPointer(doc any, pointer string) (any, error) {
+	if pointer == "" || pointer == "/" {
+		return doc, nil
+	}
+
+	if !strings.HasPrefix(pointer, "/") {
+		return nil, fmt.Errorf(`%w: ItemsPointer %q must start with "/"`, ErrItemReaderInvalidData, pointer)
+	}
+
+	cur := doc
+
+	for tok := range strings.SplitSeq(pointer[1:], "/") {
+		tok = strings.ReplaceAll(tok, "~1", "/")
+		tok = strings.ReplaceAll(tok, "~0", "~")
+
+		next, err := stepJSONPointer(cur, tok)
+		if err != nil {
+			return nil, fmt.Errorf("%w: ItemsPointer %q: %w", ErrItemReaderInvalidData, pointer, err)
+		}
+
+		cur = next
+	}
+
+	return cur, nil
+}
+
+func stepJSONPointer(cur any, tok string) (any, error) {
+	switch v := cur.(type) {
+	case map[string]any:
+		next, ok := v[tok]
+		if !ok {
+			return nil, errJSONPointerNotFound
+		}
+
+		return next, nil
+	case []any:
+		idx, err := strconv.Atoi(tok)
+		if err != nil || idx < 0 || idx >= len(v) {
+			return nil, errJSONPointerNotFound
+		}
+
+		return v[idx], nil
+	default:
+		return nil, errJSONPointerNotFound
 	}
 }
 
@@ -2546,8 +2642,39 @@ func decodeJSONLines(data []byte) ([]any, error) {
 	return items, nil
 }
 
+// csvDelimiterRune maps ReaderConfig.CSVDelimiter to the field separator
+// AWS documents for CSV/MANIFEST InputType: COMMA (default), PIPE,
+// SEMICOLON, SPACE, TAB (input-output-itemreader.html).
+func csvDelimiterRune(cfg *ReaderConfig) (rune, error) {
+	delim := ""
+	if cfg != nil {
+		delim = strings.ToUpper(cfg.CSVDelimiter)
+	}
+
+	switch delim {
+	case "", "COMMA":
+		return ',', nil
+	case "PIPE":
+		return '|', nil
+	case "SEMICOLON":
+		return ';', nil
+	case "SPACE":
+		return ' ', nil
+	case "TAB":
+		return '\t', nil
+	default:
+		return 0, fmt.Errorf("%w: unsupported CSVDelimiter %q", ErrItemReaderInvalidData, delim)
+	}
+}
+
 func decodeCSVItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	delim, err := csvDelimiterRune(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	reader := csv.NewReader(strings.NewReader(string(data)))
+	reader.Comma = delim
 	reader.FieldsPerRecord = -1
 
 	rows, err := reader.ReadAll()

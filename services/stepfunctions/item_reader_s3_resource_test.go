@@ -274,6 +274,32 @@ func TestItemReader_S3Manifest(t *testing.T) {
 		assert.Equal(t, "imageDataset/pic.jpg", items[1]["Key"])
 	})
 
+	t.Run("ManifestType S3_INVENTORY with CSVDelimiter carries through to data files", func(t *testing.T) {
+		t.Parallel()
+
+		const bucket = "inv-bucket-pipe"
+
+		pipeCSV := `"src-bucket"|"csvDataset/titles.csv"|"3399671"|"2022-11-16T00:29:32.000Z"` + "\n"
+
+		s3Bk := newBucketBackedS3(t, bucket)
+		putS3Object(t, s3Bk, bucket, "inv/data0.csv", []byte(pipeCSV))
+		putS3Object(t, s3Bk, bucket, "inv/manifest.json", []byte(buildManifest(t, "inv/data0.csv")))
+
+		itemReader := `{
+			"Resource": "arn:aws:states:::s3:getObject",
+			"ReaderConfig": {"ManifestType": "S3_INVENTORY", "CSVDelimiter": "PIPE"},
+			"Parameters": {"Bucket": "` + bucket + `", "Key": "inv/manifest.json"}
+		}`
+
+		status, output, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
+		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
+
+		var items []map[string]any
+		require.NoError(t, json.Unmarshal([]byte(output), &items))
+		require.Len(t, items, 1)
+		assert.Equal(t, "csvDataset/titles.csv", items[0]["Key"])
+	})
+
 	t.Run("ManifestType ATHENA_DATA is a recorded gap", func(t *testing.T) {
 		t.Parallel()
 
@@ -334,5 +360,52 @@ func TestItemReader_S3GetObject_Errors(t *testing.T) {
 		assert.Equal(t, sfntypes.ExecutionStatusFailed, status)
 		assert.Equal(t, "States.ItemReaderFailed", errCode)
 		assert.Contains(t, cause, "PARQUET")
+	})
+}
+
+// TestItemReader_ItemsPointer covers ReaderConfig.ItemsPointer, the RFC 6901
+// JSON Pointer selecting a nested array within a JSON InputType file (AWS
+// docs: input-output-itemreader.html, "ItemsPointer").
+func TestItemReader_ItemsPointer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("selects nested array", func(t *testing.T) {
+		t.Parallel()
+
+		const bucket = "pointer-bucket"
+
+		s3Bk := newBucketBackedS3(t, bucket)
+		putS3Object(t, s3Bk, bucket, "nested.json",
+			[]byte(`{"inventory":{"products":{"featured":[{"id":1},{"id":2}]}}}`))
+
+		itemReader := `{
+			"Resource": "arn:aws:states:::s3:getObject",
+			"ReaderConfig": {"InputType": "JSON", "ItemsPointer": "/inventory/products/featured"},
+			"Parameters": {"Bucket": "` + bucket + `", "Key": "nested.json"}
+		}`
+
+		status, output, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
+		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
+		assert.JSONEq(t, `[{"id":1},{"id":2}]`, output)
+	})
+
+	t.Run("path not pointing at an array fails with States.ItemReaderFailed", func(t *testing.T) {
+		t.Parallel()
+
+		const bucket = "pointer-bucket-not-array"
+
+		s3Bk := newBucketBackedS3(t, bucket)
+		putS3Object(t, s3Bk, bucket, "nested.json", []byte(`{"data":{"id":1}}`))
+
+		itemReader := `{
+			"Resource": "arn:aws:states:::s3:getObject",
+			"ReaderConfig": {"InputType": "JSON", "ItemsPointer": "/data"},
+			"Parameters": {"Bucket": "` + bucket + `", "Key": "nested.json"}
+		}`
+
+		status, _, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
+		assert.Equal(t, sfntypes.ExecutionStatusFailed, status)
+		assert.Equal(t, "States.ItemReaderFailed", errCode)
+		assert.Contains(t, cause, "ItemsPointer")
 	})
 }

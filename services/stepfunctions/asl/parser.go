@@ -57,6 +57,11 @@ type ItemReader struct {
 // (PARQUET is parsed but not decoded -- see PARITY.md).
 // CSVHeaderLocation: "FIRST_ROW" or "GIVEN".
 // CSVHeaders: explicit headers when CSVHeaderLocation == "GIVEN".
+// CSVDelimiter: "COMMA" (default), "PIPE", "SEMICOLON", "SPACE", or "TAB" --
+// only meaningful when InputType is CSV or MANIFEST.
+// ItemsPointer: an RFC 6901 JSON Pointer ("/data/items") selecting a nested
+// array within a JSON InputType file; only meaningful when InputType is
+// JSON (or omitted).
 // MaxItems: optional cap on number of items returned (0 = unlimited).
 // MaxItemsPath is MaxItems' reference-path sibling, mutually exclusive with
 // it and resolved against the Map state's pre-Parameters input.
@@ -70,9 +75,11 @@ type ItemReader struct {
 type ReaderConfig struct {
 	InputType         string   `json:"InputType,omitempty"`
 	CSVHeaderLocation string   `json:"CSVHeaderLocation,omitempty"`
+	CSVDelimiter      string   `json:"CSVDelimiter,omitempty"`
 	MaxItemsPath      string   `json:"MaxItemsPath,omitempty"`
 	Transformation    string   `json:"Transformation,omitempty"`
 	ManifestType      string   `json:"ManifestType,omitempty"`
+	ItemsPointer      string   `json:"ItemsPointer,omitempty"`
 	CSVHeaders        []string `json:"CSVHeaders,omitempty"`
 	MaxItems          int      `json:"MaxItems,omitempty"`
 }

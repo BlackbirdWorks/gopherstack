@@ -522,7 +522,7 @@ families:
 filter_semantics: {status: ok, note: "gopherstack-uox6 (value-semantics sweep, 2026-08-30): this service establishes no prior sweep of this kind. First, its protocol: aws-sdk-go-v2/service/sfn@v1.45.4's types package has NO Filter struct at all (grep of types/types.go) -- this API surface has almost no server-side filtering. The one real filter is ListExecutionsInput.StatusFilter (types.ExecutionStatus, a single-value equality field, not a list), applied at executions.go:643 via an exact bucket lookup -- no documented modifier to get wrong. Everything else this service's ~14 hand-rolled 'match' helpers implement is Amazon States Language Choice-state comparators (asl/executor.go), which decide whether a state's input satisfies a rule, not an SDK list filter, but the same right-field-wrong-algorithm risk applies: evaluateChoiceRule's And/Or/Not (correct all/any/negate), IsPresent/IsNull/IsString/IsNumeric/IsBoolean/IsTimestamp (each compares a computed bool against *rule.IsX with ==, correctly honoring both true and false rather than only checking truthiness), and the String/Numeric/Boolean/Timestamp -Equals/-LessThan/-GreaterThan/-LessThanEquals/-GreaterThanEquals families (each Path and literal variant) were all read and are correct. stringMatchesPattern/globMatch (StringMatches) is the one genuine wildcard comparator in this family -- verified against the ASL spec's documented semantics (its own doc comment: '*' matches zero or more chars, backslash escapes the next character, anchored both ends) via a real two-pointer backtracking implementation; correct, including the escape case. No bugs found -- clean verdict."}
 gaps: []
 items_still_open:
-  - "2026-09-26 (ItemReader Resource sweep), narrowed: Resource=arn:aws:states:::s3:listObjectsV2 (object-metadata iteration and Transformation=LOAD_AND_FLATTEN over JSON/JSONL/CSV) and ManifestType=S3_INVENTORY (plus the legacy InputType=MANIFEST alias, gzip data files included) are now implemented -- see the asl_map family note. Two real gaps remain, both explicitly disclosed via distinct sentinel errors rather than silently mis-decoding: (1) ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported) -- input-output-itemreader.html describes the manifest only as 'a structured CSV list of the data files', which is not precise enough to implement against confidently (Athena's own UNLOAD manifest format elsewhere is JSON, not CSV), and the doc's $states.context.Map.Item.Source addition for this mode is unmodeled too; (2) InputType=PARQUET (asl.ErrParquetUnsupported) -- no pure-Go Parquet reader dependency exists in go.mod, and adding one was out of scope for this pass. CSVDelimiter (PIPE/SEMICOLON/SPACE/TAB) and ItemsPointer (JSONPointer selection into a nested JSON file) are also still unimplemented: ReaderConfig has no fields for either, and plain CSV/JSON InputType parsing is unchanged from before this pass. No bd filed yet for any of the four."
+  - "2026-09-26 (ItemReader gap-closure sweep), narrowed further: CSVDelimiter (COMMA default/PIPE/SEMICOLON/SPACE/TAB, ReaderConfig field, applied to both the plain s3:getObject CSV path and S3_INVENTORY manifest data files) and ItemsPointer (RFC 6901 JSON Pointer selecting a nested array within a JSON InputType file, e.g. '/data/items') are now implemented -- see the 2026-09-26 ItemReader gap-closure sweep note. CSVHeaderLocation (FIRST_ROW/GIVEN+CSVHeaders) and MaxItems/MaxItemsPath were already correctly wired before this pass (TestDecodeReaderItems, TestExecutor_ItemReaderMaxItemsPath) and needed no change. Two real gaps remain, both explicitly disclosed via distinct sentinel errors rather than silently mis-decoding: (1) ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported) -- input-output-itemreader.html describes the manifest only as 'a structured CSV list of the data files', which is not precise enough to implement against confidently (Athena's own UNLOAD manifest format elsewhere is JSON, not CSV), and the doc's $states.context.Map.Item.Source addition for this mode is unmodeled too; (2) InputType=PARQUET (asl.ErrParquetUnsupported) -- no pure-Go Parquet reader dependency exists in go.mod, and adding one is out of scope (explicitly disallowed for this pass too). No bd filed yet for either."
   - "STALE, corrected this pass (bd: gopherstack-zov6): this line previously read 'Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)' -- Mode/ExecutionType parsing and validation (parser.go) were already done before this pass; what was actually missing was Mode being acted on. FIXED: a DISTRIBUTED Map state now spawns a real child Execution per item/batch instead of running inline (see asl_map family note). Genuinely still open: DescribeMapRun/ListMapRuns/ListExecutions(mapRunArn=...) lose access to a Map Run after a backend restore, because the MapRun *resource* table (unlike its child Execution records, which do persist) has never been part of backendSnapshot -- a pre-existing gap, not introduced this pass."
   - "STALE, corrected 2026-09-11 (bd: gopherstack-1sf): StartExecutionInput has no ClientRequestToken member in the real SDK, so there was nothing to model there. FIXED: EXPRESS name reuse is now immediate (uniqueness check skipped for EXPRESS), and STANDARD reuse of a still-RUNNING execution's name with matching Input now returns that execution (idempotent) instead of erroring; differing Input or a closed execution still conflicts. See the StartExecution note above and Test_StartExecution_NameReuseSemantics."
   - "StartExecution's STANDARD name-reuse conflict does not expire: AWS allows reusing a closed execution's name 90 days after it closes, but this emulator conflicts on any existing name regardless of how long it has been closed (no notion of elapsed wall-clock time since close) -- disclosed, not modeled (bd: gopherstack-1sf)"
@@ -536,6 +536,62 @@ leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execut
 ---
 
 ## Notes
+
+### 2026-09-26 ItemReader gap-closure sweep (CSVDelimiter, ItemsPointer)
+
+Follow-up to the ItemReader Resource sweep below, which flagged CSVDelimiter
+and ItemsPointer as newly-discovered, still-unimplemented ReaderConfig
+fields. Re-read input-output-itemreader.html for both fields' exact
+semantics and implemented:
+
+- **`ReaderConfig.CSVDelimiter`** (new field): `COMMA` (default), `PIPE`,
+  `SEMICOLON`, `SPACE`, `TAB`, case-insensitive; an unrecognized value is a
+  `States.ItemReaderFailed` error rather than silently falling back to
+  comma. Wired into `decodeCSVItems` via `csv.Reader.Comma`, and threaded
+  through to `S3_INVENTORY` manifest data files too (the docs: "You can
+  specify this field when InputType is CSV or MANIFEST") -- previously
+  `resolveS3InventoryManifest` built its own `fileCfg` with no way to carry
+  the outer `ReaderConfig`'s delimiter through, so it's now passed the full
+  `cfg` and copies `CSVDelimiter` onto `fileCfg`.
+- **`ReaderConfig.ItemsPointer`** (new field): an RFC 6901 JSON Pointer
+  (`/data/items`, forward-slash-separated, numeric array indices, `~1`/`~0`
+  escapes) selecting a nested array within a JSON `InputType` file, per the
+  docs' example (`{"data": {"items": [...]}}` -> `"/data/items"`). Resolving
+  to anything other than a JSON array (an object, scalar, or a path that
+  doesn't exist) is a `States.ItemReaderFailed` error. Only applies to
+  `InputType: JSON` (or omitted, its default); `JSONL`/`CSV` are unaffected
+  and still auto-detect as before when `ItemsPointer` is unset.
+
+Verified CSVHeaderLocation (`FIRST_ROW`/`GIVEN`+`CSVHeaders`) and
+MaxItems/MaxItemsPath were already correctly implemented and tested
+(`TestDecodeReaderItems`'s `csv_first_row_header`/`csv_given_headers`/
+`csv_max_items_truncates` cases, `TestExecutor_ItemReaderMaxItemsPath`) --
+no changes needed there.
+
+InputType=PARQUET and ManifestType=ATHENA_DATA remain unimplemented,
+unchanged from the prior sweep: no pure-Go Parquet reader dependency exists
+in `go.mod` and adding one was out of scope (explicitly disallowed for this
+pass), and ATHENA_DATA's manifest format isn't documented precisely enough
+to implement against confidently. Both still fail with their existing
+dedicated sentinel errors (`ErrParquetUnsupported`/
+`ErrAthenaManifestUnsupported`), not silently.
+
+New table-driven cases in `TestDecodeReaderItems`
+(`asl/intrinsics_extras_test.go`): CSV with `PIPE`/lowercase `semicolon`/
+`TAB`/`SPACE` delimiters, an unsupported delimiter error, `ItemsPointer`
+selecting a nested array (including a path segment that indexes into an
+array), and error cases (points at a non-array, path doesn't exist, path
+doesn't start with `/`). New SDK-roundtrip tests: a `CSVDelimiter: PIPE`
+case added to `TestItemReader_S3Manifest` (delimiter carried through to the
+manifest's data file), and a new `TestItemReader_ItemsPointer`
+(`item_reader_s3_resource_test.go`, nested-array selection and the
+not-an-array failure, both driven through the real
+`aws-sdk-go-v2/service/sfn` client with the in-process S3 backend).
+
+Gates green: `gofmt`, `go build ./...`, `go vet ./services/stepfunctions/...`,
+`go test -race -count=1` (this package), `golangci-lint run` (0 findings),
+`go test ./pkgs/persistence/`, `go run ./cmd/parityfmtcheck -dir services`.
+No `go.mod`/`go.sum` changes.
 
 ### 2026-09-26 ItemReader Resource sweep (listObjectsV2, MANIFEST, LOAD_AND_FLATTEN)
 
@@ -581,7 +637,8 @@ exists in `go.mod`, and this pass does not add one, per instructions).
 `CSVDelimiter` and `ItemsPointer` remain unparsed (`ReaderConfig` has no
 fields for either) -- discovered while reading the docs for this pass but
 out of the four originally-recorded gaps, so left as-is and disclosed above
-rather than silently addressed.
+rather than silently addressed. STALE, corrected same-day by the 2026-09-26
+ItemReader gap-closure sweep above: both are now implemented.
 
 New table-driven tests, driven through a real `aws-sdk-go-v2/service/sfn`
 client over `httptest` with objects seeded in the in-process S3 backend
