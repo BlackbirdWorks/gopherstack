@@ -16,6 +16,23 @@ overall: A   # parity-sweep (2026-09-19): implemented Role Manager (AcquireRole,
   # console-only-resource seam services/cloudwatchlogs's AddAnomalyInternal and
   # services/quicksight's AddAppInternal already establish. See ops.AcquireRole
   # et al and families.role_manager/account_properties below.
+  # sweep 14 (2026-09-26, items_still_open triage): confirmed the 2026-09-26
+  # condition-operator/--enforce-iam fixes (condeval.ArnMatch, net.IP compare,
+  # aws:SecureTransport, epoch Date, NullIfExists rejection) were already
+  # live at HEAD with passing enforcement_integration_test.go coverage --
+  # removed that items_still_open entry as already-fixed, no new change.
+  # Fixed ListGroupsForUser/ListServerCertificates/ListServiceSpecificCredentials:
+  # all 3 hardcoded IsTruncated=false (or, for the credentials op, had no
+  # IsTruncated/Marker fields at all) despite their real Inputs declaring
+  # Marker/MaxItems -- ListGroupsForUser/ListServerCertificates had been
+  # misfiled as a "disclosed structural gap" in sweep 13's note when they are
+  # the same mechanical pkgs/page gap already fixed elsewhere in this service.
+  # See the new ops entry and TestListGroupsForUser_ServerCertificates_
+  # ServiceSpecificCredentials_Pagination (pagination_gap_whitebox_test.go).
+  # Consolidated items_still_open from 9 stale/overlapping historical entries
+  # down to 5 current ones (gopherstack-anjf: items_still_open is the only
+  # authoritative open list; several entries were pure sweep-6/10/11 history
+  # already captured by ops: entries above, not live gaps).
   # sweep 13 (wrapper-key sweep, uncommitted as of this note): fixed
   # ListAttached{User,Role,Group}Policies dropping PathPrefix/Marker/MaxItems entirely
   # (silent unfiltered, unpaginated full list) and policyNameFromARN's wrong-separator
@@ -117,60 +134,38 @@ ops:
   GetRoleTemplateVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW 2026-09-19. Declared errors InvalidInput/NoSuchEntity/ServiceFailure wired. Unspecified MinorVersion resolves to the stored version whose own MinorVersion equals its DefaultMinorVersion (falling back to the highest seeded MinorVersion if the seeded set has none matching -- deterministic, never fabricated, since it's still one of the caller's own seeded versions). Proven via TestRealClient_GetRoleTemplateVersion (found + not-found cases)."}
   GetAccountProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW 2026-09-19. No input members; a fresh account returns an empty Properties map, matching real AWS (no documented default properties exist until PutAccountProperties is called -- not fabricating a pre-populated RoleManager entry). Properties>entry>key/value confirmed lowercase against iam@v1.63.0's AccountPropertiesMapType (value.Map(\"key\",\"value\")), distinct from this service's usual PascalCase members. Proven via TestRealClient_AccountProperties."}
   PutAccountProperties: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NEW 2026-09-19. Real AWS's own two documented structural constraints -- 'the key must contain exactly one / ... and cannot start or end with /' and 'all properties in a single request must belong to the same namespace' -- are both validated for real (InvalidInput on violation); per-property value typing ('boolean properties expect true or false') is NOT enforced since AWS doesn't publish the namespace/property/type registry this backend would need to check it honestly -- disclosed in families.account_properties, not silently accepted as a loosened check (the two constraints AWS DOES document are fully enforced). wire: fixed because PutAccountPropertiesOutput's response requires an empty <PutAccountPropertiesResult> element the real SDK client's deserializer unconditionally looks for even though the output carries no members -- confirmed against deserializers.go's GetElement(\"PutAccountPropertiesResult\") call, which errors if absent; found via a failing real-client round trip before this element was added. Proven via TestRealClient_AccountProperties, TestRealClient_PutAccountProperties_MixedNamespaceRejected, TestRealClient_PutAccountProperties_MalformedKeyRejected."}
+  ListGroupsForUser/ListServerCertificates/ListServiceSpecificCredentials: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-09-26 parity sweep). All 3 real Inputs (api_op_ListGroupsForUser.go, api_op_ListServerCertificates.go, api_op_ListServiceSpecificCredentials.go) declare Marker/MaxItems; ListGroupsForUser/ListServerCertificates hardcoded IsTruncated=false with no Marker field on the wire at all (misclassified as a structural gap in sweep 13's note -- it is the same mechanical pkgs/page gap already fixed for ListAccessKeys/ListSigningCertificates/ListSSHPublicKeys, not a real structural limit), and ListServiceSpecificCredentials's Result struct had no IsTruncated/Marker fields either. All 3 now return page.Page[T] from the backend (StorageBackend signatures gained marker/maxItems params) and echo Marker/IsTruncated in the response, same page.New(items, marker, maxItems, iamDefaultMaxItems) template as every other paginated List op here. ListServiceSpecificCredentials's AllUsers filter and UserName-optional (defaults to caller identity) remain unimplemented -- gopherstack has no caller-identity plumbing, the same disclosed gap named for AssociateDelegationRequest/ListDelegationRequests's OwnerId filter. Proven via TestListGroupsForUser_ServerCertificates_ServiceSpecificCredentials_Pagination (pagination_gap_whitebox_test.go), a real-SDK-client table test: 3 items each, MaxItems=2 returns 2 with IsTruncated=true and a non-nil Marker, a second call with that Marker returns the remaining 1 with IsTruncated=false/Marker=nil."}
 invented_ops_removed:
   - "GetUserPermissionsBoundary / GetRolePermissionsBoundary: not real IAM actions (no api_op_Get{User,Role}PermissionsBoundary.go in the SDK) — permissions-boundary info is returned as a field on GetUser/GetRole (types.User.PermissionsBoundary / types.Role.PermissionsBoundary), which gopherstack already does correctly. Deleted the fabricated duplicate getters, their GetSupportedOperations entries, and updated the 2 tests that called them to assert via GetUser/GetRole instead."
   - "TagGroup / UntagGroup / ListGroupTags: not real IAM actions — Group is not a taggable resource type in real AWS (aws-sdk-go-v2/service/iam/types.Group has no Tags field, no api_op_{Tag,Untag,ListGroupTags}.go exist). Deleted the fabricated backend methods (InMemoryBackend.TagGroup/UntagGroup), the StorageBackend interface methods, the dispatch entries, the Group.Tags / GroupXML.Tags model fields, and the 4 tests that exercised them."
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 items_still_open:
-  - "2026-09-26 (condition-operator sweep, --enforce-iam evaluator): the 2026-08-30 value-semantics
-    audit's claim that conditions.go's ArnEquals/ArnLike were correct understated the gap -- they were
-    a single case-INSENSITIVE glob over the whole ARN string (anyStringLike on lower-cased input), not
-    AWS's documented case-sensitive, six-colon-segment-wise match, so a wildcard could incorrectly span
-    a segment boundary (e.g. 'arn:aws:s3:*:mybucket' would have matched a real ARN with a non-empty
-    region). Fixed: ArnEquals/ArnLike/ArnNotEquals/ArnNotLike now use condeval.ArnMatch (see
-    services/sts/PARITY.md's matching entry -- extracted to pkgs/condeval since services/sts/trust_policy.go
-    had begun duplicating this exact ARN-matching and Date-parsing logic verbatim). IpAddress/NotIpAddress's
-    bare-literal branch also fixed: it compared ctxVal to condVals[i] as raw strings, which could false-negative
-    on a semantically-equal but differently-formatted IPv6 literal (e.g. case, or a compressible zero run);
-    now parses both sides and compares net.IP.Equal. Added: aws:SecureTransport as a first-class
-    ConditionContext field (previously only reachable via a caller-supplied Extra entry, never populated
-    by the enforcement middleware itself), wired from r.TLS/X-Forwarded-Proto in middleware.go. Added: Date
-    operators now accept epoch (UNIX) seconds interchangeably with ISO 8601, matching AWS's documented
-    Date value grammar (previously ISO 8601 only). NullIfExists is now rejected as an unrecognized operator
-    rather than silently treated as Null (AWS documents IfExists as invalid on Null). No behavior change
-    without --enforce-iam; see enforcement_integration_test.go's SDK-driven regression coverage."
-  - "aws_iam_security_token_service_preferences (2026-09-24, iam-detective-and-s3-replication terraform
-    sweep): dropped from test/terraform/fixtures/iam-detective-and-s3-replication.tf after a real
-    attempt. terraform-provider-aws v5.100.0 fails apply with 'Provider produced
-    inconsistent result after apply ... root object was present, but now absent',
-    the identical symptom already recorded for aws_ecr_registry_scanning_configuration
-    /aws_ecr_replication_configuration in services/ecr/PARITY.md (gopherstack-101r,
-    2026-09-19) -- a Put-then-immediate-Read singleton-settings resource pattern
-    that trips a legacy-SDK/plugin-framework state-consistency check in Terraform
-    Core itself, not this emulator: SetSecurityTokenServicePreferences and its
-    read path (GetAccountSummary's GlobalEndpointTokenVersion entry) are already
-    verified wire-correct (see the SetSecurityTokenServicePreferences ops entry
-    above). Left out rather than re-chased blind, same reasoning as the ECR entry."
-  - "2026-09-19 (parity-sweep): PutAccountProperties enforces both AWS-documented
-    structural key constraints (one '/' separator, no leading/trailing '/', single
-    namespace per request) but not per-property value typing (e.g. RoleManager's
-    boolean expectation) -- AWS does not publish the full namespace/property/type
-    registry needed to check that honestly. AcquireRole's List-type
-    (StringList/NumberList/ArnList) ReplacementValues join with ',' when substituted
-    into a string pattern -- AWS does not document the real join format, disclosed as
-    this backend's own choice. AcquireRole's 'role that matches the template' idempotency
-    check is by resolved role name only (real AWS doesn't document a finer-grained
-    match signal either). Role templates have no Create/Put/List/Delete/Enable/Disable
-    operation anywhere in the pinned SDK -- AddRoleTemplateVersionInternal is the only
-    way this backend's role-template state is ever populated, a structural (not
-    fixable) gap matching services/quicksight's AddAppInternal precedent."
-  - "2026-08-29 constraint-parameter sweep fixed PathPrefix+pagination truncation across ListUsers/ListRoles/ListGroups/ListInstanceProfiles/ListPolicies, and ListPolicies' OnlyAttached/PolicyUsageFilter (see the sweep's own section above for detail). Sweep 13 closed ListAttached{User,Role,Group}Policies' PathPrefix (see its own ops: entry). ListEntitiesForPolicy's EntityFilter/PathPrefix/PolicyUsageFilter/Marker/MaxItems (confirmed present sweep 13, deliberately left open pending a StorageBackend surface change) is now also closed (gopherstack-fjmw, see its own ops: entry -- new PermissionsBoundaryEntities method) -- still open: the pagination-only params on ListMFADevices/ListAccessKeys/ListSigningCertificates/ListSSHPublicKeys/ListServiceSpecificCredentials (not re-checked)."
-  - "Sweep 13 (wrapper-key sweep, iam+eventbridge scope): field-level enumeration via go/types selector-usage scan doesn't apply to IAM -- it's AWS Query/XML with no request struct types at all (handlers pull vals.Get(\"Key\") directly), unlike eventbridge's JSON *Input structs. Instead re-verified the known filter-after-pagination class (confirmed still fixed for the 5 ops sweep 12's PathPrefix-family header names) and found the same silent-full-list shape one layer over: ListAttached{User,Role,Group}Policies (fixed) and ListEntitiesForPolicy (confirmed, left open) both read PolicyArn/EntityType-only and ignore PathPrefix/PolicyUsageFilter/Marker/MaxItems entirely. Also fixed a wrong-Go-value bug found while writing the ListAttached* regression test: policyNameFromARN split on the wrong separator for any policy with a non-default Path. ListServerCertificates spot-checked clean (PathPrefix read and filtered correctly; no Marker/MaxItems support at all is a disclosed structural gap, not a filter-after-pagination bug -- there's no pagination to cut wrong). ListGroupsForUser spot-checked: hardcodes IsTruncated=false with no Marker/MaxItems read at all -- same disclosed structural gap, not fixed, not this sweep's named scope."
-  - "This sweep (6) closed both remaining gopherstack-gjp/2sz3 items: (1) comprehensiveBackend's private sync.Mutex is gone — its fields (sshPublicKeys, mfaUserLinks, accessAdvisorJobs, serviceLastAccessed, orgReportJobs) are now guarded by the same coarse b.mu as every other backend map, per the one-coarse-lock convention (.claude/memories/pkgs-catalog.md). Two call sites (GetCredentialReport, ListMFADevicesForUser) previously nested c.mu inside a held b.mu.RLock; DeleteUser's dependency check ran entirely BEFORE taking b.mu, a real TOCTOU window between the SSH-key/MFA-device check and the delete. All three are now single atomic critical sections under b.mu. Snapshot()/Restore() also now read/write comprehensiveBackend state inside the same b.mu section as the rest of backend state, instead of a separate before/after step — Snapshot() gets one consistent point-in-time view (previously the comprehensive-state read and the rest-of-backend read were NOT atomic with each other). Covered by TestComprehensiveBackend_NoDataRace (-race, concurrent workers hitting both comprehensiveBackend and regular backend ops) and TestDeleteUser_SSHKeyConflictIsAtomic. (2) GetAccountAuthorizationDetails now honors Marker/MaxItems/Filter — see the ops entry above."
-  - "NOT re-verified this sweep (no evidence of a bug found, but not field-diffed line-by-line either): policy simulation (SimulateCustomPolicy/SimulatePrincipalPolicy/evaluator.go), access advisor / service-last-accessed, credential report generation, account summary, condition-key evaluation (conditions.go), resource-policy evaluation (resource_arn.go). These were already marked ok/PROVEN by sweeps 1-4 and no new evidence surfaced against them. (SSH key / signing certificate CRUD -- the other family named in this line as of sweep 9 -- was field-diffed member-by-member in sweep 10: SSH key ops (Upload/Get/List/Update/DeleteSSHPublicKey) all read every serialized member correctly, no bug; signing certificates had a real ownership-bypass bug, now fixed, plus a disclosed pagination gap -- see ops entries above.)"
-  - "Sweep 10 also confirmed policy evaluation itself (evaluator.go, conditions.go, resource_arn.go) and SimulatePrincipalPolicy/SimulateCustomPolicy remain untouched and out of scope: gopherstack has no real IAM policy evaluator, and building one is explicitly outside this campaign's charter (modelling gap, not a bug)."
-  - "Sweep 11 closed 3 of this list's named items: ListSigningCertificates' disclosed pagination gap (now fixed, plus a second real gap found in the same area -- sibling ListSSHPublicKeys' response never echoed Marker despite genuinely paginating -- also fixed), and GetDelegationRequest/ListDelegationRequests (both now real, no longer disclosed stubs -- see ops entries above). Access advisor / credential report / account summary (named 'not re-verified since sweep 4' above) is now re-verified: GetCredentialReport/GenerateCredentialReport clean (no bug -- both real inputs are empty, output fields all correct); GetAccountSummary had a real bug, now fixed (fabricated 'SAMLProviders' key, OIDCProviders never surfaced -- see ops entry); GenerateServiceLastAccessedDetails/GetServiceLastAccessedDetails have 2 shadowed-dead-code duplicates now documented (no behavior change, see ops entry) plus a genuine, NOT-fixed disclosed gap: GenerateServiceLastAccessedDetailsInput's optional Granularity (SERVICE_LEVEL|ACTION_LEVEL) is not honored, and GetServiceLastAccessedDetailsInput's Marker/MaxItems are not paginated -- gopherstack's access-advisor backend tracks only per-service data with no per-action tracking and no pagination concept, so ACTION_LEVEL granularity would mean fabricating data gopherstack cannot honestly produce (same invented-capability-is-worse-than-absent line as GetHumanReadableSummary); Marker/MaxItems pagination is mechanical (same page.Page[T] template used everywhere else in this service) but was left out of this sweep's named scope to keep it focused. ListDelegationRequests' real OwnerId filter is also a disclosed, deliberately-unapplied gap (see its ops entry): gopherstack has no caller-identity plumbing to ever populate a stored request's owner identity, the same gap AssociateDelegationRequest already discloses. Condition-key evaluation (conditions.go) and resource-policy evaluation (resource_arn.go) remain NOT re-verified since sweep 4 -- out of this sweep's named scope, no evidence checked either way."
+  - "aws_iam_security_token_service_preferences (2026-09-24): dropped from the iam-detective-and-s3-replication
+    terraform fixture -- terraform-provider-aws v5.100.0's Put-then-immediate-Read singleton-settings pattern
+    trips a state-consistency check in Terraform Core itself (same symptom as services/ecr's
+    aws_ecr_registry_scanning_configuration, gopherstack-101r), not this emulator; the op itself is already
+    wire-verified (see SetSecurityTokenServicePreferences ops entry). External tooling issue, not re-chased."
+  - "Role manager/account properties (2026-09-19): PutAccountProperties enforces AWS's documented structural
+    key constraints but not per-property value typing (AWS publishes no namespace/property/type registry to
+    check against); AcquireRole's List-type ReplacementValues join with ',' (AWS doesn't document the real
+    join format) and its idempotency match is by resolved role name only; role templates have no
+    Create/Put/List/Delete/Enable/Disable op in the pinned SDK at all (AddRoleTemplateVersionInternal is the
+    only seam). All disclosed choices, not bugs -- see families.role_manager/account_properties."
+  - "Policy simulation (SimulateCustomPolicy/SimulatePrincipalPolicy, evaluator.go) has not been field-diffed
+    since sweep 4, and the top-of-file sdk_module note flags that its response shape changed in SDK v1.57
+    (per-resource entries -> aggregated top-level results) with no re-verification since the version bump --
+    building a real IAM policy evaluator is out of this campaign's charter regardless (modelling gap)."
+  - "resource_arn.go (resource-policy evaluation) has not been re-verified since sweep 4; conditions.go
+    (condition-key evaluation) WAS re-verified and fixed this sweep (2026-09-26, see condeval.ArnMatch/
+    net.IP/aws:SecureTransport/epoch-Date/NullIfExists fixes, enforcement_integration_test.go)."
+  - "Access advisor: GenerateServiceLastAccessedDetailsInput's optional Granularity (SERVICE_LEVEL|ACTION_LEVEL)
+    is not honored and GetServiceLastAccessedDetailsInput's Marker/MaxItems are not paginated -- the backend
+    (access_advisor.go) tracks only per-service data with no per-action tracking or pagination concept, so
+    ACTION_LEVEL would mean fabricating data gopherstack cannot honestly produce (same line as
+    GetHumanReadableSummary's LLM-content gap); Marker/MaxItems pagination is mechanical but not yet done.
+    ListDelegationRequests' real OwnerId filter is the same class of gap: no caller-identity plumbing exists
+    to ever populate a stored request's owner, so the filter is deliberately left unapplied (see its ops entry)."
 ---
 
 ## Notes

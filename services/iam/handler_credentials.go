@@ -53,16 +53,17 @@ func (h *Handler) iamSSCResetDispatch() map[string]iamActionFn {
 func (h *Handler) iamServiceSpecificCredDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListServiceSpecificCredentials": func(vals url.Values, reqID string) (any, error) {
-			creds, err := h.Backend.ListServiceSpecificCredentials(
+			p, err := h.Backend.ListServiceSpecificCredentials(
 				vals.Get("UserName"), vals.Get("ServiceName"),
+				vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")),
 			)
 			if err != nil {
 				return nil, err
 			}
 
-			xmlCreds := make([]ServiceSpecificCredentialMetadataXML, 0, len(creds))
-			for i := range creds {
-				c := &creds[i]
+			xmlCreds := make([]ServiceSpecificCredentialMetadataXML, 0, len(p.Data))
+			for i := range p.Data {
+				c := &p.Data[i]
 				xmlCreds = append(xmlCreds, ServiceSpecificCredentialMetadataXML{
 					UserName:                    c.UserName,
 					ServiceName:                 c.ServiceName,
@@ -77,6 +78,8 @@ func (h *Handler) iamServiceSpecificCredDispatch() map[string]iamActionFn {
 				Xmlns: iamXMLNS,
 				Result: ListServiceSpecificCredentialsResult{
 					ServiceSpecificCredentials: xmlCreds,
+					IsTruncated:                p.Next != "",
+					Marker:                     p.Next,
 				},
 				Meta: ResponseMetadata{RequestID: reqID},
 			}, nil

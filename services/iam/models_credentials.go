@@ -54,7 +54,9 @@ type ServiceSpecificCredentialMetadataXML struct {
 
 // ListServiceSpecificCredentialsResult contains the list of credentials.
 type ListServiceSpecificCredentialsResult struct {
+	Marker                     string                                 `xml:"Marker,omitempty"`
 	ServiceSpecificCredentials []ServiceSpecificCredentialMetadataXML `xml:"ServiceSpecificCredentials>member"`
+	IsTruncated                bool                                   `xml:"IsTruncated"`
 }
 
 // ListServiceSpecificCredentialsResponse is the XML response for ListServiceSpecificCredentials.

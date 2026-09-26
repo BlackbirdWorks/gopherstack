@@ -93,9 +93,9 @@ func TestHandler_ServiceSpecificCredential_UpdateStatus(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	creds, _ := b.ListServiceSpecificCredentials("ssc-update-status-user", "")
-	require.Len(t, creds, 1)
-	assert.Equal(t, "Inactive", creds[0].Status)
+	p, _ := b.ListServiceSpecificCredentials("ssc-update-status-user", "", "", 0)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, "Inactive", p.Data[0].Status)
 }
 
 func TestHandler_ResetServiceSpecificCredential_ChangesPassword(t *testing.T) {

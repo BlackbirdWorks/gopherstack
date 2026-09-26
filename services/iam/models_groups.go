@@ -15,6 +15,7 @@ type ListGroupsForUserXML struct {
 
 // ListGroupsForUserResult contains the list of groups.
 type ListGroupsForUserResult struct {
+	Marker      string                 `xml:"Marker,omitempty"`
 	Groups      []ListGroupsForUserXML `xml:"Groups>member"`
 	IsTruncated bool                   `xml:"IsTruncated"`
 }

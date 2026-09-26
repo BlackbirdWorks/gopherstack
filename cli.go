@@ -3480,6 +3480,30 @@ type elbCertificateResolverAdapter struct {
 	iamBackend *iambackend.InMemoryBackend
 }
 
+// elbResolverServerCertMatches walks every page of IAM server certificates
+// looking for certARN, since ListServerCertificates now paginates.
+func elbResolverServerCertMatches(b *iambackend.InMemoryBackend, certARN string) bool {
+	marker := ""
+	for {
+		p, err := b.ListServerCertificates("", marker, 0)
+		if err != nil {
+			return false
+		}
+
+		for _, c := range p.Data {
+			if c.Arn == certARN {
+				return true
+			}
+		}
+
+		if p.Next == "" {
+			return false
+		}
+
+		marker = p.Next
+	}
+}
+
 func (a *elbCertificateResolverAdapter) ResolveCertificate(ctx context.Context, certARN string) bool {
 	if a.acmBackend != nil {
 		if _, err := a.acmBackend.DescribeCertificate(ctx, certARN); err == nil {
@@ -3487,15 +3511,8 @@ func (a *elbCertificateResolverAdapter) ResolveCertificate(ctx context.Context, 
 		}
 	}
 
-	if a.iamBackend != nil {
-		certs, err := a.iamBackend.ListServerCertificates("")
-		if err == nil {
-			for _, c := range certs {
-				if c.Arn == certARN {
-					return true
-				}
-			}
-		}
+	if a.iamBackend != nil && elbResolverServerCertMatches(a.iamBackend, certARN) {
+		return true
 	}
 
 	return false
@@ -3551,15 +3568,8 @@ func (a *elbv2CertificateResolverAdapter) ResolveCertificate(certARN string) boo
 		}
 	}
 
-	if a.iamBackend != nil {
-		certs, err := a.iamBackend.ListServerCertificates("")
-		if err == nil {
-			for _, c := range certs {
-				if c.Arn == certARN {
-					return true
-				}
-			}
-		}
+	if a.iamBackend != nil && elbResolverServerCertMatches(a.iamBackend, certARN) {
+		return true
 	}
 
 	return false

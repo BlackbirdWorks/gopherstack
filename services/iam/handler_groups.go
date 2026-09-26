@@ -162,14 +162,16 @@ func toGroupDetailXML(g GroupDetail) GroupDetailXML {
 func (h *Handler) iamGroupRefinementDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListGroupsForUser": func(vals url.Values, reqID string) (any, error) {
-			groups, err := h.Backend.ListGroupsForUser(vals.Get("UserName"))
+			p, err := h.Backend.ListGroupsForUser(
+				vals.Get("UserName"), vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")),
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			xmlGroups := make([]ListGroupsForUserXML, 0, len(groups))
-			for i := range groups {
-				g := &groups[i]
+			xmlGroups := make([]ListGroupsForUserXML, 0, len(p.Data))
+			for i := range p.Data {
+				g := &p.Data[i]
 				xmlGroups = append(xmlGroups, ListGroupsForUserXML{
 					GroupName:  g.GroupName,
 					GroupID:    g.GroupID,
@@ -183,7 +185,8 @@ func (h *Handler) iamGroupRefinementDispatch() map[string]iamActionFn {
 				Xmlns: iamXMLNS,
 				ListGroupsForUserResult: ListGroupsForUserResult{
 					Groups:      xmlGroups,
-					IsTruncated: false,
+					IsTruncated: p.Next != "",
+					Marker:      p.Next,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
