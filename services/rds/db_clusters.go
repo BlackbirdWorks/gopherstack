@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// cloneDBClusterMutableSlices deep-copies DBClusterMembers before a caller sees them.
+// FailoverDBCluster writes IsClusterWriter in place, so a shallow "cp := *cluster" would share the backing array.
+func cloneDBClusterMutableSlices(c *DBCluster) {
+	c.DBClusterMembers = slices.Clone(c.DBClusterMembers)
+}
+
 // CreateDBCluster creates a new DB cluster.
 func (b *InMemoryBackend) CreateDBCluster(
 	id, engine, masterUser, dbName, paramGroupName string,
@@ -53,6 +59,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -161,6 +168,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
 		cp := *cluster
+		cloneDBClusterMutableSlices(&cp)
 		b.overlayFailoverStatusRLocked(&cp)
 
 		return []DBCluster{cp}, nil
@@ -168,6 +176,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	result := make([]DBCluster, 0, b.clusters.Len())
 	for _, cluster := range b.clusters.All() {
 		cp := *cluster
+		cloneDBClusterMutableSlices(&cp)
 		b.overlayFailoverStatusRLocked(&cp)
 		result = append(result, cp)
 	}
@@ -309,6 +318,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	}
 
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 	// Clear the cluster association on any member instances so they appear standalone.
 	for _, member := range cluster.DBClusterMembers {
 		if inst, ok := b.instances.Get(normalizeID(member.DBInstanceIdentifier)); ok {
@@ -497,6 +507,7 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		b.cascadeInstanceParameterGroupLocked(cluster, opts.DBInstanceParameterGroupName)
 	}
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -527,6 +538,7 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	}
 	cluster.Status = instanceStatusAvailable
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -544,6 +556,7 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	}
 	cluster.Status = "stopped"
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -592,6 +605,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -642,6 +656,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -884,6 +899,7 @@ func (b *InMemoryBackend) FailoverDBCluster(
 	}
 	cluster.Status = instanceStatusAvailable
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -919,6 +935,7 @@ func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) 
 		b.clusterReadyAt[cluster.DBClusterIdentifier] = time.Now().Add(instanceTransitionDelay)
 		b.scheduleReconcilerLocked()
 		cp := *cluster
+		cloneDBClusterMutableSlices(&cp)
 		result = &cp
 	}()
 
@@ -968,6 +985,7 @@ func (b *InMemoryBackend) PromoteReadReplicaDBCluster(clusterID string) (*DBClus
 	cluster.ReplicationSourceIdentifier = ""
 	cluster.Status = instanceStatusAvailable
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -1064,6 +1082,7 @@ func (b *InMemoryBackend) ModifyCurrentDBClusterCapacity(
 	}
 	cluster.ServerlessCapacity = capacity
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -1114,6 +1133,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
