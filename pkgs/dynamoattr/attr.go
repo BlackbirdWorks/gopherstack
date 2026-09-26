@@ -8,19 +8,49 @@ import (
 )
 
 // UnwrapAttributeValue converts a DynamoDB wire attribute map into a bare value when possible.
+//
+// Direct lookups instead of ranging: a wire map has exactly one type key, and a
+// map iterator costs more than checking the (overwhelmingly common) S/N keys directly.
 func UnwrapAttributeValue(v any) any {
-	m, ok := v.(map[string]any)
-	if !ok || len(m) == 0 {
+	m, isMap := v.(map[string]any)
+	if !isMap || len(m) == 0 {
 		return v
 	}
 
-	for k, val := range m {
-		switch k {
-		case "S", "N", "B", "BOOL", "M", "L", "SS", "NS", "BS":
-			return val
-		case "NULL":
-			return nil
-		}
+	if val, ok := m["S"]; ok {
+		return val
+	}
+	if val, ok := m["N"]; ok {
+		return val
+	}
+
+	return unwrapAttributeValueRare(m, v)
+}
+
+func unwrapAttributeValueRare(m map[string]any, v any) any {
+	if val, ok := m["B"]; ok {
+		return val
+	}
+	if val, ok := m["BOOL"]; ok {
+		return val
+	}
+	if _, ok := m["NULL"]; ok {
+		return nil
+	}
+	if val, ok := m["M"]; ok {
+		return val
+	}
+	if val, ok := m["L"]; ok {
+		return val
+	}
+	if val, ok := m["SS"]; ok {
+		return val
+	}
+	if val, ok := m["NS"]; ok {
+		return val
+	}
+	if val, ok := m["BS"]; ok {
+		return val
 	}
 
 	return v
