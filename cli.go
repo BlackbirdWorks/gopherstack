@@ -122,6 +122,7 @@ import (
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
+	dsqlbackend "github.com/blackbirdworks/gopherstack/services/dsql"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
@@ -361,6 +362,7 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
+	dsqlHandler                   service.Registerable
 	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
 	ecrPublicHandler              service.Registerable
@@ -1757,6 +1759,11 @@ func (c *CLI) GetElasticbeanstalkHandler() service.Registerable { return c.elast
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetDocDBHandler() service.Registerable { return c.docdbHandler }
 
+// GetDSQLHandler returns the Aurora DSQL handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDSQLHandler() service.Registerable { return c.dsqlHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2859,6 +2866,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mwaaHandler = byName["MWAA"]
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
+	cli.dsqlHandler = byName["DSQL"]
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.rdsdataHandler = byName["RDSData"]
@@ -4076,6 +4084,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&guarddutybackend.Provider{},
 		&inspector2backend.Provider{},
 		&docdbbackend.Provider{},
+		&dsqlbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},

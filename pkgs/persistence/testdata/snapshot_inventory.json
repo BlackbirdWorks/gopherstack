@@ -8123,6 +8123,40 @@
     ],
     "version": 1
   },
+  "dsql": {
+    "fields": [
+      "Cluster.ARN string",
+      "Cluster.AccountID string",
+      "Cluster.CreationTime time.Time",
+      "Cluster.DeletionProtectionEnabled bool",
+      "Cluster.Endpoint string",
+      "Cluster.Identifier string",
+      "Cluster.KmsEncryptionKey string",
+      "Cluster.MultiRegion *MultiRegionProperties",
+      "Cluster.PendingUntil time.Time",
+      "Cluster.Policy *ClusterPolicy",
+      "Cluster.Region string",
+      "Cluster.Status string",
+      "Cluster.Tags map[string]string",
+      "ClusterPolicy.Policy string",
+      "MultiRegionProperties.Clusters []string",
+      "MultiRegionProperties.WitnessRegion string",
+      "Stream.ARN string",
+      "Stream.ClusterIdentifier string",
+      "Stream.CreationTime time.Time",
+      "Stream.Format string",
+      "Stream.Ordering string",
+      "Stream.PendingUntil time.Time",
+      "Stream.Status string",
+      "Stream.StreamIdentifier string",
+      "Stream.Tags map[string]string",
+      "Stream.Target *StreamTarget",
+      "StreamTarget.RoleArn string",
+      "StreamTarget.StreamArn string",
+      "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
   "dynamodb": {
     "fields": [
       "Backup.AttributeDefinitions []models.AttributeDefinition `json:\"AttributeDefinitions\"`",

@@ -255,6 +255,7 @@ provider "aws" {
     configservice   = %[1]q
     dax             = %[1]q
     dms             = %[1]q
+    dsql            = %[1]q
     dynamodb        = %[1]q
     ec2             = %[1]q
     ecr             = %[1]q
@@ -404,6 +405,7 @@ provider "aws" {
     configservice   = %[1]q
     dax             = %[1]q
     dms             = %[1]q
+    dsql            = %[1]q
     dynamodb        = %[1]q
     ec2             = %[1]q
     ecr             = %[1]q
