@@ -123,6 +123,181 @@ func TestUpdatePatchBaseline_Replace_RealClient(t *testing.T) {
 	}
 }
 
+// TestUpdateMaintenanceWindowTarget_Replace_RealClient: Replace=true requires fields and
+// nulls omitted ones; false merges (api_op_UpdateMaintenanceWindowTarget.go).
+func TestUpdateMaintenanceWindowTarget_Replace_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		update func(windowID, targetID *string) *ssmsdk.UpdateMaintenanceWindowTargetInput
+		check  func(t *testing.T, updated *ssmsdk.UpdateMaintenanceWindowTargetOutput, err error)
+		name   string
+	}{
+		{
+			name: "replace_true_requires_targets",
+			update: func(windowID, targetID *string) *ssmsdk.UpdateMaintenanceWindowTargetInput {
+				return &ssmsdk.UpdateMaintenanceWindowTargetInput{
+					WindowId: windowID, WindowTargetId: targetID, Replace: aws.Bool(true),
+				}
+			},
+			check: func(t *testing.T, _ *ssmsdk.UpdateMaintenanceWindowTargetOutput, err error) {
+				t.Helper()
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "replace_true_nulls_omitted_fields",
+			update: func(windowID, targetID *string) *ssmsdk.UpdateMaintenanceWindowTargetInput {
+				return &ssmsdk.UpdateMaintenanceWindowTargetInput{
+					WindowId:       windowID,
+					WindowTargetId: targetID,
+					Targets: []ssmtypes.Target{
+						{Key: aws.String("InstanceIds"), Values: []string{"i-2222222222222222"}},
+					},
+					Replace: aws.Bool(true),
+				}
+			},
+			check: func(t *testing.T, updated *ssmsdk.UpdateMaintenanceWindowTargetOutput, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Empty(t, updated.Name, "Name omitted under Replace=true must be nulled")
+				assert.Empty(t, updated.OwnerInformation, "OwnerInformation omitted under Replace=true must be nulled")
+			},
+		},
+		{
+			name: "replace_false_merges_omitted_fields",
+			update: func(windowID, targetID *string) *ssmsdk.UpdateMaintenanceWindowTargetInput {
+				return &ssmsdk.UpdateMaintenanceWindowTargetInput{WindowId: windowID, WindowTargetId: targetID}
+			},
+			check: func(t *testing.T, updated *ssmsdk.UpdateMaintenanceWindowTargetOutput, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, "original-name", aws.ToString(updated.Name))
+				assert.Equal(t, "original-owner", aws.ToString(updated.OwnerInformation))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := ssm.NewInMemoryBackend()
+			client := newTestSSMClient(t, ssm.NewHandler(backend))
+			ctx := t.Context()
+
+			mw, err := client.CreateMaintenanceWindow(ctx, &ssmsdk.CreateMaintenanceWindowInput{
+				Name:     aws.String("replace-semantics-window"),
+				Schedule: aws.String("cron(0 9 ? * MON *)"),
+				Duration: aws.Int32(2),
+				Cutoff:   1,
+			})
+			require.NoError(t, err)
+
+			registerInput := &ssmsdk.RegisterTargetWithMaintenanceWindowInput{
+				WindowId:     mw.WindowId,
+				ResourceType: ssmtypes.MaintenanceWindowResourceTypeInstance,
+				Targets: []ssmtypes.Target{
+					{Key: aws.String("InstanceIds"), Values: []string{"i-1111111111111111"}},
+				},
+				Name:             aws.String("original-name"),
+				OwnerInformation: aws.String("original-owner"),
+			}
+
+			target, err := client.RegisterTargetWithMaintenanceWindow(ctx, registerInput)
+			require.NoError(t, err)
+
+			updated, err := client.UpdateMaintenanceWindowTarget(ctx, tc.update(mw.WindowId, target.WindowTargetId))
+			tc.check(t, updated, err)
+		})
+	}
+}
+
+// TestUpdateMaintenanceWindowTask_Replace_RealClient: Replace=true requires fields and
+// nulls omitted ones; false merges (api_op_UpdateMaintenanceWindowTask.go).
+func TestUpdateMaintenanceWindowTask_Replace_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		update func(windowID, taskID *string) *ssmsdk.UpdateMaintenanceWindowTaskInput
+		check  func(t *testing.T, updated *ssmsdk.UpdateMaintenanceWindowTaskOutput, err error)
+		name   string
+	}{
+		{
+			name: "replace_true_requires_task_arn",
+			update: func(windowID, taskID *string) *ssmsdk.UpdateMaintenanceWindowTaskInput {
+				return &ssmsdk.UpdateMaintenanceWindowTaskInput{
+					WindowId: windowID, WindowTaskId: taskID, Replace: aws.Bool(true),
+				}
+			},
+			check: func(t *testing.T, _ *ssmsdk.UpdateMaintenanceWindowTaskOutput, err error) {
+				t.Helper()
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "replace_true_nulls_omitted_fields",
+			update: func(windowID, taskID *string) *ssmsdk.UpdateMaintenanceWindowTaskInput {
+				return &ssmsdk.UpdateMaintenanceWindowTaskInput{
+					WindowId:     windowID,
+					WindowTaskId: taskID,
+					TaskArn:      aws.String("AWS-RunShellScript"),
+					Replace:      aws.Bool(true),
+				}
+			},
+			check: func(t *testing.T, updated *ssmsdk.UpdateMaintenanceWindowTaskOutput, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Empty(t, updated.Name, "Name omitted under Replace=true must be nulled")
+				assert.Empty(t, updated.ServiceRoleArn, "ServiceRoleArn omitted under Replace=true must be nulled")
+				assert.Empty(t, updated.Priority, "Priority omitted under Replace=true must be nulled")
+			},
+		},
+		{
+			name: "replace_false_merges_omitted_fields",
+			update: func(windowID, taskID *string) *ssmsdk.UpdateMaintenanceWindowTaskInput {
+				return &ssmsdk.UpdateMaintenanceWindowTaskInput{WindowId: windowID, WindowTaskId: taskID}
+			},
+			check: func(t *testing.T, updated *ssmsdk.UpdateMaintenanceWindowTaskOutput, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, "original-name", aws.ToString(updated.Name))
+				assert.Equal(t, "arn:aws:iam::123456789012:role/OriginalRole", aws.ToString(updated.ServiceRoleArn))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := ssm.NewInMemoryBackend()
+			client := newTestSSMClient(t, ssm.NewHandler(backend))
+			ctx := t.Context()
+
+			mw, err := client.CreateMaintenanceWindow(ctx, &ssmsdk.CreateMaintenanceWindowInput{
+				Name:     aws.String("replace-semantics-window"),
+				Schedule: aws.String("cron(0 9 ? * MON *)"),
+				Duration: aws.Int32(2),
+				Cutoff:   1,
+			})
+			require.NoError(t, err)
+
+			task, err := client.RegisterTaskWithMaintenanceWindow(ctx, &ssmsdk.RegisterTaskWithMaintenanceWindowInput{
+				WindowId:       mw.WindowId,
+				TaskArn:        aws.String("AWS-RunPowerShellScript"),
+				TaskType:       ssmtypes.MaintenanceWindowTaskTypeRunCommand,
+				Name:           aws.String("original-name"),
+				ServiceRoleArn: aws.String("arn:aws:iam::123456789012:role/OriginalRole"),
+			})
+			require.NoError(t, err)
+
+			updated, err := client.UpdateMaintenanceWindowTask(ctx, tc.update(mw.WindowId, task.WindowTaskId))
+			tc.check(t, updated, err)
+		})
+	}
+}
+
 // TestJanitor_SweepsExpiredCommandHistory_RealClient covers the janitor's
 // command-history sweep, which retains a terminal command independently of ExpiresAfter.
 func TestJanitor_SweepsExpiredCommandHistory_RealClient(t *testing.T) {

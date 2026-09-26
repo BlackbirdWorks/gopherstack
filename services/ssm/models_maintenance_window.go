@@ -518,6 +518,7 @@ type UpdateMaintenanceWindowTargetInput struct {
 	OwnerInfo      *string        `json:"OwnerInformation,omitempty"`
 	Name           *string        `json:"Name,omitempty"`
 	Description    *string        `json:"Description,omitempty"`
+	Replace        *bool          `json:"Replace,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 }
 
@@ -544,6 +545,7 @@ type UpdateMaintenanceWindowTaskInput struct {
 	MaxConcurrency *string        `json:"MaxConcurrency,omitempty"`
 	MaxErrors      *string        `json:"MaxErrors,omitempty"`
 	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
+	Replace        *bool          `json:"Replace,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 }
 

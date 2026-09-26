@@ -469,12 +469,7 @@ items_still_open:
     AlarmConfiguration/ClientToken/LoggingInfo/TaskInvocationParameters/TaskParameters
     remain unmodeled -- TaskInvocationParameters is a real 4-variant union
     (RunCommand/Automation/StepFunctions/Lambda) this backend's shallow task model has
-    nothing to plug into. UpdateMaintenanceWindowTaskInput.Replace is also unmodeled --
-    this backend always merges (same class UpdatePatchBaseline's Replace was in before
-    the 2026-09-26 fix; fixing this one is a smaller lift since UpdateMaintenanceWindowTask
-    has no CreateMaintenanceWindowTask op to source a required-field set from -- would need
-    RegisterTaskWithMaintenanceWindow's own required fields instead, unverified against the
-    SDK this pass)."
+    nothing to plug into."
   - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual
     command/automation parameters used for one invocation) is unmodeled -- this backend has
     no per-invocation parameter snapshot, only task-level defaults."
@@ -562,10 +557,27 @@ convention as the existing `completeAfter`) and a new, independent janitor sweep
 commandHistoryRetentionSecs backend field (default 30 days, overridable via
 WithCommandHistoryRetention like the existing WithCommandTTL). Proven by
 TestJanitor_SweepsExpiredCommandHistory_RealClient. Not fixed, left with a reason: the
-UpdateMaintenanceWindowTaskInput.Replace item (same class, but UpdateMaintenanceWindowTask
-has no sibling CreateMaintenanceWindowTask op to source a required-field set from) and the
 generic Filters/Aggregators/caller-identity/scheduler/CloudWatch-alarm items, which need
 unmodeled subsystems.
+
+### 2026-09-26 (follow-up): UpdateMaintenanceWindowTask/-Target Replace semantics
+
+Closed the remaining UpdateMaintenanceWindowTaskInput.Replace item. Per
+api_op_UpdateMaintenanceWindowTask.go: "If you set Replace to true, then all fields
+required by the RegisterTaskWithMaintenanceWindow operation are required for this
+request. Optional fields that aren't specified are set to null." WindowId/WindowTaskId
+are already always-required; of Register's other required fields (TaskArn, TaskType,
+WindowId), only TaskArn also appears on UpdateMaintenanceWindowTaskInput (TaskType can't
+be changed per the op's own doc comment), so Replace=true now requires TaskArn.
+replaceMaintenanceWindowTaskUpdate (maintenance_window.go) nulls every other unspecified
+optional field. Also implemented the sibling UpdateMaintenanceWindowTargetInput.Replace
+(same doc pattern, sourced from RegisterTargetWithMaintenanceWindow's required fields:
+Targets is the only one also present on Update, so Replace=true requires Targets).
+Default (Replace unset/false) merge behavior is unchanged. Neither op documents an error
+code for a missing required field under Replace (checked
+API_UpdateMaintenanceWindowTask.html/API_UpdateMaintenanceWindowTarget.html -- both list
+only DoesNotExistException/InternalServerError); ValidationException used, consistent
+with UpdatePatchBaseline's Replace path.
 
 ### 2026-09-19 (terraform-coverage sweep, ssm-and-backup)
 
