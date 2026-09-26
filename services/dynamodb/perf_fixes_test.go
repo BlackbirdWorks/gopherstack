@@ -679,12 +679,120 @@ func BenchmarkScanWithLimit(b *testing.B) {
 		}
 	}
 
-	b.ResetTimer()
+	b.ReportAllocs()
 
-	for range b.N {
+	for b.Loop() {
 		var out *sdk.ScanOutput
 		out, err = db.Scan(b.Context(), &sdk.ScanInput{
 			TableName: aws.String("BenchScanTable"),
+			Limit:     aws.Int32(limit),
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if out.Count != limit {
+			b.Fatalf("expected %d items, got %d", limit, out.Count)
+		}
+	}
+}
+
+// BenchmarkScanWithLimit_ExclusiveStartKey exercises the paginated path
+// (ExclusiveStartKey set) on the same table shape as BenchmarkScanWithLimit.
+func BenchmarkScanWithLimit_ExclusiveStartKey(b *testing.B) {
+	const (
+		numItems = 5000
+		limit    = 5
+	)
+
+	db := dynamodb.NewInMemoryDB()
+
+	_, err := db.CreateTable(b.Context(), &sdk.CreateTableInput{
+		TableName: aws.String("BenchScanESKTable"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for i := range numItems {
+		_, err = db.PutItem(b.Context(), &sdk.PutItemInput{
+			TableName: aws.String("BenchScanESKTable"),
+			Item: map[string]types.AttributeValue{
+				"pk":   &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%05d", i)},
+				"data": &types.AttributeValueMemberS{Value: "padding-to-simulate-real-item-size"},
+			},
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	startKey := map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "item-02500"},
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_, err = db.Scan(b.Context(), &sdk.ScanInput{
+			TableName:         aws.String("BenchScanESKTable"),
+			Limit:             aws.Int32(limit),
+			ExclusiveStartKey: startKey,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkScanWithLimit_100k is BenchmarkScanWithLimit at a larger table
+// size; per-item attribute unwrapping, not sorting, dominates its profile.
+func BenchmarkScanWithLimit_100k(b *testing.B) {
+	const (
+		numItems = 100_000
+		limit    = 10
+	)
+
+	db := dynamodb.NewInMemoryDB()
+
+	_, err := db.CreateTable(b.Context(), &sdk.CreateTableInput{
+		TableName: aws.String("BenchScanTable100k"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for i := range numItems {
+		_, err = db.PutItem(b.Context(), &sdk.PutItemInput{
+			TableName: aws.String("BenchScanTable100k"),
+			Item: map[string]types.AttributeValue{
+				"pk":   &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%06d", i)},
+				"data": &types.AttributeValueMemberS{Value: "padding-to-simulate-real-item-size"},
+			},
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		var out *sdk.ScanOutput
+		out, err = db.Scan(b.Context(), &sdk.ScanInput{
+			TableName: aws.String("BenchScanTable100k"),
 			Limit:     aws.Int32(limit),
 		})
 		if err != nil {
