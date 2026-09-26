@@ -15847,6 +15847,42 @@
     ],
     "version": 2
   },
+  "kinesisvideo": {
+    "fields": [
+      "Channel.ARN string",
+      "Channel.CreationTime time.Time",
+      "Channel.MessageTTLSeconds int32",
+      "Channel.Name string",
+      "Channel.Status string",
+      "Channel.Tags map[string]string",
+      "Channel.Type string",
+      "ImageGenerationConfig.DestinationRegion string",
+      "ImageGenerationConfig.Format string",
+      "ImageGenerationConfig.FormatConfig map[string]string",
+      "ImageGenerationConfig.HeightPixels int32",
+      "ImageGenerationConfig.ImageSelectorType string",
+      "ImageGenerationConfig.SamplingInterval int32",
+      "ImageGenerationConfig.Status string",
+      "ImageGenerationConfig.URI string",
+      "ImageGenerationConfig.WidthPixels int32",
+      "NotificationConfig.DestinationURI string",
+      "NotificationConfig.Status string",
+      "Stream.ARN string",
+      "Stream.CreationTime time.Time",
+      "Stream.DataRetentionInHours int32",
+      "Stream.DefaultStorageTier string",
+      "Stream.DeviceName string",
+      "Stream.ImageGeneration *ImageGenerationConfig",
+      "Stream.KmsKeyID string",
+      "Stream.MediaType string",
+      "Stream.Name string",
+      "Stream.Notification *NotificationConfig",
+      "Stream.Status string",
+      "Stream.Tags map[string]string",
+      "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
   "kms": {
     "fields": [
       "Alias.AliasArn string `json:\"AliasArn\"`",

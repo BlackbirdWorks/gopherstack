@@ -280,6 +280,7 @@ provider "aws" {
     kinesisanalyticsv2 = %[1]q
     kinesis         = %[1]q
     kinesisanalytics = %[1]q
+    kinesisvideo    = %[1]q
     kms             = %[1]q
     lakeformation   = %[1]q
     lambda          = %[1]q
@@ -426,6 +427,7 @@ provider "aws" {
     kinesisanalyticsv2 = %[1]q
     kinesis         = %[1]q
     kinesisanalytics = %[1]q
+    kinesisvideo    = %[1]q
     kms             = %[1]q
     lakeformation   = %[1]q
     lambda          = %[1]q

@@ -706,6 +706,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Directconnect](services/directconnect/README.md) | A | 64 | 4 gaps; 8 structural gaps; 1 deferred |
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 4 gaps; 1 deferred |
+| [Kinesisvideo](services/kinesisvideo/README.md) | B | 22 | 3 gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 18 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 3 gaps; 5 structural gaps; 1 deferred |

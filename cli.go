@@ -157,6 +157,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -382,6 +383,7 @@ type CLI struct {
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
+	kinesisvideoHandler           service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
 	mqHandler                     service.Registerable
@@ -1373,6 +1375,11 @@ func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
 	return c.kinesisanalyticsv2Handler
 }
+
+// GetKinesisVideoHandler returns the Kinesis Video Streams handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisVideoHandler() service.Registerable { return c.kinesisvideoHandler }
 
 // GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
 //
@@ -2820,6 +2827,7 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
+	cli.kinesisvideoHandler = byName["KinesisVideo"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mqHandler = byName["MQ"]
@@ -4058,6 +4066,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
+		&kinesisvideobackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
