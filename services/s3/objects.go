@@ -1152,7 +1152,13 @@ func (b *InMemoryBackend) computeObjectHashes(
 		return 0, nil, "", nil, err
 	}
 
-	return n, bytes.Clone(buf.Bytes()), hex.EncodeToString(md5Hasher.Sum(nil)), s3Hasher, nil
+	// Clone only if PutBuffer will recycle buf; oversized buffers are dropped.
+	data := buf.Bytes()
+	if httputils.WillPool(buf) {
+		data = bytes.Clone(data)
+	}
+
+	return n, data, hex.EncodeToString(md5Hasher.Sum(nil)), s3Hasher, nil
 }
 
 // validateContentMD5 validates the Content-MD5 header from context against the computed etag.

@@ -42,6 +42,12 @@ func PutBuffer(buf *bytes.Buffer) {
 	bufferPool.Put(buf)
 }
 
+// WillPool reports whether PutBuffer would retain buf; if so, clone buf.Bytes()
+// before handing it out.
+func WillPool(buf *bytes.Buffer) bool {
+	return buf != nil && buf.Cap() <= maxPooledBufferSize
+}
+
 var crc32Pool = sync.Pool{ //nolint:gochecknoglobals // sync.Pool requires package-level allocation
 	New: func() any {
 		return crc32.NewIEEE()
