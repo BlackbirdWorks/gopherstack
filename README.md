@@ -517,7 +517,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [API Gateway](services/apigateway/README.md) | A | 123 | 3 gaps; 1 deferred |
+| [API Gateway](services/apigateway/README.md) | A | 123 | 2 gaps; 1 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 4 gaps; 6 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
@@ -594,7 +594,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 2 gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 10 gaps; 2 deferred |
-| [IAM](services/iam/README.md) | A | 37 | 8 gaps |
+| [IAM](services/iam/README.md) | A | 37 | 9 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 5 gaps |

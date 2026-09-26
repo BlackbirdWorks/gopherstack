@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 123 (123 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Deferred items | 1 |
 | Resource leaks | fixed |
 
@@ -17,7 +17,6 @@
 
 - UpdateAuthorizer's PATCH table documents "/authType" (types.Authorizer.AuthType, distinct from the existing "Type"/authorizerType) and UpdateRestApi's documents "/securityPolicy" (only DomainName has SecurityPolicy today) -- both real, doc-documented PATCH paths with no backing model field anywhere in this backend. Unmodeled, not a casing or plumbing bug; not fabricated. (gopherstack-6q5h)
 - 'AWS' (non-proxy) integration target: sqs path-style and sns action-style dispatch for real (gopherstack-is2a); every other target (DynamoDB, Step Functions, S3, ...) is still accepted at PutIntegration with no validation and unconditionally invoked as Lambda at request time. Fixing the rest needs per-service invoker interfaces or a real VTL + AWS query-protocol encoder -- out of a targeted pass's scope. (gopherstack-fum)
-- CreateDeployment does not freeze a routable snapshot: the data plane always matches the RestApi's LIVE resource/method/integration state, not the state at deploy time (Deployment.ApiSummary is display-only metadata). Reproduced by deleting a resource post-deploy with no redeploy -- the already-deployed stage 403s immediately. Fixing this needs a real per-deployment snapshot plus stage-to-deployment pinning in the data plane, a substantial redesign; deliberately not attempted in a targeted pass. (gopherstack-fum, gopherstack-9ard)
 
 ### Deferred
 
