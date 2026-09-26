@@ -23,7 +23,7 @@ func (a *storedAgent) toAgent() Agent {
 		Status:       a.Status,
 		EndpointType: a.EndpointType,
 		CreationTime: a.CreationTime,
-		Tags:         a.Tags,
+		Tags:         maps.Clone(a.Tags),
 	}
 }
 
@@ -332,7 +332,7 @@ func (t *storedTask) toTask() Task {
 		CloudWatchLogGroupArn:   t.CloudWatchLogGroupArn,
 		CurrentTaskExecutionArn: t.CurrentTaskExecutionArn,
 		CreationTime:            t.CreationTime,
-		Tags:                    t.Tags,
+		Tags:                    maps.Clone(t.Tags),
 		Options:                 maps.Clone(t.Options),
 		ManifestConfig:          maps.Clone(t.ManifestConfig),
 		TaskReportConfig:        maps.Clone(t.TaskReportConfig),

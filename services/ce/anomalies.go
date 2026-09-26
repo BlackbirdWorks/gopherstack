@@ -112,6 +112,7 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 	b.anomalyMonitors.Put(mon)
 
 	out := *mon
+	out.Tags = cloneCETags(mon.Tags)
 
 	return &out, nil
 }
@@ -147,6 +148,7 @@ func (b *InMemoryBackend) GetAnomalyMonitors(
 		result = make([]*AnomalyMonitor, 0, len(all))
 		for _, mon := range all {
 			out := *mon
+			out.Tags = cloneCETags(mon.Tags)
 			result = append(result, &out)
 		}
 	} else {
@@ -164,6 +166,7 @@ func (b *InMemoryBackend) GetAnomalyMonitors(
 		for _, mon := range b.anomalyMonitors.All() {
 			if _, ok := set[mon.MonitorARN]; ok {
 				out := *mon
+				out.Tags = cloneCETags(mon.Tags)
 				result = append(result, &out)
 			}
 		}
@@ -198,6 +201,7 @@ func (b *InMemoryBackend) UpdateAnomalyMonitor(
 	mon.LastUpdatedDate = time.Now().UTC()
 
 	out := *mon
+	out.Tags = cloneCETags(mon.Tags)
 
 	return &out, nil
 }
@@ -254,6 +258,7 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 	b.anomalySubscriptions.Put(sub)
 
 	out := *sub
+	out.Tags = cloneCETags(sub.Tags)
 
 	return &out, nil
 }
@@ -310,6 +315,7 @@ func (b *InMemoryBackend) GetAnomalySubscriptions(
 		}
 
 		out := *sub
+		out.Tags = cloneCETags(sub.Tags)
 		result = append(result, &out)
 	}
 
@@ -390,6 +396,7 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	}
 
 	out := *sub
+	out.Tags = cloneCETags(sub.Tags)
 
 	return &out, nil
 }

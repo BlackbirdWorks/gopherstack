@@ -216,6 +216,7 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 	b.slCollections.Put(coll)
 
 	cp := *coll
+	cp.Tags = maps.Clone(coll.Tags)
 	resolveCollectionStatus(&cp, b.clock())
 
 	return &cp, nil
@@ -273,6 +274,7 @@ func (b *InMemoryBackend) BatchGetServerlessCollections(ids, names []string) []*
 
 		if len(idSet) == 0 && len(nameSet) == 0 {
 			cp := *c
+			cp.Tags = maps.Clone(c.Tags)
 			resolveCollectionStatus(&cp, now)
 			out = append(out, &cp)
 
@@ -281,6 +283,7 @@ func (b *InMemoryBackend) BatchGetServerlessCollections(ids, names []string) []*
 
 		if idSet[c.ID] || nameSet[c.Name] {
 			cp := *c
+			cp.Tags = maps.Clone(c.Tags)
 			resolveCollectionStatus(&cp, now)
 			out = append(out, &cp)
 		}
@@ -307,6 +310,7 @@ func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessColl
 
 		if b.processingDelay == 0 {
 			cp := *c
+			cp.Tags = maps.Clone(c.Tags)
 			cp.Status = statusDeleted
 			b.slCollections.Delete(serverlessCollectionKey(c.Name))
 
@@ -316,6 +320,7 @@ func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessColl
 		c.Status = statusDeleting
 		c.StatusUntil = now.Add(b.processingDelay)
 		cp := *c
+		cp.Tags = maps.Clone(c.Tags)
 
 		return &cp, nil
 	}
@@ -369,6 +374,7 @@ func (b *InMemoryBackend) UpdateServerlessCollection(id, description string) (*S
 	c.LastModifiedDate = float64(time.Now().Unix())
 
 	cp := *c
+	cp.Tags = maps.Clone(c.Tags)
 	resolveCollectionStatus(&cp, b.clock())
 
 	return &cp, nil

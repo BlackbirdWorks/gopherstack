@@ -66,6 +66,7 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	out.Rules = make([]CostCategoryRule, len(cat.Rules))
 	copy(out.Rules, cat.Rules)
 	out.SplitChargeRules = copySplitChargeRules(cat.SplitChargeRules)
+	out.Tags = cloneCETags(cat.Tags)
 
 	return &out, nil
 }
@@ -101,6 +102,7 @@ func (b *InMemoryBackend) DeleteCostCategoryDefinition(catARN string) (*CostCate
 	b.costCategories.Delete(catARN)
 
 	out := *cat
+	out.Tags = cloneCETags(cat.Tags)
 
 	return &out, nil
 }
@@ -116,6 +118,7 @@ func (b *InMemoryBackend) DescribeCostCategoryDefinition(catARN string) (*CostCa
 	}
 
 	out := *cat
+	out.Tags = cloneCETags(cat.Tags)
 
 	return &out, nil
 }
@@ -147,6 +150,7 @@ func (b *InMemoryBackend) ListCostCategoryDefinitions(
 		}
 
 		out := *cat
+		out.Tags = cloneCETags(cat.Tags)
 		result = append(result, &out)
 	}
 
@@ -194,6 +198,7 @@ func (b *InMemoryBackend) UpdateCostCategoryDefinition(
 	out.Rules = make([]CostCategoryRule, len(cat.Rules))
 	copy(out.Rules, cat.Rules)
 	out.SplitChargeRules = copySplitChargeRules(cat.SplitChargeRules)
+	out.Tags = cloneCETags(cat.Tags)
 
 	return &out, nil
 }

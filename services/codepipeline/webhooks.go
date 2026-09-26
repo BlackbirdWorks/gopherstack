@@ -3,6 +3,7 @@ package codepipeline
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/google/uuid"
@@ -55,6 +56,7 @@ func (b *InMemoryBackend) ListWebhooks(ctx context.Context) []*Webhook {
 	result := make([]*Webhook, 0, len(entries))
 	for _, wh := range entries {
 		cp := *wh
+		cp.Tags = maps.Clone(wh.Tags)
 		result = append(result, &cp)
 	}
 
@@ -86,6 +88,7 @@ func (b *InMemoryBackend) PutWebhook(ctx context.Context, wh *Webhook) (*Webhook
 	b.webhooks.Put(&cp)
 
 	result := cp
+	result.Tags = maps.Clone(cp.Tags)
 
 	return &result, nil
 }
