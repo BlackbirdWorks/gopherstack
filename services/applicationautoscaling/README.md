@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
-| Feature families | 3 (3 ok) |
-| Known gaps | 5 |
+| Feature families | 4 (4 ok) |
+| Known gaps | 4 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -19,7 +19,6 @@
 - GetPredictiveScalingForecast returns zero data points for CapacityForecast/LoadForecast rather than any real forecasting simulation (DOWNGRADED this pass from a fabricated flat 10.0-per-hour curve -- see the op table entry). Producing a genuine forecast would require an actual ML/statistical model over real historical CloudWatch metric data gopherstack does not have; honest-empty is the correct terminal state here, not a stopgap.
 - PolicyType/ScalableDimension/ServiceNamespace enum values are accepted permissively (no allowlist validation) rather than validated against the real AWS enum lists. Consistent with this codebase's general emulator philosophy of not over-validating; not treated as a bug. Re-confirmed this pass (gopherstack-cdxe) against that stated philosophy -- no change made.
 - DISCLOSED, NOT FIXED (2026-08-20 sweep): DescribeScalableTargets' scalableTargetSummary wire struct (handler_scalable_targets.go) emits `Tags` and `LastModifiedTime` fields that do not exist on the real SDK's `types.ScalableTarget` (confirmed by reading the full struct in the pinned v1.45.4 types.go -- it has exactly CreationTime/MaxCapacity/MinCapacity/ResourceId/RoleARN/ScalableDimension/ServiceNamespace/PredictedCapacity/ScalableTargetARN/SuspendedState, no Tags, no LastModifiedTime). Same pattern on DescribeScheduledActions' scheduledActionSummary: it emits `LastModifiedTime`, which `types.ScheduledAction` also does not have. Both are real backend state (not fabricated values), and a real aws-sdk-go-v2 client's JSON unmarshal into the typed SDK struct silently ignores unrecognized keys -- so unlike the GetPredictiveScalingForecast bug this pass fixed, these do not break a real client and are not one of the five wire-breaking bug shapes (missing member, wrong nesting, wrong type, case mismatch, wrong value/invented enum). Left as-is rather than manufacturing a fix for a non-breaking, additive deviation; flagged here for visibility if a future pass wants strict shape purism.
-- 2026-09-26 (considered, NOT wired, disclosed, cross-referenced from services/dynamodb/PARITY.md): a DynamoDB PARITY pass adding ReplicaUpdates/AutoScalingRoleArn/ScalingPolicies to UpdateTableReplicaAutoScaling/DescribeTableReplicaAutoScaling considered registering the corresponding scalable targets/policies here (ServiceNamespace=dynamodb) so a table's autoscaling state agrees regardless of which API a caller uses, matching real AWS's own cross-API convergence via Terraform's aws_appautoscaling_target/aws_appautoscaling_policy. Deferred: this service has zero existing cross-service wiring to any resource-owning service (its one precedent, CloudWatch alarms for PutScalingPolicy, is itself deferred -- see above), and deciding which service owns the source of truth is a two-service architectural call out of scope for a single-service autoscaling-fields pass. See services/dynamodb/PARITY.md's items_still_open for the full writeup.
 
 ### Deferred
 
