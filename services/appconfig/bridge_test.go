@@ -3,6 +3,7 @@ package appconfig_test
 import (
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -153,16 +154,17 @@ func TestAppConfigDeploymentBridge_StateTransitions(t *testing.T) {
 				dep := f.deployHostedContent(t, content, "growth-strat", 10, 5, 100)
 				require.Equal(t, "DEPLOYING", dep.State, "a non-zero-duration strategy must not complete synchronously")
 
-				require.Eventually(t, func() bool {
-					d, err := f.ac.GetDeployment(f.appID, f.envID, dep.DeploymentNumber)
+				// deploymentStepDelay + deploymentBakeDelay are 8ms each; cross
+				// both plus a reconcile tick so the deployment reaches COMPLETE.
+				time.Sleep(50 * time.Millisecond)
+				synctest.Wait()
 
-					return err == nil && d.State == "COMPLETE"
-				}, 2*time.Second, 10*time.Millisecond, "deployment should reach COMPLETE")
+				d, err := f.ac.GetDeployment(f.appID, f.envID, dep.DeploymentNumber)
+				require.NoError(t, err)
+				require.Equal(t, "COMPLETE", d.State, "deployment should reach COMPLETE")
 
 				wantID := strconv.FormatInt(int64(dep.DeploymentNumber), 10)
-				require.Eventually(t, func() bool {
-					return f.deploymentIDFor() == wantID
-				}, 2*time.Second, 10*time.Millisecond, "bridge should publish once the deployment completes")
+				assert.Equal(t, wantID, f.deploymentIDFor(), "bridge should publish once the deployment completes")
 
 				gotContent, _, _ := f.pollLatestConfiguration(t)
 				assert.Equal(t, content, gotContent)
@@ -183,6 +185,12 @@ func TestAppConfigDeploymentBridge_StateTransitions(t *testing.T) {
 				require.Equal(t, "ROLLED_BACK", final.State)
 
 				assert.Empty(t, f.deploymentIDFor(), "a rolled-back deployment must never reach AppConfigData")
+
+				// Let the reconciler goroutine's ticker fire once so it notices
+				// deploymentTimers is empty and self-terminates before the
+				// bubble ends.
+				time.Sleep(10 * time.Millisecond)
+				synctest.Wait()
 			},
 		},
 		{
@@ -211,7 +219,10 @@ func TestAppConfigDeploymentBridge_StateTransitions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t, newBridgeFixture(t))
+
+			synctest.Test(t, func(t *testing.T) {
+				tt.run(t, newBridgeFixture(t))
+			})
 		})
 	}
 }

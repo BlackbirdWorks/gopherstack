@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -158,17 +159,19 @@ func TestAdvanceJobPhase_PreservesSubmitTime(t *testing.T) {
 func TestAdvanceJobPhase_FinishTimeAfterStartTime(t *testing.T) {
 	t.Parallel()
 
-	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	j := createTestJobDirect(t, b)
+	synctest.Test(t, func(t *testing.T) {
+		b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+		j := createTestJobDirect(t, b)
 
-	for range 4 {
-		b.AdvanceJobPhase()
-		time.Sleep(1 * time.Millisecond)
-	}
+		for range 4 {
+			b.AdvanceJobPhase()
+			time.Sleep(1 * time.Millisecond)
+		}
 
-	got, err := b.GetJob(j.ID)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, got.Timing.FinishTime, got.Timing.StartTime)
+		got, err := b.GetJob(j.ID)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, got.Timing.FinishTime, got.Timing.StartTime)
+	})
 }
 
 // TestAdvanceJobPhase_JobPercentComplete100OnComplete verifies 100% on COMPLETE.

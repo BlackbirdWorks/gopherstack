@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -17,54 +18,55 @@ import (
 func TestACMHandler_DNSValidationWorkflow(t *testing.T) {
 	t.Parallel()
 
-	h := newACMHandler()
+	synctest.Test(t, func(t *testing.T) {
+		h := newACMHandler()
 
-	// Request with DNS validation
-	reqRec := postACMJSON(t, h, "RequestCertificate",
-		`{"DomainName":"workflow.example.com","ValidationMethod":"DNS"}`)
-	require.Equal(t, http.StatusOK, reqRec.Code)
+		// Request with DNS validation
+		reqRec := postACMJSON(t, h, "RequestCertificate",
+			`{"DomainName":"workflow.example.com","ValidationMethod":"DNS"}`)
+		require.Equal(t, http.StatusOK, reqRec.Code)
 
-	var reqOut struct {
-		CertificateArn string `json:"CertificateArn"`
-	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
-	require.NotEmpty(t, reqOut.CertificateArn)
+		var reqOut struct {
+			CertificateArn string `json:"CertificateArn"`
+		}
+		require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+		require.NotEmpty(t, reqOut.CertificateArn)
 
-	// Describe should show PENDING_VALIDATION with CNAME records
-	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
-	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
-	require.Equal(t, http.StatusOK, descRec.Code)
+		// Describe should show PENDING_VALIDATION with CNAME records
+		descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+		descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
+		require.Equal(t, http.StatusOK, descRec.Code)
 
-	var descOut struct {
-		Certificate struct {
-			Status                  string `json:"Status"`
-			DomainValidationOptions []struct {
-				ResourceRecord *struct {
-					Type string `json:"Type"`
-				} `json:"ResourceRecord"`
-				ValidationStatus string `json:"ValidationStatus"`
-			} `json:"DomainValidationOptions"`
-		} `json:"Certificate"`
-	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
-	// Initial describe may already show ISSUED (auto-validate is quick), so accept either.
-	assert.Contains(t, []string{"PENDING_VALIDATION", "ISSUED"}, descOut.Certificate.Status)
-	require.NotEmpty(t, descOut.Certificate.DomainValidationOptions)
-	assert.NotNil(t, descOut.Certificate.DomainValidationOptions[0].ResourceRecord)
-	assert.Equal(t, "CNAME", descOut.Certificate.DomainValidationOptions[0].ResourceRecord.Type)
+		var descOut struct {
+			Certificate struct {
+				Status                  string `json:"Status"`
+				DomainValidationOptions []struct {
+					ResourceRecord *struct {
+						Type string `json:"Type"`
+					} `json:"ResourceRecord"`
+					ValidationStatus string `json:"ValidationStatus"`
+				} `json:"DomainValidationOptions"`
+			} `json:"Certificate"`
+		}
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+		require.Equal(t, "PENDING_VALIDATION", descOut.Certificate.Status)
+		require.NotEmpty(t, descOut.Certificate.DomainValidationOptions)
+		assert.NotNil(t, descOut.Certificate.DomainValidationOptions[0].ResourceRecord)
+		assert.Equal(t, "CNAME", descOut.Certificate.DomainValidationOptions[0].ResourceRecord.Type)
 
-	// Wait for auto-transition to ISSUED
-	require.Eventually(t, func() bool {
+		// autoValidateDelayMS is 100ms; cross it so the cert transitions to ISSUED.
+		time.Sleep(150 * time.Millisecond)
+		synctest.Wait()
+
 		rec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 		var out struct {
 			Certificate struct {
 				Status string `json:"Status"`
 			} `json:"Certificate"`
 		}
-		_ = json.Unmarshal(rec.Body.Bytes(), &out)
-
-		return out.Certificate.Status == "ISSUED"
-	}, 2*time.Second, 50*time.Millisecond, "cert should transition to ISSUED")
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.Equal(t, "ISSUED", out.Certificate.Status, "cert should transition to ISSUED")
+	})
 }
 
 func TestACMHandler_ResendValidationEmail(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -123,24 +124,26 @@ func TestWaitConditionStore_SignalAndWait(t *testing.T) {
 func TestWaitConditionStore_AsyncSignal(t *testing.T) {
 	t.Parallel()
 
-	store := cloudformation.NewWaitConditionStore()
-	token := "async-token"
+	synctest.Test(t, func(t *testing.T) {
+		store := cloudformation.NewWaitConditionStore()
+		token := "async-token"
 
-	// Signal from a goroutine after a short delay.
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		store.Signal(
-			token,
-			cloudformation.WCSignal{UniqueID: "u1", Status: "SUCCESS", Data: "data"},
-		)
-	}()
+		// Signal from a goroutine after a short delay.
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			store.Signal(
+				token,
+				cloudformation.WCSignal{UniqueID: "u1", Status: "SUCCESS", Data: "data"},
+			)
+		}()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
 
-	// Use a large emulator timeout so we wait for the goroutine signal.
-	err := store.Wait(ctx, token, 1, 2*time.Second)
-	require.NoError(t, err)
+		// Use a large emulator timeout so we wait for the goroutine signal.
+		err := store.Wait(ctx, token, 1, 2*time.Second)
+		require.NoError(t, err)
+	})
 }
 
 func TestWaitConditionStore_ContextCancel(t *testing.T) {

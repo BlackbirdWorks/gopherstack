@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -325,39 +326,45 @@ func TestStartJobRun_Success(t *testing.T) {
 
 func TestStartJobRun_TransitionsToSucceeded(t *testing.T) {
 	t.Parallel()
-	b := newTestBackend()
-	_, err := b.CreateDataset(
-		context.Background(),
-		"ds",
-		"CSV",
-		s3Input("b", ""),
-		databrew.DatasetFormatOptions{},
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	_, err = b.CreateJob(
-		context.Background(),
-		"run-j2",
-		"PROFILE",
-		"ds",
-		"",
-		"",
-		"",
-		nil,
-		nil,
-		databrew.JobExtras{},
-	)
-	require.NoError(t, err)
-	_, err = b.StartJobRun(context.Background(), "run-j2")
-	require.NoError(t, err)
 
-	// Poll for async state transition instead of fixed sleep.
-	require.Eventually(t, func() bool {
-		runs, _, listErr := b.ListJobRuns(context.Background(), "run-j2", 100, "")
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
+		_, err := b.CreateDataset(
+			context.Background(),
+			"ds",
+			"CSV",
+			s3Input("b", ""),
+			databrew.DatasetFormatOptions{},
+			nil,
+			nil,
+		)
+		require.NoError(t, err)
+		_, err = b.CreateJob(
+			context.Background(),
+			"run-j2",
+			"PROFILE",
+			"ds",
+			"",
+			"",
+			"",
+			nil,
+			nil,
+			databrew.JobExtras{},
+		)
+		require.NoError(t, err)
+		_, err = b.StartJobRun(context.Background(), "run-j2")
+		require.NoError(t, err)
 
-		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
-	}, 3*time.Second, 25*time.Millisecond)
+		// jobRunTransitionDelay (unexported) is 100ms; cross it, then let the
+		// backend's transition goroutine run to completion.
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
+
+		runs, _, err := b.ListJobRuns(context.Background(), "run-j2", 100, "")
+		require.NoError(t, err)
+		require.Len(t, runs, 1)
+		assert.Equal(t, "SUCCEEDED", runs[0].State)
+	})
 }
 
 func TestStartJobRun_JobNotFound(t *testing.T) {
@@ -515,42 +522,43 @@ func TestStopJobRun_Success(t *testing.T) {
 
 func TestStopJobRun_AlreadySucceeded(t *testing.T) {
 	t.Parallel()
-	b := newTestBackend()
-	_, err := b.CreateDataset(
-		context.Background(),
-		"ds",
-		"CSV",
-		s3Input("b", ""),
-		databrew.DatasetFormatOptions{},
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	_, err = b.CreateJob(
-		context.Background(),
-		"stop-j2",
-		"PROFILE",
-		"ds",
-		"",
-		"",
-		"",
-		nil,
-		nil,
-		databrew.JobExtras{},
-	)
-	require.NoError(t, err)
-	run, err := b.StartJobRun(context.Background(), "stop-j2")
-	require.NoError(t, err)
-	// Wait for the async transition.
-	require.Eventually(t, func() bool {
-		runs, _, listErr := b.ListJobRuns(context.Background(), "stop-j2", 100, "")
 
-		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
-	}, 3*time.Second, 25*time.Millisecond)
-	// Stopping a SUCCEEDED run should be a no-op (returns the run).
-	stopped, err := b.StopJobRun(context.Background(), "stop-j2", run.RunID)
-	require.NoError(t, err)
-	assert.Equal(t, "SUCCEEDED", stopped.State)
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
+		_, err := b.CreateDataset(
+			context.Background(),
+			"ds",
+			"CSV",
+			s3Input("b", ""),
+			databrew.DatasetFormatOptions{},
+			nil,
+			nil,
+		)
+		require.NoError(t, err)
+		_, err = b.CreateJob(
+			context.Background(),
+			"stop-j2",
+			"PROFILE",
+			"ds",
+			"",
+			"",
+			"",
+			nil,
+			nil,
+			databrew.JobExtras{},
+		)
+		require.NoError(t, err)
+		run, err := b.StartJobRun(context.Background(), "stop-j2")
+		require.NoError(t, err)
+
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
+
+		// Stopping a SUCCEEDED run should be a no-op (returns the run).
+		stopped, err := b.StopJobRun(context.Background(), "stop-j2", run.RunID)
+		require.NoError(t, err)
+		assert.Equal(t, "SUCCEEDED", stopped.State)
+	})
 }
 
 func TestStopJobRun_NotFound_NoRuns(t *testing.T) {
@@ -938,33 +946,36 @@ func TestListJobs_Filters(t *testing.T) {
 func TestJobRunIdField_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs",
-		map[string]any{"Name": "rt-job"})
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler()
+		databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs",
+			map[string]any{"Name": "rt-job"})
 
-	startRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/rt-job/startJobRun", nil)
-	require.Equal(t, http.StatusOK, startRec.Code)
+		startRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/rt-job/startJobRun", nil)
+		require.Equal(t, http.StatusOK, startRec.Code)
 
-	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
-	runID, ok := startResp["RunId"].(string)
-	require.True(t, ok)
-	require.NotEmpty(t, runID)
+		var startResp map[string]any
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+		runID, ok := startResp["RunId"].(string)
+		require.True(t, ok)
+		require.NotEmpty(t, runID)
 
-	// Wait for transition so DescribeJobRun is non-empty.
-	time.Sleep(200 * time.Millisecond)
+		// jobRunTransitionDelay (unexported) is 100ms; cross it so DescribeJobRun is non-empty.
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
 
-	descRec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/rt-job/jobRun/"+runID, nil)
-	require.Equal(t, http.StatusOK, descRec.Code)
-	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
-	assert.Equal(t, runID, descResp["RunId"])
+		descRec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/rt-job/jobRun/"+runID, nil)
+		require.Equal(t, http.StatusOK, descRec.Code)
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		assert.Equal(t, runID, descResp["RunId"])
 
-	stopRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/rt-job/jobRun/"+runID, nil)
-	require.Equal(t, http.StatusOK, stopRec.Code)
-	var stopResp map[string]any
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
-	assert.Equal(t, runID, stopResp["RunId"])
+		stopRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/rt-job/jobRun/"+runID, nil)
+		require.Equal(t, http.StatusOK, stopRec.Code)
+		var stopResp map[string]any
+		require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+		assert.Equal(t, runID, stopResp["RunId"])
+	})
 }
 
 // ---- Job extras: ProfileConfiguration/JobSample/ValidationConfigurations,

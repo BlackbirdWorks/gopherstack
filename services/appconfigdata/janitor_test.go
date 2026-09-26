@@ -3,7 +3,10 @@ package appconfigdata_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 )
@@ -43,47 +46,42 @@ func TestJanitor_RunExitsOnContextCancel(t *testing.T) {
 func TestJanitor_SweepsExpiredSessionsOnTick(t *testing.T) {
 	t.Parallel()
 
-	b := appconfigdata.NewInMemoryBackend()
-	if err := b.SetConfiguration("app", "env", "p", `{}`, "application/json"); err != nil {
-		t.Fatalf("SetConfiguration failed: %v", err)
-	}
-
-	token, err := b.StartSession("app", "env", "p", 0)
-	if err != nil {
-		t.Fatalf("StartSession failed: %v", err)
-	}
-
-	if b.LookupSession(token) == nil {
-		t.Fatal("session must exist immediately after StartSession")
-	}
-
-	j := appconfigdata.NewJanitor(b)
-	j.Interval = 5 * time.Millisecond
-	j.SessionTTL = 0 // every session is immediately idle-expired
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		j.Run(ctx)
-	}()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if b.LookupSession(token) == nil {
-			cancel()
-			<-done
-
-			return
+	synctest.Test(t, func(t *testing.T) {
+		b := appconfigdata.NewInMemoryBackend()
+		if err := b.SetConfiguration("app", "env", "p", `{}`, "application/json"); err != nil {
+			t.Fatalf("SetConfiguration failed: %v", err)
 		}
 
-		time.Sleep(5 * time.Millisecond)
-	}
+		token, err := b.StartSession("app", "env", "p", 0)
+		if err != nil {
+			t.Fatalf("StartSession failed: %v", err)
+		}
 
-	cancel()
-	<-done
-	t.Fatal("janitor did not sweep the expired session within the deadline")
+		if b.LookupSession(token) == nil {
+			t.Fatal("session must exist immediately after StartSession")
+		}
+
+		j := appconfigdata.NewJanitor(b)
+		j.Interval = 5 * time.Millisecond
+		j.SessionTTL = 0 // every session is immediately idle-expired
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+			j.Run(ctx)
+		}()
+
+		// j.Interval is 5ms; cross a tick so the janitor sweeps the session.
+		time.Sleep(10 * time.Millisecond)
+		synctest.Wait()
+
+		assert.Nil(t, b.LookupSession(token), "janitor did not sweep the expired session")
+
+		cancel()
+		<-done
+	})
 }

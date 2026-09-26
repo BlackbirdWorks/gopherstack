@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -65,41 +66,44 @@ func TestACMBackend_RequestCertificate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-			cert, err := b.RequestCertificate(
-				context.Background(),
-				tt.domain,
-				"",
-				tt.validationMethod,
-				"",
-				"",
-				"",
-				"",
-				nil,
-			)
+			synctest.Test(t, func(t *testing.T) {
+				b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					tt.domain,
+					"",
+					tt.validationMethod,
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 
-			if tt.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
+				if tt.wantErr != nil {
+					require.Error(t, err)
+					assert.ErrorIs(t, err, tt.wantErr)
 
-				return
-			}
+					return
+				}
 
-			require.NoError(t, err)
-			assert.Contains(t, cert.ARN, "arn:aws:acm:")
-			assert.Equal(t, tt.wantDomain, cert.DomainName)
-			assert.Equal(t, tt.wantStatus, cert.Status)
-			assert.Equal(t, tt.wantType, cert.Type)
-			assert.NotEmpty(t, cert.CertificateBody, "CertificateBody should be set")
+				require.NoError(t, err)
+				assert.Contains(t, cert.ARN, "arn:aws:acm:")
+				assert.Equal(t, tt.wantDomain, cert.DomainName)
+				assert.Equal(t, tt.wantStatus, cert.Status)
+				assert.Equal(t, tt.wantType, cert.Type)
+				assert.NotEmpty(t, cert.CertificateBody, "CertificateBody should be set")
 
-			if tt.wantPendingFirst {
-				// Wait for auto-validation
-				require.Eventually(t, func() bool {
+				if tt.wantPendingFirst {
+					// autoValidateDelayMS is 100ms; cross it so auto-validation fires.
+					time.Sleep(150 * time.Millisecond)
+					synctest.Wait()
+
 					c, descErr := b.DescribeCertificate(context.Background(), cert.ARN)
-
-					return descErr == nil && c.Status == "ISSUED"
-				}, 2*time.Second, 50*time.Millisecond, "certificate should transition to ISSUED")
-			}
+					require.NoError(t, descErr)
+					assert.Equal(t, "ISSUED", c.Status, "certificate should transition to ISSUED")
+				}
+			})
 		})
 	}
 }

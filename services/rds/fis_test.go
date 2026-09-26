@@ -3,6 +3,7 @@ package rds_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -166,27 +167,42 @@ func TestRDS_ExecuteFISAction_FailoverDBCluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newFISRDSHandler(t)
+			run := func(t *testing.T) {
+				t.Helper()
 
-			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
-				ActionID: "aws:rds:failover-db-cluster",
-				Targets:  tt.targets,
-				Duration: tt.duration,
-			})
+				h := newFISRDSHandler(t)
 
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
+				err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
+					ActionID: "aws:rds:failover-db-cluster",
+					Targets:  tt.targets,
+					Duration: tt.duration,
+				})
+
+				if tt.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+
+				// For clusters with non-zero duration, the fault should eventually clear.
+				if tt.duration > 0 && len(tt.targets) > 0 {
+					time.Sleep(tt.duration + 50*time.Millisecond)
+					synctest.Wait()
+
+					id := rdsIDFromARNForTest(tt.targets[0])
+					assert.False(t, h.Backend.IsClusterFailoverActive(id),
+						"failover fault should have expired after duration")
+				}
 			}
 
-			// For clusters with non-zero duration, the fault should eventually clear.
-			if tt.duration > 0 && len(tt.targets) > 0 {
-				time.Sleep(tt.duration + 50*time.Millisecond)
-
-				id := rdsIDFromARNForTest(tt.targets[0])
-				assert.False(t, h.Backend.IsClusterFailoverActive(id),
-					"failover fault should have expired after duration")
+			// Only the timed-fault case has a real timer to cross; the
+			// dur==0 case's fault-clearing goroutine blocks on ctx
+			// cancellation, which t.Context() only does at test cleanup --
+			// after a bubble would have to exit -- so it cannot be bubbled.
+			if tt.duration > 0 {
+				synctest.Test(t, run)
+			} else {
+				run(t)
 			}
 		})
 	}
@@ -231,29 +247,31 @@ func TestRDS_FISActions_FailoverHasDurationParam(t *testing.T) {
 func TestRDS_ExecuteFISAction_FailoverDBCluster_CtxCancel(t *testing.T) {
 	t.Parallel()
 
-	h := newFISRDSHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newFISRDSHandler(t)
 
-	ctx, cancel := context.WithCancel(t.Context())
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
 
-	const clusterTarget = "arn:aws:rds:us-east-1:000000000000:cluster/cancel-cluster"
+		const clusterTarget = "arn:aws:rds:us-east-1:000000000000:cluster/cancel-cluster"
 
-	// Activate indefinite fault (dur==0).
-	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
-		ActionID: "aws:rds:failover-db-cluster",
-		Targets:  []string{clusterTarget},
-		Duration: 0,
+		// Activate indefinite fault (dur==0).
+		err := h.ExecuteFISAction(ctx, service.FISActionExecution{
+			ActionID: "aws:rds:failover-db-cluster",
+			Targets:  []string{clusterTarget},
+			Duration: 0,
+		})
+		require.NoError(t, err)
+
+		assert.True(t, h.Backend.IsClusterFailoverActive("cancel-cluster"), "fault should be active")
+
+		// Cancel ctx (simulates StopExperiment) and let the fault-clearing
+		// goroutine run to completion.
+		cancel()
+		synctest.Wait()
+
+		assert.False(t, h.Backend.IsClusterFailoverActive("cancel-cluster"), "fault should clear after ctx cancel")
 	})
-	require.NoError(t, err)
-
-	assert.True(t, h.Backend.IsClusterFailoverActive("cancel-cluster"), "fault should be active")
-
-	// Cancel ctx (simulates StopExperiment).
-	cancel()
-
-	// Fault should clear promptly.
-	require.Eventually(t, func() bool {
-		return !h.Backend.IsClusterFailoverActive("cancel-cluster")
-	}, 2*time.Second, 20*time.Millisecond, "fault should clear after ctx cancel")
 }
 
 func TestRDS_IsClusterFailoverActive_LazyEviction(t *testing.T) {
