@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -10,6 +11,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
+
+// cloneGroupMutableSlices deep-copies Instances and Tags before a caller sees them.
+// Other locked methods mutate their elements in place, so a shallow "cp := *g" would share backing arrays.
+func cloneGroupMutableSlices(g *AutoScalingGroup) {
+	g.Instances = slices.Clone(g.Instances)
+	g.Tags = slices.Clone(g.Tags)
+}
 
 // lcInstanceType returns the InstanceType from the named launch configuration, or
 // "t2.micro" if the launch configuration is not found (preserving previous default).
@@ -201,6 +209,7 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	)
 
 	cp := *group
+	cloneGroupMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -220,6 +229,10 @@ func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string, filters []Ta
 	groups := describeByNames(b.groups, names, func(a, c *AutoScalingGroup) bool {
 		return a.AutoScalingGroupName < c.AutoScalingGroupName
 	})
+	for i := range groups {
+		cloneGroupMutableSlices(&groups[i])
+	}
+
 	if len(filters) == 0 {
 		return groups, nil
 	}
@@ -562,6 +575,7 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	}
 
 	cp := *g
+	cloneGroupMutableSlices(&cp)
 
 	return &cp, nil
 }
