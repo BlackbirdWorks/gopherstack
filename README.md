@@ -499,7 +499,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 gap; 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 10 gaps; 1 deferred |
-| [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 8 gaps; 2 deferred |
+| [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 7 gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 3 gaps; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 5 gaps; 3 deferred |
@@ -608,7 +608,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Account](services/account/README.md) | A | 16 | 5 gaps; 1 deferred |
 | [AppConfig](services/appconfig/README.md) | A | 56 | 7 gaps; 1 deferred |
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
-| [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 2 deferred |
+| [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 5 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 4 gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 11 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 11 gaps |
