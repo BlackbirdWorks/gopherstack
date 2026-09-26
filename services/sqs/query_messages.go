@@ -2,7 +2,6 @@ package sqs
 
 import (
 	"encoding/base64"
-	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -15,17 +14,17 @@ func parseQueryMsgAttr(vals url.Values) map[string]MessageAttributeValue {
 	attrs := make(map[string]MessageAttributeValue)
 
 	for i := 1; i <= maxParseIterations; i++ {
-		name := vals.Get(fmt.Sprintf("MessageAttribute.%d.Name", i))
+		name := numberedParam(vals, "MessageAttribute", i, "Name")
 		if name == "" {
 			break
 		}
 
 		attr := MessageAttributeValue{
-			DataType:    vals.Get(fmt.Sprintf("MessageAttribute.%d.Value.DataType", i)),
-			StringValue: vals.Get(fmt.Sprintf("MessageAttribute.%d.Value.StringValue", i)),
+			DataType:    numberedParam(vals, "MessageAttribute", i, "Value.DataType"),
+			StringValue: numberedParam(vals, "MessageAttribute", i, "Value.StringValue"),
 		}
 
-		if b64 := vals.Get(fmt.Sprintf("MessageAttribute.%d.Value.BinaryValue", i)); b64 != "" {
+		if b64 := numberedParam(vals, "MessageAttribute", i, "Value.BinaryValue"); b64 != "" {
 			decoded, decErr := decodeMsgAttrBinary(b64)
 			if decErr == nil {
 				attr.BinaryValue = decoded
@@ -57,20 +56,20 @@ func decodeMsgAttrBinary(encoded string) ([]byte, error) {
 //	SendMessageBatchRequestEntry.{entryIdx}.MessageAttribute.{j}.Value.BinaryValue
 func parseQueryBatchMsgAttrs(vals url.Values, entryIdx int) map[string]MessageAttributeValue {
 	attrs := make(map[string]MessageAttributeValue)
-	prefix := fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageAttribute", entryIdx)
+	prefix := "SendMessageBatchRequestEntry." + strconv.Itoa(entryIdx) + ".MessageAttribute"
 
 	for j := 1; j <= maxParseIterations; j++ {
-		name := vals.Get(fmt.Sprintf("%s.%d.Name", prefix, j))
+		name := numberedParam(vals, prefix, j, "Name")
 		if name == "" {
 			break
 		}
 
 		attr := MessageAttributeValue{
-			DataType:    vals.Get(fmt.Sprintf("%s.%d.Value.DataType", prefix, j)),
-			StringValue: vals.Get(fmt.Sprintf("%s.%d.Value.StringValue", prefix, j)),
+			DataType:    numberedParam(vals, prefix, j, "Value.DataType"),
+			StringValue: numberedParam(vals, prefix, j, "Value.StringValue"),
 		}
 
-		if b64 := vals.Get(fmt.Sprintf("%s.%d.Value.BinaryValue", prefix, j)); b64 != "" {
+		if b64 := numberedParam(vals, prefix, j, "Value.BinaryValue"); b64 != "" {
 			decoded, decErr := decodeMsgAttrBinary(b64)
 			if decErr == nil {
 				attr.BinaryValue = decoded
@@ -91,19 +90,21 @@ func parseQueryBatchMsgAttrs(vals url.Values, entryIdx int) map[string]MessageAt
 func parseQuerySendBatchEntries(vals url.Values) []SendMessageBatchEntry {
 	var entries []SendMessageBatchEntry
 
+	const prefix = "SendMessageBatchRequestEntry"
+
 	for i := 1; i <= maxParseIterations; i++ {
-		id := vals.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.Id", i))
+		id := numberedParam(vals, prefix, i, "Id")
 		if id == "" {
 			break
 		}
 
-		delay, _ := strconv.Atoi(vals.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.DelaySeconds", i)))
+		delay, _ := strconv.Atoi(numberedParam(vals, prefix, i, "DelaySeconds"))
 		entries = append(entries, SendMessageBatchEntry{
 			ID:                     id,
-			MessageBody:            vals.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageBody", i)),
+			MessageBody:            numberedParam(vals, prefix, i, "MessageBody"),
 			DelaySeconds:           delay,
-			MessageGroupID:         vals.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageGroupId", i)),
-			MessageDeduplicationID: vals.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageDeduplicationId", i)),
+			MessageGroupID:         numberedParam(vals, prefix, i, "MessageGroupId"),
+			MessageDeduplicationID: numberedParam(vals, prefix, i, "MessageDeduplicationId"),
 			MessageAttributes:      parseQueryBatchMsgAttrs(vals, i),
 		})
 	}
@@ -115,15 +116,17 @@ func parseQuerySendBatchEntries(vals url.Values) []SendMessageBatchEntry {
 func parseQueryDeleteBatchEntries(vals url.Values) []DeleteMessageBatchEntry {
 	var entries []DeleteMessageBatchEntry
 
+	const prefix = "DeleteMessageBatchRequestEntry"
+
 	for i := 1; i <= maxParseIterations; i++ {
-		id := vals.Get(fmt.Sprintf("DeleteMessageBatchRequestEntry.%d.Id", i))
+		id := numberedParam(vals, prefix, i, "Id")
 		if id == "" {
 			break
 		}
 
 		entries = append(entries, DeleteMessageBatchEntry{
 			ID:            id,
-			ReceiptHandle: vals.Get(fmt.Sprintf("DeleteMessageBatchRequestEntry.%d.ReceiptHandle", i)),
+			ReceiptHandle: numberedParam(vals, prefix, i, "ReceiptHandle"),
 		})
 	}
 

@@ -24,16 +24,21 @@ func resolveVisibilityTimeout(requested int, q *Queue) int {
 // buildBlockedGroups returns the set of FIFO message group IDs that currently
 // have at least one in-flight message. Messages in a blocked group must not be
 // delivered until all earlier in-flight messages for that group are deleted,
-// ensuring strict per-group ordering.
-func buildBlockedGroups(inflight []*InFlightMessage) map[string]bool {
-	blocked := make(map[string]bool)
-	for _, inf := range inflight {
+// ensuring strict per-group ordering. Returns q.blockedGroupsScratch, reused.
+func buildBlockedGroups(q *Queue) map[string]bool {
+	if q.blockedGroupsScratch == nil {
+		q.blockedGroupsScratch = make(map[string]bool, len(q.inFlightMessages))
+	} else {
+		clear(q.blockedGroupsScratch)
+	}
+
+	for _, inf := range q.inFlightMessages {
 		if inf.Msg.MessageGroupID != "" {
-			blocked[inf.Msg.MessageGroupID] = true
+			q.blockedGroupsScratch[inf.Msg.MessageGroupID] = true
 		}
 	}
 
-	return blocked
+	return q.blockedGroupsScratch
 }
 
 // prepareAndPickMessages consolidates reQueueExpired, expireRetainedMessages,
@@ -301,7 +306,7 @@ func prepareAndPickMessages(
 	// Pass 2: sweep q.messages (original + re-queued from Pass 1) in-place.
 	var blockedGroups map[string]bool
 	if q.IsFIFO {
-		blockedGroups = buildBlockedGroups(q.inFlightMessages)
+		blockedGroups = buildBlockedGroups(q)
 	}
 
 	var result []*Message

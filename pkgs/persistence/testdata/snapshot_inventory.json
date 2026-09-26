@@ -26465,6 +26465,7 @@
       "Queue.Region string",
       "Queue.Tags *tags.Tags",
       "Queue.URL string",
+      "Queue.blockedGroupsScratch map[string]bool",
       "Queue.deduplicationMsgIDs map[string]string",
       "Queue.delayedCount int",
       "Queue.dlq *Queue",

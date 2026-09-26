@@ -478,8 +478,9 @@ func (b *InMemoryBackend) receiveOnce(
 	now := b.now()
 
 	// #54: single-pass prepareAndPickMessages replaces the four-pass sequence.
+	// Dedup pruning is left to the janitor + checkDedup/storeDedup's lazy
+	// per-key expiry: ReceiveMessage never reads q.DeduplicationIDs.
 	if q.IsFIFO {
-		pruneDedup(q, now)
 		pruneReceiveAttempts(q, now)
 
 		// FIFO exactly-once retry: if the caller repeats with the same

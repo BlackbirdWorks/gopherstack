@@ -190,14 +190,16 @@ type Queue struct {
 	receiveAttempts map[string]*receiveAttemptEntry
 	// inFlightByHandle indexes in-flight messages by receipt handle for O(1) delete (#56).
 	inFlightByHandle map[string]*InFlightMessage
-	Tags             *tags.Tags
-	DeduplicationIDs map[string]time.Time
-	dlq              *Queue
-	Name             string
-	URL              string
-	Region           string
-	messages         []*Message
-	inFlightMessages []*InFlightMessage
+	// blockedGroupsScratch is cleared and reused by each FIFO receive; guarded by mu.
+	blockedGroupsScratch map[string]bool
+	Tags                 *tags.Tags
+	DeduplicationIDs     map[string]time.Time
+	dlq                  *Queue
+	Name                 string
+	URL                  string
+	Region               string
+	messages             []*Message
+	inFlightMessages     []*InFlightMessage
 	// mu guards queue-level state independently of the backend-global mu (#55).
 	mu                sync.Mutex
 	fifoSeqCounter    uint64
