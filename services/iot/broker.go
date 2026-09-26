@@ -70,23 +70,14 @@ func (b *Broker) Start(ctx context.Context) error {
 	// Store the server atomically before Serve() so Publish() can access it concurrently.
 	b.server.Store(s)
 
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = s.Close()
-		case <-done:
-			// Serve() returned; goroutine exits cleanly.
-		}
-	}()
-
+	// mochi's Serve starts its listeners and event loop in goroutines and returns at once.
 	if err := s.Serve(); err != nil {
 		return fmt.Errorf("iot broker: serve: %w", err)
 	}
 
-	return nil
+	<-ctx.Done()
+
+	return s.Close()
 }
 
 // Run implements worker.Runner, adapting Start's blocking-with-error shape to
