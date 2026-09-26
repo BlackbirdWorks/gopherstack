@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -51,39 +52,42 @@ func TestRDSBackend_InstanceModifyTransitionAndDeletePublishesEvents(t *testing.
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
-			t.Cleanup(b.Close)
-			const instanceID = "transition-db"
+			synctest.Test(t, func(t *testing.T) {
+				b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+				defer b.Close()
+				const instanceID = "transition-db"
 
-			created, err := b.CreateDBInstance(instanceID, "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
-			require.NoError(t, err)
-			assert.Equal(t, "creating", created.DBInstanceStatus)
+				created, err := b.CreateDBInstance(instanceID, "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
+				require.NoError(t, err)
+				assert.Equal(t, "creating", created.DBInstanceStatus)
 
-			modified, err := b.ModifyDBInstance(instanceID, "db.r5.large", 100, rds.DBInstanceOptions{})
-			require.NoError(t, err)
-			assert.Equal(t, "modifying", modified.DBInstanceStatus)
+				modified, err := b.ModifyDBInstance(instanceID, "db.r5.large", 100, rds.DBInstanceOptions{})
+				require.NoError(t, err)
+				assert.Equal(t, "modifying", modified.DBInstanceStatus)
 
-			require.Eventually(t, func() bool {
+				// Sleep past the delay plus the reconciler's own tick period,
+				// since the transition only lands on a tick boundary.
+				time.Sleep(2 * transitionDelay)
+
 				instances, describeErr := b.DescribeDBInstances(instanceID)
-				if describeErr != nil || len(instances) != 1 {
-					return false
-				}
+				require.NoError(t, describeErr)
+				require.Len(t, instances, 1)
+				assert.Equal(t, "available", instances[0].DBInstanceStatus)
+				assert.Equal(t, "db.r5.large", instances[0].DBInstanceClass)
 
-				return instances[0].DBInstanceStatus == "available" && instances[0].DBInstanceClass == "db.r5.large"
-			}, 3*time.Second, 20*time.Millisecond)
+				deleted, err := b.DeleteDBInstance(instanceID)
+				require.NoError(t, err)
+				assert.Equal(t, "deleting", deleted.DBInstanceStatus)
+				_, err = b.DescribeDBInstances(instanceID)
+				require.ErrorIs(t, err, rds.ErrInstanceNotFound)
 
-			deleted, err := b.DeleteDBInstance(instanceID)
-			require.NoError(t, err)
-			assert.Equal(t, "deleting", deleted.DBInstanceStatus)
-			_, err = b.DescribeDBInstances(instanceID)
-			require.ErrorIs(t, err, rds.ErrInstanceNotFound)
-
-			messages := rds.EventMessagesForSource(b, instanceID)
-			assert.Contains(t, messages, "DB instance created")
-			assert.Contains(t, messages, "DB instance is now available")
-			assert.Contains(t, messages, "DB instance modification started")
-			assert.Contains(t, messages, "DB instance deletion started")
-			assert.Contains(t, messages, "DB instance deleted")
+				messages := rds.EventMessagesForSource(b, instanceID)
+				assert.Contains(t, messages, "DB instance created")
+				assert.Contains(t, messages, "DB instance is now available")
+				assert.Contains(t, messages, "DB instance modification started")
+				assert.Contains(t, messages, "DB instance deletion started")
+				assert.Contains(t, messages, "DB instance deleted")
+			})
 		})
 	}
 }

@@ -2,7 +2,6 @@ package rds_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -13,28 +12,31 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
-// waitForInstanceStatus polls the backend directly (no HTTP round trip)
-// until the named instance reaches wantStatus, matching the repo convention
-// of require.Eventually over unbubbled sleeps.
+// waitForInstanceStatus forces the pending reconciler transition immediately
+// instead of polling wall-clock time (gopherstack-jwr13: Eventually flaked
+// under CI load because it depended on the background reconciler goroutine's
+// own ticker getting scheduled in time).
 func waitForInstanceStatus(t *testing.T, backend *rds.InMemoryBackend, id, wantStatus string) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		insts, err := backend.DescribeDBInstances(id)
+	rds.FlushInstanceLifecycle(backend)
 
-		return err == nil && len(insts) == 1 && insts[0].DBInstanceStatus == wantStatus
-	}, time.Second, 5*time.Millisecond)
+	insts, err := backend.DescribeDBInstances(id)
+	require.NoError(t, err)
+	require.Len(t, insts, 1)
+	require.Equal(t, wantStatus, insts[0].DBInstanceStatus)
 }
 
 // waitForClusterStatus is waitForInstanceStatus's DB cluster counterpart.
 func waitForClusterStatus(t *testing.T, backend *rds.InMemoryBackend, id, wantStatus string) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		clusters, err := backend.DescribeDBClusters(id)
+	rds.FlushClusterLifecycle(backend)
 
-		return err == nil && len(clusters) == 1 && clusters[0].Status == wantStatus
-	}, time.Second, 5*time.Millisecond)
+	clusters, err := backend.DescribeDBClusters(id)
+	require.NoError(t, err)
+	require.Len(t, clusters, 1)
+	require.Equal(t, wantStatus, clusters[0].Status)
 }
 
 // TestRealClient_InstanceClusterLifecycle covers rds's highest-priority typed-client-
