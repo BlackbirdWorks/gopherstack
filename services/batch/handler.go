@@ -35,6 +35,15 @@ const (
 	// the /v1/ prefix; exclude them to avoid routing Kafka requests to Batch.
 	kafkaClustersPrefix       = "/v1/clusters"
 	kafkaConfigurationsPrefix = "/v1/configurations"
+	// kafkaConnectConnectorPrefix covers MSK Connect's /v1/connectors,
+	// /v1/connectors/{arn}(/operations), and /v1/connectorOperations/{arn}.
+	// kafkaConnectPluginPrefix and kafkaConnectWorkerPrefix cover its
+	// /v1/custom-plugins and /v1/worker-configurations resources. All share
+	// the /v1/ prefix; exclude them to avoid routing MSK Connect requests to
+	// Batch (both are PriorityPathVersioned, and Batch registers first).
+	kafkaConnectConnectorPrefix = "/v1/connector"
+	kafkaConnectPluginPrefix    = "/v1/custom-plugins"
+	kafkaConnectWorkerPrefix    = "/v1/worker-configurations"
 )
 
 // Handler is the Echo HTTP handler for AWS Batch operations.
@@ -145,8 +154,9 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 
 // RouteMatcher returns a function that matches Batch requests.
 // It matches /v1/ paths but explicitly excludes /v1/apis (AppSync),
-// CodeArtifact paths, and Kafka paths to prevent routing conflicts when
-// multiple services use PriorityPathVersioned. The tags path is scoped by
+// CodeArtifact paths, Kafka (MSK) paths, and MSK Connect paths to prevent
+// routing conflicts when multiple services use PriorityPathVersioned. The
+// tags path is scoped by
 // ARN via isBatchTagPath instead of excluded outright, since Batch owns its
 // own ARNs there too (see isAppSyncTagPath in services/appsync/handler.go
 // for the mirrored guard that stops AppSync's tag-path matcher from
@@ -174,6 +184,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		// Exclude Kafka (MSK) paths which share the /v1/ prefix.
 		if strings.HasPrefix(path, kafkaClustersPrefix) ||
 			strings.HasPrefix(path, kafkaConfigurationsPrefix) {
+			return false
+		}
+		// Exclude MSK Connect paths which share the /v1/ prefix.
+		if strings.HasPrefix(path, kafkaConnectConnectorPrefix) ||
+			strings.HasPrefix(path, kafkaConnectPluginPrefix) ||
+			strings.HasPrefix(path, kafkaConnectWorkerPrefix) {
 			return false
 		}
 
