@@ -3,7 +3,7 @@ package stepfunctions_test
 import (
 	"context"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -464,31 +464,34 @@ func TestRecordTask_SucceededAndFailed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			b.SetLambdaInvoker(tt.invoker)
 
-			sm, err := b.CreateStateMachine(context.Background(), tt.smName, lambdaTaskDef, "arn:role", "STANDARD")
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+				b.SetLambdaInvoker(tt.invoker)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, tt.execName, `{}`)
-			require.NoError(t, err)
+				sm, err := b.CreateStateMachine(context.Background(), tt.smName, lambdaTaskDef, "arn:role", "STANDARD")
+				require.NoError(t, err)
 
-			require.Eventually(t, func() bool {
-				desc, _ := b.DescribeExecution(exec.ExecutionArn)
+				exec, err := b.StartExecution(sm.StateMachineArn, tt.execName, `{}`)
+				require.NoError(t, err)
 
-				return desc != nil && desc.Status == tt.wantStatus
-			}, 5*time.Second, 50*time.Millisecond)
+				synctest.Wait()
 
-			history, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
-			require.NoError(t, err)
+				desc, err := b.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, err)
+				require.Equal(t, tt.wantStatus, desc.Status)
 
-			eventTypes := make([]string, 0, len(history))
-			for _, ev := range history {
-				eventTypes = append(eventTypes, ev.Type)
-			}
-			for _, wantType := range tt.wantEventTypes {
-				assert.Contains(t, eventTypes, wantType)
-			}
+				history, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
+				require.NoError(t, err)
+
+				eventTypes := make([]string, 0, len(history))
+				for _, ev := range history {
+					eventTypes = append(eventTypes, ev.Type)
+				}
+				for _, wantType := range tt.wantEventTypes {
+					assert.Contains(t, eventTypes, wantType)
+				}
+			})
 		})
 	}
 }

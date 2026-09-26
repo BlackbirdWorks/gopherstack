@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -128,17 +129,15 @@ func getS3ObjectBytes(t *testing.T, bk *s3pkg.InMemoryBackend, bucket, key strin
 	return data
 }
 
+// waitForTerminalExecution must run inside a synctest bubble.
 func waitForTerminalExecution(t *testing.T, b *stepfunctions.InMemoryBackend, execARN string) *stepfunctions.Execution {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		d, err := b.DescribeExecution(execARN)
-
-		return err == nil && d.Status != "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+	synctest.Wait()
 
 	d, err := b.DescribeExecution(execARN)
 	require.NoError(t, err)
+	require.NotEqual(t, "RUNNING", d.Status)
 
 	return d
 }
@@ -305,7 +304,7 @@ func TestDistributedMapResultWriter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.fn(t)
+			synctest.Test(t, tt.fn)
 		})
 	}
 }
@@ -756,7 +755,7 @@ func TestDistributedMapResultWriterWarnLogs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.fn(t)
+			synctest.Test(t, tt.fn)
 		})
 	}
 }

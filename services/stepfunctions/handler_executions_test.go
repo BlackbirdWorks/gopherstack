@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -327,39 +328,41 @@ func TestStartExecution_ResponseContainsARNAndStartDate(t *testing.T) {
 func TestListExecutions_OrderedByStartDateDesc_ViaHandler(t *testing.T) {
 	t.Parallel()
 
-	ctx := t.Context()
-	h, e := newSFNHandler(t)
-	smARN := createSM(ctx, t, h, e, "order-handler-sm")
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		h, e := newSFNHandler(t)
+		smARN := createSM(ctx, t, h, e, "order-handler-sm")
 
-	execNames := []string{"exec-z", "exec-a", "exec-m"}
-	for _, name := range execNames {
-		body, err := json.Marshal(map[string]string{
-			"stateMachineArn": smARN,
-			"name":            name,
-			"input":           "{}",
-		})
+		execNames := []string{"exec-z", "exec-a", "exec-m"}
+		for _, name := range execNames {
+			body, err := json.Marshal(map[string]string{
+				"stateMachineArn": smARN,
+				"name":            name,
+				"input":           "{}",
+			})
+			require.NoError(t, err)
+
+			rec := sfnPost(ctx, t, h, e, "StartExecution", string(body))
+			require.Equal(t, http.StatusOK, rec.Code)
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
 		require.NoError(t, err)
 
-		rec := sfnPost(ctx, t, h, e, "StartExecution", string(body))
+		rec := sfnPost(ctx, t, h, e, "ListExecutions", string(listBody))
 		require.Equal(t, http.StatusOK, rec.Code)
-		time.Sleep(5 * time.Millisecond)
-	}
 
-	listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
-	require.NoError(t, err)
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	rec := sfnPost(ctx, t, h, e, "ListExecutions", string(listBody))
-	require.Equal(t, http.StatusOK, rec.Code)
+		rawExecs, _ := resp["executions"].([]any)
+		require.Len(t, rawExecs, 3)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	rawExecs, _ := resp["executions"].([]any)
-	require.Len(t, rawExecs, 3)
-
-	// exec-m started last, should appear first.
-	first, _ := rawExecs[0].(map[string]any)
-	assert.Equal(t, "exec-m", first["name"])
+		// exec-m started last, should appear first.
+		first, _ := rawExecs[0].(map[string]any)
+		assert.Equal(t, "exec-m", first["name"])
+	})
 }
 
 func TestSFN_DescribeStateMachineForExecution(t *testing.T) {
