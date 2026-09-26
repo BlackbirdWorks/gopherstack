@@ -260,8 +260,10 @@ func TestListDirectoryBuckets(t *testing.T) {
 				assert.NotContains(t, listBody, name, "ListBuckets must not contain %q", name)
 			}
 
-			// Verify ListDirectoryBuckets via HTTP.
-			dirReq := httptest.NewRequest(http.MethodGet, "/?list-type=directory", nil)
+			// Verify ListDirectoryBuckets via HTTP. x-id=ListDirectoryBuckets is
+			// the real discriminator a client sends (see
+			// isListDirectoryBucketsRequest) -- list-type=directory never was.
+			dirReq := httptest.NewRequest(http.MethodGet, "/?x-id=ListDirectoryBuckets", nil)
 			dirRec := httptest.NewRecorder()
 			serveS3Handler(handler, dirRec, dirReq)
 			require.Equal(t, http.StatusOK, dirRec.Code, "ListDirectoryBuckets must return 200")

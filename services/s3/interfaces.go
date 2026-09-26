@@ -219,8 +219,10 @@ type StorageBackend interface {
 	DeleteBucketMetricsConfiguration(ctx context.Context, bucket, id string) error
 	ListBucketMetricsConfigurations(ctx context.Context, bucket string) ([]string, error)
 
-	// Session
-	CreateSession(ctx context.Context, bucket string) (string, error)
+	// Session (S3 Express One Zone)
+	CreateSession(ctx context.Context, bucket string, sessionMode types.SessionMode) (SessionCredentials, error)
+	ExpressSessionSecret(accessKeyID, sessionToken string) (bucket, secret string, ok bool)
+	IsDirectoryBucket(bucket string) bool
 
 	// Accelerate / RequestPayment configurations
 	PutBucketAccelerateConfiguration(ctx context.Context, bucket, status string) error
