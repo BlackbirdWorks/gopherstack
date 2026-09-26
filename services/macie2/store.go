@@ -105,10 +105,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // listPaginated locks for reading, projects/sorts items, and paginates,
 // returning the page plus continuation token. Shared by the List* methods.
+// itemsFn runs under the lock; pass the table's .All method value, not its result,
+// or the read races concurrent writers.
 func listPaginated[T any, R any](
 	b *InMemoryBackend,
 	lockName string,
-	items []T,
+	itemsFn func() []T,
 	mapFn func(T) (R, bool),
 	sortFn func([]R),
 	token string,
@@ -117,7 +119,7 @@ func listPaginated[T any, R any](
 	b.mu.RLock(lockName)
 	defer b.mu.RUnlock()
 
-	data, next := mapSortPaginate(items, mapFn, sortFn, token, b.paginationSecret, limit)
+	data, next := mapSortPaginate(itemsFn(), mapFn, sortFn, token, b.paginationSecret, limit)
 
 	return data, next, nil
 }

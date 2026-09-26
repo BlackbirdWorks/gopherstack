@@ -152,7 +152,7 @@ func (b *InMemoryBackend) DeleteAllowList(id string, ignoreJobChecks bool) error
 // ListAllowLists returns summaries of all allow lists.
 func (b *InMemoryBackend) ListAllowLists(limit int, token string) ([]*AllowListSummary, string, error) {
 	return listPaginated(
-		b, "ListAllowLists", b.allowLists.All(),
+		b, "ListAllowLists", b.allowLists.All,
 		func(al *storedAllowList) (*AllowListSummary, bool) {
 			return &AllowListSummary{
 				Arn:         al.Arn,
