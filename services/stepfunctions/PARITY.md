@@ -394,23 +394,59 @@ families:
       (or a legacy Iterator-style Map, which has no ProcessorConfig at all)
       takes the pre-existing runMapTasks path unconditionally.
 
-      DISCLOSED, not modeled (deliberately out of this pass's scope):
-      ResultWriter's per-item S3 export records (exportMapResults,
-      asl/result_writer.go) still omit ExecutionArn/Name/StartDate/StopDate
-      even though real child executions now exist to source them from --
-      wiring that through was judged not to "fall out cheaply" (it would
-      need exportMapResults, which only sees results/errs, to also see the
-      per-item child Execution records) and was left for a future pass
-      rather than attempted here. WriterConfig (Transformation/OutputType)
-      remains parsed but unapplied, unchanged from the prior pass. A
-      DISTRIBUTED Map Run's parent MapRun *resource* record (as opposed to
-      its child Execution records, which do persist -- see Execution.
-      MapRunArn/ItemCount in persistence.go) is still not part of
-      backendSnapshot at all -- a pre-existing gap predating this pass
-      (versions/aliases/mapRuns have never been persisted here), so a
-      restored backend loses DescribeMapRun/ListMapRuns/
-      ListExecutions(mapRunArn=...) access to a Map Run whose children
-      otherwise survive the restore intact.
+      FIXED 2026-09-26 (WriterConfig sweep), correcting the prior pass's
+      "DISCLOSED, not modeled" note below: ResultWriter's per-item S3 export
+      records omitting ExecutionArn/Name/StartDate/StopDate, and
+      WriterConfig (Transformation/OutputType) being parsed but unapplied,
+      are both fixed. asl.DistributedMapRunner.RunDistributedMapItem now
+      returns a DistributedMapItemResult (Output plus ExecutionArn/Name/
+      StartDate/StopDate) instead of a bare `any`, threaded through
+      runDistributedMapTasks into a new `meta []DistributedMapItemResult`
+      slice that exportMapResults uses to populate Transformation: NONE
+      records -- populated only for DISTRIBUTED Map items (real child
+      Executions exist to source it from); INLINE Map iterations still
+      correctly leave those fields empty, having no such resource.
+      WriterConfig.Transformation (NONE: full metadata record with
+      JSON-stringified Input/Output, matching a real DescribeExecution;
+      COMPACT: raw per-item output; FLATTEN: COMPACT plus splicing any
+      array output into the outer array) and OutputType (JSON: array;
+      JSONL: newline-delimited, no enclosing array) are now applied to the
+      S3-exported SUCCEEDED_n.json/FAILED_n.json files AND to the no-export
+      preview output (ResultWriter with WriterConfig but no Resource/
+      Parameters, AWS's documented "preview the formatted output" shape).
+      Per AWS's documented note ("If a child workflow execution fails, Step
+      Functions returns its execution result unchanged"), a FAILED item's
+      record is always the full NONE-shaped record regardless of
+      Transformation -- verified via
+      TestDistributedMapResultWriter_FailedItemsKeepFullRecord. Verified
+      against input-output-resultwriter.html for the exact Transformation/
+      OutputType semantics; see
+      TestDistributedMapResultWriter_TransformationOutputType (all 6
+      Transformation x OutputType combinations, real SDK client + wired
+      in-process S3) and TestDistributedMapResultWriter_
+      DistributedChildIdentity. A DISTRIBUTED Map Run's parent MapRun
+      *resource* record (as opposed to its child Execution records, which
+      do persist -- see Execution.MapRunArn/ItemCount in persistence.go) is
+      still not part of backendSnapshot at all -- a pre-existing gap
+      predating this pass (versions/aliases/mapRuns have never been
+      persisted here), so a restored backend loses DescribeMapRun/
+      ListMapRuns/ListExecutions(mapRunArn=...) access to a Map Run whose
+      children otherwise survive the restore intact.
+
+      2026-09-26 (WriterConfig sweep, new finding, not fixed this pass):
+      re-reading input-output-itemreader.html surfaced that ItemReader only
+      ever supports Resource=arn:aws:states:::s3:getObject with InputType
+      JSON/JSON Lines/CSV against a single object -- Resource=
+      arn:aws:states:::s3:listObjectsV2 (bucket/prefix metadata iteration,
+      optionally with Transformation=LOAD_AND_FLATTEN), InputType=MANIFEST
+      (ManifestType ATHENA_DATA/S3_INVENTORY), and InputType=PARQUET are
+      all real, documented ItemReader shapes with no code path here at all
+      -- resolveItemsFromReader never inspects ItemReader.Resource, and
+      decodeReaderItems' InputType switch has no MANIFEST/PARQUET case.
+      This was never previously documented in this file (grepped: no prior
+      mention of ListObjectsV2/ManifestType/PARQUET anywhere in this
+      PARITY.md's history). Not attempted this pass -- see
+      items_still_open.
   asl_parallel:
     status: ok
     note: "Unchanged this pass."
@@ -452,7 +488,7 @@ families:
 filter_semantics: {status: ok, note: "gopherstack-uox6 (value-semantics sweep, 2026-08-30): this service establishes no prior sweep of this kind. First, its protocol: aws-sdk-go-v2/service/sfn@v1.45.4's types package has NO Filter struct at all (grep of types/types.go) -- this API surface has almost no server-side filtering. The one real filter is ListExecutionsInput.StatusFilter (types.ExecutionStatus, a single-value equality field, not a list), applied at executions.go:643 via an exact bucket lookup -- no documented modifier to get wrong. Everything else this service's ~14 hand-rolled 'match' helpers implement is Amazon States Language Choice-state comparators (asl/executor.go), which decide whether a state's input satisfies a rule, not an SDK list filter, but the same right-field-wrong-algorithm risk applies: evaluateChoiceRule's And/Or/Not (correct all/any/negate), IsPresent/IsNull/IsString/IsNumeric/IsBoolean/IsTimestamp (each compares a computed bool against *rule.IsX with ==, correctly honoring both true and false rather than only checking truthiness), and the String/Numeric/Boolean/Timestamp -Equals/-LessThan/-GreaterThan/-LessThanEquals/-GreaterThanEquals families (each Path and literal variant) were all read and are correct. stringMatchesPattern/globMatch (StringMatches) is the one genuine wildcard comparator in this family -- verified against the ASL spec's documented semantics (its own doc comment: '*' matches zero or more chars, backslash escapes the next character, anchored both ends) via a real two-pointer backtracking implementation; correct, including the escape case. No bugs found -- clean verdict."}
 gaps: []
 items_still_open:
-  - "Map Distributed Map ResultWriter's WriterConfig (Transformation/OutputType) is parsed but not applied, only the plain S3-export shape; per-item result records still omit ExecutionArn/Name/StartDate/StopDate (bd: gopherstack-8j8). Real child Execution records now exist for DISTRIBUTED Map (bd: gopherstack-zov6, this pass) but exportMapResults was deliberately not wired to source those fields from them -- disclosed, not modeled, see asl_map family note."
+  - "2026-09-26 (WriterConfig sweep): ItemReader only supports Resource=arn:aws:states:::s3:getObject with ReaderConfig.InputType JSON/JSON Lines/CSV against a single S3 object. AWS also documents Resource=arn:aws:states:::s3:listObjectsV2 (iterate over a bucket/prefix's object metadata, or with ReaderConfig.Transformation=LOAD_AND_FLATTEN, load and flatten the referenced objects' own contents), InputType=MANIFEST (ManifestType ATHENA_DATA or S3_INVENTORY, each entry naming another S3 object to read), and InputType=PARQUET (input-output-itemreader.html). None of these four are implemented -- decodeReaderItems' switch has no MANIFEST/PARQUET case and resolveItemsFromReader never inspects ItemReader.Resource at all, always doing a single GetObject. Not attempted this pass: ListObjectsV2 needs a new S3Reader method plus a real wire-shape citation for the item metadata AWS passes through (not confirmed against docs this pass); MANIFEST/S3_INVENTORY need a second, per-manifest-entry GetObject fan-out; PARQUET is a binary columnar format with no existing decoder in this codebase. Disclosed, not modeled -- no bd filed yet."
   - "STALE, corrected this pass (bd: gopherstack-zov6): this line previously read 'Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)' -- Mode/ExecutionType parsing and validation (parser.go) were already done before this pass; what was actually missing was Mode being acted on. FIXED: a DISTRIBUTED Map state now spawns a real child Execution per item/batch instead of running inline (see asl_map family note). Genuinely still open: DescribeMapRun/ListMapRuns/ListExecutions(mapRunArn=...) lose access to a Map Run after a backend restore, because the MapRun *resource* table (unlike its child Execution records, which do persist) has never been part of backendSnapshot -- a pre-existing gap, not introduced this pass."
   - "STALE, corrected 2026-09-11 (bd: gopherstack-1sf): StartExecutionInput has no ClientRequestToken member in the real SDK, so there was nothing to model there. FIXED: EXPRESS name reuse is now immediate (uniqueness check skipped for EXPRESS), and STANDARD reuse of a still-RUNNING execution's name with matching Input now returns that execution (idempotent) instead of erroring; differing Input or a closed execution still conflicts. See the StartExecution note above and Test_StartExecution_NameReuseSemantics."
   - "StartExecution's STANDARD name-reuse conflict does not expire: AWS allows reusing a closed execution's name 90 days after it closes, but this emulator conflicts on any existing name regardless of how long it has been closed (no notion of elapsed wall-clock time since close) -- disclosed, not modeled (bd: gopherstack-1sf)"
@@ -466,6 +502,39 @@ leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execut
 ---
 
 ## Notes
+
+### 2026-09-26 Distributed Map ResultWriter WriterConfig sweep
+
+Implemented ResultWriter.WriterConfig (Transformation: NONE/COMPACT/FLATTEN,
+OutputType: JSON/JSONL), the item this file's own `items_still_open` named
+as the open gap, per input-output-resultwriter.html. Also threaded real
+DISTRIBUTED Map child-execution identity (ExecutionArn/Name/StartDate/
+StopDate) into NONE-transformation records via a new
+`asl.DistributedMapItemResult` return type on `DistributedMapRunner.
+RunDistributedMapItem` (previously a bare `any`) -- the other half of the
+same gap, closing gopherstack-8j8's remaining scope. See the `asl_map`
+family note for the full before/after and the new
+`TestDistributedMapResultWriter_*` tests (table-driven over all 6
+Transformation x OutputType combinations, plus FAILED-item and DISTRIBUTED-
+identity cases, all driven through the real aws-sdk-go-v2 sfn client with
+the in-process S3 backend wired).
+
+Also read input-output-itemreader.html and input-output-itembatcher.html
+end to end per this sweep's brief. ItemBatcher and ToleratedFailureCount/
+ToleratedFailurePercentage (and their `*Path` siblings) were already
+correctly implemented -- no changes needed there. Found, but did not fix,
+that ItemReader has never supported `Resource: arn:aws:states:::
+s3:listObjectsV2`, `InputType: MANIFEST`, or `InputType: PARQUET` -- only
+`s3:getObject` with JSON/JSON Lines/CSV. This was not previously documented
+anywhere in this file; recorded in `items_still_open` and the `asl_map`
+family note rather than attempted, since ListObjectsV2 needs a wire-shape
+citation this pass didn't chase down and MANIFEST/PARQUET are meaningfully
+larger builds (a manifest-driven GetObject fan-out; a binary columnar
+decoder) than fit this pass's scope.
+
+Gates green: `gofmt`, `go build ./...`, `go vet`, `go test -race` (this
+package), `golangci-lint run` (0 findings), `go test ./pkgs/persistence/`,
+`cmd/parityfmtcheck`. No `go.mod`/`go.sum` changes.
 
 ### 2026-09-24 perf sweep
 

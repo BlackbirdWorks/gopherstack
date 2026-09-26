@@ -69,10 +69,10 @@ type ReaderConfig struct {
 }
 
 // ResultWriter configures exporting a Distributed Map state's per-item
-// results to S3 instead of returning them inline as the state's output
-// (AWS docs: input-output-resultwriter.html). Only the Resource+Parameters
-// (S3 export) combination is applied; WriterConfig is parsed but not
-// honored -- see Executor.exportMapResults.
+// results to S3, and/or formatting the state's own output, per AWS docs:
+// input-output-resultwriter.html. Resource+Parameters name the S3
+// destination; WriterConfig controls formatting -- see
+// Executor.exportMapResults.
 type ResultWriter struct {
 	Parameters   map[string]any      `json:"Parameters,omitempty"`
 	WriterConfig *ResultWriterConfig `json:"WriterConfig,omitempty"`
@@ -80,8 +80,8 @@ type ResultWriter struct {
 }
 
 // ResultWriterConfig is ResultWriter.WriterConfig: Transformation
-// ("NONE"|"COMPACT"|"FLATTEN") and OutputType ("JSON"|"JSONL"). Parsed for
-// forward compatibility but not currently applied.
+// ("NONE"|"COMPACT"|"FLATTEN") and OutputType ("JSON"|"JSONL") -- AWS docs:
+// input-output-resultwriter.html.
 type ResultWriterConfig struct {
 	Transformation string `json:"Transformation,omitempty"`
 	OutputType     string `json:"OutputType,omitempty"`

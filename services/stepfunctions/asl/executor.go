@@ -83,6 +83,11 @@ const (
 	errCodeStatesExceedToleratedFailureThreshold = "States.ExceedToleratedFailureThreshold"
 )
 
+// aslNullLiteral is ASL's "null" string: a ResultPath sentinel, an
+// intrinsic-function literal, and (in result_writer.go) a JSON marshal
+// fallback -- three unrelated meanings that happen to share this text.
+const aslNullLiteral = "null"
+
 // Sentinel errors for Map state tolerated-failure threshold resolution.
 var (
 	ErrToleratedFailureCountNotNumber      = errors.New("ToleratedFailureCountPath: value is not a number")
@@ -1894,6 +1899,7 @@ func (e *Executor) runMapItemsAndFinalize(
 ) (any, error) {
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
+	meta := make([]DistributedMapItemResult, len(items))
 
 	maxConcurrency, err := e.resolveMaxConcurrency(state, mapInput)
 	if err != nil {
@@ -1908,7 +1914,18 @@ func (e *Executor) runMapItemsAndFinalize(
 	}
 
 	if isDistributedMapIterator(iterator) && e.distributedMapRunner != nil {
-		e.runDistributedMapTasks(ctx, executionARN, mapRunARN, stateName, iterator, items, results, errs, concurrency)
+		e.runDistributedMapTasks(
+			ctx,
+			executionARN,
+			mapRunARN,
+			stateName,
+			iterator,
+			items,
+			results,
+			errs,
+			meta,
+			concurrency,
+		)
 	} else {
 		e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 	}
@@ -1917,7 +1934,9 @@ func (e *Executor) runMapItemsAndFinalize(
 
 	resultsWritten := 0
 	if finalErr == nil && state.ResultWriter != nil {
-		out, resultsWritten, finalErr = e.exportMapResults(ctx, state, stateName, mapRunARN, items, results, errs)
+		out, resultsWritten, finalErr = e.exportMapResults(
+			ctx, state, stateName, mapRunARN, items, results, errs, meta, e.execMeta.StateMachineArn,
+		)
 	}
 
 	if e.mapRunNotifier != nil && mapRunARN != "" {
@@ -2673,7 +2692,7 @@ func applyPath(path string, value any, pathCache ...*jsonPathCache) (any, error)
 // If ResultPath is "$.field", result is written to input[field].
 // If ResultPath is "null", result is discarded (input passes through).
 func applyResultPath(resultPath string, input, result any) (any, error) {
-	if resultPath == "null" {
+	if resultPath == aslNullLiteral {
 		return input, nil
 	}
 

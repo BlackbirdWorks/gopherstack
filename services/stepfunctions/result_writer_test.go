@@ -10,7 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
+	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -219,8 +223,12 @@ func TestDistributedMapResultWriter(t *testing.T) {
 				require.NoError(t, json.Unmarshal(succeededBytes, &records))
 				require.Len(t, records, 3)
 				assert.Equal(t, "SUCCEEDED", records[0]["Status"])
-				assert.InDelta(t, 1, records[0]["Input"], 0)
-				assert.InDelta(t, 1, records[0]["Output"], 0)
+				// Default Transformation (NONE, since ResultWriter exports without a
+				// WriterConfig) reports Input/Output as JSON-encoded strings, matching
+				// a real child execution's DescribeExecution shape.
+				assert.Equal(t, "1", records[0]["Input"])
+				assert.Equal(t, "1", records[0]["Output"])
+				assert.Equal(t, true, records[0]["InputDetails"].(map[string]any)["Included"])
 
 				runs, _, err := b.ListMapRuns(exec.ExecutionArn, "", 0)
 				require.NoError(t, err)
@@ -281,9 +289,15 @@ func TestDistributedMapResultWriter(t *testing.T) {
 					"a missing S3 writer must degrade to inline results, not fail the execution: cause=%s error=%s",
 					d.Cause, d.Error)
 
-				var arr []float64
-				require.NoError(t, json.Unmarshal([]byte(d.Output), &arr))
-				assert.Equal(t, []float64{1, 2, 3}, arr)
+				// Resource+Parameters with no WriterConfig defaults to Transformation
+				// NONE, same as the writes-to-S3 case -- the missing S3 writer only
+				// changes whether the formatted result is exported, not its shape.
+				var records []map[string]any
+				require.NoError(t, json.Unmarshal([]byte(d.Output), &records))
+				require.Len(t, records, 3)
+				assert.Equal(t, "SUCCEEDED", records[0]["Status"])
+				assert.Equal(t, "1", records[0]["Input"])
+				assert.Equal(t, "1", records[0]["Output"])
 			},
 		},
 	}
@@ -300,6 +314,406 @@ func TestDistributedMapResultWriter(t *testing.T) {
 // records exportMapResults emits when a configured ResultWriter degrades
 // silently in its effect (still SUCCEEDED, inline/default output) — checking
 // the log is the only way to tell that case apart from a real export.
+// writerConfigStateMachineDef builds a 3-item Map+ResultWriter state
+// machine whose Iterator always outputs the fixed array [10, 20] via a Pass
+// state, regardless of the input item -- enough to exercise
+// Transformation's array-handling (COMPACT keeps it nested, FLATTEN
+// splices it) without needing per-item computed values. bucket=="" omits
+// Resource/Parameters entirely (WriterConfig-only preview, no S3 export);
+// transformation/outputType=="" omit that WriterConfig sub-field, letting
+// AWS's documented defaults apply.
+func writerConfigStateMachineDef(bucket, prefix, transformation, outputType string) string {
+	var rwFields []string
+
+	if bucket != "" {
+		rwFields = append(rwFields,
+			`"Resource":"arn:aws:states:::s3:putObject"`,
+			`"Parameters":{"Bucket":"`+bucket+`","Prefix":"`+prefix+`"}`,
+		)
+	}
+
+	var wcFields []string
+	if transformation != "" {
+		wcFields = append(wcFields, `"Transformation":"`+transformation+`"`)
+	}
+
+	if outputType != "" {
+		wcFields = append(wcFields, `"OutputType":"`+outputType+`"`)
+	}
+
+	if len(wcFields) > 0 {
+		rwFields = append(rwFields, `"WriterConfig":{`+strings.Join(wcFields, ",")+`}`)
+	}
+
+	return `{
+		"StartAt": "M",
+		"States": {
+			"M": {
+				"Type": "Map",
+				"End": true,
+				"ItemsPath": "$",
+				"MaxConcurrency": 1,
+				"ResultWriter": {` + strings.Join(rwFields, ",") + `},
+				"Iterator": {
+					"StartAt": "P",
+					"States": {"P": {"Type": "Pass", "Result": [10, 20], "End": true}}
+				}
+			}
+		}
+	}`
+}
+
+// startWriterConfigExecution creates and starts def against a 3-item input
+// through the real aws-sdk-go-v2 sfn client, waiting for it to leave
+// RUNNING, and returns the terminal DescribeExecutionOutput.
+func startWriterConfigExecution(
+	t *testing.T, client *sfnsdk.Client, def, namePrefix string,
+) *sfnsdk.DescribeExecutionOutput {
+	t.Helper()
+
+	ctx := t.Context()
+
+	createSM, err := client.CreateStateMachine(ctx, &sfnsdk.CreateStateMachineInput{
+		Name:       aws.String(namePrefix + "-" + uuid.NewString()[:8]),
+		Definition: aws.String(def),
+		RoleArn:    aws.String(validRoleARN),
+		Type:       sfntypes.StateMachineTypeStandard,
+	})
+	require.NoError(t, err)
+
+	startOut, err := client.StartExecution(ctx, &sfnsdk.StartExecutionInput{
+		StateMachineArn: createSM.StateMachineArn,
+		Input:           aws.String(`[1,2,3]`),
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		d, dErr := client.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{ExecutionArn: startOut.ExecutionArn})
+
+		return dErr == nil && d.Status != sfntypes.ExecutionStatusRunning
+	}, 5*time.Second, 10*time.Millisecond, "execution should leave RUNNING")
+
+	desc, err := client.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{ExecutionArn: startOut.ExecutionArn})
+	require.NoError(t, err)
+
+	return desc
+}
+
+// assertTransformationEntries checks succeeded-file/preview entries against
+// what each Transformation must produce for three items whose child output
+// is always [10, 20] (AWS docs: input-output-resultwriter.html).
+func assertTransformationEntries(t *testing.T, transformation string, raw []json.RawMessage) {
+	t.Helper()
+
+	switch transformation {
+	case "FLATTEN":
+		require.Len(t, raw, 6, "FLATTEN splices each [10,20] output into the outer array")
+
+		want := []float64{10, 20, 10, 20, 10, 20}
+		for i, r := range raw {
+			var v float64
+			require.NoError(t, json.Unmarshal(r, &v))
+			assert.InDelta(t, want[i], v, 0)
+		}
+	case "COMPACT":
+		require.Len(t, raw, 3)
+
+		for _, r := range raw {
+			var v []float64
+			require.NoError(t, json.Unmarshal(r, &v))
+			assert.Equal(t, []float64{10, 20}, v)
+		}
+	default: // NONE
+		require.Len(t, raw, 3)
+
+		for _, r := range raw {
+			var rec map[string]any
+			require.NoError(t, json.Unmarshal(r, &rec))
+			assert.Equal(t, "SUCCEEDED", rec["Status"])
+			assert.Equal(t, "[10,20]", rec["Output"], "NONE stringifies Output like a real DescribeExecution")
+			assert.Equal(t, true, rec["InputDetails"].(map[string]any)["Included"])
+		}
+	}
+}
+
+// decodeResultEntries parses a SUCCEEDED_0.json/FAILED_0.json file's bytes
+// into individual JSON values, per OutputType: JSON is one array, JSONL is
+// one value per newline.
+func decodeResultEntries(t *testing.T, data []byte, outputType string) []json.RawMessage {
+	t.Helper()
+
+	if outputType != "JSONL" {
+		var arr []json.RawMessage
+		require.NoError(t, json.Unmarshal(data, &arr))
+
+		return arr
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	raw := make([]json.RawMessage, len(lines))
+
+	for i, l := range lines {
+		raw[i] = json.RawMessage(l)
+	}
+
+	return raw
+}
+
+// TestDistributedMapResultWriter_TransformationOutputType drives a real
+// state machine through the SDK client for every Transformation x
+// OutputType combination ResultWriter.WriterConfig documents
+// (input-output-resultwriter.html), asserting the exact SUCCEEDED_0.json
+// bytes written to the wired in-process S3 backend.
+func TestDistributedMapResultWriter_TransformationOutputType(t *testing.T) {
+	t.Parallel()
+
+	transformations := []string{"NONE", "COMPACT", "FLATTEN"}
+	outputTypes := []string{"JSON", "JSONL"}
+
+	for _, transformation := range transformations {
+		for _, outputType := range outputTypes {
+			t.Run(transformation+"_"+outputType, func(t *testing.T) {
+				t.Parallel()
+
+				bucket := "wc-matrix-" + strings.ToLower(transformation+outputType)
+
+				s3Bk := newBucketBackedS3(t, bucket)
+				backend := stepfunctions.NewInMemoryBackend()
+				backend.SetS3ResultWriter(stepfunctions.NewS3ResultWriterIntegration(s3Bk))
+
+				client := newSFNSDKClient(t, stepfunctions.NewHandler(backend))
+
+				def := writerConfigStateMachineDef(bucket, "jobs", transformation, outputType)
+				desc := startWriterConfigExecution(t, client, def, "wc-matrix")
+				require.Equal(t, sfntypes.ExecutionStatusSucceeded, desc.Status,
+					"cause=%s error=%s", aws.ToString(desc.Cause), aws.ToString(desc.Error))
+
+				var out mapExportOutput
+				require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out))
+				require.Equal(t, bucket, out.ResultWriterDetails.Bucket)
+				assert.True(t, strings.HasPrefix(out.ResultWriterDetails.Key, "jobs/"))
+				assert.True(t, strings.HasSuffix(out.ResultWriterDetails.Key, "manifest.json"))
+
+				manifestBytes := getS3ObjectBytes(t, s3Bk, bucket, out.ResultWriterDetails.Key)
+
+				var manifest resultManifest
+				require.NoError(t, json.Unmarshal(manifestBytes, &manifest))
+				require.Len(t, manifest.ResultFiles.Succeeded, 1)
+				assert.Empty(t, manifest.ResultFiles.Failed)
+				assert.True(t, strings.HasSuffix(manifest.ResultFiles.Succeeded[0].Key, "SUCCEEDED_0.json"))
+
+				succeededBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Succeeded[0].Key)
+				entries := decodeResultEntries(t, succeededBytes, outputType)
+				assertTransformationEntries(t, transformation, entries)
+			})
+		}
+	}
+}
+
+// TestDistributedMapResultWriter_FailedItemsKeepFullRecord proves that a
+// FAILED item's exported record is always the full NONE-shaped record
+// regardless of Transformation (AWS docs: "If a child workflow execution
+// fails, Step Functions returns its execution result unchanged"), while
+// SUCCEEDED items still honor COMPACT.
+func TestDistributedMapResultWriter_FailedItemsKeepFullRecord(t *testing.T) {
+	t.Parallel()
+
+	const bucket = "wc-failed-bucket"
+
+	s3Bk := newBucketBackedS3(t, bucket)
+	backend := stepfunctions.NewInMemoryBackend()
+	backend.SetS3ResultWriter(stepfunctions.NewS3ResultWriterIntegration(s3Bk))
+
+	client := newSFNSDKClient(t, stepfunctions.NewHandler(backend))
+
+	def := `{
+		"StartAt": "M",
+		"States": {
+			"M": {
+				"Type": "Map",
+				"End": true,
+				"ItemsPath": "$",
+				"MaxConcurrency": 1,
+				"ToleratedFailureCount": 1,
+				"ResultWriter": {
+					"Resource": "arn:aws:states:::s3:putObject",
+					"Parameters": {"Bucket": "` + bucket + `", "Prefix": "jobs"},
+					"WriterConfig": {"Transformation": "COMPACT"}
+				},
+				"Iterator": {
+					"StartAt": "Check",
+					"States": {
+						"Check": {
+							"Type": "Choice",
+							"Choices": [{"Variable": "$", "NumericEquals": 2, "Next": "Boom"}],
+							"Default": "OK"
+						},
+						"Boom": {"Type": "Fail", "Error": "States.TaskFailed", "Cause": "item 2 always fails"},
+						"OK": {"Type": "Pass", "Result": [10, 20], "End": true}
+					}
+				}
+			}
+		}
+	}`
+
+	desc := startWriterConfigExecution(t, client, def, "wc-failed")
+	require.Equal(
+		t,
+		sfntypes.ExecutionStatusSucceeded,
+		desc.Status,
+		"1 failure is within ToleratedFailureCount: cause=%s error=%s",
+		aws.ToString(desc.Cause),
+		aws.ToString(desc.Error),
+	)
+
+	var out mapExportOutput
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out))
+
+	manifestBytes := getS3ObjectBytes(t, s3Bk, bucket, out.ResultWriterDetails.Key)
+
+	var manifest resultManifest
+	require.NoError(t, json.Unmarshal(manifestBytes, &manifest))
+	require.Len(t, manifest.ResultFiles.Succeeded, 1)
+	require.Len(t, manifest.ResultFiles.Failed, 1)
+
+	succeededBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Succeeded[0].Key)
+
+	var succeeded [][]float64
+	require.NoError(t, json.Unmarshal(succeededBytes, &succeeded))
+	require.Len(t, succeeded, 2, "2 of 3 items succeed")
+	assert.Equal(t, []float64{10, 20}, succeeded[0])
+
+	failedBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Failed[0].Key)
+
+	var failed []map[string]any
+	require.NoError(t, json.Unmarshal(failedBytes, &failed))
+	require.Len(t, failed, 1)
+	assert.Equal(t, "FAILED", failed[0]["Status"])
+	assert.Equal(t, "2", failed[0]["Input"])
+	assert.Equal(t, "States.TaskFailed", failed[0]["Error"])
+	assert.Equal(t, "item 2 always fails", failed[0]["Cause"])
+	assert.Equal(t, "REDRIVABLE", failed[0]["RedriveStatus"])
+}
+
+// TestDistributedMapResultWriter_DistributedChildIdentity proves that a
+// DISTRIBUTED Map's ResultWriter NONE records carry the real child
+// execution's ExecutionArn/Name/StartDate, unlike an INLINE Map's (which
+// has no such resource -- see TestDistributedMapResultWriter_
+// TransformationOutputType's NONE case, which leaves them empty).
+func TestDistributedMapResultWriter_DistributedChildIdentity(t *testing.T) {
+	t.Parallel()
+
+	const bucket = "wc-distributed-bucket"
+
+	s3Bk := newBucketBackedS3(t, bucket)
+	backend := stepfunctions.NewInMemoryBackend()
+	backend.SetS3ResultWriter(stepfunctions.NewS3ResultWriterIntegration(s3Bk))
+
+	client := newSFNSDKClient(t, stepfunctions.NewHandler(backend))
+
+	def := `{
+		"StartAt": "M",
+		"States": {
+			"M": {
+				"Type": "Map",
+				"End": true,
+				"ItemsPath": "$",
+				"MaxConcurrency": 1,
+				"ResultWriter": {
+					"Resource": "arn:aws:states:::s3:putObject",
+					"Parameters": {"Bucket": "` + bucket + `", "Prefix": "jobs"}
+				},
+				"ItemProcessor": {
+					"ProcessorConfig": {"Mode": "DISTRIBUTED", "ExecutionType": "STANDARD"},
+					"StartAt": "P",
+					"States": {"P": {"Type": "Pass", "Result": [10, 20], "End": true}}
+				}
+			}
+		}
+	}`
+
+	desc := startWriterConfigExecution(t, client, def, "wc-distributed")
+	require.Equal(t, sfntypes.ExecutionStatusSucceeded, desc.Status,
+		"cause=%s error=%s", aws.ToString(desc.Cause), aws.ToString(desc.Error))
+
+	var out mapExportOutput
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out))
+
+	manifestBytes := getS3ObjectBytes(t, s3Bk, bucket, out.ResultWriterDetails.Key)
+
+	var manifest resultManifest
+	require.NoError(t, json.Unmarshal(manifestBytes, &manifest))
+	require.Len(t, manifest.ResultFiles.Succeeded, 1)
+
+	succeededBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Succeeded[0].Key)
+
+	var records []map[string]any
+	require.NoError(t, json.Unmarshal(succeededBytes, &records))
+	require.Len(t, records, 3)
+
+	seen := map[string]bool{}
+
+	for _, rec := range records {
+		execArn, _ := rec["ExecutionArn"].(string)
+		assert.NotEmpty(t, execArn, "a DISTRIBUTED Map item runs as a real child execution")
+		assert.False(t, seen[execArn], "each child execution must have a unique ExecutionArn")
+		seen[execArn] = true
+
+		assert.NotEmpty(t, rec["Name"])
+		assert.Positive(t, rec["StartDate"])
+		assert.NotEmpty(t, rec["StateMachineArn"])
+	}
+}
+
+// TestDistributedMapResultWriter_PreviewWithoutExport covers ResultWriter's
+// WriterConfig-only shape (AWS docs' "Required field combinations": no
+// Resource/Parameters means no S3 export, only a formatted state output).
+func TestDistributedMapResultWriter_PreviewWithoutExport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		outputType string
+	}{
+		{name: "JSON", outputType: "JSON"},
+		{name: "JSONL", outputType: "JSONL"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := stepfunctions.NewInMemoryBackend()
+			client := newSFNSDKClient(t, stepfunctions.NewHandler(backend))
+
+			def := writerConfigStateMachineDef("", "", "FLATTEN", tt.outputType)
+			desc := startWriterConfigExecution(t, client, def, "wc-preview-"+strings.ToLower(tt.outputType))
+			require.Equal(t, sfntypes.ExecutionStatusSucceeded, desc.Status,
+				"cause=%s error=%s", aws.ToString(desc.Cause), aws.ToString(desc.Error))
+
+			output := aws.ToString(desc.Output)
+
+			if tt.outputType == "JSONL" {
+				var jsonl string
+				require.NoError(t, json.Unmarshal([]byte(output), &jsonl))
+
+				lines := strings.Split(jsonl, "\n")
+				require.Len(t, lines, 6)
+
+				var v float64
+				require.NoError(t, json.Unmarshal([]byte(lines[0]), &v))
+				assert.InDelta(t, 10, v, 0)
+
+				return
+			}
+
+			var arr []float64
+			require.NoError(t, json.Unmarshal([]byte(output), &arr))
+			assert.Equal(t, []float64{10, 20, 10, 20, 10, 20}, arr)
+		})
+	}
+}
+
 func TestDistributedMapResultWriterWarnLogs(t *testing.T) {
 	t.Parallel()
 
@@ -335,41 +749,6 @@ func TestDistributedMapResultWriterWarnLogs(t *testing.T) {
 				attrs := recordAttrs(rec)
 				assert.Equal(t, "M", attrs["state"])
 				assert.Equal(t, "nowhere-bucket", attrs["bucket"])
-			},
-		},
-		{
-			name: "unsupported writerconfig warns with state and settings",
-			fn: func(t *testing.T) {
-				t.Helper()
-
-				const bucket = "wc-bucket"
-
-				s3Bk := newBucketBackedS3(t, bucket)
-				b, rh := newLoggingBackend(t)
-				b.SetS3ResultWriter(stepfunctions.NewS3ResultWriterIntegration(s3Bk))
-
-				def := resultWriterMapDef(
-					`"ResultWriter": {"Resource":"arn:aws:states:::s3:putObject",` +
-						`"Parameters":{"Bucket":"` + bucket + `"},` +
-						`"WriterConfig":{"Transformation":"COMPACT","OutputType":"JSONL"}},`,
-				)
-
-				sm, err := b.CreateStateMachine(context.Background(), "rw-wc-sm", def, validRoleARN, "STANDARD")
-				require.NoError(t, err)
-
-				exec, err := b.StartExecution(sm.StateMachineArn, "rw-wc-exec", `[1,2,3]`)
-				require.NoError(t, err)
-
-				d := waitForTerminalExecution(t, b, exec.ExecutionArn)
-				require.Equal(t, "SUCCEEDED", d.Status, "cause=%s error=%s", d.Cause, d.Error)
-
-				rec := rh.findWarn("ResultWriter WriterConfig not applied")
-				require.NotNil(t, rec, "expected a warn log for the unapplied WriterConfig")
-
-				attrs := recordAttrs(rec)
-				assert.Equal(t, "M", attrs["state"])
-				assert.Equal(t, "COMPACT", attrs["transformation"])
-				assert.Equal(t, "JSONL", attrs["outputType"])
 			},
 		},
 	}
