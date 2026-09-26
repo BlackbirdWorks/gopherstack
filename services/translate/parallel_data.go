@@ -11,6 +11,14 @@ func (b *InMemoryBackend) parallelDataARN(name string) string {
 	return arn.Build("translate", b.region, b.accountID, "parallel-data/"+name)
 }
 
+// cloneParallelData copies pd so callers reading its fields after the lock
+// releases don't race a concurrent in-place mutator like advanceParallelData.
+func cloneParallelData(pd *ParallelData) *ParallelData {
+	cp := *pd
+
+	return &cp
+}
+
 // validateParallelDataConfig rejects a ParallelDataConfig.Format outside the
 // modeled CSV|TMX|TSV enum. Format is not itself a required member of the
 // ParallelDataConfig shape (api-2.json), so an absent Format is left to
@@ -87,7 +95,7 @@ func (b *InMemoryBackend) CreateParallelData(
 		b.tags[resourceARN] = copyMap(tags)
 	}
 
-	return pd, nil
+	return cloneParallelData(pd), nil
 }
 
 // advanceParallelData moves pd one step through its async lifecycle, called
@@ -122,7 +130,7 @@ func (b *InMemoryBackend) GetParallelData(name string) (*ParallelData, error) {
 
 	advanceParallelData(pd)
 
-	return pd, nil
+	return cloneParallelData(pd), nil
 }
 
 // UpdateParallelData updates an existing parallel data resource. Real AWS
@@ -170,7 +178,7 @@ func (b *InMemoryBackend) UpdateParallelData(
 	pd.Status = parallelDataStatusUpdating
 	pd.LatestUpdateAttemptStatus = parallelDataStatusUpdating
 
-	return pd, nil
+	return cloneParallelData(pd), nil
 }
 
 // DeleteParallelData removes a parallel data resource by name.
@@ -187,7 +195,7 @@ func (b *InMemoryBackend) DeleteParallelData(name string) (*ParallelData, error)
 	b.parallelData.Delete(name)
 	delete(b.tags, resourceARN)
 
-	return pd, nil
+	return cloneParallelData(pd), nil
 }
 
 // ListParallelData returns a paginated list of parallel data resources.
@@ -197,5 +205,12 @@ func (b *InMemoryBackend) ListParallelData(maxResults int, nextToken string) ([]
 
 	names := sortedNames(b.parallelData.All(), func(pd *ParallelData) string { return pd.Name })
 
-	return paginate(names, func(n string) *ParallelData { return tableGet(b.parallelData, n) }, maxResults, nextToken)
+	return paginate(names, func(n string) *ParallelData {
+		pd := tableGet(b.parallelData, n)
+		if pd == nil {
+			return nil
+		}
+
+		return cloneParallelData(pd)
+	}, maxResults, nextToken)
 }
