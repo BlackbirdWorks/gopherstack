@@ -26,11 +26,6 @@ func TestACMHandler_ListCertificates_StatusFilter(t *testing.T) {
 		rec1 := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"issued-filter.example.com"}`)
 		require.Equal(t, http.StatusOK, rec1.Code)
 
-		// Certificate IDs are derived from time.Now().UnixNano(); the fake
-		// clock does not advance between calls without a Sleep, so this
-		// separates the two certs' IDs (they would otherwise collide).
-		time.Sleep(time.Millisecond)
-
 		// Create one cert that starts in PENDING_VALIDATION
 		rec2 := postACMJSON(t, h, "RequestCertificate",
 			`{"DomainName":"pending-filter.example.com","ValidationMethod":"DNS"}`)
