@@ -66,6 +66,39 @@ func TestRWMutex_CloseInvalidatesCachedHandles(t *testing.T) {
 
 			waited := seriesFor(mfs, "gopherstack_lock_wait_seconds", name)
 			assert.Len(t, waited, 2, "post-Close read and write wait observations must land on live series")
+
+			active := seriesFor(mfs, "gopherstack_lock_active_readers", name)
+			require.Len(t, active, 1, "post-Close RLock/RUnlock must re-curry the series, not write the deleted one")
+			assert.InDelta(t, 0, active[0].GetGauge().GetValue(), 0, "a paired RLock/RUnlock after Close nets to zero")
 		})
 	}
+}
+
+// TestRWMutex_CloseDuringHeldRLockTolerated pins the accepted race: Close between RLock
+// and RUnlock may leave the gauge negative, but the mutex keeps working.
+func TestRWMutex_CloseDuringHeldRLockTolerated(t *testing.T) {
+	t.Parallel()
+
+	name := "close.during-hold." + t.Name()
+	m := lockmetrics.New(name)
+
+	m.RLock("held")
+	m.Close()
+	m.RUnlock()
+
+	// The mutex must remain usable: a fresh RLock/RUnlock re-curries cleanly.
+	m2 := lockmetrics.New(name)
+	t.Cleanup(m2.Close)
+
+	m2.RLock("after")
+	m2.RUnlock()
+
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	active := seriesFor(mfs, "gopherstack_lock_active_readers", name)
+	require.Len(t, active, 1)
+	// Documents the tolerated race: RUnlock's post-Close re-curry can't see
+	// the Inc that landed on the deleted series, so it nets negative here.
+	assert.InDelta(t, -1, active[0].GetGauge().GetValue(), 0)
 }

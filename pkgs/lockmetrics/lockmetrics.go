@@ -217,9 +217,9 @@ type writeOpMetrics struct {
 //
 // The zero value is not usable; always create via New.
 type RWMutex struct {
-	// activeReadersLock is a curried gauge pre-scoped to this lock name,
-	// eliminating the per-call label hash lookup on RLock/RUnlock.
-	activeReadersLock prometheus.Gauge
+	// activeReadersLock caches the curried active-readers gauge; Close clears it so
+	// later use re-curries instead of writing to the deleted series.
+	activeReadersLock atomic.Pointer[prometheus.Gauge]
 	writeOp           atomic.Value // string — current write-lock operation name
 	// writeMetricsCur holds the current write-lock's metrics, set in Lock and
 	// read by the matching Unlock; safe since the write lock is exclusive.
@@ -263,6 +263,19 @@ func (m *RWMutex) writeMetricsFor(op string) *writeOpMetrics {
 	return wm
 }
 
+// activeReaderGauge returns the cached active-readers gauge, re-currying it
+// if Close cleared the cache since the last call.
+func (m *RWMutex) activeReaderGauge() prometheus.Gauge {
+	if p := m.activeReadersLock.Load(); p != nil {
+		return *p
+	}
+
+	g := m.activeReaders.WithLabelValues(m.name)
+	m.activeReadersLock.Store(&g)
+
+	return g
+}
+
 // readWaitFor returns the cached read-wait [prometheus.Observer] for op,
 // creating and caching it on first use.
 func (m *RWMutex) readWaitFor(op string) prometheus.Observer {
@@ -299,14 +312,17 @@ func New(name string) *RWMutex {
 
 	// Pre-curry the activeReaders gauge to this lock's name so RLock/RUnlock
 	// avoid a label hash lookup on every call.
-	m.activeReadersLock = m.activeReaders.WithLabelValues(m.name)
+	g := m.activeReaders.WithLabelValues(m.name)
+	m.activeReadersLock.Store(&g)
 
 	return m
 }
 
 // Close removes the [RWMutex] from the global metrics registry.
 // It must be called when the mutex is no longer needed (e.g. on table/bucket deletion)
-// to prevent memory leaks and performance degradation.
+// to prevent memory leaks and performance degradation, and only once no goroutine
+// holds an active Lock/RLock: a Close racing an in-flight RLock/RUnlock pair can
+// leave the recreated active-readers series transiently negative.
 func (m *RWMutex) Close() {
 	if m == nil {
 		return
@@ -327,6 +343,7 @@ func (m *RWMutex) Close() {
 	m.writeOpCache.Clear()
 	m.readOpCache.Clear()
 	m.writeMetricsCur.Store(nil)
+	m.activeReadersLock.Store(nil)
 }
 
 // WriteWaiters returns the current number of goroutines blocked waiting for
@@ -401,11 +418,11 @@ func (m *RWMutex) RLock(op string) {
 	m.readWaiters.Add(-1) // acquired — no longer waiting
 
 	m.readWaitFor(op).Observe(time.Since(start).Seconds())
-	m.activeReadersLock.Inc()
+	m.activeReaderGauge().Inc()
 }
 
 // RUnlock releases the shared read lock.
 func (m *RWMutex) RUnlock() {
-	m.activeReadersLock.Dec()
+	m.activeReaderGauge().Dec()
 	m.mu.RUnlock()
 }
