@@ -2,6 +2,7 @@ package athena_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -568,19 +569,28 @@ func TestHandler_GetResourceDashboard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
+		name             string
+		body             string
+		wantBodyContains string
+		wantStatus       int
+		createSession    bool
 	}{
 		{
-			name:       "success",
-			body:       `{"ResourceARN":"arn:aws:athena:us-east-1:000000000000:session/sess-1"}`,
-			wantStatus: http.StatusOK,
+			name:          "success",
+			body:          `{"ResourceARN":"arn:aws:athena:us-east-1:000000000000:session/%s"}`,
+			createSession: true,
+			wantStatus:    http.StatusOK,
 		},
 		{
 			name:       "missing_resource_arn_rejected",
 			body:       `{}`,
 			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:             "unknown_session_not_found",
+			body:             `{"ResourceARN":"arn:aws:athena:us-east-1:000000000000:session/does-not-exist"}`,
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: "ResourceNotFoundException",
 		},
 	}
 
@@ -589,8 +599,18 @@ func TestHandler_GetResourceDashboard(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, "GetResourceDashboard", tt.body)
+
+			body := tt.body
+			if tt.createSession {
+				body = fmt.Sprintf(body, startSession(t, h))
+			}
+
+			rec := doRequest(t, h, "GetResourceDashboard", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
 
 			if tt.wantStatus == http.StatusOK {
 				url := jsonField(t, rec.Body.Bytes(), "Url")

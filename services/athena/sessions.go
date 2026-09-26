@@ -311,12 +311,28 @@ func (b *InMemoryBackend) ListApplicationDPUSizes() []ApplicationDPUSizes {
 	}
 }
 
-// GetResourceDashboard returns the Live UI/Persistence UI dashboard URL for a
-// resource (session) ARN, matching the real GetResourceDashboard response's
-// single required "Url" field.
+// GetResourceDashboard returns a session's dashboard URL. Real AWS declares
+// ResourceNotFoundException for an unknown session (api_op_GetResourceDashboard.go).
 func (b *InMemoryBackend) GetResourceDashboard(resourceARN string) (string, error) {
 	if resourceARN == "" {
 		return "", fmt.Errorf("%w: ResourceARN is required", ErrValidation)
+	}
+
+	sessionID := resourceARN
+	if kind, id, ok := resourceKindFromARN(resourceARN); ok {
+		if kind != "session" {
+			return "", fmt.Errorf("%w: unsupported resource kind %q", ErrResourceNotFound, kind)
+		}
+
+		sessionID = id
+	}
+
+	b.mu.RLock("GetResourceDashboard")
+	_, ok := b.sessions.Get(sessionID)
+	b.mu.RUnlock()
+
+	if !ok {
+		return "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, resourceARN)
 	}
 
 	return fmt.Sprintf("https://athena.%s.amazonaws.com/dashboards/%s", b.region, randomID()), nil
