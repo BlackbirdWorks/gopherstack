@@ -77,6 +77,8 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		return nil
 	}
 
+	ctx = ctxWithAsyncDurableExecARN(ctx, durableARN, invType)
+
 	result, logResult, functionError, statusCode, invokeErr := h.dispatchInvoke(
 		ctx, name, qualifier, clientContext, logType, invType, body, reusedExec,
 	)
@@ -144,6 +146,16 @@ func (h *Handler) beginDurableInvoke(
 	}
 
 	return arn, reusedExec, true
+}
+
+// ctxWithAsyncDurableExecARN carries durableARN for Event invocations so the
+// async retry loop can record completion.
+func ctxWithAsyncDurableExecARN(ctx context.Context, durableARN, invType string) context.Context {
+	if durableARN == "" || invType != InvocationTypeEvent {
+		return ctx
+	}
+
+	return withDurableExecARN(ctx, durableARN)
 }
 
 // dispatchInvoke performs one Invoke's actual work: replaying an
