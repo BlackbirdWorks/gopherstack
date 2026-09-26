@@ -218,9 +218,13 @@ func validateAutoScalingUpdateInput(input *dynamodb.UpdateTableReplicaAutoScalin
 	return nil
 }
 
-// tableHasReplicaRegion reports whether table.Replicas already contains
-// region. Callers must hold table.mu.
+// tableHasReplicaRegion also accepts the home region when table has no
+// explicit replicas (see autoScalingReplicaEntries). Callers must hold table.mu.
 func tableHasReplicaRegion(table *Table, region string) bool {
+	if len(table.Replicas) == 0 {
+		return region == tableRegion(table)
+	}
+
 	for _, r := range table.Replicas {
 		if r.RegionName == region {
 			return true
@@ -228,6 +232,27 @@ func tableHasReplicaRegion(table *Table, region string) bool {
 	}
 
 	return false
+}
+
+// replicaStatusEntry is one (region, status) row for autoscaling reporting.
+type replicaStatusEntry struct {
+	region string
+	status string
+}
+
+// table.Replicas excludes the home region once real replicas exist but is
+// empty for a plain table; real AWS still reports that region, so synthesize it.
+func autoScalingReplicaEntries(table *Table) []replicaStatusEntry {
+	if len(table.Replicas) == 0 {
+		return []replicaStatusEntry{{region: tableRegion(table), status: table.Status}}
+	}
+
+	entries := make([]replicaStatusEntry, len(table.Replicas))
+	for i, r := range table.Replicas {
+		entries[i] = replicaStatusEntry{region: r.RegionName, status: r.ReplicaStatus}
+	}
+
+	return entries
 }
 
 // applyAutoScalingSettingsLocked validates and applies input under a single
@@ -373,12 +398,8 @@ func buildReplicaGSIAutoScalingDescriptions(
 	return out
 }
 
-// replicaAutoScalingDescriptionsRLocked copies table.Status and table.Replicas,
-// along with the table's write-capacity autoscaling settings (applied
-// uniformly to every replica -- this emulator doesn't model per-replica write
-// overrides, matching AWS's own v1 "one write capacity per global table" model)
-// and each replica's own read-capacity settings from table.ReplicaAutoScaling,
-// into the SDK description type under a defer-protected table.mu.RLock.
+// replicaAutoScalingDescriptionsRLocked copies table.Status, its replica
+// regions (see autoScalingReplicaEntries), and their write/read settings.
 func replicaAutoScalingDescriptionsRLocked(
 	table *Table,
 ) (string, []types.ReplicaAutoScalingDescription) {
@@ -394,10 +415,12 @@ func replicaAutoScalingDescriptionsRLocked(
 		}
 	}
 
-	replicas := make([]types.ReplicaAutoScalingDescription, 0, len(table.Replicas))
-	for _, r := range table.Replicas {
-		region := r.RegionName
-		status := r.ReplicaStatus
+	entries := autoScalingReplicaEntries(table)
+	replicas := make([]types.ReplicaAutoScalingDescription, 0, len(entries))
+
+	for _, e := range entries {
+		region := e.region
+		status := e.status
 
 		var read *types.AutoScalingSettingsDescription
 		gsiRead := map[string]*types.AutoScalingSettingsDescription{}
