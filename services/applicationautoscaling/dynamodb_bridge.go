@@ -2,6 +2,7 @@ package applicationautoscaling
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
+
+// dynamoDBOnDemandMessage is AAS's own on-demand rejection text, from a real-account
+// transcript: github.com/hashicorp/terraform-provider-aws/issues/22784.
+const dynamoDBOnDemandMessage = "Validation failed for scalable target. Reason: " +
+	"PAY_PER_REQUEST table mode is not scalable."
 
 // dynamoDBServiceNamespace routes a scalable target/scaling policy through this bridge.
 const dynamoDBServiceNamespace = "dynamodb"
@@ -161,24 +167,42 @@ func (b *InMemoryBackend) registerDynamoDBScalableTarget(
 	return nil
 }
 
-// Verified against a real account: https://github.com/terraform-aws-modules/terraform-aws-dynamodb-table/issues/15
+// Existence verified against a real account: terraform-aws-modules/terraform-aws-dynamodb-table#15.
 func (b *InMemoryBackend) validateDynamoDBTargetExists(target dynamoDBTarget, resourceID string) error {
 	ddb, ok := b.dynamoDBBackend()
 	if !ok {
 		return nil
 	}
 
-	_, err := ddb.DescribeTableReplicaAutoScaling(
-		b.dynamoDBRequestContext(),
-		&sdkddb.DescribeTableReplicaAutoScalingInput{
-			TableName: aws.String(target.tableName),
-		},
-	)
-	if err != nil {
+	onDemand, exists := b.dynamoDBTableIsOnDemand(ddb, target.tableName)
+	if !exists {
 		return fmt.Errorf("%w: DynamoDB table does not exist: %s", ErrValidation, resourceID)
 	}
 
+	if onDemand {
+		return fmt.Errorf("%w: %s", ErrValidation, dynamoDBOnDemandMessage)
+	}
+
 	return nil
+}
+
+// dynamoDBTableIsOnDemand reports PAY_PER_REQUEST billing; ok is false if the
+// table can't be described.
+func (b *InMemoryBackend) dynamoDBTableIsOnDemand(ddb ddbbackend.StorageBackend, tableName string) (bool, bool) {
+	out, err := ddb.DescribeTable(b.dynamoDBRequestContext(), &sdkddb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil {
+		return false, false
+	}
+
+	return isPayPerRequestTable(out), true
+}
+
+// isPayPerRequestTable reports on-demand billing; nil BillingModeSummary means PROVISIONED.
+func isPayPerRequestTable(out *sdkddb.DescribeTableOutput) bool {
+	return out != nil && out.Table != nil && out.Table.BillingModeSummary != nil &&
+		out.Table.BillingModeSummary.BillingMode == ddbtypes.BillingModePayPerRequest
 }
 
 // ok=false means the sibling isn't wired or the table/replica/index can't be resolved.
@@ -355,6 +379,11 @@ func (b *InMemoryBackend) pushDynamoDBTargetTrackingPolicy(
 		return nil
 	}
 
+	// Billing mode can change after registration; re-check so DynamoDB's error never leaks.
+	if onDemand, exists := b.dynamoDBTableIsOnDemand(ddb, target.tableName); exists && onDemand {
+		return fmt.Errorf("%w: %s", ErrValidation, dynamoDBOnDemandMessage)
+	}
+
 	ctx := b.dynamoDBRequestContext()
 
 	existing, _ := dynamoDBAutoScalingSettings(ctx, ddb, target, b.region)
@@ -398,6 +427,10 @@ func (b *InMemoryBackend) pushDynamoDBPolicyIfApplicable(
 	}
 
 	if err := b.pushDynamoDBTargetTrackingPolicy(target, policyName, targetTrackingConfig); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return err
+		}
+
 		return fmt.Errorf("%w: %s", ErrValidation, err.Error())
 	}
 

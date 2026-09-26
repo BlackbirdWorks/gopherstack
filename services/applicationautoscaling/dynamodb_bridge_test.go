@@ -89,6 +89,90 @@ func createProvisionedTable(t *testing.T, ddbClient *ddbsdk.Client, name string)
 	require.NoError(t, err)
 }
 
+// createOnDemandTable creates a minimal PAY_PER_REQUEST-billing table.
+func createOnDemandTable(t *testing.T, ddbClient *ddbsdk.Client, name string) {
+	t.Helper()
+
+	_, err := ddbClient.CreateTable(t.Context(), &ddbsdk.CreateTableInput{
+		TableName: aws.String(name),
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+}
+
+// On-demand tables get AAS's own ValidationException, not DynamoDB's wrapped error.
+func TestRegisterScalableTarget_DynamoDB_PayPerRequestRejected(t *testing.T) {
+	t.Parallel()
+
+	ddbClient, aasClient := newWiredBackends(t)
+	createOnDemandTable(t, ddbClient, "ondemand-table")
+
+	_, err := aasClient.RegisterScalableTarget(t.Context(), &aassdk.RegisterScalableTargetInput{
+		ServiceNamespace:  aastypes.ServiceNamespaceDynamodb,
+		ResourceId:        aws.String("table/ondemand-table"),
+		ScalableDimension: aastypes.ScalableDimensionDynamoDBTableWriteCapacityUnits,
+		MinCapacity:       aws.Int32(5),
+		MaxCapacity:       aws.Int32(500),
+	})
+	require.Error(t, err)
+
+	var vErr *aastypes.ValidationException
+	require.ErrorAs(t, err, &vErr)
+	assert.Contains(t, aws.ToString(vErr.Message), "PAY_PER_REQUEST table mode is not scalable")
+	assert.NotContains(t, err.Error(), "amazonaws.dynamodb", "must not leak DynamoDB's own error namespace")
+}
+
+// A table switched to on-demand after registration is rejected at PutScalingPolicy.
+func TestPutScalingPolicy_DynamoDB_PayPerRequestRejected(t *testing.T) {
+	t.Parallel()
+
+	ddbClient, aasClient := newWiredBackends(t)
+	createProvisionedTable(t, ddbClient, "switched-table")
+
+	ctx := t.Context()
+
+	_, err := aasClient.RegisterScalableTarget(ctx, &aassdk.RegisterScalableTargetInput{
+		ServiceNamespace:  aastypes.ServiceNamespaceDynamodb,
+		ResourceId:        aws.String("table/switched-table"),
+		ScalableDimension: aastypes.ScalableDimensionDynamoDBTableWriteCapacityUnits,
+		MinCapacity:       aws.Int32(5),
+		MaxCapacity:       aws.Int32(500),
+	})
+	require.NoError(t, err)
+
+	_, err = ddbClient.UpdateTable(ctx, &ddbsdk.UpdateTableInput{
+		TableName:   aws.String("switched-table"),
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	_, err = aasClient.PutScalingPolicy(ctx, &aassdk.PutScalingPolicyInput{
+		ServiceNamespace:  aastypes.ServiceNamespaceDynamodb,
+		ResourceId:        aws.String("table/switched-table"),
+		ScalableDimension: aastypes.ScalableDimensionDynamoDBTableWriteCapacityUnits,
+		PolicyName:        aws.String("switched-policy"),
+		PolicyType:        aastypes.PolicyTypeTargetTrackingScaling,
+		TargetTrackingScalingPolicyConfiguration: &aastypes.TargetTrackingScalingPolicyConfiguration{
+			TargetValue: aws.Float64(70),
+			PredefinedMetricSpecification: &aastypes.PredefinedMetricSpecification{
+				PredefinedMetricType: aastypes.MetricTypeDynamoDBWriteCapacityUtilization,
+			},
+		},
+	})
+	require.Error(t, err)
+
+	var vErr *aastypes.ValidationException
+	require.ErrorAs(t, err, &vErr)
+	assert.Contains(t, aws.ToString(vErr.Message), "PAY_PER_REQUEST table mode is not scalable")
+	assert.NotContains(t, err.Error(), "amazonaws.dynamodb", "must not leak DynamoDB's own error namespace")
+}
+
 // RegisterScalableTarget(ns=dynamodb) must push capacity into DynamoDB's own
 // autoscaling state, so DescribeTableReplicaAutoScaling agrees.
 func TestRegisterScalableTarget_DynamoDB_ReflectsInDescribeTableReplicaAutoScaling(t *testing.T) {
