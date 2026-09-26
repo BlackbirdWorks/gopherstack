@@ -127,6 +127,7 @@ import (
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
@@ -154,6 +155,7 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
@@ -361,6 +363,7 @@ type CLI struct {
 	docdbHandler                  service.Registerable
 	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
+	ecrPublicHandler              service.Registerable
 	ecsHandler                    service.Registerable
 	efsHandler                    service.Registerable
 	eksHandler                    service.Registerable
@@ -382,6 +385,7 @@ type CLI struct {
 	inspector2Handler             service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
+	kafkaconnectHandler           service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
 	kinesisvideoHandler           service.Registerable
 	managedblockchainHandler      service.Registerable
@@ -1304,6 +1308,11 @@ func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 
+// GetECRPublicHandler returns the ECR Public handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetECRPublicHandler() service.Registerable { return c.ecrPublicHandler }
+
 // GetECSHandler returns the ECS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1368,6 +1377,11 @@ func (c *CLI) GetInspector2Handler() service.Registerable { return c.inspector2H
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
+
+// GetKafkaConnectHandler returns the MSK Connect handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKafkaConnectHandler() service.Registerable { return c.kafkaconnectHandler }
 
 // GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
 //
@@ -2785,6 +2799,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.bedrockHandler = byName["Bedrock"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
+	cli.ecrPublicHandler = byName["ECRPublic"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
@@ -2826,6 +2841,7 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.inspector2Handler = byName["Inspector2"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.kafkaconnectHandler = byName["KafkaConnect"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.kinesisvideoHandler = byName["KinesisVideo"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
@@ -4065,8 +4081,10 @@ func getRemainingServiceProviders() []service.Provider {
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&kafkaconnectbackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
 		&kinesisvideobackend.Provider{},
+		&ecrpublicbackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},

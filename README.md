@@ -704,8 +704,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 4 gaps; 8 structural gaps; 1 deferred |
+| [Ecrpublic](services/ecrpublic/README.md) | B | 23 | 6 gaps |
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 4 gaps; 1 deferred |
+| [Kafkaconnect](services/kafkaconnect/README.md) | B | 18 | 4 gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | B | 22 | 3 gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 18 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |

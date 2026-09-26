@@ -72,6 +72,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.40.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.329.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.64.0
+	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.47.1
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.96.0
 	github.com/aws/aws-sdk-go-v2/service/efs v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/eks v1.98.0
@@ -99,9 +100,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.59.4
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.57.2
+	github.com/aws/aws-sdk-go-v2/service/kafkaconnect v1.39.1
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.53.0
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.33.4
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.41.4
+	github.com/aws/aws-sdk-go-v2/service/kinesisvideo v1.41.1
 	github.com/aws/aws-sdk-go-v2/service/kms v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.107.0
@@ -227,7 +230,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/kinesisvideo v1.41.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.37.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.42.0 // indirect

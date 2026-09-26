@@ -258,6 +258,7 @@ provider "aws" {
     dynamodb        = %[1]q
     ec2             = %[1]q
     ecr             = %[1]q
+    ecrpublic       = %[1]q
     ecs             = %[1]q
     efs             = %[1]q
     eks             = %[1]q
@@ -277,6 +278,7 @@ provider "aws" {
     identitystore   = %[1]q
     iot             = %[1]q
     kafka           = %[1]q
+    kafkaconnect    = %[1]q
     kinesisanalyticsv2 = %[1]q
     kinesis         = %[1]q
     kinesisanalytics = %[1]q
@@ -405,6 +407,7 @@ provider "aws" {
     dynamodb        = %[1]q
     ec2             = %[1]q
     ecr             = %[1]q
+    ecrpublic       = %[1]q
     ecs             = %[1]q
     efs             = %[1]q
     eks             = %[1]q
@@ -424,6 +427,7 @@ provider "aws" {
     identitystore   = %[1]q
     iot             = %[1]q
     kafka           = %[1]q
+    kafkaconnect    = %[1]q
     kinesisanalyticsv2 = %[1]q
     kinesis         = %[1]q
     kinesisanalytics = %[1]q
