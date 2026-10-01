@@ -566,7 +566,19 @@ func (b *InMemoryBackend) authenticate(
 		return b.startCustomAuth(pool, clientID, user)
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+	hash := user.PasswordHash
+
+	var cmpErr error
+
+	b.releaseLocked("AuthBcrypt", func() {
+		cmpErr = bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	})
+
+	if err := b.authUserCurrentLocked(pool, user); err != nil {
+		return nil, err
+	}
+
+	if cmpErr != nil || user.PasswordHash != hash {
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
 

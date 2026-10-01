@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 )
@@ -187,55 +188,71 @@ func (b *InMemoryBackend) resolveClientTokenSettings(clientID string) clientToke
 	return settings
 }
 
-// issueTokensLocked issues tokens for a confirmed user. Caller must hold the write
-// lock. triggerSource identifies which authentication path is issuing tokens
-// (TokenGeneration_Authentication, TokenGeneration_NewPasswordChallenge, ...) for
-// the PreTokenGeneration Lambda trigger's event envelope.
+// issueTokensLocked issues tokens for a confirmed user; it releases the caller's write lock
+// around triggers and signing, so state read before the call may be stale.
 func (b *InMemoryBackend) issueTokensLocked(
 	pool *UserPool, clientID string, user *User, triggerSource string,
 ) (*AuthResult, error) {
-	now := time.Now()
-	user.LastAuthTime = now
-
 	groups := b.userGroupsLocked(pool.ID, user.Username)
-	settings := b.resolveClientTokenSettings(clientID)
 
-	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverride(pool, clientID, user, groups, triggerSource)
+	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverrideAuth(pool, clientID, user, groups, triggerSource)
 	if err != nil {
 		return nil, err
 	}
 
-	// PostAuthentication fires once the sign-in itself has succeeded, immediately
-	// before tokens are handed back -- matching AWS ordering (after PreTokenGeneration,
-	// which can still suppress/override claims the caller sees). This only runs on real
-	// interactive sign-in completions: InitiateAuthRefreshToken issues tokens directly
-	// without calling issueTokensLocked, so REFRESH_TOKEN_AUTH never re-fires it, matching
-	// AWS (PostAuthentication does not run on token refresh).
+	// PostAuthentication fires after PreTokenGeneration and never on token refresh
+	// (InitiateAuthRefreshToken does not come through here), matching AWS.
 	if postAuthErr := b.postAuthenticationNotify(pool, clientID, user); postAuthErr != nil {
 		return nil, postAuthErr
 	}
 
+	if curErr := b.authUserCurrentLocked(pool, user); curErr != nil {
+		return nil, curErr
+	}
+
+	now := time.Now()
+	user.LastAuthTime = now
 	b.tokenSeq++
 
-	tokens, err := pool.issuer.Issue(TokenParams{
+	seq := b.tokenSeq
+	revokeKey := pool.ID + ":" + user.Username
+	settings := b.resolveClientTokenSettings(clientID)
+	params := TokenParams{
 		ClientID:              clientID,
 		Username:              user.Username,
 		UserSub:               user.Sub,
-		Groups:                groups,
+		Groups:                b.userGroupsLocked(pool.ID, user.Username),
 		AuthTime:              now.Unix(),
-		AuthSeq:               b.tokenSeq,
+		AuthSeq:               seq,
 		Scopes:                settings.scopes,
-		Attributes:            user.Attributes,
+		Attributes:            maps.Clone(user.Attributes),
 		AccessTokenExpiry:     settings.accessTokenExpiry,
 		IDTokenExpiry:         settings.idTokenExpiry,
 		ClaimsToAddOrOverride: claimsToAdd,
 		ClaimsToSuppress:      claimsToSuppress,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("issuing tokens: %w", err)
 	}
 
-	// Store the refresh token so REFRESH_TOKEN_AUTH can validate it.
+	var (
+		tokens  *TokenResult
+		signErr error
+	)
+
+	b.releaseLocked("IssueTokens", func() { tokens, signErr = pool.issuer.Issue(params) })
+
+	if signErr != nil {
+		return nil, fmt.Errorf("issuing tokens: %w", signErr)
+	}
+
+	if curErr := b.authUserCurrentLocked(pool, user); curErr != nil {
+		return nil, curErr
+	}
+
+	// A sign-out that landed while signing already covers seq; storing the refresh
+	// token now would let it outlive that sign-out.
+	if revoked, ok := b.tokenRevokedBeforeSeq[revokeKey]; ok && seq <= revoked {
+		return nil, fmt.Errorf("%w: user %q was signed out during authentication", ErrNotAuthorized, user.Username)
+	}
+
 	b.storeRefreshTokenLocked(tokens.RefreshToken, &refreshTokenEntry{
 		PoolID:    pool.ID,
 		ClientID:  clientID,
@@ -297,30 +314,47 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		entry.AuthTime = authTime
 	}
 
-	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverride(
+	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverrideAuth(
 		pool, clientID, user, groups, triggerSourceTokenGenRefreshTokens,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	if curErr := b.refreshStillValidLocked(pool, user, refreshToken, entry); curErr != nil {
+		return nil, curErr
+	}
+
 	b.tokenSeq++
 
-	tokens, err := pool.issuer.Issue(TokenParams{
+	seq := b.tokenSeq
+	params := TokenParams{
 		ClientID:              clientID,
 		Username:              user.Username,
 		UserSub:               user.Sub,
-		Groups:                groups,
+		Groups:                b.userGroupsLocked(entry.PoolID, user.Username),
 		AuthTime:              authTime,
-		AuthSeq:               b.tokenSeq,
+		AuthSeq:               seq,
 		Scopes:                settings.scopes,
 		AccessTokenExpiry:     settings.accessTokenExpiry,
 		IDTokenExpiry:         settings.idTokenExpiry,
 		ClaimsToAddOrOverride: claimsToAdd,
 		ClaimsToSuppress:      claimsToSuppress,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("issuing tokens: %w", err)
+	}
+
+	var (
+		tokens  *TokenResult
+		signErr error
+	)
+
+	b.releaseLocked("RefreshIssue", func() { tokens, signErr = pool.issuer.Issue(params) })
+
+	if signErr != nil {
+		return nil, fmt.Errorf("issuing tokens: %w", signErr)
+	}
+
+	if commitErr := b.commitRefreshLocked(pool, user, refreshToken, entry, seq); commitErr != nil {
+		return nil, commitErr
 	}
 
 	// Rotate the refresh token: invalidate old, store new.
@@ -329,6 +363,38 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
 
 	return tokens, nil
+}
+
+// commitRefreshLocked re-validates after signing and rejects a refresh that a
+// sign-out (seq already revoked) or token revocation overtook.
+func (b *InMemoryBackend) commitRefreshLocked(
+	pool *UserPool, user *User, token string, entry *refreshTokenEntry, seq int64,
+) error {
+	if err := b.refreshStillValidLocked(pool, user, token, entry); err != nil {
+		return err
+	}
+
+	if revoked, found := b.tokenRevokedBeforeSeq[pool.ID+":"+user.Username]; found && seq <= revoked {
+		return fmt.Errorf("%w: user %q was signed out during refresh", ErrNotAuthorized, user.Username)
+	}
+
+	return nil
+}
+
+// refreshStillValidLocked re-checks, after b.mu was released, that the refresh token
+// is still the live entry and its user is still allowed to sign in.
+func (b *InMemoryBackend) refreshStillValidLocked(
+	pool *UserPool, user *User, token string, entry *refreshTokenEntry,
+) error {
+	if err := b.authUserCurrentLocked(pool, user); err != nil {
+		return err
+	}
+
+	if cur, ok := b.refreshTokens[token]; !ok || cur != entry {
+		return fmt.Errorf("%w: refresh token not found or expired", ErrNotAuthorized)
+	}
+
+	return nil
 }
 
 // RevokeToken revokes a refresh token, preventing further use.

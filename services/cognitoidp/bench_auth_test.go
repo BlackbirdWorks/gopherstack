@@ -2,6 +2,7 @@ package cognitoidp_test
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,4 +82,40 @@ func BenchmarkCognitoJWKS(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkCognitoInitiateAuthParallel(b *testing.B) {
+	be := newTestBackend()
+
+	pool, err := be.CreateUserPool("bench")
+	require.NoError(b, err)
+
+	client, err := be.CreateUserPoolClient(pool.ID, "c")
+	require.NoError(b, err)
+
+	const users = 64
+
+	for i := range users {
+		name := fmt.Sprintf("user-%d", i)
+
+		_, err = be.SignUp(client.ClientID, name, "Pass1234!", map[string]string{"email": name + "@x.com"})
+		require.NoError(b, err)
+		require.NoError(b, be.AdminConfirmSignUp(pool.ID, name))
+	}
+
+	var next atomic.Int64
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		name := fmt.Sprintf("user-%d", next.Add(1)%users)
+
+		for pb.Next() {
+			if _, authErr := be.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", name, "Pass1234!"); authErr != nil {
+				b.Error(authErr)
+
+				return
+			}
+		}
+	})
 }
