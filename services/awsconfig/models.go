@@ -1,10 +1,46 @@
 package awsconfig
 
+import "slices"
+
 // RecordingGroup holds the resource recording configuration for a recorder.
 type RecordingGroup struct {
-	ResourceTypes              []string `json:"resourceTypes,omitempty"`
-	AllSupported               bool     `json:"allSupported,omitempty"`
-	IncludeGlobalResourceTypes bool     `json:"includeGlobalResourceTypes,omitempty"`
+	ExclusionByResourceTypes   *ExclusionByResourceTypes `json:"exclusionByResourceTypes,omitempty"`
+	RecordingStrategy          *RecordingStrategy        `json:"recordingStrategy,omitempty"`
+	ResourceTypes              []string                  `json:"resourceTypes,omitempty"`
+	AllSupported               bool                      `json:"allSupported,omitempty"`
+	IncludeGlobalResourceTypes bool                      `json:"includeGlobalResourceTypes,omitempty"`
+}
+
+// ExclusionByResourceTypes lists resource types a recorder must not record.
+type ExclusionByResourceTypes struct {
+	ResourceTypes []string `json:"resourceTypes,omitempty"`
+}
+
+// RecordingStrategy is the recorder's useOnly strategy enum.
+type RecordingStrategy struct {
+	UseOnly string `json:"useOnly,omitempty"`
+}
+
+func cloneRecordingGroup(rg *RecordingGroup) *RecordingGroup {
+	if rg == nil {
+		return nil
+	}
+
+	cp := *rg
+	cp.ResourceTypes = slices.Clone(rg.ResourceTypes)
+
+	if rg.ExclusionByResourceTypes != nil {
+		cp.ExclusionByResourceTypes = &ExclusionByResourceTypes{
+			ResourceTypes: slices.Clone(rg.ExclusionByResourceTypes.ResourceTypes),
+		}
+	}
+
+	if rg.RecordingStrategy != nil {
+		strategy := *rg.RecordingStrategy
+		cp.RecordingStrategy = &strategy
+	}
+
+	return &cp
 }
 
 // ConfigurationRecorder represents an AWS Config configuration recorder.
