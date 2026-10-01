@@ -2,7 +2,9 @@ package cognitoidp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -27,6 +29,9 @@ func (h *Handler) handleJWKS(c *echo.Context) error {
 	}
 
 	userPoolID := parts[0]
+	if path == rootJWKSPath {
+		userPoolID, _ = h.Backend.domainPoolID(c.Request().Host)
+	}
 
 	jwks, err := h.Backend.GetUserPoolJWKS(userPoolID)
 	if err != nil {
@@ -315,6 +320,10 @@ func (h *Handler) handleInitiateAuthAccurate(
 	_ context.Context,
 	in *initiateAuthAccurateInput,
 ) (*authOutput, error) {
+	if err := validateAuthFlowType(in.AuthFlow); err != nil {
+		return nil, err
+	}
+
 	username := in.AuthParameters["USERNAME"]
 
 	if err := h.Backend.ValidateSecretHash(
@@ -368,6 +377,10 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 	_ context.Context,
 	in *adminInitiateAuthAccurateInput,
 ) (*authOutput, error) {
+	if err := validateAuthFlowType(in.AuthFlow); err != nil {
+		return nil, err
+	}
+
 	username := in.AuthParameters["USERNAME"]
 
 	if err := h.Backend.ValidateSecretHash(
@@ -554,4 +567,15 @@ func (h *Handler) authOpsC() map[string]service.JSONOpFunc {
 		opConfirmForgotPassword:       wrapAccuracy(h.handleConfirmForgotPasswordAccurate),
 		opResendConfirmationCode:      wrapAccuracy(h.handleResendConfirmationCodeAccurate),
 	}
+}
+
+// validateAuthFlowType rejects AuthFlow values outside the SDK's types.AuthFlowType enum.
+func validateAuthFlowType(flow string) error {
+	known := strings.Fields("USER_SRP_AUTH REFRESH_TOKEN_AUTH REFRESH_TOKEN CUSTOM_AUTH ADMIN_NO_SRP_AUTH " +
+		"USER_PASSWORD_AUTH ADMIN_USER_PASSWORD_AUTH USER_AUTH ADMIN_USER_SRP_AUTH")
+	if slices.Contains(known, flow) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: 1 validation error detected: invalid AuthFlow %q", ErrInvalidParameter, flow)
 }

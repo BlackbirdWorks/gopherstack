@@ -8,6 +8,8 @@ type refreshTokenEntry struct {
 	PoolID    string    `json:"poolId,omitempty"`
 	ClientID  string    `json:"clientId,omitempty"`
 	Username  string    `json:"username,omitempty"`
+	// Scopes are the OAuth scopes granted at /oauth2/token; empty means the client's AllowedOAuthScopes.
+	Scopes []string `json:"scopes,omitempty"`
 	// AuthTime is the original authentication time (Unix seconds) of the
 	// session that minted this refresh-token chain. AWS Cognito preserves
 	// auth_time across REFRESH_TOKEN_AUTH; it is not reset on each refresh.

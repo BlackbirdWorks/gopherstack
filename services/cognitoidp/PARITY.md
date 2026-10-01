@@ -152,11 +152,29 @@ gaps: []
 items_still_open:
   - "domains: Routing and Version (DomainDescriptionType) remain unpopulated -- no multi-region-domain-routing model or app-version tracking exists in this backend; left absent rather than fabricated."
   - "MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents."
+  - "OAuth2/OIDC endpoints (gopherstack-1ryp5): no managed-login session cookie (prompt=none always returns login_required, /logout clears nothing), no federated IdP redirect, no nonce claim in ID tokens, no pre-token-generation trigger on client_credentials, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, hosted login cannot answer MFA or NEW_PASSWORD_REQUIRED challenges."
 deferred: []
 leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused. FIXED (gopherstack-cq0z, 2026-09-06): DeleteUserPool's user cascade deletes users directly (b.users.Delete) instead of calling AdminDeleteUser, so it did not inherit AdminDeleteUser's own devices/authEvents cleanup for each user -- the cascade-variant of the ghost-row class, where a parent delete bypasses the single-resource delete path holding the fix. Now clears devices[userStateKey]/authEvents[userStateKey] per user in the same cascade loop. Pool-level side maps (riskConfigurations, logDeliveryConfigs, poolMfaConfigs, and the pool's own resourceTags entry) are NOT cleared by DeleteUserPool either and remain open findings, not addressed this pass. See TestDeleteUserPool_ClearsUserDeviceState."}
 ---
 
 ## Notes
+
+### 2026-10-01 OAuth2/OIDC endpoints and hosted login (gopherstack-1ryp5)
+
+Added `oauth_*.go`: `GET /<pool>/.well-known/openid-configuration` (issuer equals the `iss` of issued tokens),
+`POST /oauth2/token` (authorization_code with S256 PKCE, refresh_token, client_credentials),
+`GET /oauth2/authorize`, `GET|POST /login`, `GET /oauth2/userInfo`, `GET /logout`, `POST /oauth2/revoke`.
+Behaviour follows the "User pool endpoints and managed login reference" pages (token, authorize, login,
+logout, userInfo, revocation endpoints). Routing accepts path-based requests and a Host header matching a
+registered user pool domain; SigV4-signed requests are never claimed.
+
+Deliberate choices: only `S256` is accepted (the authorize page says Cognito supports only S256, so `plain`
+is `invalid_request`); authorization codes live five minutes, are single-use (burned on any redemption attempt),
+bound to client and redirect_uri, and held in a bounded in-memory store that is never persisted; redirect_uri,
+logout_uri comparison is exact-match; client secrets are compared in constant time; `/login` uses a
+double-submit `XSRF-TOKEN` cookie plus `_csrf` field. The refresh token's granted scopes are persisted as an
+additive `scopes` field on `refreshTokenEntry` (no snapshot version bump). Refresh through `/oauth2/token`
+rotates the refresh token because the shared refresh path always rotates.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

@@ -260,7 +260,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
-		return strings.HasSuffix(c.Request().URL.Path, jwksPathSuffix)
+		return strings.HasSuffix(c.Request().URL.Path, jwksPathSuffix) || h.oauthOp(c.Request()) != ""
 	}
 }
 
@@ -273,6 +273,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	action := strings.TrimPrefix(target, cognitoTargetPrefix)
 
 	if action == "" || action == target {
+		if op := h.oauthOp(c.Request()); op != "" {
+			return op
+		}
+
 		if strings.HasSuffix(c.Request().URL.Path, jwksPathSuffix) {
 			return "GetJWKS"
 		}
@@ -285,6 +289,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the user pool or user resource from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	if h.oauthOp(c.Request()) != "" {
+		return c.Request().URL.Query().Get("client_id")
+	}
+
 	// For JWKS endpoint, extract pool ID from the path.
 	if strings.HasSuffix(c.Request().URL.Path, jwksPathSuffix) {
 		trimmed := strings.TrimPrefix(c.Request().URL.Path, "/")
@@ -320,6 +328,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if op := h.oauthOp(c.Request()); op != "" {
+			return h.handleOAuth(c, op)
+		}
+
 		if strings.HasSuffix(c.Request().URL.Path, jwksPathSuffix) {
 			return h.handleJWKS(c)
 		}

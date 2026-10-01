@@ -71,6 +71,7 @@ type InMemoryBackend struct {
 	usersByPool                   *store.Index[User]
 	usersBySub                    *store.Index[User]
 	refreshTokens                 map[string]*refreshTokenEntry
+	authCodes                     map[string]*authCodeEntry
 	refreshTokensByClient         map[string]map[string]struct{}
 	refreshTokensByUser           map[string]map[string]struct{}
 	mfaSessions                   map[string]*mfaSessionEntry
@@ -117,6 +118,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		mu:                    lockmetrics.New("cognitoidp"),
 		registry:              store.NewRegistry(),
 		refreshTokens:         make(map[string]*refreshTokenEntry),
+		authCodes:             make(map[string]*authCodeEntry),
 		refreshTokensByClient: make(map[string]map[string]struct{}),
 		refreshTokensByUser:   make(map[string]map[string]struct{}),
 		mfaSessions:           make(map[string]*mfaSessionEntry),
@@ -150,6 +152,7 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 
 	b.refreshTokens = make(map[string]*refreshTokenEntry)
+	b.authCodes = make(map[string]*authCodeEntry)
 	b.refreshTokensByClient = make(map[string]map[string]struct{})
 	b.refreshTokensByUser = make(map[string]map[string]struct{})
 	b.mfaSessions = make(map[string]*mfaSessionEntry)

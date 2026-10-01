@@ -193,6 +193,14 @@ func (b *InMemoryBackend) resolveClientTokenSettings(clientID string) clientToke
 func (b *InMemoryBackend) issueTokensLocked(
 	pool *UserPool, clientID string, user *User, triggerSource string,
 ) (*AuthResult, error) {
+	return b.issueScopedTokensLocked(pool, clientID, user, triggerSource, nil, true)
+}
+
+// issueScopedTokensLocked is issueTokensLocked with an explicit OAuth scope set (nil means the
+// client's AllowedOAuthScopes) and an option to skip registering the refresh token.
+func (b *InMemoryBackend) issueScopedTokensLocked(
+	pool *UserPool, clientID string, user *User, triggerSource string, scopes []string, storeRefresh bool,
+) (*AuthResult, error) {
 	groups := b.userGroupsLocked(pool.ID, user.Username)
 
 	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverrideAuth(pool, clientID, user, groups, triggerSource)
@@ -217,6 +225,10 @@ func (b *InMemoryBackend) issueTokensLocked(
 	seq := b.tokenSeq
 	revokeKey := pool.ID + ":" + user.Username
 	settings := b.resolveClientTokenSettings(clientID)
+	if scopes != nil {
+		settings.scopes = scopes
+	}
+
 	params := TokenParams{
 		ClientID:              clientID,
 		Username:              user.Username,
@@ -253,10 +265,17 @@ func (b *InMemoryBackend) issueTokensLocked(
 		return nil, fmt.Errorf("%w: user %q was signed out during authentication", ErrNotAuthorized, user.Username)
 	}
 
+	if !storeRefresh {
+		tokens.RefreshToken = ""
+
+		return &AuthResult{Tokens: tokens}, nil
+	}
+
 	b.storeRefreshTokenLocked(tokens.RefreshToken, &refreshTokenEntry{
 		PoolID:    pool.ID,
 		ClientID:  clientID,
 		Username:  user.Username,
+		Scopes:    scopes,
 		AuthTime:  now.Unix(),
 		ExpiresAt: now.UTC().Add(settings.refreshTokenTTL),
 	})
@@ -304,6 +323,9 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	now := time.Now()
 	groups := b.userGroupsLocked(entry.PoolID, user.Username)
 	settings := b.resolveClientTokenSettings(clientID)
+	if len(entry.Scopes) > 0 {
+		settings.scopes = entry.Scopes
+	}
 
 	// Preserve the original authentication time across refresh; AWS Cognito
 	// does not reset auth_time on REFRESH_TOKEN_AUTH. Legacy entries minted

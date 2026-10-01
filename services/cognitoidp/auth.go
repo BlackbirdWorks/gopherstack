@@ -474,6 +474,12 @@ func (b *InMemoryBackend) precheckAuthLocked(pool *UserPool, clientID, authFlow 
 		)
 	}
 
+	return b.precheckUserLocked(pool, clientID, user)
+}
+
+// precheckUserLocked runs the PreAuthentication trigger and the user status checks shared by every
+// sign-in path. Caller must hold the write lock.
+func (b *InMemoryBackend) precheckUserLocked(pool *UserPool, clientID string, user *User) error {
 	// PreAuthentication fires before any credential/status validation, matching AWS:
 	// the Lambda only sees userAttributes/validationData (never the password), and can
 	// reject the attempt outright by returning an error.
@@ -566,6 +572,15 @@ func (b *InMemoryBackend) authenticate(
 		return b.startCustomAuth(pool, clientID, user)
 	}
 
+	if err := b.verifyPasswordLocked(pool, user, password); err != nil {
+		return nil, err
+	}
+
+	return b.postCredentialCheckLocked(pool, clientID, user)
+}
+
+// verifyPasswordLocked bcrypt-checks password with b.mu released, then re-validates the user.
+func (b *InMemoryBackend) verifyPasswordLocked(pool *UserPool, user *User, password string) error {
 	hash := user.PasswordHash
 
 	var cmpErr error
@@ -575,14 +590,14 @@ func (b *InMemoryBackend) authenticate(
 	})
 
 	if err := b.authUserCurrentLocked(pool, user); err != nil {
-		return nil, err
+		return err
 	}
 
 	if cmpErr != nil || user.PasswordHash != hash {
-		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
+		return fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
 
-	return b.postCredentialCheckLocked(pool, clientID, user)
+	return nil
 }
 
 // startSRPAuthLocked begins the USER_SRP_AUTH/ADMIN_USER_SRP_AUTH handshake: given the

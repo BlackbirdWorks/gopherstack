@@ -6894,6 +6894,7 @@
       "refreshTokenEntry.ClientID string `json:\"clientId,omitempty\"`",
       "refreshTokenEntry.ExpiresAt time.Time `json:\"expiresAt\"`",
       "refreshTokenEntry.PoolID string `json:\"poolId,omitempty\"`",
+      "refreshTokenEntry.Scopes []string `json:\"scopes,omitempty\"`",
       "refreshTokenEntry.Username string `json:\"username,omitempty\"`",
       "stringAttributeConstraintsJSON.MaxLength string `json:\"MaxLength,omitempty\"`",
       "stringAttributeConstraintsJSON.MinLength string `json:\"MinLength,omitempty\"`",

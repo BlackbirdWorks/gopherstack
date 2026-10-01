@@ -29,7 +29,7 @@ const userMigrationFinalStatusReset = "RESET_REQUIRED"
 // independent DefineAuthChallenge-driven state machine (custom_auth.go) -- neither
 // flow supports migration.
 var migrationApplicableAuthFlows = map[string]bool{ //nolint:gochecknoglobals // static lookup set
-	"USER_PASSWORD_AUTH":       true,
+	authFlowUserPassword:       true,
 	"ADMIN_USER_PASSWORD_AUTH": true,
 	"ADMIN_NO_SRP_AUTH":        true,
 }
