@@ -418,6 +418,8 @@
       "Job.EndTime time.Time `json:\"endTime,omitzero\"`",
       "Job.JobARN string `json:\"jobArn\"`",
       "Job.JobID string `json:\"jobId\"`",
+      "Job.SourceURL string `json:\"sourceUrl,omitzero\"`",
+      "Job.SourceURLType string `json:\"sourceUrlType,omitzero\"`",
       "Job.StartTime time.Time `json:\"startTime\"`",
       "Job.Status JobStatus `json:\"status\"`",
       "Job.Type JobType `json:\"jobType\"`",
