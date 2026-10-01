@@ -13,6 +13,7 @@ func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]b
 		ResultConfiguration  map[string]any `json:"resultConfiguration"`
 		ComputeConfiguration map[string]any `json:"computeConfiguration"`
 		MembershipIdentifier string         `json:"membershipIdentifier"`
+		PayerAccountID       string         `json:"queryComputePayerAccountId"`
 	}
 	_ = json.Unmarshal(body, &req)
 	var sqlText string
@@ -26,6 +27,7 @@ func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]b
 		sqlText,
 		req.ResultConfiguration,
 		req.ComputeConfiguration,
+		req.PayerAccountID,
 	)
 	if err != nil {
 		return nil, err

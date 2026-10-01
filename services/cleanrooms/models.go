@@ -58,28 +58,30 @@ const (
 )
 
 type MemberSpec struct {
-	PaymentConfig map[string]any `json:"paymentConfiguration,omitempty"`
-	AccountID     string         `json:"accountId"`
-	DisplayName   string         `json:"displayName"`
-	Abilities     []string       `json:"memberAbilities"`
+	PaymentConfig   map[string]any     `json:"paymentConfiguration,omitempty"`
+	MLMemberAbility *MLMemberAbilities `json:"mlMemberAbilities,omitempty"`
+	AccountID       string             `json:"accountId"`
+	DisplayName     string             `json:"displayName"`
+	Abilities       []string           `json:"memberAbilities"`
 }
 
-// MemberSummary is the wire shape returned by ListMembers. Verified against
-// aws-sdk-go-v2/service/cleanrooms@v1.45.6's
-// awsRestjson1_deserializeDocumentMemberSummary: real keys are abilities,
-// accountId, createTime, displayName, membershipArn, membershipId,
-// mlAbilities (not modeled -- ML abilities are out of scope for this
-// emulator), paymentConfiguration, status, updateTime.
+// MLMemberAbilities is the real types.MLMemberAbilities shape.
+type MLMemberAbilities struct {
+	CustomMLMemberAbilities []string `json:"customMLMemberAbilities"`
+}
+
+// MemberSummary is the ListMembers wire shape (awsRestjson1_deserializeDocumentMemberSummary).
 type MemberSummary struct {
-	PaymentConfig map[string]any `json:"paymentConfiguration"`
-	AccountID     string         `json:"accountId"`
-	DisplayName   string         `json:"displayName"`
-	Status        string         `json:"status"`
-	MembershipArn string         `json:"membershipArn,omitempty"`
-	MembershipID  string         `json:"membershipId,omitempty"`
-	Abilities     []string       `json:"abilities"`
-	CreateTime    float64        `json:"createTime,omitempty"`
-	UpdateTime    float64        `json:"updateTime,omitempty"`
+	MLAbilities   *MLMemberAbilities `json:"mlAbilities,omitempty"`
+	PaymentConfig map[string]any     `json:"paymentConfiguration"`
+	AccountID     string             `json:"accountId"`
+	DisplayName   string             `json:"displayName"`
+	Status        string             `json:"status"`
+	MembershipArn string             `json:"membershipArn,omitempty"`
+	MembershipID  string             `json:"membershipId,omitempty"`
+	Abilities     []string           `json:"abilities"`
+	CreateTime    float64            `json:"createTime,omitempty"`
+	UpdateTime    float64            `json:"updateTime,omitempty"`
 }
 
 // Collaboration is the wire shape returned by CreateCollaboration/
@@ -169,25 +171,26 @@ type CollaborationSummary struct {
 // status, updateTime. No "membershipIdentifier" or
 // "collaborationIdentifier" key (those are request-only parameter names).
 type Membership struct {
-	DefaultResultConfiguration      map[string]any `json:"defaultResultConfiguration,omitempty"`
-	DefaultJobResultConfiguration   map[string]any `json:"defaultJobResultConfiguration,omitempty"`
-	PaymentConfiguration            map[string]any `json:"paymentConfiguration"`
-	QueryLogStatus                  string         `json:"queryLogStatus,omitempty"`
-	JobLogStatus                    string         `json:"jobLogStatus,omitempty"`
-	CollaborationIdentifier         string         `json:"-"`
-	CollaborationCreatorAccountID   string         `json:"collaborationCreatorAccountId"`
-	CollaborationCreatorDisplayName string         `json:"collaborationCreatorDisplayName"`
-	MembershipIdentifier            string         `json:"-"`
-	Status                          string         `json:"status"`
-	CollaborationName               string         `json:"collaborationName"`
-	CollaborationArn                string         `json:"collaborationArn"`
-	Arn                             string         `json:"arn"`
-	CollaborationID                 string         `json:"collaborationId"`
-	ID                              string         `json:"id"`
-	MemberAbilities                 []string       `json:"memberAbilities"`
-	UpdateTime                      float64        `json:"updateTime,omitempty"`
-	CreateTime                      float64        `json:"createTime,omitempty"`
-	IsMetricsEnabled                bool           `json:"isMetricsEnabled"`
+	MLMemberAbilities               *MLMemberAbilities `json:"mlMemberAbilities,omitempty"`
+	DefaultResultConfiguration      map[string]any     `json:"defaultResultConfiguration,omitempty"`
+	DefaultJobResultConfiguration   map[string]any     `json:"defaultJobResultConfiguration,omitempty"`
+	PaymentConfiguration            map[string]any     `json:"paymentConfiguration"`
+	QueryLogStatus                  string             `json:"queryLogStatus,omitempty"`
+	JobLogStatus                    string             `json:"jobLogStatus,omitempty"`
+	CollaborationIdentifier         string             `json:"-"`
+	CollaborationCreatorAccountID   string             `json:"collaborationCreatorAccountId"`
+	CollaborationCreatorDisplayName string             `json:"collaborationCreatorDisplayName"`
+	MembershipIdentifier            string             `json:"-"`
+	Status                          string             `json:"status"`
+	CollaborationName               string             `json:"collaborationName"`
+	CollaborationArn                string             `json:"collaborationArn"`
+	Arn                             string             `json:"arn"`
+	CollaborationID                 string             `json:"collaborationId"`
+	ID                              string             `json:"id"`
+	MemberAbilities                 []string           `json:"memberAbilities"`
+	UpdateTime                      float64            `json:"updateTime,omitempty"`
+	CreateTime                      float64            `json:"createTime,omitempty"`
+	IsMetricsEnabled                bool               `json:"isMetricsEnabled"`
 }
 
 // MembershipSummary is the wire shape for ListMemberships. Verified against
@@ -195,20 +198,21 @@ type Membership struct {
 // Membership minus defaultResultConfiguration/defaultJobResultConfiguration/
 // isMetricsEnabled/jobLogStatus.
 type MembershipSummary struct {
-	PaymentConfiguration            map[string]any `json:"paymentConfiguration"`
-	CollaborationName               string         `json:"collaborationName"`
-	Arn                             string         `json:"arn"`
-	CollaborationIdentifier         string         `json:"-"`
-	CollaborationArn                string         `json:"collaborationArn"`
-	CollaborationCreatorAccountID   string         `json:"collaborationCreatorAccountId"`
-	CollaborationCreatorDisplayName string         `json:"collaborationCreatorDisplayName"`
-	MembershipIdentifier            string         `json:"-"`
-	Status                          string         `json:"status"`
-	ID                              string         `json:"id"`
-	CollaborationID                 string         `json:"collaborationId"`
-	MemberAbilities                 []string       `json:"memberAbilities"`
-	CreateTime                      float64        `json:"createTime,omitempty"`
-	UpdateTime                      float64        `json:"updateTime,omitempty"`
+	MLMemberAbilities               *MLMemberAbilities `json:"mlMemberAbilities,omitempty"`
+	PaymentConfiguration            map[string]any     `json:"paymentConfiguration"`
+	CollaborationName               string             `json:"collaborationName"`
+	Arn                             string             `json:"arn"`
+	CollaborationIdentifier         string             `json:"-"`
+	CollaborationArn                string             `json:"collaborationArn"`
+	CollaborationCreatorAccountID   string             `json:"collaborationCreatorAccountId"`
+	CollaborationCreatorDisplayName string             `json:"collaborationCreatorDisplayName"`
+	MembershipIdentifier            string             `json:"-"`
+	Status                          string             `json:"status"`
+	ID                              string             `json:"id"`
+	CollaborationID                 string             `json:"collaborationId"`
+	MemberAbilities                 []string           `json:"memberAbilities"`
+	CreateTime                      float64            `json:"createTime,omitempty"`
+	UpdateTime                      float64            `json:"updateTime,omitempty"`
 }
 
 // ConfiguredTable is the wire shape for CreateConfiguredTable/GetConfiguredTable/
@@ -438,65 +442,59 @@ type SchemaAnalysisRule struct {
 	UpdateTime              float64        `json:"updateTime,omitempty"`
 }
 
-// ProtectedQuery is the wire shape for StartProtectedQuery/GetProtectedQuery
-// (Summary is its List shape). Verified against
-// awsRestjson1_deserializeDocumentProtectedQuery(Summary): real keys use
-// "id"/"membershipId", never "membershipIdentifier" (request-parameter-only
-// name). differentialPrivacy, queryComputePayerAccountId (both),
-// receiverConfigurations (summary) are not modeled (deferred, see
-// PARITY.md).
+// ProtectedQuery is the Start/GetProtectedQuery wire shape; differentialPrivacy is not modeled.
 type ProtectedQuery struct {
-	SQLParameters        map[string]any `json:"sqlParameters,omitempty"`
-	ResultConfiguration  map[string]any `json:"resultConfiguration,omitempty"`
-	ComputeConfiguration map[string]any `json:"computeConfiguration,omitempty"`
-	Statistics           map[string]any `json:"statistics,omitempty"`
-	Result               map[string]any `json:"result,omitempty"`
-	Error                map[string]any `json:"error,omitempty"`
-	ID                   string         `json:"id"`
-	MembershipIdentifier string         `json:"-"`
-	MembershipArn        string         `json:"membershipArn"`
-	Status               string         `json:"status"`
-	MembershipID         string         `json:"membershipId"`
-	CreateTime           float64        `json:"createTime,omitempty"`
+	QueryComputePayerAccountID string         `json:"queryComputePayerAccountId,omitempty"`
+	SQLParameters              map[string]any `json:"sqlParameters,omitempty"`
+	ResultConfiguration        map[string]any `json:"resultConfiguration,omitempty"`
+	ComputeConfiguration       map[string]any `json:"computeConfiguration,omitempty"`
+	Statistics                 map[string]any `json:"statistics,omitempty"`
+	Result                     map[string]any `json:"result,omitempty"`
+	Error                      map[string]any `json:"error,omitempty"`
+	ID                         string         `json:"id"`
+	MembershipIdentifier       string         `json:"-"`
+	MembershipArn              string         `json:"membershipArn"`
+	Status                     string         `json:"status"`
+	MembershipID               string         `json:"membershipId"`
+	CreateTime                 float64        `json:"createTime,omitempty"`
 }
 
 type ProtectedQuerySummary struct {
-	ID                   string  `json:"id"`
-	MembershipIdentifier string  `json:"-"`
-	MembershipArn        string  `json:"membershipArn"`
-	Status               string  `json:"status"`
-	MembershipID         string  `json:"membershipId"`
-	CreateTime           float64 `json:"createTime,omitempty"`
+	QueryComputePayerAccountID string  `json:"queryComputePayerAccountId,omitempty"`
+	ID                         string  `json:"id"`
+	MembershipIdentifier       string  `json:"-"`
+	MembershipArn              string  `json:"membershipArn"`
+	Status                     string  `json:"status"`
+	MembershipID               string  `json:"membershipId"`
+	CreateTime                 float64 `json:"createTime,omitempty"`
 }
 
-// ProtectedJob is the wire shape for StartProtectedJob/GetProtectedJob
-// (Summary is its List shape). Verified against
-// awsRestjson1_deserializeDocumentProtectedJob(Summary): same pattern as
-// ProtectedQuery. jobComputePayerAccountId (both),
-// receiverConfigurations (summary) are not modeled (deferred).
+// ProtectedJob is the Start/GetProtectedJob wire shape.
 type ProtectedJob struct {
-	JobParameters        map[string]any `json:"jobParameters,omitempty"`
-	ResultConfiguration  map[string]any `json:"resultConfiguration,omitempty"`
-	Statistics           map[string]any `json:"statistics,omitempty"`
-	Result               map[string]any `json:"result,omitempty"`
-	Error                map[string]any `json:"error,omitempty"`
-	ID                   string         `json:"id"`
-	MembershipIdentifier string         `json:"-"`
-	MembershipArn        string         `json:"membershipArn"`
-	Status               string         `json:"status"`
-	Type                 string         `json:"type"`
-	MembershipID         string         `json:"membershipId"`
-	CreateTime           float64        `json:"createTime,omitempty"`
+	JobComputePayerAccountID string         `json:"jobComputePayerAccountId,omitempty"`
+	JobParameters            map[string]any `json:"jobParameters,omitempty"`
+	ResultConfiguration      map[string]any `json:"resultConfiguration,omitempty"`
+	Statistics               map[string]any `json:"statistics,omitempty"`
+	Result                   map[string]any `json:"result,omitempty"`
+	Error                    map[string]any `json:"error,omitempty"`
+	ID                       string         `json:"id"`
+	MembershipIdentifier     string         `json:"-"`
+	MembershipArn            string         `json:"membershipArn"`
+	Status                   string         `json:"status"`
+	Type                     string         `json:"type"`
+	MembershipID             string         `json:"membershipId"`
+	CreateTime               float64        `json:"createTime,omitempty"`
 }
 
 type ProtectedJobSummary struct {
-	ID                   string  `json:"id"`
-	MembershipIdentifier string  `json:"-"`
-	MembershipArn        string  `json:"membershipArn"`
-	Status               string  `json:"status"`
-	Type                 string  `json:"type"`
-	MembershipID         string  `json:"membershipId"`
-	CreateTime           float64 `json:"createTime,omitempty"`
+	JobComputePayerAccountID string  `json:"jobComputePayerAccountId,omitempty"`
+	ID                       string  `json:"id"`
+	MembershipIdentifier     string  `json:"-"`
+	MembershipArn            string  `json:"membershipArn"`
+	Status                   string  `json:"status"`
+	Type                     string  `json:"type"`
+	MembershipID             string  `json:"membershipId"`
+	CreateTime               float64 `json:"createTime,omitempty"`
 }
 
 // PrivacyBudgetTemplate is the wire shape for CreatePrivacyBudgetTemplate/Get/
@@ -784,9 +782,10 @@ type CollaborationConfiguredAudienceModelAssociationSummary struct {
 // real keys are accountId, displayName, memberAbilities (mlMemberAbilities/
 // paymentConfiguration are real but not modeled, see PARITY.md).
 type MemberChangeSpecification struct {
-	AccountID       string   `json:"accountId"`
-	DisplayName     string   `json:"displayName,omitempty"`
-	MemberAbilities []string `json:"memberAbilities"`
+	MLMemberAbilities *MLMemberAbilities `json:"mlMemberAbilities,omitempty"`
+	AccountID         string             `json:"accountId"`
+	DisplayName       string             `json:"displayName,omitempty"`
+	MemberAbilities   []string           `json:"memberAbilities"`
 }
 
 // CollaborationChangeSpecification is the COLLABORATION-typed ChangeSpecification

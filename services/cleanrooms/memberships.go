@@ -33,6 +33,7 @@ func defaultPaymentConfig(abilities []string, explicit map[string]any) map[strin
 // membershipSpec carries the CreateMembership fields that createMembershipLocked
 // applies verbatim, keeping that function's own parameter list bounded.
 type membershipSpec struct {
+	MLMemberAbilities             *MLMemberAbilities
 	DefaultResultConfiguration    map[string]any
 	DefaultJobResultConfiguration map[string]any
 	PaymentConfiguration          map[string]any
@@ -78,6 +79,7 @@ func (b *InMemoryBackend) createMembershipLocked(collab *Collaboration, spec mem
 		JobLogStatus:                    jobLogStatus,
 		IsMetricsEnabled:                spec.IsMetricsEnabled,
 		MemberAbilities:                 memberAbilities,
+		MLMemberAbilities:               cloneMLAbilities(spec.MLMemberAbilities),
 		DefaultResultConfiguration:      spec.DefaultResultConfiguration,
 		DefaultJobResultConfiguration:   spec.DefaultJobResultConfiguration,
 		PaymentConfiguration:            defaultPaymentConfig(memberAbilities, spec.PaymentConfiguration),
@@ -154,6 +156,7 @@ func (b *InMemoryBackend) ListMemberships(
 			CollaborationName:               m.CollaborationName,
 			Status:                          m.Status,
 			MemberAbilities:                 m.MemberAbilities,
+			MLMemberAbilities:               cloneMLAbilities(m.MLMemberAbilities),
 			PaymentConfiguration:            m.PaymentConfiguration,
 			CreateTime:                      m.CreateTime,
 			UpdateTime:                      m.UpdateTime,

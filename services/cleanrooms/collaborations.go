@@ -40,7 +40,13 @@ func (b *InMemoryBackend) CreateCollaboration(
 		jobLogStatus = jobLogStatusDisabled
 	}
 	memberSummaries := make([]*MemberSummary, 0, len(members)+1)
+	for _, m := range members {
+		if err := validateMLAbilities(m.MLMemberAbility); err != nil {
+			return nil, err
+		}
+	}
 	memberSummaries = append(memberSummaries, &MemberSummary{
+		MLAbilities:   cloneMLAbilities(cs.CreatorMLMemberAbilities),
 		AccountID:     b.accountID,
 		DisplayName:   creatorDisplayName,
 		Abilities:     creatorMemberAbilities,
@@ -51,6 +57,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 	})
 	for _, m := range members {
 		memberSummaries = append(memberSummaries, &MemberSummary{
+			MLAbilities:   cloneMLAbilities(m.MLMemberAbility),
 			AccountID:     m.AccountID,
 			DisplayName:   m.DisplayName,
 			Abilities:     m.Abilities,
@@ -97,6 +104,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 		JobLogStatus:         jobLogStatus,
 		IsMetricsEnabled:     isMetricsEnabled,
 		MemberAbilities:      creatorMemberAbilities,
+		MLMemberAbilities:    cloneMLAbilities(cs.CreatorMLMemberAbilities),
 		PaymentConfiguration: memberSummaries[0].PaymentConfig,
 	})
 	collab.MembershipArn = creatorMembership.Arn
@@ -226,7 +234,11 @@ func (b *InMemoryBackend) ListMembers(
 		return nil, "", ErrNotFound
 	}
 	members := make([]*MemberSummary, len(c.Members))
-	copy(members, c.Members)
+	for i, m := range c.Members {
+		mc := *m
+		mc.MLAbilities = cloneMLAbilities(m.MLAbilities)
+		members[i] = &mc
+	}
 	page, next := paginate(members, maxResults, nextToken)
 
 	return page, next, nil
@@ -301,6 +313,9 @@ func validateChange(c Change) error {
 	case changeSpecTypeMember:
 		if c.Specification.Member == nil || c.Specification.Member.AccountID == "" {
 			return fmt.Errorf("%w: specification.member.accountId is required", ErrValidation)
+		}
+		if err := validateMLAbilities(c.Specification.Member.MLMemberAbilities); err != nil {
+			return fmt.Errorf("%w: invalid specification.member.mlMemberAbilities", err)
 		}
 	case changeSpecTypeCollaboration:
 		if c.Specification.Collaboration == nil {
@@ -478,6 +493,7 @@ func (b *InMemoryBackend) applyAddMemberLocked(collab *Collaboration, spec *Memb
 
 	ts := b.now()
 	collab.Members = append(collab.Members, &MemberSummary{
+		MLAbilities:   cloneMLAbilities(spec.MLMemberAbilities),
 		AccountID:     spec.AccountID,
 		DisplayName:   spec.DisplayName,
 		Abilities:     spec.MemberAbilities,

@@ -19,6 +19,7 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		AnalyticsEngine             string                  `json:"analyticsEngine"`
 		Name                        string                  `json:"name"`
 		CreatorMemberAbilities      []string                `json:"creatorMemberAbilities"`
+		CreatorMLMemberAbilities    *MLMemberAbilities      `json:"creatorMLMemberAbilities"`
 		Members                     []MemberSpec            `json:"members"`
 		AllowedResultRegions        []string                `json:"allowedResultRegions"`
 		IsMetricsEnabled            bool                    `json:"isMetricsEnabled"`
@@ -36,9 +37,10 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		req.CreatorPaymentConfiguration,
 		req.Tags,
 		CollaborationSettings{
-			AnalyticsEngine:        req.AnalyticsEngine,
-			AllowedResultRegions:   req.AllowedResultRegions,
-			DataEncryptionMetadata: req.DataEncryptionMetadata,
+			CreatorMLMemberAbilities: req.CreatorMLMemberAbilities,
+			AnalyticsEngine:          req.AnalyticsEngine,
+			AllowedResultRegions:     req.AllowedResultRegions,
+			DataEncryptionMetadata:   req.DataEncryptionMetadata,
 		},
 	)
 	if err != nil {

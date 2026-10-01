@@ -115,12 +115,12 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 	require.NoError(t, err)
 
 	query, err := b.StartProtectedQuery(
-		membership.MembershipIdentifier, "SELECT 1", map[string]any{"outputFormat": "CSV"}, nil,
+		membership.MembershipIdentifier, "SELECT 1", map[string]any{"outputFormat": "CSV"}, nil, "",
 	)
 	require.NoError(t, err)
 
 	job, err := b.StartProtectedJob(
-		membership.MembershipIdentifier, "PYTHON", map[string]any{"pythonPath": "job.py"}, nil,
+		membership.MembershipIdentifier, "PYTHON", map[string]any{"pythonPath": "job.py"}, nil, "",
 	)
 	require.NoError(t, err)
 

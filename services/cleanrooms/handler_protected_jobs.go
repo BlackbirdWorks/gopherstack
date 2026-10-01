@@ -13,6 +13,7 @@ func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byt
 		ResultConfiguration  map[string]any `json:"resultConfiguration"`
 		MembershipIdentifier string         `json:"membershipIdentifier"`
 		Type                 string         `json:"type"`
+		PayerAccountID       string         `json:"jobComputePayerAccountId"`
 	}
 	_ = json.Unmarshal(body, &req)
 	j, err := h.Backend.StartProtectedJob(
@@ -20,6 +21,7 @@ func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byt
 		req.Type,
 		req.JobParameters,
 		req.ResultConfiguration,
+		req.PayerAccountID,
 	)
 	if err != nil {
 		return nil, err

@@ -156,6 +156,7 @@ type StorageBackend interface {
 		membershipID, sqlText string,
 		resultConfig map[string]any,
 		computeConfiguration map[string]any,
+		payerAccountID string,
 	) (*ProtectedQuery, error)
 	GetProtectedQuery(membershipID, queryID string) (*ProtectedQuery, error)
 	ListProtectedQueries(
@@ -168,6 +169,7 @@ type StorageBackend interface {
 		membershipID, jobType string,
 		jobParameters map[string]any,
 		resultConfig map[string]any,
+		payerAccountID string,
 	) (*ProtectedJob, error)
 	GetProtectedJob(membershipID, jobID string) (*ProtectedJob, error)
 	ListProtectedJobs(

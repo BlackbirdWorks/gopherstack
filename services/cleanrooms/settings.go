@@ -8,9 +8,10 @@ import (
 // CollaborationSettings carries the optional collaboration members of
 // CreateCollaboration and UpdateCollaboration.
 type CollaborationSettings struct {
-	DataEncryptionMetadata *DataEncryptionMetadata
-	AnalyticsEngine        string
-	AllowedResultRegions   []string
+	CreatorMLMemberAbilities *MLMemberAbilities
+	DataEncryptionMetadata   *DataEncryptionMetadata
+	AnalyticsEngine          string
+	AllowedResultRegions     []string
 }
 
 // ConfiguredTableSettings carries the optional selectedAnalysisMethods member.
@@ -64,7 +65,30 @@ func (s CollaborationSettings) validate() error {
 		return ErrValidation
 	}
 
+	return validateMLAbilities(s.CreatorMLMemberAbilities)
+}
+
+func validMLMemberAbilities() []string {
+	return []string{"CAN_RECEIVE_MODEL_OUTPUT", "CAN_RECEIVE_INFERENCE_OUTPUT"}
+}
+
+func validateMLAbilities(a *MLMemberAbilities) error {
+	if a == nil {
+		return nil
+	}
+	if a.CustomMLMemberAbilities == nil || !allIn(a.CustomMLMemberAbilities, validMLMemberAbilities()) {
+		return ErrValidation
+	}
+
 	return nil
+}
+
+func cloneMLAbilities(a *MLMemberAbilities) *MLMemberAbilities {
+	if a == nil {
+		return nil
+	}
+
+	return &MLMemberAbilities{CustomMLMemberAbilities: slices.Clone(a.CustomMLMemberAbilities)}
 }
 
 func validateSelectedMethods(methods []string) error {
@@ -96,6 +120,7 @@ func cloneCollaboration(c *Collaboration) *Collaboration {
 	out.Members = make([]*MemberSummary, len(c.Members))
 	for i, m := range c.Members {
 		mc := *m
+		mc.MLAbilities = cloneMLAbilities(m.MLAbilities)
 		out.Members[i] = &mc
 	}
 

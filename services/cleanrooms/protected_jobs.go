@@ -10,6 +10,7 @@ func (b *InMemoryBackend) StartProtectedJob(
 	membershipID, jobType string,
 	jobParameters map[string]any,
 	resultConfig map[string]any,
+	payerAccountID string,
 ) (*ProtectedJob, error) {
 	b.mu.Lock("StartProtectedJob")
 	defer b.mu.Unlock()
@@ -26,12 +27,13 @@ func (b *InMemoryBackend) StartProtectedJob(
 		// SUBMITTED status; advanceProtectedJobsLocked (called from every
 		// subsequent read) resolves it to a terminal status instead of leaving
 		// it stuck at SUBMITTED forever.
-		Status:              "SUBMITTED",
-		Type:                jobType,
-		JobParameters:       jobParameters,
-		ResultConfiguration: resultConfig,
-		CreateTime:          b.now(),
-		MembershipID:        membershipID,
+		Status:                   "SUBMITTED",
+		Type:                     jobType,
+		JobParameters:            jobParameters,
+		ResultConfiguration:      resultConfig,
+		JobComputePayerAccountID: payerAccountID,
+		CreateTime:               b.now(),
+		MembershipID:             membershipID,
 	}
 	b.protectedJobs.Put(j)
 
@@ -79,13 +81,14 @@ func (b *InMemoryBackend) ListProtectedJobs(
 			continue
 		}
 		items = append(items, &ProtectedJobSummary{
-			ID:                   j.ID,
-			MembershipIdentifier: j.MembershipIdentifier,
-			MembershipArn:        j.MembershipArn,
-			Status:               j.Status,
-			Type:                 j.Type,
-			CreateTime:           j.CreateTime,
-			MembershipID:         j.MembershipID,
+			ID:                       j.ID,
+			MembershipIdentifier:     j.MembershipIdentifier,
+			MembershipArn:            j.MembershipArn,
+			Status:                   j.Status,
+			Type:                     j.Type,
+			JobComputePayerAccountID: j.JobComputePayerAccountID,
+			CreateTime:               j.CreateTime,
+			MembershipID:             j.MembershipID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
