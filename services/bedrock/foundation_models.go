@@ -2,6 +2,8 @@ package bedrock
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -15,17 +17,57 @@ func foundationModelARN(region, modelID string) string {
 	return fmt.Sprintf("arn:%s:bedrock:%s::foundation-model/%s", arn.PartitionForRegion(region), region, modelID)
 }
 
-// ListFoundationModels returns seeded foundation models with optional pagination.
+// ListFoundationModelsFilter holds the ListFoundationModels query filters
+// (api_op_ListFoundationModels.go:32-55); empty fields match everything.
+type ListFoundationModelsFilter struct {
+	ByCustomizationType string
+	ByInferenceType     string
+	ByOutputModality    string
+	ByProvider          string
+	NextToken           string
+}
+
+// ListFoundationModels returns the seeded catalog narrowed by f, paginated.
 func (b *InMemoryBackend) ListFoundationModels(
-	nextToken string,
+	f ListFoundationModelsFilter,
 ) ([]*FoundationModelSummary, string) {
 	b.mu.RLock("ListFoundationModels")
 	defer b.mu.RUnlock()
 
-	list := make([]*FoundationModelSummary, len(b.foundationModels))
-	copy(list, b.foundationModels)
+	list := make([]*FoundationModelSummary, 0, len(b.foundationModels))
 
-	return paginateBedrockSlice(list, nextToken)
+	for _, m := range b.foundationModels {
+		if f.ByProvider != "" && !strings.EqualFold(m.ProviderName, f.ByProvider) {
+			continue
+		}
+
+		if f.ByCustomizationType != "" && !slices.Contains(m.CustomizationsSupported, f.ByCustomizationType) {
+			continue
+		}
+
+		if f.ByInferenceType != "" && !slices.Contains(m.InferenceTypesSupported, f.ByInferenceType) {
+			continue
+		}
+
+		if f.ByOutputModality != "" && !slices.Contains(m.OutputModalities, f.ByOutputModality) {
+			continue
+		}
+
+		cp := *m
+		cp.InputModalities = slices.Clone(m.InputModalities)
+		cp.OutputModalities = slices.Clone(m.OutputModalities)
+		cp.InferenceTypesSupported = slices.Clone(m.InferenceTypesSupported)
+		cp.CustomizationsSupported = slices.Clone(m.CustomizationsSupported)
+
+		if m.ModelLifecycle != nil {
+			lc := *m.ModelLifecycle
+			cp.ModelLifecycle = &lc
+		}
+
+		list = append(list, &cp)
+	}
+
+	return paginateBedrockSlice(list, f.NextToken)
 }
 
 // GetFoundationModel returns a single foundation model by model ID or full ARN.

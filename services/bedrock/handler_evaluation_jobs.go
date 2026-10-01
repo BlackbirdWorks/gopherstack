@@ -206,6 +206,10 @@ func parseListEvaluationJobsQuery(c *echo.Context) *ListEvaluationJobsInput {
 }
 
 func (h *Handler) handleListEvaluationJobs(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	jobs, outToken := h.Backend.ListEvaluationJobs(parseListEvaluationJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 

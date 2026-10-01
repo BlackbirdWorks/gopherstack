@@ -162,6 +162,10 @@ func parseListProvisionedModelThroughputsQuery(c *echo.Context) *ListProvisioned
 }
 
 func (h *Handler) handleListProvisionedModelThroughputs(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	pmts, outToken := h.Backend.ListProvisionedModelThroughputs(parseListProvisionedModelThroughputsQuery(c))
 	summaries := make([]provisionedModelSummaryOutput, 0, len(pmts))
 

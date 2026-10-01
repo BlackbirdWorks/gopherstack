@@ -204,23 +204,69 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicy(policyARN string) (*Automa
 	return &cp, nil
 }
 
-// ListAutomatedReasoningPolicies returns all policies.
-func (b *InMemoryBackend) ListAutomatedReasoningPolicies() []*AutomatedReasoningPolicy {
+// ListAutomatedReasoningPolicies lists DRAFT policies, or, when policyARN is
+// set, that policy's versions (api_op_ListAutomatedReasoningPolicies.go:38-41).
+func (b *InMemoryBackend) ListAutomatedReasoningPolicies(
+	policyARN string,
+	maxResults int,
+	nextToken string,
+) ([]*AutomatedReasoningPolicy, string, error) {
 	b.mu.RLock("ListAutomatedReasoningPolicies")
 	defer b.mu.RUnlock()
 
-	policies := make([]*AutomatedReasoningPolicy, 0, b.automatedReasoningPolicies.Len())
-	for _, p := range b.automatedReasoningPolicies.All() {
-		cp := *p
-		cp.Tags = copyTags(p.Tags)
-		policies = append(policies, &cp)
+	var policies []*AutomatedReasoningPolicy
+
+	if policyARN != "" {
+		if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
+			return nil, "", fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+		}
+
+		policies = b.arpVersionSummariesLocked(policyARN)
+	} else {
+		policies = make([]*AutomatedReasoningPolicy, 0, b.automatedReasoningPolicies.Len())
+		for _, p := range b.automatedReasoningPolicies.All() {
+			cp := *p
+			cp.Tags = copyTags(p.Tags)
+			policies = append(policies, &cp)
+		}
+
+		sort.Slice(policies, func(i, k int) bool {
+			return policies[i].Name < policies[k].Name
+		})
 	}
 
-	sort.Slice(policies, func(i, k int) bool {
-		return policies[i].Name < policies[k].Name
+	page, next := paginate(policies, maxResults, nextToken)
+
+	return page, next, nil
+}
+
+// arpVersionSummariesLocked returns policyARN's versions as summary rows in
+// ascending version order. Caller must hold at least a read lock.
+func (b *InMemoryBackend) arpVersionSummariesLocked(policyARN string) []*AutomatedReasoningPolicy {
+	var out []*AutomatedReasoningPolicy
+
+	for _, v := range b.arpVersions.All() {
+		if base, _, ok := splitVersionedARN(v.PolicyArn); !ok || base != policyARN {
+			continue
+		}
+
+		out = append(out, &AutomatedReasoningPolicy{
+			PolicyArn: v.PolicyArn,
+			Name:      v.Name,
+			Version:   v.Version,
+			CreatedAt: v.CreatedAt,
+			UpdatedAt: v.CreatedAt,
+		})
+	}
+
+	sort.Slice(out, func(i, k int) bool {
+		vi, _ := strconv.Atoi(out[i].Version)
+		vk, _ := strconv.Atoi(out[k].Version)
+
+		return vi < vk
 	})
 
-	return policies
+	return out
 }
 
 // UpdateAutomatedReasoningPolicy updates a policy's definition (required --
