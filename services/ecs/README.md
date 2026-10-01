@@ -9,21 +9,19 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 9 |
+| Known gaps | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- PutClusterCapacityProviders/CreateService/UpdateService/RunTask/CreateCluster/CreateTaskSet do not validate that the capacityProviders *association list* (as opposed to a capacityProviderStrategy item, already validated) references real capacity providers -- e.g. PutClusterCapacityProviders(capacityProviders=["typo-cp"]) is accepted. Not fixed: many call sites and tests use ad-hoc provider names in the association list specifically, so adding validation risks breaking them; a real, unmodeled gap kept as a product decision.
-- ServiceRevisionOverrides.RuntimePlatform (types.RuntimePlatformOverride, CpuArchitecture) is an output-only field AWS populates on an ECS Express architecture-mismatch auto-detection; not modeled (DescribeServiceRevisions never populates Overrides). No client-visible regression (field is optional/omitempty); niche, deferred.
-- ContinueServiceDeployment always returns ClientException: PAUSE-stage lifecycle hooks for blue/green deployments are not modeled at all (no hookId tracking, no pause state in the ECS_SERVICE_DEPLOYMENT/EXTERNAL deployment controllers). Real hook pausing needs Lambda-invocation simulation and TEST_TRAFFIC_SHIFT/BAKE_TIME stages -- a substantial unmodeled feature, not a stub (the op validates ARN/hookId and returns AWS-shaped errors).
-- ECS -> ELBv2 target registration is real (ip-type for awsvpc, instance-type for bridge/host; see elbv2_targets.go), but three sub-gaps remain: (1) ELB health does not feed back into ECS task/service health (one-directional registration); (2) task placement never retries a different eligible container instance when the one selectContainerInstance chose has a host-port collision, unlike real ECS's port-aware scheduler; (3) containerPortRange/hostPortRange dynamic multi-port ranges (container-agent 1.67+) are not allocated -- NetworkBinding only ever carries single-port mappings. All three are real, deterministic-but-substantial subsystems out of scope for this pass.
-- ECS -> Auto Scaling Group capacity providers are config-only: AutoScalingGroupProvider (ARN, ManagedScaling, ManagedTerminationProtection, ManagedDraining) is stored/echoed but never calls services/autoscaling to validate the ASG exists or to actually scale it. Cross-service, lives outside services/ecs/ -- reported, not fixed.
-- Value-semantics sweep (gopherstack-uox6), remaining half: ListTasksInput.daemonName and ListServicesInput.resourceManagementType are declared on the real SDK input but not on this backend's wire struct at all -- Task/Service carry no daemon linkage or resource-management-type concept anywhere in this backend to filter on, so adding the field would need real state modeling first, not just a read-and-compare. (The CreatedAt/Status/startedBy-exclusivity/value-requires-name half of this same sweep finding was fixed this pass -- see ListServiceDeployments/ListDaemonDeployments/ListTasks/ListAccountSettings/ListAttributes notes above.)
-- ListContainerInstancesInput.status docs a default INACTIVE exclusion when unset, but types.ContainerInstanceStatus's own enum has no INACTIVE value and DeregisterContainerInstance deletes the row entirely rather than retaining it as INACTIVE -- no container instance in this backend's store can ever carry that status, so the documented default has zero observable effect here. Recorded, not implemented: no reachable state exists to test it against.
-- Container exit -> STOPPED (gopherstack-s1u9) is implemented (ContainerWait-driven watchContainerExit, markTaskStoppedByContainerExit). One approximation remains open: the essential-container distinction (ContainerDefinition.Essential) is not modeled, so the FIRST container in a multi-container task to exit drives the whole task to STOPPED without force-stopping siblings -- exact for the common single-container Step Functions .sync batch-job shape, wrong for genuine multi-container teardown.
-- awslogs LogConfiguration (gopherstack-sv5q, gopherstack-jnct) streams real CloudWatch Logs via ContainerLogs. One approximation remains open: with no awslogs-stream-prefix set, real ECS names the stream after the Docker-assigned container ID (unavailable before the container exists); this backend substitutes the task ID instead -- an own-choice approximation, not SDK-pinned.
+- ServiceRevisionOverrides.RuntimePlatform is output-only (set on Express architecture-mismatch detection) and never populated; optional, no client-visible regression.
+- ContinueServiceDeployment always returns ClientException: blue/green PAUSE-stage lifecycle hooks (hookId, pause state, Lambda hook invocation) are unmodeled.
+- ELBv2 registration is one-directional: ELB health does not feed ECS health, placement never retries another instance on host-port collision, and containerPortRange/hostPortRange are not allocated.
+- ASG capacity providers are config-only: AutoScalingGroupProvider is stored but never validated against or scaled via services/autoscaling (cross-service).
+- ListTasksInput.daemonName and ListServicesInput.resourceManagementType are not declared: no daemon-launched tasks or ECS-managed (Express) Service rows exist to filter on.
+- ListContainerInstances default INACTIVE exclusion has no effect: DeregisterContainerInstance deletes the row, so no INACTIVE instance can exist.
+- awslogs without awslogs-stream-prefix names the stream after the task ID, not the Docker container ID (unknown before container creation).
 
 ### Deferred
 

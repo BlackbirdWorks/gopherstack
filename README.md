@@ -477,7 +477,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 4 gaps; 2 deferred |
-| [ECS](services/ecs/README.md) | A | 65 | 9 gaps; 1 deferred |
+| [ECS](services/ecs/README.md) | A | 65 | 7 gaps; 1 deferred |
 | [EKS](services/eks/README.md) | A | 70 | 3 gaps; 1 deferred |
 
 ### Storage
@@ -503,7 +503,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 3 gaps; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 5 gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 9 gaps; 2 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 5 gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 52 | 6 gaps |
@@ -545,7 +545,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 2 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 3 gaps; 4 deferred |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
-| [Step Functions](services/stepfunctions/README.md) | A | 37 | 9 gaps |
+| [Step Functions](services/stepfunctions/README.md) | A | 37 | 5 gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 5 gaps |
 
 ### Analytics
@@ -562,8 +562,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis](services/kinesis/README.md) | A | 39 | 6 gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 6 gaps; 1 deferred |
-| [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 7 gaps |
-| [Lake Formation](services/lakeformation/README.md) | A | 61 | 9 gaps |
+| [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 gaps |
+| [Lake Formation](services/lakeformation/README.md) | A | 61 | 5 gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 4 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 19 | 2 gaps |
@@ -577,7 +577,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 6 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 5 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps |
-| [Inspector](services/inspector2/README.md) | A | 13 | 8 gaps; 1 deferred |
+| [Inspector](services/inspector2/README.md) | A | 13 | 5 gaps; 1 deferred |
 | [KMS](services/kms/README.md) | A | 54 | 3 gaps; 1 deferred |
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 7 gaps; 2 deferred |
@@ -622,14 +622,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 5 gaps; 3 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 3 gaps; 1 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 105 | 29 gaps |
+| [Systems Manager](services/ssm/README.md) | A | 105 | 27 gaps |
 
 ### Developer Tools
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | 7 gaps |
-| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 9 gaps; 3 deferred |
+| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 7 gaps; 3 deferred |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 5 gaps; 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 8 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |

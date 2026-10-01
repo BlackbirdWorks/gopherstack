@@ -9,20 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 13 (13 ok) |
 | Feature families | 25 (24 ok, 1 partial) |
-| Known gaps | 8 |
+| Known gaps | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- "ListFindingAggregations genuinely supports 7 of the 15 real AggregationType values (ACCOUNT, TITLE, REPOSITORY, AWS_EC2_INSTANCE, AWS_ECR_CONTAINER, AWS_LAMBDA_FUNCTION, CODE_REPOSITORY). The remaining 8 need Finding/FindingResource detail this backend's model doesn't carry (package/vulnerability sub-struct, AMI ID, image-layer hash, Lambda layer ARN), or (FINDING_TYPE) have no group key to aggregate by at all. The aggregationRequest per-type sort/filter sub-object is also accepted but read for no type."
-- "A SUPPRESS filter's effect on findings is one-directional: creating/updating a filter to SUPPRESS suppresses matching ACTIVE findings, but deleting the filter or changing its action away from SUPPRESS never reverts a previously-suppressed finding. Neither the pinned SDK nor the API Reference documents reversal semantics, so this was left undecided rather than guessed."
-- "ListConnectors' ConnectorFilterCriteria.accounts/connectorType facets are not modeled: accounts is meaningless in this single-account emulator, and connectorType (CUSTOMER_MANAGED/SERVICE_LINKED) has no corresponding field on Connector to filter against (confirmed via types.go) -- every connector this backend can create would filter identically to CUSTOMER_MANAGED, making a hardcoded implementation dead plumbing, not a real fix (same reasoning as s3control's ListAccessPoints.DataSourceType precedent). Only provider/connectorArns/awsConfigConnectorArns are supported."
-- "Connector's real PENDING_DELETION EnablementStatus and ScopeConfiguration's real ACTIVE/ERROR/DISABLED State values are never reached: this backend's connectors never leave PENDING_AUTHORIZATION (no out-of-band Azure OAuth step exists to drive them further), so DeleteConnector completes synchronously and every scope setting reports PENDING. Deliberate simplification of an inherently external-system-dependent async lifecycle."
-- "CreateCodeSecurityIntegrationOutput's optional authorizationUrl member (real API: OAuth callback URL for GitHub/GitLab integrations) is never returned -- gopherstack has no OAuth flow to derive a real URL from, and there is no request input or local state to derive an equivalent, dereferenceable URL from. Confirmed against the live AWS API Reference. Honest, confirmed-impossible-to-close gap, not a stub."
-- "GetClustersForImage always returns an empty cluster list: gopherstack has no ECS/EKS cluster-membership tracking to join an ECR image resourceId against (confirmed: neither services/ecs nor services/eks track image-to-cluster membership). Would need a SeedClustersForImage capability plus real ECS/EKS cross-references."
-- "CoverageFilterCriteria's ~20 facets tied to CoveredResource.resourceMetadata (a nested per-resource-type metadata union this backend never populates) remain unmodeled: no backing data exists for ec2InstanceTags, ecrImageTags, ecrImageInUseCount, ecrImageLastInUseAt, imagePulledAt, lambdaFunctionTags, cloudContainerImageTags, and the rest of the cloud*/code*/lambda* facets (confirmed via CoverageFilterCriteria's full field list in types.go). scanStatusCode/scanStatusReason/scanMode/lastScannedAt are already fixed and genuinely narrowing."
-- "Vulnerability's nested AtigData/CisaData/Cvss2/Cvss3/Cvss4/Epss/ExploitObserved objects and FindingDetail's CisaData/Evidences/ExploitObserved objects (7 distinct real struct types, confirmed via types.go) are real but not modeled -- only scalar/list fields are seedable via SeedVulnerability/SeedFinding. Each carries its own several-field sub-shape, a genuinely larger addition deliberately left for a dedicated future pass. SeedVulnerability/ SeedFinding already make this additive-safe whenever that pass happens."
+- ListFindingAggregations supports 7 of 15 AggregationType values; the other 8 need Finding detail (package/vulnerability sub-struct, AMI ID, layer hash, Lambda layer ARN) this model lacks. The per-type aggregationRequest sort/filter object is accepted but unread.
+- A SUPPRESS filter's reversal is modeled only for DeleteFilter (user guide, 'Deleting a suppression rule', 2026-10-01); changing a filter's action away from SUPPRESS does not reactivate findings because no source documents it.
+- ListConnectors accounts/connectorType facets, Connector PENDING_DELETION, ScopeConfiguration ACTIVE/ERROR/DISABLED, CreateCodeSecurityIntegration authorizationUrl and GetClustersForImage results all depend on external Azure OAuth flows or ECS/EKS image tracking that gopherstack does not model.
+- CoverageFilterCriteria's ~20 resourceMetadata-backed facets (ec2InstanceTags, ecrImageTags, lambdaFunctionTags, cloud*/code* facets) have no backing data; scanStatusCode/scanStatusReason/scanMode/lastScannedAt are implemented.
+- FindingDetail's CisaData/Evidences/ExploitObserved objects are not modeled (SeedFinding scalars only); Vulnerability's nested objects are modeled.
 
 ### Deferred
 

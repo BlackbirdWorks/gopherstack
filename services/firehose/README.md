@@ -9,19 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 7 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | "fixed this pass" |
 
 ### Known gaps
 
-- "Redshift delivery's COPY step (RedshiftDataExecutor) needs SetRedshiftDataBackend wired to the local redshiftdata backend in cli.go, outside services/firehose's own directory -- staging to S3 is real and unconditional regardless of wiring (gopherstack-ohdc)."
-- "Iceberg/Snowflake destinations land processed records in their required S3Configuration staging bucket (genuine state mutation) but drive no real Apache Iceberg/Glue Data Catalog commit or Snowflake Snowpipe Streaming ingest -- this backend has no Iceberg-table or Snowflake-account backend to connect to. Wire shape is fully field-diffed and correct; only the data-movement mechanics diverge."
-- "AmazonOpenSearchServerlessDestinationConfiguration (a real, distinct 11th destination type) has no delivery pipeline -- this backend has no OpenSearch-Serverless backend to connect to. The accept-and-drop request-side half is fixed: CreateDeliveryStream/ UpdateDestination now detect the key's presence and reject explicitly with InvalidArgumentException instead of silently creating a stream with no destination."
-- "MSK source ingestion: SourceDescription.MSKSourceDescription round-trips correctly, but real polling/ingestion needs a KafkaReader-style interface plus cli.go wiring to services/kafka's backend, outside services/firehose's own directory (unlike KinesisStreamAsSource, which is wired)."
-- "Database source ingestion: DatabaseSourceConfiguration/DatabaseSourceDescription round-trip correctly (DatabaseSourceDescription.SnapshotInfo honestly stays an empty slice -- no snapshot is ever taken), but real snapshot/CDC polling against a MySQL/ PostgreSQL endpoint needs its own backend wiring, same structural gap class as MSK."
-- "Elasticsearch/Amazonopensearchservice's VpcConfiguration/VpcConfigurationDescription (private-VPC ENI delivery) isn't modeled: VpcConfigurationDescription.VpcId is a required response field AWS derives by resolving the given SubnetIds against real EC2, and fabricating one without that cross-service resolution would violate the no-fabricated- IDs rule. DocumentIdOptions, the sibling field flagged alongside this, is now modeled -- see PutInsightSelectors-style OpenSearch/Elasticsearch ops notes and TestDocumentIdOptions_OpenSearchRoundTrips/TestDocumentIdOptions_ElasticsearchRoundTrips."
-- "DeleteDeliveryStream.AllowForceDelete (reqfieldiff tier-1, 2026-09-18) is not read: it only overrides a KMS-grant-retirement failure that would otherwise block deletion, and this backend has no KMS-grant-retirement failure mode to bypass -- delete always succeeds unconditionally today, so the flag has no observable effect to implement without fabricating a KMS failure subsystem. (bd: unfiled)"
+- Redshift COPY (RedshiftDataExecutor), MSK source polling and database-source snapshot/CDC need cli.go wiring to other backends (redshiftdata, kafka, a DB endpoint); staging to S3 and wire-shape round-trips are real (gopherstack-ohdc).
+- Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to.
+- Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed.
+- DeleteDeliveryStream.AllowForceDelete is not read: it only bypasses a KMS-grant-retirement failure, a failure mode this backend does not model.
 
 ## More
 
