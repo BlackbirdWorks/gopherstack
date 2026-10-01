@@ -508,7 +508,7 @@ func testCreateStackRetainExceptOnCreate(t *testing.T) {
 func runRetainExceptOnCreate(t *testing.T, retainExceptOnCreate, wantBucketSurvives bool) {
 	t.Helper()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", rtTestRegion, creator)
 

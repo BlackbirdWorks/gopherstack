@@ -64,7 +64,7 @@ func TestResourceCreator_S3Bucket(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -186,7 +186,7 @@ func TestResourceCreator_DynamoDBTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -254,7 +254,7 @@ func TestResourceCreator_SQSQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -312,7 +312,7 @@ func TestResourceCreator_SNSTopic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -363,7 +363,7 @@ func TestResourceCreator_KinesisStream(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			fakeNow := time.Now()
 			withFakeClockedKinesis(backends, &fakeNow)
 			rc := cloudformation.NewResourceCreator(backends)
@@ -394,7 +394,7 @@ func TestResourceCreator_KinesisStream(t *testing.T) {
 func TestResourceCreator_SNSSubscription(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create a topic first.
@@ -439,7 +439,7 @@ func TestResourceCreator_EventBus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -462,7 +462,7 @@ func TestResourceCreator_EventBus(t *testing.T) {
 func TestResourceCreator_S3BucketPolicy(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create bucket first.
@@ -486,7 +486,7 @@ func TestResourceCreator_S3BucketPolicy(t *testing.T) {
 func TestResourceCreator_SQSQueuePolicy(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create queue first.
@@ -510,7 +510,7 @@ func TestResourceCreator_SQSQueuePolicy(t *testing.T) {
 func TestResourceCreator_DeleteSNSSubscription_NilBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends() // SNS field is set but we want to test nil case; override
+	backends := newServiceBackends(t) // SNS field is set but we want to test nil case; override
 	backends.SNS = nil
 	rc := cloudformation.NewResourceCreator(backends)
 
@@ -522,7 +522,7 @@ func TestResourceCreator_DeleteSNSSubscription_NilBackend(t *testing.T) {
 func TestResourceCreator_DeleteS3BucketPolicy_NilBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	backends.S3 = nil
 	rc := cloudformation.NewResourceCreator(backends)
 
@@ -533,7 +533,7 @@ func TestResourceCreator_DeleteS3BucketPolicy_NilBackend(t *testing.T) {
 func TestResourceCreator_DeleteS3BucketPolicy_RealBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create bucket then apply policy, then delete policy.

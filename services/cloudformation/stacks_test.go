@@ -386,7 +386,7 @@ func TestBackend_DeleteStack(t *testing.T) {
 func TestBackend_DeleteStack_ResourceDeleteFails(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	backend := cloudformation.NewInMemoryBackendWithConfig(
 		"000000000000",
 		"us-east-1",
@@ -430,7 +430,7 @@ func TestBackend_DeleteStack_ResourceDeleteFails(t *testing.T) {
 func TestBackend_CreateStack_RollbackDeleteFails(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 
@@ -474,7 +474,7 @@ func TestBackend_CreateStack_RollbackDeleteFails(t *testing.T) {
 func TestBackend_UpdateStack_StaleResourceDeleteFails(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	backend := cloudformation.NewInMemoryBackendWithConfig(
 		"000000000000", "us-east-1", cloudformation.NewResourceCreator(backends),
 	)
@@ -517,7 +517,7 @@ func TestBackend_UpdateStack_StaleResourceDeleteFails(t *testing.T) {
 func TestBackend_RollbackUpdateResources_DeleteFails(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	backend := cloudformation.NewInMemoryBackendWithConfig(
 		"000000000000", "us-east-1", cloudformation.NewResourceCreator(backends),
 	)

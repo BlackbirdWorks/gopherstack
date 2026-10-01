@@ -49,7 +49,7 @@ func TestDeleteECRRepository_EmptyOnDelete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newAdditionalServiceBackends()
+			backends := newAdditionalServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 			ctx := t.Context()
 

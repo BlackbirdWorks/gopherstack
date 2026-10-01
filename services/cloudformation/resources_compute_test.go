@@ -42,8 +42,8 @@ func TestResourceCreator_Lambda_NilBackend(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// newServiceBackends() leaves Lambda=nil, so Lambda functions use stub path.
-			backends := newServiceBackends()
+			// newServiceBackends(t) leaves Lambda=nil, so Lambda functions use stub path.
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			if tt.isDelete {
@@ -109,7 +109,7 @@ func TestResourceCreator_EC2Resources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 			props := tt.buildProps()
 
@@ -129,7 +129,7 @@ func TestResourceCreator_EC2Resources(t *testing.T) {
 func TestResourceCreator_EC2SubnetAndRouteTable(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create VPC first.
@@ -180,7 +180,7 @@ func TestResourceCreator_EC2SubnetAndRouteTable(t *testing.T) {
 func TestResourceCreator_LambdaESM_RealBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newLambdaServiceBackends()
+	backends := newLambdaServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create a Lambda function first.
@@ -222,7 +222,7 @@ func TestResourceCreator_LambdaESM_RealBackend(t *testing.T) {
 func TestResourceCreator_LambdaAlias_RealBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newLambdaServiceBackends()
+	backends := newLambdaServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create function.
@@ -257,7 +257,7 @@ func TestResourceCreator_LambdaAlias_RealBackend(t *testing.T) {
 func TestResourceCreator_LambdaVersion_RealBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newLambdaServiceBackends()
+	backends := newLambdaServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create function.
@@ -289,7 +289,7 @@ func TestResourceCreator_LambdaVersion_RealBackend(t *testing.T) {
 func TestResourceCreator_APIGatewaySubResources(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create REST API.
@@ -398,7 +398,7 @@ func TestResourceCreator_LambdaPermission_RealBackend(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newLambdaServiceBackends()
+			backends := newLambdaServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -436,7 +436,7 @@ func TestEC2_DeleteSubnet_NotFound(t *testing.T) {
 func TestResourceCreator_ECSServiceCreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newAdditionalServiceBackends()
+	backends := newAdditionalServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 

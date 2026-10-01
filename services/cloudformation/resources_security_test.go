@@ -42,7 +42,7 @@ func TestResourceCreator_SSMParameter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -85,7 +85,7 @@ func TestResourceCreator_KMSKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::KMS::Key", tt.props, nil, nil)
@@ -132,7 +132,7 @@ func TestResourceCreator_SecretsManagerSecret(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -209,7 +209,7 @@ func TestResourceCreator_IAMResources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)

@@ -14,7 +14,7 @@ import (
 func newSFNMoreTestClient(t *testing.T) (*cloudformation.ServiceBackends, *cfnsdk.Client) {
 	t.Helper()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 	client := newTestClientForBackend(t, backend)
@@ -93,7 +93,7 @@ func TestCreateStack_StepFunctionsVersionAndAlias(t *testing.T) {
 func TestCreateStack_StepFunctionsVersionAlias_NilBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 	client := newTestClientForBackend(t, backend)

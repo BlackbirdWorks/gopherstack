@@ -18,7 +18,7 @@ import (
 func TestCreateSecretsManagerRotationSchedule_ConfiguresRotation(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	_, err := backends.SecretsManager.Backend.CreateSecret(t.Context(), &secretsmanagerbackend.CreateSecretInput{
