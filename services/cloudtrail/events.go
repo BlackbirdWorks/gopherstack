@@ -50,8 +50,10 @@ func (b *InMemoryBackend) RecordEvent(ev Event) {
 	b.events = append(b.events, ev)
 	b.eventWrites++
 
-	if b.eventWrites%trimEventsSweepEvery == 0 || len(b.events) > maxStoredEvents {
+	if b.eventWrites%trimEventsSweepEvery == 0 {
 		b.trimEventsLocked()
+	} else if len(b.events) > maxStoredEvents {
+		b.dropExcessEventsLocked()
 	}
 
 	b.mu.Unlock()
@@ -81,11 +83,15 @@ func (b *InMemoryBackend) trimEventsLocked() {
 
 	b.events = kept
 
-	// In-place shift instead of reallocating: at steady state this runs every
-	// sweep, and the old alloc dominated allocator traffic (~25% of bytes).
+	b.dropExcessEventsLocked()
+}
+
+// dropExcessEventsLocked drops the oldest events past maxStoredEvents. It
+// reslices rather than copies; append reallocates amortized. Caller holds b.mu.
+func (b *InMemoryBackend) dropExcessEventsLocked() {
 	if excess := len(b.events) - maxStoredEvents; excess > 0 {
-		n := copy(b.events, b.events[excess:])
-		b.events = b.events[:n]
+		clear(b.events[:excess])
+		b.events = b.events[excess:]
 	}
 }
 

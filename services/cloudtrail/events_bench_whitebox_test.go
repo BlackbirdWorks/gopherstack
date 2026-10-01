@@ -31,3 +31,27 @@ func BenchmarkTrimEventsLocked_AtCapacity(b *testing.B) {
 		be.mu.Unlock()
 	}
 }
+
+func BenchmarkRecordEvent_AtCapacity(b *testing.B) {
+	be := NewInMemoryBackend("123456789012", "us-east-1")
+	be.SetS3Backend(benchS3{})
+
+	now := time.Now().UTC()
+
+	be.events = make([]Event, maxStoredEvents)
+	for i := range be.events {
+		be.events[i] = Event{EventTime: now, EventName: "PutObject"}
+	}
+
+	ev := Event{
+		EventName:       "PutObject",
+		EventSource:     "s3.amazonaws.com",
+		CloudTrailEvent: `{"eventName":"PutObject","eventSource":"s3.amazonaws.com"}`,
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		be.RecordEvent(ev)
+	}
+}
