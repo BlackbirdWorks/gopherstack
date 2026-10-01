@@ -346,6 +346,16 @@ func copyArtifactRefs(refs []ArtifactRef) []ArtifactRef {
 // polling for completion (as the real, asynchronous AWS service expects
 // callers to do) would spin indefinitely.
 func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineName string) (*PipelineExecution, error) {
+	return b.StartPipelineExecutionWith(ctx, pipelineName, StartExecutionOptions{})
+}
+
+// StartPipelineExecutionWith starts an execution, resolving declared pipeline
+// variables against opts.Variables and recording opts.SourceRevisions for actions the pipeline declares.
+func (b *InMemoryBackend) StartPipelineExecutionWith(
+	ctx context.Context,
+	pipelineName string,
+	opts StartExecutionOptions,
+) (*PipelineExecution, error) {
 	b.mu.Lock("StartPipelineExecution")
 	defer b.mu.Unlock()
 
@@ -367,6 +377,8 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 		Trigger:             triggerTypeStartExecution,
 		StartTime:           now,
 		LastUpdateTime:      now,
+		Variables:           resolveVariables(p.Declaration.Variables, opts.Variables),
+		SourceRevisions:     declaredSourceRevisions(p.Declaration.Stages, opts.SourceRevisions),
 	}
 
 	execs := b.executionsStore(region)
@@ -413,7 +425,7 @@ func (b *InMemoryBackend) StopPipelineExecution(
 	// never an in-progress *ordinary* action to wait out (see doc comment),
 	// so both abandon=true and abandon=false immediately abandon any pending
 	// approval gate and reach the terminal Stopped state.
-	_, _ = reason, abandon
+	_ = abandon
 
 	for _, exec := range b.executionsStore(region)[pipelineName] {
 		if exec.PipelineExecutionID != executionID {
@@ -431,6 +443,7 @@ func (b *InMemoryBackend) StopPipelineExecution(
 		}
 
 		exec.Status = statusStopped
+		exec.StopReason = reason
 		exec.LastUpdateTime = now
 		cp := *exec
 
@@ -448,4 +461,35 @@ func (b *InMemoryBackend) StopPipelineExecution(
 	// not break errors.As for a real caller -- see
 	// undeclared_error_codes_test.go.
 	return nil, fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)
+}
+
+func resolveVariables(declared []PipelineVariable, overrides map[string]string) []ResolvedPipelineVariable {
+	out := make([]ResolvedPipelineVariable, 0, len(declared))
+
+	for _, v := range declared {
+		val := v.DefaultValue
+		if o, ok := overrides[v.Name]; ok {
+			val = o
+		}
+
+		out = append(out, ResolvedPipelineVariable{Name: v.Name, ResolvedValue: val})
+	}
+
+	return out
+}
+
+func declaredSourceRevisions(stages []Stage, overrides []SourceRevision) []SourceRevision {
+	var out []SourceRevision
+
+	for _, o := range overrides {
+		for _, s := range stages {
+			if slices.ContainsFunc(s.Actions, func(a Action) bool { return a.Name == o.ActionName }) {
+				out = append(out, o)
+
+				break
+			}
+		}
+	}
+
+	return out
 }

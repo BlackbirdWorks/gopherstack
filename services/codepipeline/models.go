@@ -346,6 +346,24 @@ type Trigger struct {
 	ProviderType     string            `json:"providerType"`
 }
 
+// ResolvedPipelineVariable is a pipeline variable's effective value for one execution.
+type ResolvedPipelineVariable struct {
+	Name          string `json:"name"`
+	ResolvedValue string `json:"resolvedValue"`
+}
+
+// SourceRevision is a source-action revision pinned by StartPipelineExecution's SourceRevisions.
+type SourceRevision struct {
+	ActionName string `json:"actionName"`
+	RevisionID string `json:"revisionId"`
+}
+
+// StartExecutionOptions carries StartPipelineExecution's optional overrides.
+type StartExecutionOptions struct {
+	Variables       map[string]string
+	SourceRevisions []SourceRevision
+}
+
 // PipelineVariable represents a pipeline-level variable declaration.
 type PipelineVariable struct {
 	Name         string `json:"name"`
@@ -415,16 +433,19 @@ type Tag struct {
 // executions created by RollbackStage; it mirrors the real
 // PipelineRollbackMetadata.RollbackTargetPipelineExecutionId field.
 type PipelineExecution struct {
-	StartTime                 time.Time `json:"startTime"`
-	LastUpdateTime            time.Time `json:"lastUpdateTime"`
-	PipelineName              string    `json:"pipelineName"`
-	PipelineExecutionID       string    `json:"pipelineExecutionId"`
-	Status                    string    `json:"status"`
-	Trigger                   string    `json:"trigger,omitempty"`
-	ExecutionMode             string    `json:"executionMode,omitempty"`
-	ExecutionType             string    `json:"executionType,omitempty"`
-	RollbackTargetExecutionID string    `json:"rollbackTargetExecutionId,omitempty"`
-	PipelineVersion           int       `json:"pipelineVersion"`
+	StartTime                 time.Time                  `json:"startTime"`
+	LastUpdateTime            time.Time                  `json:"lastUpdateTime"`
+	PipelineName              string                     `json:"pipelineName"`
+	PipelineExecutionID       string                     `json:"pipelineExecutionId"`
+	Status                    string                     `json:"status"`
+	Trigger                   string                     `json:"trigger,omitempty"`
+	ExecutionMode             string                     `json:"executionMode,omitempty"`
+	ExecutionType             string                     `json:"executionType,omitempty"`
+	RollbackTargetExecutionID string                     `json:"rollbackTargetExecutionId,omitempty"`
+	StopReason                string                     `json:"stopReason,omitempty"`
+	Variables                 []ResolvedPipelineVariable `json:"variables,omitempty"`
+	SourceRevisions           []SourceRevision           `json:"sourceRevisions,omitempty"`
+	PipelineVersion           int                        `json:"pipelineVersion"`
 }
 
 // StageState represents the state of a pipeline stage.
