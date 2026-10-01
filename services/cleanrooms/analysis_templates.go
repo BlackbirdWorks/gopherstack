@@ -60,9 +60,17 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 	source map[string]any,
 	analysisParameters []map[string]any,
 	tags map[string]string,
+	settings ...AnalysisTemplateSettings,
 ) (*AnalysisTemplate, error) {
 	b.mu.Lock("CreateAnalysisTemplate")
 	defer b.mu.Unlock()
+	var emc *ErrorMessageConfiguration
+	if len(settings) > 0 {
+		emc = settings[0].ErrorMessageConfiguration
+	}
+	if err := validateErrorMessageConfiguration(emc); err != nil {
+		return nil, err
+	}
 	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
@@ -86,6 +94,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 		Format:                     format,
 		Source:                     source,
 		AnalysisParameters:         analysisParameters,
+		ErrorMessageConfiguration:  emc,
 		CreateTime:                 ts,
 		UpdateTime:                 ts,
 		Tags:                       tags,
@@ -98,7 +107,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 		b.tagsByArn[tmpl.Arn] = maps.Clone(tags)
 	}
 
-	return tmpl, nil
+	return cloneAnalysisTemplate(tmpl), nil
 }
 
 func (b *InMemoryBackend) GetAnalysisTemplate(
@@ -111,7 +120,7 @@ func (b *InMemoryBackend) GetAnalysisTemplate(
 		return nil, ErrNotFound
 	}
 
-	return tmpl, nil
+	return cloneAnalysisTemplate(tmpl), nil
 }
 
 func (b *InMemoryBackend) ListAnalysisTemplates(

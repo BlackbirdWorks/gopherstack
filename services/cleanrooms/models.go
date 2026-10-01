@@ -101,25 +101,41 @@ type MemberSummary struct {
 // backing store, tagsByArn population at create time) -- only their
 // wire presence was invented.
 type Collaboration struct {
-	Tags                    map[string]string `json:"-"`
-	MemberStatus            string            `json:"memberStatus"`
-	MembershipArn           string            `json:"membershipArn,omitempty"`
-	Arn                     string            `json:"arn"`
-	Name                    string            `json:"name"`
-	Description             string            `json:"description,omitempty"`
-	CreatorAccountID        string            `json:"creatorAccountId"`
-	ID                      string            `json:"id"`
-	CreatorDisplayName      string            `json:"creatorDisplayName"`
-	QueryLogStatus          string            `json:"queryLogStatus,omitempty"`
-	JobLogStatus            string            `json:"jobLogStatus,omitempty"`
-	CollaborationIdentifier string            `json:"-"`
-	MembershipID            string            `json:"membershipId,omitempty"`
-	MemberAbilities         []string          `json:"-"`
-	Members                 []*MemberSummary  `json:"members,omitempty"`
-	AutoApprovedChangeTypes []string          `json:"autoApprovedChangeTypes,omitempty"`
-	CreateTime              float64           `json:"createTime,omitempty"`
-	UpdateTime              float64           `json:"updateTime,omitempty"`
-	IsMetricsEnabled        bool              `json:"isMetricsEnabled"`
+	Tags                    map[string]string       `json:"-"`
+	DataEncryptionMetadata  *DataEncryptionMetadata `json:"dataEncryptionMetadata,omitempty"`
+	JobLogStatus            string                  `json:"jobLogStatus,omitempty"`
+	CollaborationIdentifier string                  `json:"-"`
+	Name                    string                  `json:"name"`
+	Description             string                  `json:"description,omitempty"`
+	CreatorAccountID        string                  `json:"creatorAccountId"`
+	ID                      string                  `json:"id"`
+	CreatorDisplayName      string                  `json:"creatorDisplayName"`
+	QueryLogStatus          string                  `json:"queryLogStatus,omitempty"`
+	MembershipArn           string                  `json:"membershipArn,omitempty"`
+	Arn                     string                  `json:"arn"`
+	MembershipID            string                  `json:"membershipId,omitempty"`
+	MemberStatus            string                  `json:"memberStatus"`
+	AnalyticsEngine         string                  `json:"analyticsEngine,omitempty"`
+	AutoApprovedChangeTypes []string                `json:"autoApprovedChangeTypes,omitempty"`
+	AllowedResultRegions    []string                `json:"allowedResultRegions,omitempty"`
+	Members                 []*MemberSummary        `json:"members,omitempty"`
+	MemberAbilities         []string                `json:"-"`
+	CreateTime              float64                 `json:"createTime,omitempty"`
+	UpdateTime              float64                 `json:"updateTime,omitempty"`
+	IsMetricsEnabled        bool                    `json:"isMetricsEnabled"`
+}
+
+// DataEncryptionMetadata is the collaboration's client-side encryption settings.
+type DataEncryptionMetadata struct {
+	AllowCleartext                        bool `json:"allowCleartext"`
+	AllowDuplicates                       bool `json:"allowDuplicates"`
+	AllowJoinsOnColumnsWithDifferentNames bool `json:"allowJoinsOnColumnsWithDifferentNames"`
+	PreserveNulls                         bool `json:"preserveNulls"`
+}
+
+// ErrorMessageConfiguration is the PySpark error-detail setting of an analysis template.
+type ErrorMessageConfiguration struct {
+	Type string `json:"type"`
 }
 
 // CollaborationSummary is the wire shape returned by ListCollaborations.
@@ -137,6 +153,7 @@ type CollaborationSummary struct {
 	MemberStatus            string  `json:"memberStatus"`
 	MembershipArn           string  `json:"membershipArn,omitempty"`
 	MembershipID            string  `json:"membershipId,omitempty"`
+	AnalyticsEngine         string  `json:"analyticsEngine,omitempty"`
 	CreateTime              float64 `json:"createTime,omitempty"`
 	UpdateTime              float64 `json:"updateTime,omitempty"`
 }
@@ -198,7 +215,6 @@ type MembershipSummary struct {
 // UpdateConfiguredTable (ConfiguredTableSummary is its List shape). Verified against
 // awsRestjson1_deserializeDocumentConfiguredTable(Summary): real keys use
 // "id", never "configuredTableIdentifier" (request-parameter-only name).
-// selectedAnalysisMethods is not modeled (deferred, see PARITY.md).
 type ConfiguredTable struct {
 	TableReference            map[string]any    `json:"tableReference,omitempty"`
 	Tags                      map[string]string `json:"-"`
@@ -210,6 +226,7 @@ type ConfiguredTable struct {
 	ID                        string            `json:"id"`
 	AllowedColumns            []string          `json:"allowedColumns"`
 	AnalysisRuleTypes         []string          `json:"analysisRuleTypes"`
+	SelectedAnalysisMethods   []string          `json:"selectedAnalysisMethods,omitempty"`
 	CreateTime                float64           `json:"createTime,omitempty"`
 	UpdateTime                float64           `json:"updateTime,omitempty"`
 }
@@ -221,6 +238,7 @@ type ConfiguredTableSummary struct {
 	AnalysisMethod            string   `json:"analysisMethod,omitempty"`
 	ID                        string   `json:"id"`
 	AnalysisRuleTypes         []string `json:"analysisRuleTypes"`
+	SelectedAnalysisMethods   []string `json:"selectedAnalysisMethods,omitempty"`
 	CreateTime                float64  `json:"createTime,omitempty"`
 	UpdateTime                float64  `json:"updateTime,omitempty"`
 }
@@ -302,28 +320,28 @@ type ConfiguredTableAssociationAnalysisRule struct {
 // UpdateAnalysisTemplate (Summary is its List shape). Verified against
 // awsRestjson1_deserializeDocumentAnalysisTemplate(Summary): real keys use
 // "id"/"collaborationId"/"membershipId", never the "*Identifier" forms
-// (request-parameter-only names). errorMessageConfiguration,
-// sourceMetadata, syntheticDataParameters, validations (full-resource) and
-// isSyntheticData (summary) are not modeled (deferred, see PARITY.md).
+// (request-parameter-only names). sourceMetadata, syntheticDataParameters,
+// validations and isSyntheticData are not modeled (see PARITY.md).
 type AnalysisTemplate struct {
-	Source                     map[string]any    `json:"source,omitempty"`
-	Tags                       map[string]string `json:"-"`
-	Schema                     map[string]any    `json:"schema,omitempty"`
-	AnalysisTemplateIdentifier string            `json:"-"`
-	Format                     string            `json:"format,omitempty"`
-	MembershipArn              string            `json:"membershipArn"`
-	Name                       string            `json:"name"`
-	Description                string            `json:"description,omitempty"`
-	CollaborationIdentifier    string            `json:"-"`
-	CollaborationArn           string            `json:"collaborationArn"`
-	MembershipIdentifier       string            `json:"-"`
-	Arn                        string            `json:"arn"`
-	CollaborationID            string            `json:"collaborationId"`
-	MembershipID               string            `json:"membershipId"`
-	ID                         string            `json:"id"`
-	AnalysisParameters         []map[string]any  `json:"analysisParameters,omitempty"`
-	UpdateTime                 float64           `json:"updateTime,omitempty"`
-	CreateTime                 float64           `json:"createTime,omitempty"`
+	Source                     map[string]any             `json:"source,omitempty"`
+	Tags                       map[string]string          `json:"-"`
+	Schema                     map[string]any             `json:"schema,omitempty"`
+	ErrorMessageConfiguration  *ErrorMessageConfiguration `json:"errorMessageConfiguration,omitempty"`
+	CollaborationIdentifier    string                     `json:"-"`
+	Arn                        string                     `json:"arn"`
+	Name                       string                     `json:"name"`
+	Description                string                     `json:"description,omitempty"`
+	Format                     string                     `json:"format,omitempty"`
+	CollaborationArn           string                     `json:"collaborationArn"`
+	MembershipIdentifier       string                     `json:"-"`
+	MembershipArn              string                     `json:"membershipArn"`
+	CollaborationID            string                     `json:"collaborationId"`
+	MembershipID               string                     `json:"membershipId"`
+	ID                         string                     `json:"id"`
+	AnalysisTemplateIdentifier string                     `json:"-"`
+	AnalysisParameters         []map[string]any           `json:"analysisParameters,omitempty"`
+	UpdateTime                 float64                    `json:"updateTime,omitempty"`
+	CreateTime                 float64                    `json:"createTime,omitempty"`
 }
 
 type AnalysisTemplateSummary struct {

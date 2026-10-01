@@ -23,11 +23,16 @@ func (b *InMemoryBackend) CreateCollaboration(
 	isMetricsEnabled bool,
 	creatorPaymentConfiguration map[string]any,
 	tags map[string]string,
+	settings ...CollaborationSettings,
 ) (*Collaboration, error) {
 	b.mu.Lock("CreateCollaboration")
 	defer b.mu.Unlock()
 	if name == "" {
 		return nil, ErrValidation
+	}
+	cs := firstCollaborationSettings(settings)
+	if err := cs.validate(); err != nil {
+		return nil, err
 	}
 	id := uuid.NewString()
 	ts := b.now()
@@ -69,6 +74,9 @@ func (b *InMemoryBackend) CreateCollaboration(
 		QueryLogStatus:          queryLogStatus,
 		JobLogStatus:            jobLogStatus,
 		IsMetricsEnabled:        isMetricsEnabled,
+		AnalyticsEngine:         cs.AnalyticsEngine,
+		AllowedResultRegions:    slices.Clone(cs.AllowedResultRegions),
+		DataEncryptionMetadata:  cs.DataEncryptionMetadata,
 		CreateTime:              ts,
 		UpdateTime:              ts,
 		Tags:                    tags,
@@ -96,7 +104,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 	memberSummaries[0].MembershipArn = creatorMembership.Arn
 	memberSummaries[0].MembershipID = creatorMembership.ID
 
-	return collab, nil
+	return cloneCollaboration(collab), nil
 }
 
 func (b *InMemoryBackend) GetCollaboration(id string) (*Collaboration, error) {
@@ -107,7 +115,7 @@ func (b *InMemoryBackend) GetCollaboration(id string) (*Collaboration, error) {
 		return nil, ErrNotFound
 	}
 
-	return c, nil
+	return cloneCollaboration(c), nil
 }
 
 func (b *InMemoryBackend) ListCollaborations(
@@ -131,6 +139,7 @@ func (b *InMemoryBackend) ListCollaborations(
 			MemberStatus:            statusActive,
 			MembershipArn:           c.MembershipArn,
 			MembershipID:            c.MembershipID,
+			AnalyticsEngine:         c.AnalyticsEngine,
 			CreateTime:              c.CreateTime,
 			UpdateTime:              c.UpdateTime,
 		})
@@ -146,12 +155,20 @@ func (b *InMemoryBackend) ListCollaborations(
 
 func (b *InMemoryBackend) UpdateCollaboration(
 	id, name, description string,
+	settings ...CollaborationSettings,
 ) (*Collaboration, error) {
 	b.mu.Lock("UpdateCollaboration")
 	defer b.mu.Unlock()
+	cs := firstCollaborationSettings(settings)
+	if err := cs.validate(); err != nil {
+		return nil, err
+	}
 	c, ok := b.collaborations.Get(id)
 	if !ok {
 		return nil, ErrNotFound
+	}
+	if cs.AnalyticsEngine != "" {
+		c.AnalyticsEngine = cs.AnalyticsEngine
 	}
 	if name != "" {
 		c.Name = name
@@ -161,7 +178,7 @@ func (b *InMemoryBackend) UpdateCollaboration(
 	}
 	c.UpdateTime = b.now()
 
-	return c, nil
+	return cloneCollaboration(c), nil
 }
 
 // DeleteCollaboration deletes the collaboration identified by id. A

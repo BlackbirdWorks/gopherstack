@@ -9,16 +9,19 @@ import (
 
 func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                        map[string]string `json:"tags"`
-		CreatorPaymentConfiguration map[string]any    `json:"creatorPaymentConfiguration"`
-		Name                        string            `json:"name"`
-		Description                 string            `json:"description"`
-		CreatorDisplayName          string            `json:"creatorDisplayName"`
-		QueryLogStatus              string            `json:"queryLogStatus"`
-		JobLogStatus                string            `json:"jobLogStatus"`
-		CreatorMemberAbilities      []string          `json:"creatorMemberAbilities"`
-		Members                     []MemberSpec      `json:"members"`
-		IsMetricsEnabled            bool              `json:"isMetricsEnabled"`
+		Tags                        map[string]string       `json:"tags"`
+		CreatorPaymentConfiguration map[string]any          `json:"creatorPaymentConfiguration"`
+		DataEncryptionMetadata      *DataEncryptionMetadata `json:"dataEncryptionMetadata"`
+		JobLogStatus                string                  `json:"jobLogStatus"`
+		CreatorDisplayName          string                  `json:"creatorDisplayName"`
+		QueryLogStatus              string                  `json:"queryLogStatus"`
+		Description                 string                  `json:"description"`
+		AnalyticsEngine             string                  `json:"analyticsEngine"`
+		Name                        string                  `json:"name"`
+		CreatorMemberAbilities      []string                `json:"creatorMemberAbilities"`
+		Members                     []MemberSpec            `json:"members"`
+		AllowedResultRegions        []string                `json:"allowedResultRegions"`
+		IsMetricsEnabled            bool                    `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)
 	c, err := h.Backend.CreateCollaboration(
@@ -32,6 +35,11 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		req.IsMetricsEnabled,
 		req.CreatorPaymentConfiguration,
 		req.Tags,
+		CollaborationSettings{
+			AnalyticsEngine:        req.AnalyticsEngine,
+			AllowedResultRegions:   req.AllowedResultRegions,
+			DataEncryptionMetadata: req.DataEncryptionMetadata,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -75,12 +83,14 @@ func (h *Handler) handleUpdateCollaboration(_ context.Context, body []byte) ([]b
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 		Name                    string `json:"name"`
 		Description             string `json:"description"`
+		AnalyticsEngine         string `json:"analyticsEngine"`
 	}
 	_ = json.Unmarshal(body, &req)
 	col, err := h.Backend.UpdateCollaboration(
 		req.CollaborationIdentifier,
 		req.Name,
 		req.Description,
+		CollaborationSettings{AnalyticsEngine: req.AnalyticsEngine},
 	)
 	if err != nil {
 		return nil, err
