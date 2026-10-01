@@ -95,44 +95,10 @@ families:
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
 gaps: []
 items_still_open:
-  - "2026-09-26: lightsail is uniformly single-region by design (gopherstack-7v0p, confirmed
-    again by the 2026-08-30 region-isolation sweep) -- no request anywhere in this package
-    derives a storage key from region; NewInMemoryBackend fixes account+region once at
-    construction. Not a bug; do not thread regions through it."
-  - "2026-09-26: SetupInstanceHttpsInput.EmailAddress is decoded but not stored -- genuinely
-    unobservable, not just undisclosed: EmailAddress appears nowhere in
-    aws-sdk-go-v2/service/lightsail/types/types.go, so no real read API (including
-    GetInstanceSetupHistory) could ever echo it back."
-  - "2026-09-26: 5 of 8 wire exception shapes (AccessDenied/AccountSetupInProgress/
-    OperationFailure/RegionSetupInProgress/Unauthenticated) are declared in classifyLightsailError
-    but never constructed by any call site -- each needs a permission or account/region
-    provisioning-state model this backend has no other trace of (mgn's InitializeService is the
-    closest analogue and lightsail has nothing like it); wiring one purely to exercise the
-    constructor would be fabrication. Disclosed at errors.go. Real observable error surface for
-    every op remains {InvalidInputException, NotFoundException, ServiceException}."
-  - "2026-09-26: InstanceState and RelationalDatabaseState both have no typed SDK enum to verify
-    against; this backend's numeric/string constants (consts.go) are EXPLICITLY commented
-    UNCONFIRMED conventions, not presented as SDK-confirmed."
-  - "2026-09-26: no AWS::Lightsail::* CloudFormation resource type exists in
-    services/cloudformation/, and no ListTagsForResource op exists in the 161-op surface --
-    both confirmed unchanged, neither is a gap (TagResource/UntagResource resolve by
-    ResourceName, matching the real wire spec)."
-  - "2026-09-26: CreateRelationalDatabaseFromSnapshotInput's RestoreTime/UseLatestRestorableTime/
-    SourceRelationalDatabaseName (point-in-time restore from a live source database) and
-    UpdateRelationalDatabaseInput.ApplyImmediately / RelationalDatabase's
-    PendingMaintenanceActions/PendingModifiedValues all need an automated-backup-timeline or
-    maintenance-window state machine this backend has never modeled -- restore is
-    snapshot-name-only and every update applies synchronously. Not fabricated; would require a
-    new subsystem, not a field-wiring fix."
-  - "2026-09-26: GetBucketsInput.IncludeCors has no backing CORS model (Bucket has no CORS field
-    at all); GetRelationalDatabaseLogEventsInput.StartFromHead is moot since
-    GetRelationalDatabaseLogEvents always returns an empty page (no real MySQL server backs it).
-    Neither is fabricable without inventing state this backend doesn't have."
-  - "2026-09-26: Domain's response never carries RegisteredDomainDelegationInfo (no
-    domain-registrar-transfer feature exists) and CertificateDetail is missing the ACM-style
-    DNS-validation/renewal fields (DomainValidationRecords/RenewalSummary/SerialNumber/etc.) --
-    this backend's Certificate model has no real validation/renewal state machine to source
-    them from."
+  - "5 of 8 wire exceptions (AccessDenied/AccountSetupInProgress/OperationFailure/RegionSetupInProgress/Unauthenticated) are classified in errors.go but never raised: each needs a permission or account/region provisioning-state model this backend lacks."
+  - "InstanceState and RelationalDatabaseState have no typed SDK enum; the constants in consts.go are commented UNCONFIRMED conventions pending external evidence."
+  - "Point-in-time restore (RestoreTime/UseLatestRestorableTime/SourceRelationalDatabaseName), UpdateRelationalDatabase.ApplyImmediately and PendingMaintenanceActions/PendingModifiedValues need an automated-backup and maintenance-window state machine that is not modeled."
+  - "GetRelationalDatabaseLogEvents always returns an empty page (no real database engine backs it), so StartFromHead is moot; Domain.RegisteredDomainDelegationInfo and CertificateDetail validation/renewal fields have no registrar or ACM-style state machine to source them."
 deferred:
   - "A full per-op {wire, errors, state, persist} grid (161 rows) was not written into this frontmatter, in favor of per-family status plus explicit per-op call-outs within each family's note above -- with 28 families already enumerating all 161 ops individually in the body's section 3 tables (left unmodified as ground truth), a second 161-row restatement here would duplicate rather than add information. Any future audit needing finer grain than family-level should start from the body's existing per-op tables plus this frontmatter's per-family notes, not re-derive from scratch."
   - "Whether real EC2/ELB/RDS state should eventually back Instance/LoadBalancer/RelationalDatabase (PARITY.md 5.2's architectural question) remains unresolved -- this implementation chose independent modeling (matching the original audit's own recommendation), not revisited by this pass."
@@ -1464,8 +1430,8 @@ these are plain tool misses, not a new blind-spot shape):
 **4 recorded as real gaps** (see `items_still_open`):
 `CreateRelationalDatabaseFromSnapshot.UseLatestRestorableTime` (the entire
 point-in-time-restore-from-a-source-database path isn't modeled, only
-restore-by-snapshot-name), `GetBuckets.IncludeCors` (no CORS state on
-buckets at all), `GetRelationalDatabaseLogEvents.StartFromHead` (log events
+restore-by-snapshot-name), `GetBuckets.IncludeCors` (fixed 2026-10-01,
+see below), `GetRelationalDatabaseLogEvents.StartFromHead` (log events
 are deliberately always empty, per this backend's own documented
 anti-fabrication design -- an ordering flag has nothing to order),
 `UpdateRelationalDatabase.ApplyImmediately` (no maintenance-window
@@ -1571,3 +1537,12 @@ provider nil-derefs it otherwise, erroring "empty output"), and
 ContainerServiceEndpoint had no HealthCheck field at all, so every
 aws_lightsail_container_service_deployment_version forced a replace on the
 next plan. See certificates_distributions.go/handler_containers.go.
+
+## 2026-10-01 (items_still_open burn-down)
+
+Bucket CORS is now real: `UpdateBucket.Cors` replaces the stored `BucketCorsConfig` (validated per the
+SDK docs: at most 20 rules, 64 KB, one origin and one method per rule, methods GET/PUT/POST/DELETE/HEAD,
+id up to 255 chars) and is echoed on the UpdateBucket response; `GetBuckets.IncludeCors` returns it only
+for a single named bucket, per the SDK doc. Proof: `TestBucketCORS` (typed client). Removed as non-gaps:
+single-region-by-design (gopherstack-7v0p), `SetupInstanceHttps.EmailAddress` (absent from SDK types),
+no `AWS::Lightsail::*` CFN type / no ListTagsForResource op.
