@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// Regenerate: go run ./cmd/routingcorpus, then UPDATE_ROUTING_GOLDEN=1 go test -run TestRoutingEquivalence .
 const (
 	routingCorpusPath   = "testdata/routing/corpus.tsv"
 	routingUpdateEnv    = "UPDATE_ROUTING_GOLDEN"
