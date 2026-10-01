@@ -2,7 +2,10 @@ package cognitoidp
 
 import (
 	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -10,57 +13,91 @@ import (
 // It uses the usersBySub secondary index for O(1) lookup after JWT parsing.
 // The caller must hold b.mu (either read or write lock).
 func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User, error) {
-	for _, pool := range b.pools.All() {
-		claims, err := pool.issuer.ParseAccessToken(accessToken)
-		if err != nil {
-			continue
-		}
+	pools := b.pools.All()
+	kid := tokenHeaderKID(accessToken)
 
-		sub, _ := claims["sub"].(string)
-		if sub == "" {
-			continue
-		}
-
-		// O(1) lookup via secondary index.
-		u, found := b.userBySub(pool.ID, sub)
-		if !found {
-			continue
-		}
-
-		// Check per-user token revocation: reject tokens minted at or before
-		// GlobalSignOut. Prefers authSeq (a monotonic per-mint counter) over
-		// auth_time: auth_time is JWT NumericDate, second-granularity by
-		// spec, so a sign-out followed immediately by a fresh login within
-		// the same wall-clock second mints two tokens with an identical
-		// auth_time -- no timestamp comparison, at any rounding, can
-		// correctly revoke the old one while sparing the new one. authSeq
-		// has no such ambiguity: it strictly increases on every mint. A
-		// zero revokedSeq means either no sign-out ever happened for this
-		// user, or (map key present with revokedSeq==0 is impossible here
-		// since tokenSeq starts at 0 and only ever increases before a
-		// GlobalSignOut can observe it, so any real sign-out records
-		// revokedSeq>=1) the backend was restored from a pre-authSeq (v2)
-		// snapshot, which never populated tokenRevokedBeforeSeq at all --
-		// fall back to the old wall-clock comparison against
-		// tokenRevokedBefore for that case, so a v2 snapshot's revocations
-		// survive restore instead of silently vanishing.
-		key := pool.ID + ":" + u.Username
-		if revokedSeq := b.tokenRevokedBeforeSeq[key]; revokedSeq > 0 {
-			authSeq, _ := claims[claimAuthSeq].(float64)
-			if int64(authSeq) <= revokedSeq {
+	// Pools whose key ID matches the token header go first so a valid token costs one RSA verify.
+	if kid != "" {
+		for _, pool := range pools {
+			if pool.issuer.keyID != kid {
 				continue
 			}
-		} else if revokedBefore, ok2 := b.tokenRevokedBefore[key]; ok2 {
-			authTime, _ := claims[claimAuthTime].(float64)
-			if time.Unix(int64(authTime), 0).Before(revokedBefore) {
-				continue
+
+			if u, ok := b.userForAccessToken(pool, accessToken); ok {
+				return u, nil
 			}
 		}
+	}
 
-		return u, nil
+	for _, pool := range pools {
+		if kid != "" && pool.issuer.keyID == kid {
+			continue
+		}
+
+		if u, ok := b.userForAccessToken(pool, accessToken); ok {
+			return u, nil
+		}
 	}
 
 	return nil, fmt.Errorf("%w: access token is invalid or expired", ErrNotAuthorized)
+}
+
+// userForAccessToken verifies accessToken against pool's key and returns the live, non-revoked user.
+func (b *InMemoryBackend) userForAccessToken(pool *UserPool, accessToken string) (*User, bool) {
+	claims, err := pool.issuer.ParseAccessToken(accessToken)
+	if err != nil {
+		return nil, false
+	}
+
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		return nil, false
+	}
+
+	// O(1) lookup via secondary index.
+	u, found := b.userBySub(pool.ID, sub)
+	if !found {
+		return nil, false
+	}
+
+	// Reject tokens minted at or before GlobalSignOut; authSeq is exact, auth_time is the
+	// fallback for pre-authSeq snapshots.
+	key := pool.ID + ":" + u.Username
+	if revokedSeq := b.tokenRevokedBeforeSeq[key]; revokedSeq > 0 {
+		authSeq, _ := claims[claimAuthSeq].(float64)
+		if int64(authSeq) <= revokedSeq {
+			return nil, false
+		}
+	} else if revokedBefore, ok2 := b.tokenRevokedBefore[key]; ok2 {
+		authTime, _ := claims[claimAuthTime].(float64)
+		if time.Unix(int64(authTime), 0).Before(revokedBefore) {
+			return nil, false
+		}
+	}
+
+	return u, true
+}
+
+// tokenHeaderKID returns the unverified "kid" JOSE header of a JWT, or "" if absent or malformed.
+func tokenHeaderKID(token string) string {
+	seg, _, ok := strings.Cut(token, ".")
+	if !ok {
+		return ""
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(seg)
+	if err != nil {
+		return ""
+	}
+
+	var hdr struct {
+		Kid string `json:"kid"`
+	}
+	if json.Unmarshal(raw, &hdr) != nil {
+		return ""
+	}
+
+	return hdr.Kid
 }
 
 // GetSigningCertificate returns a deterministic, PEM-encoded self-signed X.509
