@@ -1258,6 +1258,7 @@ type listTableStorageOptimizersInput struct {
 	TableName            string `json:"TableName"`
 	StorageOptimizerType string `json:"StorageOptimizerType,omitempty"`
 	NextToken            string `json:"NextToken,omitempty"`
+	MaxResults           int    `json:"MaxResults,omitempty"`
 }
 type listTableStorageOptimizersOutput struct {
 	NextToken            string             `json:"NextToken,omitempty"`

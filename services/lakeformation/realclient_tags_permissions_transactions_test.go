@@ -23,10 +23,13 @@ func TestLFTagsOnResource_RoundTrip(t *testing.T) {
 
 	dbResource := &types.Resource{Database: &types.DatabaseResource{Name: aws.String("salesdb")}}
 
-	addOut, err := client.AddLFTagsToResource(t.Context(), &lakeformationsdk.AddLFTagsToResourceInput{
-		Resource: dbResource,
-		LFTags:   []types.LFTagPair{{TagKey: aws.String("env"), TagValues: []string{"prod"}}},
-	})
+	addOut, err := client.AddLFTagsToResource(
+		t.Context(),
+		&lakeformationsdk.AddLFTagsToResourceInput{
+			Resource: dbResource,
+			LFTags:   []types.LFTagPair{{TagKey: aws.String("env"), TagValues: []string{"prod"}}},
+		},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, addOut.Failures)
 
@@ -40,10 +43,13 @@ func TestLFTagsOnResource_RoundTrip(t *testing.T) {
 	assert.Empty(t, getOut.LFTagsOnTable)
 	assert.Empty(t, getOut.LFTagsOnColumns)
 
-	removeOut, err := client.RemoveLFTagsFromResource(t.Context(), &lakeformationsdk.RemoveLFTagsFromResourceInput{
-		Resource: dbResource,
-		LFTags:   []types.LFTagPair{{TagKey: aws.String("env"), TagValues: []string{"prod"}}},
-	})
+	removeOut, err := client.RemoveLFTagsFromResource(
+		t.Context(),
+		&lakeformationsdk.RemoveLFTagsFromResourceInput{
+			Resource: dbResource,
+			LFTags:   []types.LFTagPair{{TagKey: aws.String("env"), TagValues: []string{"prod"}}},
+		},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, removeOut.Failures)
 
@@ -67,13 +73,18 @@ func TestBatchGrantRevokePermissions_RoundTrip(t *testing.T) {
 		Principal: &types.DataLakePrincipal{
 			DataLakePrincipalIdentifier: aws.String("arn:aws:iam::123456789012:user/alice"),
 		},
-		Resource:    &types.Resource{Database: &types.DatabaseResource{Name: aws.String("salesdb")}},
+		Resource: &types.Resource{
+			Database: &types.DatabaseResource{Name: aws.String("salesdb")},
+		},
 		Permissions: []types.Permission{types.PermissionDescribe},
 	}
 
-	grantOut, err := client.BatchGrantPermissions(t.Context(), &lakeformationsdk.BatchGrantPermissionsInput{
-		Entries: []types.BatchPermissionsRequestEntry{entry},
-	})
+	grantOut, err := client.BatchGrantPermissions(
+		t.Context(),
+		&lakeformationsdk.BatchGrantPermissionsInput{
+			Entries: []types.BatchPermissionsRequestEntry{entry},
+		},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, grantOut.Failures)
 
@@ -82,11 +93,18 @@ func TestBatchGrantRevokePermissions_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, listOut.PrincipalResourcePermissions, 1)
-	assert.Equal(t, []types.Permission{types.PermissionDescribe}, listOut.PrincipalResourcePermissions[0].Permissions)
+	assert.Equal(
+		t,
+		[]types.Permission{types.PermissionDescribe},
+		listOut.PrincipalResourcePermissions[0].Permissions,
+	)
 
-	revokeOut, err := client.BatchRevokePermissions(t.Context(), &lakeformationsdk.BatchRevokePermissionsInput{
-		Entries: []types.BatchPermissionsRequestEntry{entry},
-	})
+	revokeOut, err := client.BatchRevokePermissions(
+		t.Context(),
+		&lakeformationsdk.BatchRevokePermissionsInput{
+			Entries: []types.BatchPermissionsRequestEntry{entry},
+		},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, revokeOut.Failures)
 
@@ -114,18 +132,24 @@ func TestTransactionLifecycle_RoundTrip(t *testing.T) {
 	txnID := aws.ToString(startOut.TransactionId)
 	require.NotEmpty(t, txnID)
 
-	descOut, err := client.DescribeTransaction(t.Context(), &lakeformationsdk.DescribeTransactionInput{
-		TransactionId: aws.String(txnID),
-	})
+	descOut, err := client.DescribeTransaction(
+		t.Context(),
+		&lakeformationsdk.DescribeTransactionInput{
+			TransactionId: aws.String(txnID),
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, descOut.TransactionDescription)
 	assert.Equal(t, types.TransactionStatusActive, descOut.TransactionDescription.TransactionStatus)
 	assert.Equal(t, txnID, aws.ToString(descOut.TransactionDescription.TransactionId))
 	assert.NotNil(t, descOut.TransactionDescription.TransactionStartTime)
 
-	extendOut, err := client.ExtendTransaction(t.Context(), &lakeformationsdk.ExtendTransactionInput{
-		TransactionId: aws.String(txnID),
-	})
+	extendOut, err := client.ExtendTransaction(
+		t.Context(),
+		&lakeformationsdk.ExtendTransactionInput{
+			TransactionId: aws.String(txnID),
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, extendOut)
 
@@ -141,44 +165,70 @@ func TestTransactionLifecycle_RoundTrip(t *testing.T) {
 	}
 	assert.True(t, found, "started transaction should appear in ListTransactions ACTIVE filter")
 
-	cancelOut, err := client.CancelTransaction(t.Context(), &lakeformationsdk.CancelTransactionInput{
-		TransactionId: aws.String(txnID),
-	})
+	cancelOut, err := client.CancelTransaction(
+		t.Context(),
+		&lakeformationsdk.CancelTransactionInput{
+			TransactionId: aws.String(txnID),
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, cancelOut)
 
-	descOut2, err := client.DescribeTransaction(t.Context(), &lakeformationsdk.DescribeTransactionInput{
-		TransactionId: aws.String(txnID),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, types.TransactionStatusAborted, descOut2.TransactionDescription.TransactionStatus)
-
-	deleteOut, err := client.DeleteObjectsOnCancel(t.Context(), &lakeformationsdk.DeleteObjectsOnCancelInput{
-		DatabaseName:  aws.String("salesdb"),
-		TableName:     aws.String("orders"),
-		TransactionId: aws.String(txnID),
-		Objects: []types.VirtualObject{
-			{Uri: aws.String("s3://bucket/orders/part-0000")},
+	descOut2, err := client.DescribeTransaction(
+		t.Context(),
+		&lakeformationsdk.DescribeTransactionInput{
+			TransactionId: aws.String(txnID),
 		},
-	})
+	)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		types.TransactionStatusAborted,
+		descOut2.TransactionDescription.TransactionStatus,
+	)
+
+	deleteOut, err := client.DeleteObjectsOnCancel(
+		t.Context(),
+		&lakeformationsdk.DeleteObjectsOnCancelInput{
+			DatabaseName:  aws.String("salesdb"),
+			TableName:     aws.String("orders"),
+			TransactionId: aws.String(txnID),
+			Objects: []types.VirtualObject{
+				{Uri: aws.String("s3://bucket/orders/part-0000")},
+			},
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, deleteOut)
 
-	startOut2, err := client.StartTransaction(t.Context(), &lakeformationsdk.StartTransactionInput{})
+	startOut2, err := client.StartTransaction(
+		t.Context(),
+		&lakeformationsdk.StartTransactionInput{},
+	)
 	require.NoError(t, err)
 	txnID2 := aws.ToString(startOut2.TransactionId)
 
-	commitOut, err := client.CommitTransaction(t.Context(), &lakeformationsdk.CommitTransactionInput{
-		TransactionId: aws.String(txnID2),
-	})
+	commitOut, err := client.CommitTransaction(
+		t.Context(),
+		&lakeformationsdk.CommitTransactionInput{
+			TransactionId: aws.String(txnID2),
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, commitOut)
 
-	descOut3, err := client.DescribeTransaction(t.Context(), &lakeformationsdk.DescribeTransactionInput{
-		TransactionId: aws.String(txnID2),
-	})
+	descOut3, err := client.DescribeTransaction(
+		t.Context(),
+		&lakeformationsdk.DescribeTransactionInput{
+			TransactionId: aws.String(txnID2),
+		},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, types.TransactionStatusCommitted, descOut3.TransactionDescription.TransactionStatus)
+	assert.Equal(
+		t,
+		types.TransactionStatusCommitted,
+		descOut3.TransactionDescription.TransactionStatus,
+	)
 }
 
 // TestDataCellsFilter_UpdateRoundTrip drives CreateDataCellsFilter and
@@ -197,16 +247,22 @@ func TestDataCellsFilter_UpdateRoundTrip(t *testing.T) {
 		RowFilter:      &types.RowFilter{FilterExpression: aws.String("region='us-east-1'")},
 	}
 
-	_, err := client.CreateDataCellsFilter(t.Context(), &lakeformationsdk.CreateDataCellsFilterInput{
-		TableData: tableData,
-	})
+	_, err := client.CreateDataCellsFilter(
+		t.Context(),
+		&lakeformationsdk.CreateDataCellsFilterInput{
+			TableData: tableData,
+		},
+	)
 	require.NoError(t, err)
 
 	tableData.RowFilter = &types.RowFilter{FilterExpression: aws.String("region='us-west-2'")}
 
-	updateOut, err := client.UpdateDataCellsFilter(t.Context(), &lakeformationsdk.UpdateDataCellsFilterInput{
-		TableData: tableData,
-	})
+	updateOut, err := client.UpdateDataCellsFilter(
+		t.Context(),
+		&lakeformationsdk.UpdateDataCellsFilterInput{
+			TableData: tableData,
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, updateOut)
 
@@ -219,7 +275,11 @@ func TestDataCellsFilter_UpdateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, getOut.DataCellsFilter)
 	require.NotNil(t, getOut.DataCellsFilter.RowFilter)
-	assert.Equal(t, "region='us-west-2'", aws.ToString(getOut.DataCellsFilter.RowFilter.FilterExpression))
+	assert.Equal(
+		t,
+		"region='us-west-2'",
+		aws.ToString(getOut.DataCellsFilter.RowFilter.FilterExpression),
+	)
 }
 
 // TestLFTagExpression_RoundTrip drives CreateLFTagExpression,
@@ -231,11 +291,14 @@ func TestLFTagExpression_RoundTrip(t *testing.T) {
 	backend := lakeformation.NewInMemoryBackend()
 	client := newTestLakeFormationClient(t, lakeformation.NewHandler(backend))
 
-	_, err := client.CreateLFTagExpression(t.Context(), &lakeformationsdk.CreateLFTagExpressionInput{
-		Name:        aws.String("expr-1"),
-		Description: aws.String("initial"),
-		Expression:  []types.LFTag{{TagKey: aws.String("env"), TagValues: []string{"prod"}}},
-	})
+	_, err := client.CreateLFTagExpression(
+		t.Context(),
+		&lakeformationsdk.CreateLFTagExpressionInput{
+			Name:        aws.String("expr-1"),
+			Description: aws.String("initial"),
+			Expression:  []types.LFTag{{TagKey: aws.String("env"), TagValues: []string{"prod"}}},
+		},
+	)
 	require.NoError(t, err)
 
 	getOut, err := client.GetLFTagExpression(t.Context(), &lakeformationsdk.GetLFTagExpressionInput{
@@ -253,15 +316,21 @@ func TestLFTagExpression_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	getOut2, err := client.GetLFTagExpression(t.Context(), &lakeformationsdk.GetLFTagExpressionInput{
-		Name: aws.String("expr-1"),
-	})
+	getOut2, err := client.GetLFTagExpression(
+		t.Context(),
+		&lakeformationsdk.GetLFTagExpressionInput{
+			Name: aws.String("expr-1"),
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "updated", aws.ToString(getOut2.Description))
 	require.Len(t, getOut2.Expression, 1)
 	assert.Equal(t, []string{"dev"}, getOut2.Expression[0].TagValues)
 
-	listOut, err := client.ListLFTagExpressions(t.Context(), &lakeformationsdk.ListLFTagExpressionsInput{})
+	listOut, err := client.ListLFTagExpressions(
+		t.Context(),
+		&lakeformationsdk.ListLFTagExpressionsInput{},
+	)
 	require.NoError(t, err)
 	var found bool
 	for _, e := range listOut.LFTagExpressions {
@@ -296,15 +365,21 @@ func TestLakeFormationOptIn_RoundTrip(t *testing.T) {
 	}
 	resource := &types.Resource{Database: &types.DatabaseResource{Name: aws.String("salesdb")}}
 
-	_, err := client.CreateLakeFormationOptIn(t.Context(), &lakeformationsdk.CreateLakeFormationOptInInput{
-		Principal: principal,
-		Resource:  resource,
-	})
+	_, err := client.CreateLakeFormationOptIn(
+		t.Context(),
+		&lakeformationsdk.CreateLakeFormationOptInInput{
+			Principal: principal,
+			Resource:  resource,
+		},
+	)
 	require.NoError(t, err)
 
-	listOut, err := client.ListLakeFormationOptIns(t.Context(), &lakeformationsdk.ListLakeFormationOptInsInput{
-		Principal: principal,
-	})
+	listOut, err := client.ListLakeFormationOptIns(
+		t.Context(),
+		&lakeformationsdk.ListLakeFormationOptInsInput{
+			Principal: principal,
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, listOut.LakeFormationOptInsInfoList, 1)
 	assert.Equal(
@@ -314,15 +389,21 @@ func TestLakeFormationOptIn_RoundTrip(t *testing.T) {
 	)
 	assert.NotNil(t, listOut.LakeFormationOptInsInfoList[0].LastModified)
 
-	_, err = client.DeleteLakeFormationOptIn(t.Context(), &lakeformationsdk.DeleteLakeFormationOptInInput{
-		Principal: principal,
-		Resource:  resource,
-	})
+	_, err = client.DeleteLakeFormationOptIn(
+		t.Context(),
+		&lakeformationsdk.DeleteLakeFormationOptInInput{
+			Principal: principal,
+			Resource:  resource,
+		},
+	)
 	require.NoError(t, err)
 
-	listOut2, err := client.ListLakeFormationOptIns(t.Context(), &lakeformationsdk.ListLakeFormationOptInsInput{
-		Principal: principal,
-	})
+	listOut2, err := client.ListLakeFormationOptIns(
+		t.Context(),
+		&lakeformationsdk.ListLakeFormationOptInsInput{
+			Principal: principal,
+		},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, listOut2.LakeFormationOptInsInfoList)
 }
@@ -370,7 +451,10 @@ func TestGetDataLakePrincipal_TypedRoundTrip(t *testing.T) {
 	backend := lakeformation.NewInMemoryBackend()
 	client := newTestLakeFormationClient(t, lakeformation.NewHandler(backend))
 
-	out, err := client.GetDataLakePrincipal(t.Context(), &lakeformationsdk.GetDataLakePrincipalInput{})
+	out, err := client.GetDataLakePrincipal(
+		t.Context(),
+		&lakeformationsdk.GetDataLakePrincipalInput{},
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(out.Identity))
 }
@@ -446,13 +530,20 @@ func TestTableObjectsAndStorageOptimizer_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(updateOptOut.Result))
 
-	listOptOut, err := client.ListTableStorageOptimizers(t.Context(), &lakeformationsdk.ListTableStorageOptimizersInput{
-		DatabaseName: aws.String("salesdb"),
-		TableName:    aws.String("orders"),
-	})
+	listOptOut, err := client.ListTableStorageOptimizers(
+		t.Context(),
+		&lakeformationsdk.ListTableStorageOptimizersInput{
+			DatabaseName: aws.String("salesdb"),
+			TableName:    aws.String("orders"),
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, listOptOut.StorageOptimizerList, 1)
-	assert.Equal(t, types.OptimizerType("COMPACTION"), listOptOut.StorageOptimizerList[0].StorageOptimizerType)
+	assert.Equal(
+		t,
+		types.OptimizerType("COMPACTION"),
+		listOptOut.StorageOptimizerList[0].StorageOptimizerType,
+	)
 	assert.Equal(t, "true", listOptOut.StorageOptimizerList[0].Config["is_enabled"])
 }
 
@@ -487,12 +578,15 @@ func TestGetQueryState_RoundTrip(t *testing.T) {
 	backend := lakeformation.NewInMemoryBackend()
 	client := newTestLakeFormationClient(t, lakeformation.NewHandler(backend))
 
-	startOut, err := client.StartQueryPlanning(t.Context(), &lakeformationsdk.StartQueryPlanningInput{
-		QueryPlanningContext: &types.QueryPlanningContext{
-			DatabaseName: aws.String("salesdb"),
+	startOut, err := client.StartQueryPlanning(
+		t.Context(),
+		&lakeformationsdk.StartQueryPlanningInput{
+			QueryPlanningContext: &types.QueryPlanningContext{
+				DatabaseName: aws.String("salesdb"),
+			},
+			QueryString: aws.String("SELECT * FROM orders"),
 		},
-		QueryString: aws.String("SELECT * FROM orders"),
-	})
+	)
 	require.NoError(t, err)
 	queryID := aws.ToString(startOut.QueryId)
 	require.NotEmpty(t, queryID)
@@ -521,7 +615,10 @@ func TestSearchDatabasesTablesByLFTags_RoundTrip(t *testing.T) {
 
 	_, err = client.AddLFTagsToResource(t.Context(), &lakeformationsdk.AddLFTagsToResourceInput{
 		Resource: &types.Resource{
-			Table: &types.TableResource{DatabaseName: aws.String("salesdb"), Name: aws.String("orders")},
+			Table: &types.TableResource{
+				DatabaseName: aws.String("salesdb"),
+				Name:         aws.String("orders"),
+			},
 		},
 		LFTags: []types.LFTagPair{{TagKey: aws.String("env"), TagValues: []string{"prod"}}},
 	})
@@ -529,17 +626,23 @@ func TestSearchDatabasesTablesByLFTags_RoundTrip(t *testing.T) {
 
 	expr := []types.LFTag{{TagKey: aws.String("env"), TagValues: []string{"prod"}}}
 
-	dbOut, err := client.SearchDatabasesByLFTags(t.Context(), &lakeformationsdk.SearchDatabasesByLFTagsInput{
-		Expression: expr,
-	})
+	dbOut, err := client.SearchDatabasesByLFTags(
+		t.Context(),
+		&lakeformationsdk.SearchDatabasesByLFTagsInput{
+			Expression: expr,
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, dbOut.DatabaseList, 1)
 	assert.Equal(t, "salesdb", aws.ToString(dbOut.DatabaseList[0].Database.Name))
 	require.Len(t, dbOut.DatabaseList[0].LFTags, 1)
 
-	tblOut, err := client.SearchTablesByLFTags(t.Context(), &lakeformationsdk.SearchTablesByLFTagsInput{
-		Expression: expr,
-	})
+	tblOut, err := client.SearchTablesByLFTags(
+		t.Context(),
+		&lakeformationsdk.SearchTablesByLFTagsInput{
+			Expression: expr,
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, tblOut.TableList, 1)
 	assert.Equal(t, "orders", aws.ToString(tblOut.TableList[0].Table.Name))
@@ -554,11 +657,14 @@ func TestAssumeDecoratedRoleWithSAML_TypedRoundTrip(t *testing.T) {
 	backend := lakeformation.NewInMemoryBackend()
 	client := newTestLakeFormationClient(t, lakeformation.NewHandler(backend))
 
-	out, err := client.AssumeDecoratedRoleWithSAML(t.Context(), &lakeformationsdk.AssumeDecoratedRoleWithSAMLInput{
-		PrincipalArn:  aws.String("arn:aws:iam::123456789012:saml-provider/idp"),
-		RoleArn:       aws.String("arn:aws:iam::123456789012:role/analyst"),
-		SAMLAssertion: aws.String("dGVzdC1hc3NlcnRpb24="),
-	})
+	out, err := client.AssumeDecoratedRoleWithSAML(
+		t.Context(),
+		&lakeformationsdk.AssumeDecoratedRoleWithSAMLInput{
+			PrincipalArn:  aws.String("arn:aws:iam::123456789012:saml-provider/idp"),
+			RoleArn:       aws.String("arn:aws:iam::123456789012:role/analyst"),
+			SAMLAssertion: aws.String("dGVzdC1hc3NlcnRpb24="),
+		},
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(out.AccessKeyId))
 	assert.NotEmpty(t, aws.ToString(out.SecretAccessKey))
@@ -594,6 +700,96 @@ func TestUpdateResource_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, descOut.ResourceInfo)
-	assert.Equal(t, "arn:aws:iam::123456789012:role/lf-updated-role", aws.ToString(descOut.ResourceInfo.RoleArn))
+	assert.Equal(
+		t,
+		"arn:aws:iam::123456789012:role/lf-updated-role",
+		aws.ToString(descOut.ResourceInfo.RoleArn),
+	)
 	assert.True(t, aws.ToBool(descOut.ResourceInfo.WithFederation))
+}
+
+func TestListTableStorageOptimizers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantPages [][]types.OptimizerType
+		maxResult int32
+	}{
+		{
+			name:      "one per page",
+			maxResult: 1,
+			wantPages: [][]types.OptimizerType{
+				{"COMPACTION"},
+				{"GARBAGE_COLLECTION"},
+				{"RETENTION"},
+			},
+		},
+		{
+			name:      "two per page",
+			maxResult: 2,
+			wantPages: [][]types.OptimizerType{{"COMPACTION", "GARBAGE_COLLECTION"}, {"RETENTION"}},
+		},
+		{
+			name:      "single page",
+			maxResult: 10,
+			wantPages: [][]types.OptimizerType{{"COMPACTION", "GARBAGE_COLLECTION", "RETENTION"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestLakeFormationClient(
+				t,
+				lakeformation.NewHandler(lakeformation.NewInMemoryBackend()),
+			)
+
+			_, err := client.UpdateTableStorageOptimizer(
+				t.Context(),
+				&lakeformationsdk.UpdateTableStorageOptimizerInput{
+					DatabaseName: aws.String("db"),
+					TableName:    aws.String("tbl"),
+					StorageOptimizerConfig: map[string]map[string]string{
+						"RETENTION":          {"is_enabled": "true"},
+						"COMPACTION":         {"is_enabled": "true"},
+						"GARBAGE_COLLECTION": {"is_enabled": "true"},
+					},
+				},
+			)
+			require.NoError(t, err)
+
+			var got [][]types.OptimizerType
+
+			var token *string
+
+			for {
+				out, listErr := client.ListTableStorageOptimizers(
+					t.Context(), &lakeformationsdk.ListTableStorageOptimizersInput{
+						DatabaseName: aws.String("db"),
+						TableName:    aws.String("tbl"),
+						MaxResults:   aws.Int32(tt.maxResult),
+						NextToken:    token,
+					},
+				)
+				require.NoError(t, listErr)
+
+				var page []types.OptimizerType
+				for _, o := range out.StorageOptimizerList {
+					page = append(page, o.StorageOptimizerType)
+				}
+
+				got = append(got, page)
+
+				if out.NextToken == nil {
+					break
+				}
+
+				token = out.NextToken
+			}
+
+			assert.Equal(t, tt.wantPages, got)
+		})
+	}
 }
