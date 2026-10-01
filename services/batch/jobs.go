@@ -498,8 +498,38 @@ func (b *InMemoryBackend) DescribeJobs(ctx context.Context, jobIDs []string) []*
 
 		cp := *j
 		cp.Tags = tagsCloneOrEmpty(j.Tags)
+		cp.Attempts = cloneJobAttempts(j.Attempts)
 		cp.Container = b.buildJobContainerDetail(region, j)
 		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// cloneJobAttempts deep-copies attempts so callers never alias stored state.
+func cloneJobAttempts(attempts []JobAttempt) []JobAttempt {
+	if len(attempts) == 0 {
+		return nil
+	}
+
+	out := make([]JobAttempt, len(attempts))
+	for i, a := range attempts {
+		if a.Container != nil {
+			c := *a.Container
+			a.Container = &c
+		}
+
+		if a.StartedAt != nil {
+			v := *a.StartedAt
+			a.StartedAt = &v
+		}
+
+		if a.StoppedAt != nil {
+			v := *a.StoppedAt
+			a.StoppedAt = &v
+		}
+
+		out[i] = a
 	}
 
 	return out
