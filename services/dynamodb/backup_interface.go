@@ -525,6 +525,33 @@ func resolveGSIOverride(
 	return models.FromSDKGlobalSecondaryIndexes(override)
 }
 
+// resolveLSIOverride keeps only the source LSIs named in override (nil keeps all).
+func resolveLSIOverride(
+	source []models.LocalSecondaryIndex,
+	override []sdktypes.LocalSecondaryIndex,
+) []models.LocalSecondaryIndex {
+	if override == nil {
+		lsis := make([]models.LocalSecondaryIndex, len(source))
+		copy(lsis, source)
+
+		return lsis
+	}
+
+	keep := make(map[string]struct{}, len(override))
+	for _, l := range override {
+		keep[aws.ToString(l.IndexName)] = struct{}{}
+	}
+
+	lsis := make([]models.LocalSecondaryIndex, 0, len(source))
+	for _, l := range source {
+		if _, ok := keep[l.IndexName]; ok {
+			lsis = append(lsis, l)
+		}
+	}
+
+	return lsis
+}
+
 // resolveSSEOverride applies SSESpecificationOverride to the source table's
 // encryption state, mirroring the CreateTable SSESpecification handling in
 // newTableFromCreateInput. override may be nil, matching an omitted request
@@ -602,8 +629,7 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 	)
 
 	gsis := resolveGSIOverride(backup.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
-	lsis := make([]models.LocalSecondaryIndex, len(backup.LocalSecondaryIndexes))
-	copy(lsis, backup.LocalSecondaryIndexes)
+	lsis := resolveLSIOverride(backup.LocalSecondaryIndexes, input.LocalSecondaryIndexOverride)
 	keySchema := make([]models.KeySchemaElement, len(backup.KeySchema))
 	copy(keySchema, backup.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(backup.AttributeDefinitions))
@@ -707,6 +733,7 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 	p.BillingMode = billingMode
 	p.ProvisionedThroughput = provThroughput
 	p.GlobalSecondaryIndexes = resolveGSIOverride(p.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
+	p.LocalSecondaryIndexes = resolveLSIOverride(p.LocalSecondaryIndexes, input.LocalSecondaryIndexOverride)
 
 	sseEnabled, sseType, sseKMSMasterKeyArn := resolveSSEOverride(
 		p.SSEEnabled, p.SSEType, p.SSEKMSMasterKeyArn, input.SSESpecificationOverride,

@@ -16,7 +16,7 @@ last_audit_date: 2026-09-26  # prior: 2026-09-20 -- autoscaling-dynamodb-kms-and
   # was already false by the time of this audit -- a prior commit had already
   # wired the per-GSI write-capacity echo into replicaAutoScalingDescriptionsRLocked
   # without updating items_still_open (see autoscaling family below).
-overall: A   # gopherstack-rkmp deep pass (this audit, 2026-08-14): struct-field-diffed every wire model against the pinned SDK (see Notes) and fixed 3 more wire drops -- Query/Scan AttributesToGet (undeclared, and even where declared elsewhere the projection resolver never consulted it for these two ops), GSI/LSI IndexArn (+GSI IndexSizeBytes/Backfilling), ListBackups BackupSummary.BackupSizeBytes. PARITY.md itself was stale by 6 commits (7a2189b06..bc2e6285a) before this update -- see Notes. CONFIRMED FIXED, previously an open gap here: GSI/LSI Query full-scan (17c0ac7a7 added real per-GSI/LSI indexes; gopherstack-anlc verified 4.8-5.0us flat vs 1.82-28.0ms before). gopherstack-lze5 (2026-08-14, follow-up pass): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator/AttributeUpdates parameters -- the conditional-check-bypass and no-op-write bugs -- are now FIXED by translation into the existing expr evaluator. gopherstack-yvs8 (2026-08-14, follow-up to lze5): Query/Scan's legacy KeyConditions/QueryFilter/ScanFilter -- the "ScanFilter/QueryFilter silently returns every item" and "KeyConditions silently dropped" failure modes -- are now FIXED the same way (translation into KeyConditionExpression/FilterExpression, reusing the existing evaluator paths); see gaps for the KeySchema-reordering writeup. ReturnConsumedCapacity=INDEXES dead code (gopherstack-glfv) also still open -- see gaps.
+overall: A   # gopherstack-rkmp deep pass (this audit, 2026-08-14): struct-field-diffed every wire model against the pinned SDK (see Notes) and fixed 3 more wire drops -- Query/Scan AttributesToGet (undeclared, and even where declared elsewhere the projection resolver never consulted it for these two ops), GSI/LSI IndexArn (+GSI IndexSizeBytes/Backfilling), ListBackups BackupSummary.BackupSizeBytes. PARITY.md itself was stale by 6 commits (7a2189b06..bc2e6285a) before this update -- see Notes. CONFIRMED FIXED, previously an open gap here: GSI/LSI Query full-scan (17c0ac7a7 added real per-GSI/LSI indexes; gopherstack-anlc verified 4.8-5.0us flat vs 1.82-28.0ms before). gopherstack-lze5 (2026-08-14, follow-up pass): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator/AttributeUpdates parameters -- the conditional-check-bypass and no-op-write bugs -- are now FIXED by translation into the existing expr evaluator. gopherstack-yvs8 (2026-08-14, follow-up to lze5): Query/Scan's legacy KeyConditions/QueryFilter/ScanFilter -- the "ScanFilter/QueryFilter silently returns every item" and "KeyConditions silently dropped" failure modes -- are now FIXED the same way (translation into KeyConditionExpression/FilterExpression, reusing the existing evaluator paths); see gaps for the KeySchema-reordering writeup. ReturnConsumedCapacity=INDEXES (gopherstack-glfv) is fixed -- see the 2026-10-01 note.
 protocol: json-1.0 (DynamoDB_20120810 targets)
 families:
   item_crud:    {status: ok, note: PROVEN — condition eval, all ReturnValues, ItemCollectionMetrics/LSI 10GB, WCU/RCU formulas. 2026-08-13: GetItem's wire model (models.GetItemInput/GetItemOutput) was silently dropping ReturnConsumedCapacity, ConsistentRead, AttributesToGet on input and ConsumedCapacity on output even though the backend computed everything correctly -- fixed at the wire boundary in models/convert_ops.go, not the backend. Same day, separately: CreateTable dropped SSESpecification/OnDemandThroughput on input (7a2189b06); UpdateTable dropped DeletionProtectionEnabled/TableClass/BillingMode/SSESpecification (7a2189b06); DescribeBackup/DeleteBackup dropped two required SourceTableDetails members (bc2e6285a). 2026-08-14 (this audit): ListBackups' BackupSummary had no BackupSizeBytes field at all, even though CreateBackup/DescribeBackup's BackupDetails already carried it for the same backup via the real per-backup b.SizeBytes -- fixed in models/types.go + backup_ops.go's collectBackupSummaries. 2026-08-14 (gopherstack-lze5): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator (conditional-write) and UpdateItem's AttributeUpdates (legacy update) parameters were wire-serialized (confirmed against serializers.go) but declared nowhere in models/types.go, so a legacy client's conditional check or update silently never happened -- 200 OK either way. Fixed by translating them into an equivalent ConditionExpression/UpdateExpression (synthesized #name/:value placeholders) and reusing the exact same evaluator path PutItem/UpdateItem/DeleteItem already use for the modern expression API, rather than a second evaluation engine -- see gaps for the full writeup and citations. legacy_conditional_params_test.go drives the real aws-sdk-go-v2 client and asserts behaviour (blocked writes stay unchanged, ADD/DELETE/PUT actually mutate the item), each hand-verified to fail against unfixed code.}
@@ -116,105 +116,8 @@ gaps: []
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
 items_still_open:
-  - "2026-08-15 (gopherstack-6flj, disclosed, not fixed): DescribeContributorInsightsOutput.FailureException
-    (types.FailureException{ExceptionName, ExceptionDescription}, api_op_DescribeContributorInsights.go)
-    remains unmodeled. This backend's UpdateContributorInsights/DescribeContributorInsights
-    never fail to enable/disable contributor insights (no IAM/service-limit failure
-    model exists anywhere in this service), so there is no honest non-nil value to
-    populate this field with -- always leaving it nil is the accurate representation,
-    not a gap being papered over. LastUpdateDateTime (same struct) was the real,
-    fixable gap and is now fixed -- see admin_lists family above."
-  - "2026-08-14 (gopherstack-lze5, CORRECTNESS, PARTIALLY FIXED): Expected,
-    ConditionalOperator, and AttributeUpdates (PutItem/UpdateItem/DeleteItem's
-    legacy pre-expression parameters) are now implemented -- the
-    conditional-check-bypass and no-op-write failure modes this issue was filed
-    for. Fixed by translation, not a second evaluator: legacy_conditions.go
-    converts each legacy Expected/Condition into an equivalent
-    ConditionExpression fragment (aliased #name/:value placeholders synthesized
-    per attribute, joined by ConditionalOperator's AND/OR, default AND -- see
-    legacyConditionalJoiner) and each AttributeUpdates entry into an equivalent
-    UpdateExpression fragment (PUT -> SET, DELETE w/o Value -> REMOVE, DELETE
-    w/ a set Value -> DELETE, ADD -> ADD; action-semantics citations:
-    types/types.go:197-269 AttributeValueUpdate doc), then hands the rewritten
-    request to the SAME evaluator (services/dynamodb/expr, via the existing
-    checkPutCondition/checkUpdateCondition/checkDeleteCondition/doUpdate) real
-    PutItem/UpdateItem/DeleteItem already used for ConditionExpression/
-    UpdateExpression. ComparisonOperator set: EQ/NE/LE/LT/GE/GT/NOT_NULL/NULL/
-    CONTAINS/NOT_CONTAINS/BEGINS_WITH/IN/BETWEEN, all implemented (renderComparison,
-    citing types/types.go:1279-1391 for operator semantics and arg counts).
-    Expected's old Value/Exists style and its Value/Exists-vs-ComparisonOperator
-    mutual exclusion cite types/types.go:1240-1256 verbatim. Mutual exclusion
-    between legacy and expression parameters is enforced per-operation (any of
-    Expected/ConditionalOperator/AttributeUpdates set alongside any of
-    ConditionExpression/UpdateExpression -> ValidationException) -- this specific
-    rejection is well-established real DynamoDB behavior but has no client-side
-    SDK validation to cite a line number against, so the error wording is our
-    own, not a verified verbatim AWS string. Tested driving the real
-    aws-sdk-go-v2 client and asserting behaviour (ConditionalCheckFailedException
-    + item unchanged on a failing Expected, ADD-on-number increments,
-    ADD-on-set unions, DELETE-with-set-value subtracts, DELETE-without-value
-    removes), not just call success -- legacy_conditional_params_test.go; each
-    covered case was hand-verified to fail with unfixed code (e.g. 'An error is
-    expected but got nil... expected: *types.ConditionalCheckFailedException').
-  - "2026-08-14 (gopherstack-rkmp/gopherstack-glfv, CORRECTNESS, flagged not fixed):
-    ReturnConsumedCapacity=INDEXES never returns a per-index breakdown on any
-    operation. capacity.go's buildConsumedCapacityWithIndexes/applyIndexBreakdowns
-    correctly build types.ConsumedCapacity.Table/GlobalSecondaryIndexes/
-    LocalSecondaryIndexes and are unit-tested in isolation, but grep confirms they
-    are called from nowhere except export_test.go -- every real operation
-    (PutItem/UpdateItem/DeleteItem/Query/Scan/BatchGetItem/BatchWriteItem/
-    TransactGetItems/TransactWriteItems) builds a bare ConsumedCapacity{TableName,
-    CapacityUnits, Read/WriteCapacityUnits} literal directly, so INDEXES and TOTAL
-    produce byte-identical output everywhere. TestConsumedCapacityIndexes_PutItem
-    is misleadingly named: despite the name and a GSI fixture, it actually requests
-    TOTAL and never exercises the INDEXES path -- the same 'test looked like
-    coverage and wasn't' pattern noted below for the pre-53cfd590b tests. Read-side
-    fix (100% of RCU to the queried index) is straightforward; write-side fix
-    (attributing WCU across every GSI/LSI a written item's key populates) needs
-    AWS billing semantics not verified against a real account this pass, so it's
-    flagged rather than guessed, per the no-fabrication rule."
-  - "2026-08-14 (gopherstack-rkmp, minor/structural, not filed individually):
-    struct-field-diffing every wire model against dynamodb@v1.63.1 turned up a
-    long tail of fields absent because the underlying AWS feature has no backend
-    model at all (same category as the SearchVectors gap below, not a wire drop):
-    WarmThroughput and VectorIndexes on CreateTable/UpdateTable/GSI actions;
-    GlobalTableWitnesses and MultiRegionConsistency (MRSC witness regions) on
-    CreateTable/TableDescription; ResourcePolicy on CreateTableInput (resource-based
-    policy IS modeled via the separate Put/GetResourcePolicy ops, just not the
-    at-creation shortcut); VectorIndexOverride/LocalSecondaryIndexOverride on
-    RestoreTableFromBackup/RestoreTableToPointInTime; several ReplicaDescription
-    v2-global-table fields (ReplicaArn, KMSMasterKeyId, OnDemand/ProvisionedThroughputOverride,
-    ReplicaStatusDescription/PercentProgress, ReplicaTableClassSummary,
-    ReplicaInaccessibleDateTime); ProvisionedThroughputDescription's
-    LastIncrease/DecreaseDateTime and NumberOfDecreasesToday (AWS itself rarely
-    populates the latter post-2018 throttling changes); SSEDescription's
-    InaccessibleEncryptionDateTime (only set when a KMS key becomes unreachable,
-    a failure mode this backend doesn't model); BackupSummary/BackupDetails'
-    BackupExpiryDateTime (only set on the SYSTEM auto-backups DynamoDB creates on
-    table deletion with PITR enabled -- this backend only ever creates USER
-    backups via CreateBackup, so there's genuinely no SYSTEM-backup expiry to
-    report). None fabricated; all are honest absences, listed here so a future
-    pass doesn't have to rediscover them by re-running the same diff."
-  - "2026-08-05: SearchVectors (new in SDK v1.63.1) — DynamoDB vector indexes have no
-    backend model here: CreateTable/UpdateTable have no field or code path that attaches a
-    vector index to a table, so no vector index can ever exist in this backend. Fabricating
-    similarity scores for a search against an index that was never created would violate
-    the no-fabricated-data rule. search_vectors.go implements full request validation
-    (TableName/IndexName/SearchVector/TopK required, matching the SDK's
-    validateOpSearchVectorsInput) and a real table-existence check, then honestly returns
-    ResourceNotFoundException for the named index — the same response real DynamoDB gives
-    for any index name on a table with no vector indexes. Wire types/converters
-    (SearchVectorsInput/Output, VectorCapacity, SearchResultItem) are implemented in full
-    for shape-correctness even though the success path is never reached. Full vector-index
-    support (CreateTable VectorIndex, index storage, real similarity scoring) is out of
-    scope for this pass — tracked as a follow-up if vector search ever becomes a priority."
-  - "2026-09-12 (reqfielddiff, gopherstack-xhu2t): RestoreTableFromBackup and
-    RestoreTableToPointInTime both accept VectorIndexOverride ([]types.VectorIndex) to
-    select which vector indexes carry over into the restored table. Same root cause as
-    the 2026-08-05 SearchVectors entry above -- this backend has no vector-index model
-    at all (no field on a table ever represents one), so there is nothing for an override
-    list to filter and no honest way to apply it. Not fabricated; recorded rather than
-    wired to a no-op."
+  - "No vector-index model: SearchVectors always ResourceNotFoundException for the index; VectorIndexes on CreateTable/UpdateTable/GSI actions and VectorIndexOverride on both restore ops are absent (search_vectors.go validates the request shape)."
+  - "Other unmodeled-subsystem fields, left nil rather than fabricated: WarmThroughput (AWS default values unverified), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime, BackupExpiryDateTime (SYSTEM backups only), DescribeContributorInsights FailureException (no failure model)."
 deferred:
   - expr/ lexer/parser/evaluator subpackage (has own aws_spec_test.go/evaluator_test.go) — not line-by-line re-audited this sweep; genuinely large surface, out of scope for this streams/transactions-focused follow-up pass. No known bugs, just not freshly field-diffed against the SDK this cycle.
   - PartiQL execution (partiql.go, ~37KB) — not re-audited this sweep, same reason as above.
@@ -222,6 +125,10 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 ---
 
 ## Notes
+
+### 2026-10-01 items_still_open burn-down
+
+Already fixed, entries removed: ReturnConsumedCapacity=INDEXES (TestConsumedCapacity_Indexes_TableDriven); legacy Expected/AttributeUpdates (legacy_conditional_params_test.go). Fixed with typed-client tests (table_wire_fields_test.go): CreateTable ResourcePolicy (20 KB cap per SDK doc), ProvisionedThroughputDescription LastIncrease/LastDecreaseDateTime and per-UTC-day NumberOfDecreasesToday (omitted when 0), RestoreTableFromBackup/ToPointInTime LocalSecondaryIndexOverride (subset by name), ReplicaDescription.ReplicaArn (table ARN with the replica region).
 
 ### 2026-09-24 TransactWriteItems prepare/commit split (gopherstack-wdapu)
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -73,6 +74,14 @@ func (db *InMemoryDB) CreateTableInRegion(
 	return db.CreateTable(context.WithValue(ctx, regionContextKey{}, region), input)
 }
 
+const (
+	arnSegments      = 6
+	arnRegionSegment = 3
+)
+
+// maxResourcePolicyBytes is the 20 KB policy cap from the CreateTableInput.ResourcePolicy SDK doc.
+const maxResourcePolicyBytes = 20 * 1024
+
 // validateCreateTableInput validates a CreateTable request before any shared state
 // is touched. It returns a validation error describing the first failure encountered.
 func validateCreateTableInput(input *dynamodb.CreateTableInput) error {
@@ -109,6 +118,10 @@ func validateCreateTableInput(input *dynamodb.CreateTableInput) error {
 
 	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
 		return err
+	}
+
+	if len(aws.ToString(input.ResourcePolicy)) > maxResourcePolicyBytes {
+		return NewValidationException("ResourcePolicy exceeds the maximum size of 20 KB")
 	}
 
 	return nil
@@ -275,6 +288,11 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		for _, tag := range input.Tags {
 			t.Tags.Set(aws.ToString(tag.Key), aws.ToString(tag.Value))
 		}
+	}
+
+	if policy := aws.ToString(input.ResourcePolicy); policy != "" {
+		t.ResourcePolicy = policy
+		t.ResourcePolicyRevision = nextResourcePolicyRevision("")
 	}
 
 	t.initializeIndexes()
@@ -807,10 +825,15 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 	// Only populate ProvisionedThroughput for PROVISIONED billing mode.
 	if billingMode == types.BillingModeProvisioned {
 		td.ProvisionedThroughput = &types.ProvisionedThroughputDescription{
-			ReadCapacityUnits:  &rcu,
-			WriteCapacityUnits: &wcu,
+			ReadCapacityUnits:      &rcu,
+			WriteCapacityUnits:     &wcu,
+			LastIncreaseDateTime:   epochToTime(s.pt.LastIncreaseDateTime),
+			LastDecreaseDateTime:   epochToTime(s.pt.LastDecreaseDateTime),
+			NumberOfDecreasesToday: aws.Int64(decreasesToday(s.pt, time.Now())),
 		}
 	}
+
+	setReplicaArns(td.Replicas, s.tableArn)
 
 	if s.onDemandMaxReadRRU != nil || s.onDemandMaxWriteRRU != nil {
 		td.OnDemandThroughput = &types.OnDemandThroughput{
@@ -1329,6 +1352,8 @@ func applyUpdateTableThroughput(table *Table, pt *types.ProvisionedThroughput) {
 		return
 	}
 
+	prev := table.ProvisionedThroughput
+
 	if pt.ReadCapacityUnits != nil {
 		table.ProvisionedThroughput.ReadCapacityUnits = int(*pt.ReadCapacityUnits)
 	}
@@ -1336,6 +1361,70 @@ func applyUpdateTableThroughput(table *Table, pt *types.ProvisionedThroughput) {
 	if pt.WriteCapacityUnits != nil {
 		table.ProvisionedThroughput.WriteCapacityUnits = int(*pt.WriteCapacityUnits)
 	}
+
+	recordThroughputChange(&table.ProvisionedThroughput, prev, time.Now())
+}
+
+// recordThroughputChange stamps the last increase/decrease times and bumps the
+// per-UTC-day decrease count when either capacity value moved.
+func recordThroughputChange(
+	cur *models.ProvisionedThroughputDescription,
+	prev models.ProvisionedThroughputDescription,
+	now time.Time,
+) {
+	if cur.ReadCapacityUnits > prev.ReadCapacityUnits || cur.WriteCapacityUnits > prev.WriteCapacityUnits {
+		cur.LastIncreaseDateTime = awstime.Epoch(now)
+	}
+
+	if cur.ReadCapacityUnits < prev.ReadCapacityUnits || cur.WriteCapacityUnits < prev.WriteCapacityUnits {
+		cur.NumberOfDecreasesToday = decreasesToday(prev, now) + 1
+		cur.LastDecreaseDateTime = awstime.Epoch(now)
+	}
+}
+
+// decreasesToday is the stored decrease count, or 0 once the last decrease fell on an earlier UTC day.
+func decreasesToday(pt models.ProvisionedThroughputDescription, now time.Time) int64 {
+	if pt.LastDecreaseDateTime == 0 {
+		return 0
+	}
+
+	last := epochToTime(pt.LastDecreaseDateTime).UTC()
+	ly, lm, ld := last.Date()
+	ny, nm, nd := now.UTC().Date()
+
+	if ly != ny || lm != nm || ld != nd {
+		return 0
+	}
+
+	return pt.NumberOfDecreasesToday
+}
+
+// setReplicaArns derives each replica's ARN: the table ARN with the replica's region swapped in.
+func setReplicaArns(replicas []types.ReplicaDescription, tableArn string) {
+	parts := strings.SplitN(tableArn, ":", arnSegments)
+	if len(parts) != arnSegments {
+		return
+	}
+
+	for i := range replicas {
+		if replicas[i].RegionName == nil {
+			continue
+		}
+
+		parts[arnRegionSegment] = *replicas[i].RegionName
+		replicas[i].ReplicaArn = aws.String(strings.Join(parts, ":"))
+	}
+}
+
+// epochToTime converts stored epoch seconds back to a time; 0 yields nil.
+func epochToTime(sec float64) *time.Time {
+	if sec == 0 {
+		return nil
+	}
+
+	t := time.Unix(0, int64(sec*float64(time.Second)))
+
+	return &t
 }
 
 // applyUpdateTableAttrDefs merges new attribute definitions into the table (keeps existing ones).

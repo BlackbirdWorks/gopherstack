@@ -402,6 +402,20 @@ func toSDKGSIOverride(gsis []models.GlobalSecondaryIndex) []sdktypes.GlobalSecon
 	return out
 }
 
+// toSDKLSIOverride is toSDKGSIOverride for LSIs: nil keeps the source's, empty excludes all.
+func toSDKLSIOverride(lsis []models.LocalSecondaryIndex) []sdktypes.LocalSecondaryIndex {
+	if lsis == nil {
+		return nil
+	}
+
+	out := models.ToSDKLocalSecondaryIndexes(lsis)
+	if out == nil {
+		out = []sdktypes.LocalSecondaryIndex{}
+	}
+
+	return out
+}
+
 func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.RestoreTableFromBackupInput
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -422,6 +436,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 		BillingModeOverride:           sdktypes.BillingMode(req.BillingModeOverride),
 		ProvisionedThroughputOverride: toSDKProvisionedThroughputOverride(req.ProvisionedThroughputOverride),
 		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
+		LocalSecondaryIndexOverride:   toSDKLSIOverride(req.LocalSecondaryIndexOverride),
 		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
 		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
 	})
@@ -502,6 +517,7 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 		UseLatestRestorableTime:       aws.Bool(req.UseLatestRestorableTime),
 		RestoreDateTime:               toSDKRestoreDateTime(req.RestoreDateTime),
 		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
+		LocalSecondaryIndexOverride:   toSDKLSIOverride(req.LocalSecondaryIndexOverride),
 		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
 		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
 	})
