@@ -18,6 +18,7 @@ const (
 const (
 	streamStatusCreating = "CREATING"
 	streamStatusActive   = "ACTIVE"
+	streamStatusDeleting = "DELETING"
 )
 
 const (

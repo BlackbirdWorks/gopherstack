@@ -28,6 +28,8 @@ func (b *InMemoryBackend) CreateStream(clusterIdentifier string, in CreateStream
 		return nil, err
 	}
 
+	b.sweepDeletedStreamsLocked(time.Now())
+
 	if b.countStreamsLocked(clusterIdentifier) >= maxStreamsPerCluster {
 		return nil, ErrStreamQuotaExceeded
 	}
@@ -58,6 +60,14 @@ func (b *InMemoryBackend) CreateStream(clusterIdentifier string, in CreateStream
 	return s.clone(), nil
 }
 
+func (b *InMemoryBackend) sweepDeletedStreamsLocked(now time.Time) {
+	for _, s := range b.streams.All() {
+		if s.deletionDue(now) {
+			b.streams.Delete(streamKey(s.ClusterIdentifier, s.StreamIdentifier))
+		}
+	}
+}
+
 func (b *InMemoryBackend) countStreamsLocked(clusterIdentifier string) int {
 	n := 0
 
@@ -83,11 +93,8 @@ func (b *InMemoryBackend) GetStream(clusterIdentifier, streamIdentifier string) 
 	return s.clone(), nil
 }
 
-// DeleteStream removes a stream immediately (real AWS transitions through
-// DELETING, but nothing else in this backend observes a stream's
-// intermediate delete state, so removing it synchronously here is
-// behaviorally equivalent to any client that only checks for
-// ResourceNotFoundException afterward).
+// DeleteStream marks a stream DELETING; it is lazily removed streamDeletionDelay
+// later, on the next read.
 func (b *InMemoryBackend) DeleteStream(clusterIdentifier, streamIdentifier string) (*Stream, error) {
 	b.mu.Lock("DeleteStream")
 	defer b.mu.Unlock()
@@ -97,7 +104,10 @@ func (b *InMemoryBackend) DeleteStream(clusterIdentifier, streamIdentifier strin
 		return nil, err
 	}
 
-	b.streams.Delete(streamKey(clusterIdentifier, streamIdentifier))
+	if s.Status != streamStatusDeleting {
+		s.Status = streamStatusDeleting
+		s.PendingUntil = time.Now().UTC().Add(streamDeletionDelay)
+	}
 
 	return s.clone(), nil
 }
@@ -119,6 +129,13 @@ func (b *InMemoryBackend) ListStreams(clusterIdentifier, nextToken string, maxRe
 		}
 
 		b.advanceStreamLocked(s)
+
+		if s.deletionDue(time.Now()) {
+			b.streams.Delete(streamKey(clusterIdentifier, s.StreamIdentifier))
+
+			continue
+		}
+
 		matched = append(matched, s.clone())
 	}
 

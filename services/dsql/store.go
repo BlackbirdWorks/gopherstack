@@ -23,6 +23,7 @@ const (
 	clusterActivationDelay = 750 * time.Millisecond
 	clusterDeletionDelay   = 750 * time.Millisecond
 	streamActivationDelay  = 500 * time.Millisecond
+	streamDeletionDelay    = 500 * time.Millisecond
 
 	maxClustersPerAccountRegion = 20
 	maxStreamsPerCluster        = 20
@@ -146,7 +147,7 @@ func (b *InMemoryBackend) resolveClusterLocked(identifier string) (*Cluster, err
 	b.advanceClusterLocked(c)
 
 	if c.Status == statusDeleting && time.Now().After(c.PendingUntil) {
-		b.clusters.Delete(identifier)
+		b.removeClusterLocked(identifier)
 
 		return nil, ErrClusterNotFound
 	}
@@ -178,7 +179,28 @@ func (b *InMemoryBackend) resolveStreamLocked(clusterIdentifier, streamIdentifie
 
 	b.advanceStreamLocked(s)
 
+	if s.deletionDue(time.Now()) {
+		b.streams.Delete(streamKey(clusterIdentifier, streamIdentifier))
+
+		return nil, ErrStreamNotFound
+	}
+
 	return s, nil
+}
+
+// removeClusterLocked deletes a cluster and every stream it owns.
+func (b *InMemoryBackend) removeClusterLocked(identifier string) {
+	b.clusters.Delete(identifier)
+
+	for _, s := range b.streams.All() {
+		if s.ClusterIdentifier == identifier {
+			b.streams.Delete(streamKey(identifier, s.StreamIdentifier))
+		}
+	}
+}
+
+func (s *Stream) deletionDue(now time.Time) bool {
+	return s.Status == streamStatusDeleting && now.After(s.PendingUntil)
 }
 
 func (b *InMemoryBackend) advanceStreamLocked(s *Stream) {

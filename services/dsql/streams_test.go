@@ -2,12 +2,16 @@ package dsql_test
 
 import (
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	dsqlsdk "github.com/aws/aws-sdk-go-v2/service/dsql"
 	"github.com/aws/aws-sdk-go-v2/service/dsql/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/dsql"
 )
 
 func testKinesisTarget() types.TargetDefinition {
@@ -156,18 +160,68 @@ func TestDeleteStream(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.DeleteStream(ctx, &dsqlsdk.DeleteStreamInput{
+	del, err := client.DeleteStream(ctx, &dsqlsdk.DeleteStreamInput{
 		ClusterIdentifier: cluster.Identifier,
 		StreamIdentifier:  created.StreamIdentifier,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, types.StreamStatusDeleting, del.Status)
+
+	got, err := client.GetStream(ctx, &dsqlsdk.GetStreamInput{
+		ClusterIdentifier: cluster.Identifier,
+		StreamIdentifier:  created.StreamIdentifier,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.StreamStatusDeleting, got.Status)
+
+	require.Eventually(t, func() bool {
+		_, getErr := client.GetStream(ctx, &dsqlsdk.GetStreamInput{
+			ClusterIdentifier: cluster.Identifier,
+			StreamIdentifier:  created.StreamIdentifier,
+		})
+
+		return getErr != nil
+	}, waitTimeout, pollInterval)
 
 	_, err = client.GetStream(ctx, &dsqlsdk.GetStreamInput{
 		ClusterIdentifier: cluster.Identifier,
 		StreamIdentifier:  created.StreamIdentifier,
 	})
-	require.Error(t, err)
 	assertAPIErrorCode(t, err, "ResourceNotFoundException")
+
+	list, err := client.ListStreams(ctx, &dsqlsdk.ListStreamsInput{ClusterIdentifier: cluster.Identifier})
+	require.NoError(t, err)
+	assert.Empty(t, list.Streams)
+}
+
+func TestDeleteCluster_RemovesOwnedStreams(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		b := dsql.NewInMemoryBackend()
+
+		c, err := b.CreateCluster(testAccountID, testRegion, dsql.CreateClusterInput{})
+		require.NoError(t, err)
+
+		s, err := b.CreateStream(c.Identifier, dsql.CreateStreamInput{
+			Target: &dsql.StreamTarget{
+				RoleArn:   "arn:aws:iam::123456789012:role/r",
+				StreamArn: "arn:aws:kinesis:us-east-1:123456789012:stream/k",
+			},
+		})
+		require.NoError(t, err)
+
+		_, err = b.DeleteCluster(c.Identifier)
+		require.NoError(t, err)
+
+		time.Sleep(time.Second)
+
+		_, err = b.GetCluster(c.Identifier)
+		require.ErrorIs(t, err, dsql.ErrClusterNotFound)
+
+		_, err = b.GetStream(c.Identifier, s.StreamIdentifier)
+		require.ErrorIs(t, err, dsql.ErrStreamNotFound)
+	})
 }
 
 func TestCreateStream_QuotaExceeded(t *testing.T) {

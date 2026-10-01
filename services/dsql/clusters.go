@@ -98,7 +98,7 @@ func (b *InMemoryBackend) ListClusters(nextToken string, maxResults int) ([]*Clu
 		b.advanceClusterLocked(c)
 
 		if c.Status == statusDeleting && time.Now().After(c.PendingUntil) {
-			b.clusters.Delete(c.Identifier)
+			b.removeClusterLocked(c.Identifier)
 
 			continue
 		}
