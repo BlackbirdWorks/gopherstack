@@ -29,6 +29,41 @@ func clonePolicy(p *Policy) *Policy {
 // that were previously nested by policy store (see store_setup.go).
 func policyKey(policyStoreID, policyID string) string { return policyStoreID + "/" + policyID }
 
+const policyNamePrefix = "name/"
+
+// resolvePolicyIDLocked maps a "name/<name>" reference to the policy ID, and
+// returns any other value unchanged. Callers must hold b.mu.
+func (b *InMemoryBackend) resolvePolicyIDLocked(policyStoreID, idOrName string) string {
+	name, ok := strings.CutPrefix(idOrName, policyNamePrefix)
+	if !ok {
+		return idOrName
+	}
+
+	for _, p := range b.policiesByStore.Get(policyStoreID) {
+		if p.Name == name {
+			return p.PolicyID
+		}
+	}
+
+	return idOrName
+}
+
+// policyNameTakenLocked reports whether another policy in the store already
+// uses name. Callers must hold b.mu.
+func (b *InMemoryBackend) policyNameTakenLocked(policyStoreID, name, exceptID string) bool {
+	if name == "" {
+		return false
+	}
+
+	for _, p := range b.policiesByStore.Get(policyStoreID) {
+		if p.Name == name && p.PolicyID != exceptID {
+			return true
+		}
+	}
+
+	return false
+}
+
 // parseCedarStatement validates a Cedar policy statement using the cedar-go parser.
 func parseCedarStatement(statement string) error {
 	if _, err := cedar.NewPolicyListFromBytes("policy.cedar", []byte(statement)); err != nil {
@@ -76,9 +111,14 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 		}
 	}
 
+	if b.policyNameTakenLocked(policyStoreID, params.Name, "") {
+		return nil, fmt.Errorf("%w: policy name %s is already in use", ErrConflict, params.Name)
+	}
+
 	id := uuid.NewString()
 	now := time.Now()
 	p := &Policy{
+		Name:                params.Name,
 		PolicyID:            id,
 		PolicyStoreID:       policyStoreID,
 		PolicyType:          params.PolicyType,
@@ -106,7 +146,7 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 // different fingerprint is a real AWS ConflictException.
 func createPolicyFingerprint(policyStoreID string, params CreatePolicyParams) string {
 	return strings.Join([]string{
-		policyStoreID, params.PolicyType, params.Statement, params.Description,
+		policyStoreID, params.Name, params.PolicyType, params.Statement, params.Description,
 		params.PolicyTemplateID, params.PrincipalEntityType, params.PrincipalEntityID,
 		params.ResourceEntityType, params.ResourceEntityID,
 	}, "\x00")
@@ -121,7 +161,7 @@ func (b *InMemoryBackend) GetPolicy(policyStoreID, policyID string) (*Policy, er
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	p, ok := b.policies.Get(policyKey(policyStoreID, policyID))
+	p, ok := b.policies.Get(policyKey(policyStoreID, b.resolvePolicyIDLocked(policyStoreID, policyID)))
 	if !ok {
 		return nil, fmt.Errorf("%w: policy %s not found", ErrPolicyNotFound, policyID)
 	}
@@ -224,7 +264,7 @@ func (b *InMemoryBackend) UpdatePolicy(policyStoreID, policyID string, params Up
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	p, ok := b.policies.Get(policyKey(policyStoreID, policyID))
+	p, ok := b.policies.Get(policyKey(policyStoreID, b.resolvePolicyIDLocked(policyStoreID, policyID)))
 	if !ok {
 		return nil, fmt.Errorf("%w: policy %s not found", ErrPolicyNotFound, policyID)
 	}
@@ -233,6 +273,10 @@ func (b *InMemoryBackend) UpdatePolicy(policyStoreID, policyID string, params Up
 		return nil, fmt.Errorf(
 			"%w: policy %s is template-linked; update the policy template instead", ErrValidation, policyID,
 		)
+	}
+
+	if params.Name != nil && b.policyNameTakenLocked(policyStoreID, *params.Name, p.PolicyID) {
+		return nil, fmt.Errorf("%w: policy name %s is already in use", ErrConflict, *params.Name)
 	}
 
 	if params.Statement != "" {
@@ -245,6 +289,10 @@ func (b *InMemoryBackend) UpdatePolicy(policyStoreID, policyID string, params Up
 
 	if params.Description != "" {
 		p.Description = params.Description
+	}
+
+	if params.Name != nil {
+		p.Name = *params.Name
 	}
 
 	p.LastUpdated = time.Now()
@@ -267,6 +315,8 @@ func (b *InMemoryBackend) DeletePolicy(policyStoreID, policyID string) error {
 	if !b.policyStores.Has(policyStoreID) {
 		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
+
+	policyID = b.resolvePolicyIDLocked(policyStoreID, policyID)
 
 	if !b.policies.Has(policyKey(policyStoreID, policyID)) {
 		return nil
@@ -305,7 +355,8 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 			continue
 		}
 
-		p, ok := b.policies.Get(policyKey(item.PolicyStoreID, item.PolicyID))
+		id := b.resolvePolicyIDLocked(item.PolicyStoreID, item.PolicyID)
+		p, ok := b.policies.Get(policyKey(item.PolicyStoreID, id))
 		if !ok {
 			entries = append(entries, entry{err: &batchGetPolicyErrorItem{
 				PolicyStoreID: item.PolicyStoreID,

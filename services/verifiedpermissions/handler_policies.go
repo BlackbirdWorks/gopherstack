@@ -65,6 +65,7 @@ type createPolicyInput struct {
 	Definition    policyDefinitionIn `json:"definition"`
 	PolicyStoreID string             `json:"policyStoreId"`
 	ClientToken   string             `json:"clientToken,omitempty"`
+	Name          string             `json:"name,omitempty"`
 }
 
 // policyIDsOutput is shared by CreatePolicy/UpdatePolicy. Beyond the policy's
@@ -196,7 +197,7 @@ func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (
 		return nil, fmt.Errorf("%w: definition must contain exactly one of static or templateLinked", errInvalidRequest)
 	}
 
-	params := CreatePolicyParams{ClientToken: in.ClientToken}
+	params := CreatePolicyParams{ClientToken: in.ClientToken, Name: in.Name}
 
 	if in.Definition.Static != nil {
 		if in.Definition.Static.Statement == "" {
@@ -260,6 +261,7 @@ type policyView struct {
 	PolicyID        string                 `json:"policyId"`
 	PolicyType      string                 `json:"policyType"`
 	Effect          string                 `json:"effect,omitempty"`
+	Name            string                 `json:"name,omitempty"`
 	CreatedDate     string                 `json:"createdDate"`
 	LastUpdatedDate string                 `json:"lastUpdatedDate"`
 	Actions         []actionIdentifierJSON `json:"actions,omitempty"`
@@ -276,6 +278,7 @@ type policyListItemView struct {
 	PolicyID        string                  `json:"policyId"`
 	PolicyType      string                  `json:"policyType"`
 	Effect          string                  `json:"effect,omitempty"`
+	Name            string                  `json:"name,omitempty"`
 	CreatedDate     string                  `json:"createdDate"`
 	LastUpdatedDate string                  `json:"lastUpdatedDate"`
 	Actions         []actionIdentifierJSON  `json:"actions,omitempty"`
@@ -288,6 +291,7 @@ func (h *Handler) policyToView(p *Policy) policyView {
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
+		Name:            p.Name,
 		Definition:      policyDefinitionDetail(p),
 		Effect:          echo.Effect,
 		Actions:         echo.Actions,
@@ -305,6 +309,7 @@ func (h *Handler) policyToListItemView(p *Policy) policyListItemView {
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
+		Name:            p.Name,
 		Definition:      policyDefinitionItem(p),
 		Effect:          echo.Effect,
 		Actions:         echo.Actions,
@@ -447,6 +452,7 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 }
 
 type updatePolicyInput struct {
+	Name          *string            `json:"name,omitempty"`
 	Definition    policyDefinitionIn `json:"definition"`
 	PolicyStoreID string             `json:"policyStoreId"`
 	PolicyID      string             `json:"policyId"`
@@ -487,6 +493,7 @@ func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (
 	}
 
 	params := UpdatePolicyParams{
+		Name:        in.Name,
 		Statement:   in.Definition.Static.Statement,
 		Description: in.Definition.Static.Description,
 	}
@@ -547,6 +554,7 @@ type batchGetPolicyItemOut struct {
 	PolicyStoreID   string              `json:"policyStoreId"`
 	PolicyID        string              `json:"policyId"`
 	PolicyType      string              `json:"policyType"`
+	Name            string              `json:"name,omitempty"`
 	CreatedDate     string              `json:"createdDate"`
 	LastUpdatedDate string              `json:"lastUpdatedDate"`
 }
@@ -609,6 +617,7 @@ func (h *Handler) handleBatchGetPolicy(
 			PolicyStoreID:   p.PolicyStoreID,
 			PolicyID:        p.PolicyID,
 			PolicyType:      p.PolicyType,
+			Name:            p.Name,
 			CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
 			LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 		})
