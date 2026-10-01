@@ -286,7 +286,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false
 		}
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 redshift client sets (api_client.go's
@@ -295,7 +295,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			// error instead of masking the read failure as a 404.
 			return service.MatchesUserAgentMarker(r.Header, "api/redshift")
 		}
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}

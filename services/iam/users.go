@@ -236,13 +236,27 @@ func (b *InMemoryBackend) GetUserByAccessKeyID(accessKeyID string) (*User, error
 	return u, nil
 }
 
+func (b *InMemoryBackend) userByAccessKeyID(accessKeyID string) (*User, bool) {
+	b.mu.RLock("GetUserByAccessKeyID")
+	defer b.mu.RUnlock()
+
+	ak, exists := b.accessKeys.Get(accessKeyID)
+	if !exists {
+		return nil, false
+	}
+
+	u, exists := b.users.Get(ak.UserName)
+
+	return u, exists && u != nil
+}
+
 // ResolvePrincipal resolves an access key ID to an awsmeta.Principal representing an IAM User.
 func (b *InMemoryBackend) ResolvePrincipal(
 	_ context.Context,
 	accessKeyID, _ string,
 ) (*awsmeta.Principal, bool) {
-	u, err := b.GetUserByAccessKeyID(accessKeyID)
-	if err != nil || u == nil {
+	u, ok := b.userByAccessKeyID(accessKeyID)
+	if !ok {
 		return nil, false
 	}
 

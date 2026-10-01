@@ -56,13 +56,11 @@ func Load(ctx context.Context) *slog.Logger {
 // for concurrent use across requests.
 func AddAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
 	parent := Load(ctx)
-
-	args := make([]any, len(attrs))
-	for i, a := range attrs {
-		args[i] = a
+	if len(attrs) == 0 {
+		return Save(ctx, parent)
 	}
 
-	return Save(ctx, parent.With(args...))
+	return Save(ctx, slog.New(parent.Handler().WithAttrs(attrs)))
 }
 
 // WithService returns a child context whose logger carries service=<name>.

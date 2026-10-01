@@ -51,14 +51,17 @@ func WrapEchoHandler(
 		resource := observer.ExtractResource(c)
 
 		// Log request start
-		log.DebugContext(
-			reqCtx,
-			"operation started",
-			"operation", operation,
-			"resource", resource,
-			"method", c.Request().Method,
-			"path", c.Request().URL.Path,
-		)
+		debugOn := log.Enabled(reqCtx, slog.LevelDebug)
+		if debugOn {
+			log.DebugContext(
+				reqCtx,
+				"operation started",
+				"operation", operation,
+				"resource", resource,
+				"method", c.Request().Method,
+				"path", c.Request().URL.Path,
+			)
+		}
 
 		// Time the operation
 		start := time.Now()
@@ -108,7 +111,7 @@ func WrapEchoHandler(
 				"status_code", echoResp.Status,
 				"duration_seconds", durationSeconds,
 			)
-		} else {
+		} else if debugOn {
 			log.DebugContext(
 				reqCtx,
 				"operation completed",
