@@ -380,7 +380,7 @@ func (h *Handler) handleCreateReplaceRootVolumeTask(vals url.Values, reqID strin
 
 func (h *Handler) handleDescribeReplaceRootVolumeTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ReplaceRootVolumeTaskId")
-	tasks := h.Backend.DescribeReplaceRootVolumeTasks(ids)
+	tasks := applyReplaceRootVolumeTaskFilters(h.Backend.DescribeReplaceRootVolumeTasks(ids), parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

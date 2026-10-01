@@ -100,7 +100,7 @@ func (h *Handler) handleDescribeImageUsageReports(vals url.Values, reqID string)
 	reportIDs := parseMemberList(vals, "ReportId")
 	imageIDs := parseMemberList(vals, "ImageId")
 
-	reports := h.Backend.DescribeImageUsageReports()
+	reports := applyImageUsageReportFilters(h.Backend.DescribeImageUsageReports(), parseEC2Filters(vals), h.Backend)
 	items := make([]imageUsageReportItem, 0, len(reports))
 	for _, report := range reports {
 		if len(reportIDs) > 0 && !slices.Contains(reportIDs, report.ReportID) {

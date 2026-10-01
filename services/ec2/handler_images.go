@@ -1443,7 +1443,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 	}, nil
 }
 
-func (h *Handler) handleDescribeRegions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeRegions(vals url.Values, reqID string) (any, error) {
 	regions := h.Backend.DescribeRegions()
 
 	items := make([]regionItem, 0, len(regions))
@@ -1453,6 +1453,8 @@ func (h *Handler) handleDescribeRegions(_ url.Values, reqID string) (any, error)
 			Endpoint:   fmt.Sprintf("ec2.%s.amazonaws.com", r),
 		})
 	}
+
+	items = applyRegionFilters(items, parseEC2Filters(vals))
 
 	return &describeRegionsResponse{
 		Xmlns:      ec2XMLNS,

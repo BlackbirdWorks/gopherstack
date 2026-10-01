@@ -56,6 +56,10 @@ const (
 	filterKeyVpcEndpointID    = "vpc-endpoint-id"
 	filterKeyProductDesc      = "product-description"
 	filterKeyOutpostArn       = "outpost-arn"
+	filterKeyRIID             = "reserved-instances-id"
+	filterKeyTMFilterID       = "traffic-mirror-filter-id"
+	filterKeyProtocol         = "protocol"
+	filterKeyTagValue         = "tag-value"
 )
 
 // applyFilterList runs the standard AND-across-names/OR-within-values filter
@@ -3527,7 +3531,7 @@ func reservedInstanceMatchesFilter(ri *ReservedInstance, filterName string, valu
 		return anyEqual(ri.InstanceType, values)
 	case filterKeyProductDesc:
 		return anyEqual(ri.ProductDescription, values)
-	case "reserved-instances-id":
+	case filterKeyRIID:
 		return anyEqual(ri.ReservedInstancesID, values)
 	case "start":
 		return anyEqual(ri.Start.UTC().Format(time.RFC3339), values)
@@ -3555,7 +3559,7 @@ func trafficMirrorFilterMatchesFilter(f *TrafficMirrorFilter, filterName string,
 	switch filterName {
 	case filterKeyDescription:
 		return anyEqual(f.Description, values)
-	case "traffic-mirror-filter-id":
+	case filterKeyTMFilterID:
 		return anyEqual(f.TrafficMirrorFilterID, values)
 	}
 
@@ -3585,7 +3589,7 @@ func trafficMirrorSessionMatchesFilter(s *TrafficMirrorSession, filterName strin
 		return anyEqual(strconv.Itoa(s.PacketLength), values)
 	case "session-number":
 		return anyEqual(strconv.Itoa(s.SessionNumber), values)
-	case "traffic-mirror-filter-id":
+	case filterKeyTMFilterID:
 		return anyEqual(s.TrafficMirrorFilterID, values)
 	case "traffic-mirror-session-id":
 		return anyEqual(s.TrafficMirrorSessionID, values)
@@ -3767,7 +3771,7 @@ func networkInsightsPathMatchesFilter(p *NetworkInsightsPath, filterName string,
 	switch filterName {
 	case "destination":
 		return anyEqual(p.DestinationID, values)
-	case "protocol":
+	case filterKeyProtocol:
 		return anyEqual(p.Protocol, values)
 	case "source":
 		return anyEqual(p.SourceID, values)
@@ -4107,7 +4111,7 @@ func instanceEventWindowMatchesFilter(ew *InstanceEventWindow, filterName string
 		return anyEqual(ew.Name, values)
 	case filterKeyInstanceID:
 		return anyContains(ew.InstanceIDs, values)
-	case "tag-value":
+	case filterKeyTagValue:
 		for _, v := range b.TagsForResource(ew.InstanceEventWindowID) {
 			if anyEqual(v, values) {
 				return true

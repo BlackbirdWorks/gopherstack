@@ -489,7 +489,9 @@ func (h *Handler) handleDescribeReservedInstancesModifications(
 	reqID string,
 ) (any, error) {
 	ids := parseMemberList(vals, "ReservedInstancesModificationId")
-	mods := h.Backend.DescribeReservedInstancesModifications(ids)
+	mods := applyReservedInstancesModificationFilters(
+		h.Backend.DescribeReservedInstancesModifications(ids), parseEC2Filters(vals),
+	)
 
 	resp := &describeReservedInstancesModificationsResponse{RequestID: reqID}
 	for _, m := range mods {

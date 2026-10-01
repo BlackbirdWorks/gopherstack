@@ -218,6 +218,8 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	reservations = applySubnetCidrReservationFilters(reservations, parseEC2Filters(vals), h.Backend)
+
 	resp := &getSubnetCidrReservationsResponse{RequestID: reqID}
 	for _, r := range reservations {
 		item := toSubnetCidrReservationItem(r, h.Backend.TagsForResource(r.SubnetCIDRReservationID))

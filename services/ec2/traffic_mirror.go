@@ -229,7 +229,7 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(
 			rule.DestinationPortRange = nil
 		case "source-port-range":
 			rule.SourcePortRange = nil
-		case "protocol":
+		case filterKeyProtocol:
 			rule.Protocol = 0
 		case "description":
 			rule.Description = ""

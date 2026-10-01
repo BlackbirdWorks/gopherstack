@@ -3,7 +3,14 @@ service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: 5cb6665a0   # was 30db30dd8
 last_audit_date: 2026-09-24   # was 2026-09-23
-overall: A   # Filter.N sweep, fourth batch (2026-09-24, chore/parity-sweep-2026-09-18
+overall: A   # Filter.N sweep, 2026-10-01 second pass: DescribeRegions (endpoint, region-name),
+             # DescribeNetworkInterfacePermissions (five network-interface-permission.*),
+             # DescribeIpv6Pools, DescribeTrafficMirrorFilterRules, DescribeReplaceRootVolumeTasks,
+             # DescribeVpcClassicLink, DescribeReservedInstancesModifications, DescribeOutpostLags,
+             # DescribeVpcBlockPublicAccessExclusions, GetSubnetCidrReservations,
+             # DescribeImageUsageReports; SDK-client tests in realclient_filters_describe_misc_test.go.
+             # ---- prior pass's note follows ----
+             # Filter.N sweep, fourth batch (2026-09-24, chore/parity-sweep-2026-09-18
              # branch, continues gopherstack-rwwvt): fixed 16 more of the ~84 ops the third
              # batch left as items_still_open, prioritised Terraform-facing families as
              # directed -- DescribeLaunchTemplates (previously applied zero Filters despite
@@ -568,8 +575,8 @@ families:
 gaps: []
 items_still_open:
   - "CreateKeyPair KeyFormat=ppk is not modeled (needs a real PuTTY PPK encoder); pem works for RSA and ED25519."
-  - "Filter.N/Filters ignored on ~61 of 181 filterable Describe*/Get* ops (2026-09-24
-    gopherstack-rwwvt sweep; 2026-10-01 fixed 10 more). Needing the
+  - "Filter.N/Filters ignored on ~50 of 181 filterable Describe*/Get* ops (2026-09-24
+    gopherstack-rwwvt sweep; 2026-10-01 fixed 10, then 11 more). Needing the
     same treatment as the ops already fixed (read the op's SDK doc comment for its
     documented filter names, cross-check against what this backend's struct actually
     stores, add an applyXxxFilters/xxxMatchesFilter pair, wire it in after any existing
@@ -577,12 +584,13 @@ items_still_open:
     (DescribeTransitGatewayMeteringPolicies/PolicyTables/RouteTableAnnouncements and their
     GetTransitGatewayMeteringPolicyEntries/PolicyTableAssociations/PolicyTableEntries
     sub-ops); a long tail of lower-priority families -- DescribeCapacityBlock*,
-    DescribeInstance*/Fleet* sub-ops, DescribeReplaceRootVolumeTasks,
-    DescribeReservedInstancesModifications, DescribeVpcBlockPublicAccessExclusions/
-    VpcClassicLink/VpcEncryptionControls, DescribeTrafficMirrorFilterRules,
-    DescribeOutpostLags, DescribeElasticGpus, DescribeInstanceImageMetadata/Topology,
-    DescribeSecondaryInterfaces
-    (tag-key only, rest already fixed). Confirmed PERMANENT non-gaps (the pinned SDK's own
+    DescribeInstance*/Fleet* sub-ops, DescribeVpcEncryptionControls,
+    DescribeElasticGpus (documented, but always empty: Elastic Graphics retired),
+    DescribeInstanceImageMetadata/Topology,
+    DescribeRegions opt-in-status, DescribeReservedInstancesModifications client-token/
+    create-date/effective-date/update-date/modification-result.reserved-instances-id,
+    DescribeOutpostLags' service-link-VIF family (unmodeled), DescribeImageUsageReports
+    creation-time (wildcard), DescribeSecondaryInterfaces (tag-key only). Confirmed PERMANENT non-gaps (the pinned SDK's own
     doc comment enumerates zero filter names, e.g. 'One or more filters to apply.', so named
     matching would be fabricated semantics): the bulk of the IPAM Describe*/Get* surface;
     DescribeRouteServers/RouteServerEndpoints/RouteServerPeers;

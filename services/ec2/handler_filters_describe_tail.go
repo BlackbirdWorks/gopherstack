@@ -16,7 +16,7 @@ func applyInstanceConnectEndpointFilters(
 			return anyEqual(ep.SubnetID, values)
 		case filterKeyVPCID:
 			return anyEqual(ep.VPCID, values)
-		case "tag-value":
+		case filterKeyTagValue:
 			for _, v := range b.TagsForResource(ep.InstanceConnectEndpointID) {
 				if anyEqual(v, values) {
 					return true
@@ -91,7 +91,7 @@ func applyReservedInstancesListingFilters(
 ) []*ReservedInstancesListing {
 	return applyFilterList(items, filters, func(l *ReservedInstancesListing, name string, values []string) bool {
 		switch name {
-		case "reserved-instances-id":
+		case filterKeyRIID:
 			return anyEqual(l.ReservedInstancesID, values)
 		case "reserved-instances-listing-id":
 			return anyEqual(l.ReservedInstancesListingID, values)

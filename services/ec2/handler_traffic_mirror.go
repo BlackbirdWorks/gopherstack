@@ -359,6 +359,8 @@ func (h *Handler) handleDescribeTrafficMirrorFilterRules(
 		return nil, err
 	}
 
+	rules = applyTrafficMirrorFilterRuleFilters(rules, parseEC2Filters(vals))
+
 	resp := &describeTrafficMirrorFilterRulesResponse{RequestID: reqID}
 	for _, r := range rules {
 		resp.TrafficMirrorFilterRules.Items = append(

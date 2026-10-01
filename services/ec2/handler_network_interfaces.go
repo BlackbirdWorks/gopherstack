@@ -149,7 +149,7 @@ func (h *Handler) handleDescribeNetworkInterfacePermissions(
 	reqID string,
 ) (any, error) {
 	niIDs := parseMemberList(vals, "NetworkInterfaceId")
-	perms := h.Backend.DescribeNetworkInterfacePermissions(niIDs)
+	perms := applyNIPermissionFilters(h.Backend.DescribeNetworkInterfacePermissions(niIDs), parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageDefaultNIPermissions,
