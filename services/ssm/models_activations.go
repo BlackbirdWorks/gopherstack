@@ -25,17 +25,30 @@ type CreateResourceDataSyncInput struct {
 	SyncType      string                         `json:"SyncType,omitempty"`
 }
 
-// ResourceDataSyncS3Destination mirrors types.ResourceDataSyncS3Destination
-// (types.go:5561). DestinationDataSharing (Organizations cross-account
-// prefix sharing) is deliberately not modeled, matching the same
-// shallow-scalar convention ResourceDataSyncSource already documents for its
-// own AwsOrganizationsSource member.
+// ResourceDataSyncS3Destination mirrors types.ResourceDataSyncS3Destination (types.go:5561).
 type ResourceDataSyncS3Destination struct {
-	BucketName   string `json:"BucketName"`
-	Region       string `json:"Region"`
-	SyncFormat   string `json:"SyncFormat"`
-	AWSKMSKeyARN string `json:"AWSKMSKeyARN,omitempty"`
-	Prefix       string `json:"Prefix,omitempty"`
+	DestinationDataSharing *ResourceDataSyncDestinationDataSharing `json:"DestinationDataSharing,omitempty"`
+	BucketName             string                                  `json:"BucketName"`
+	Region                 string                                  `json:"Region"`
+	SyncFormat             string                                  `json:"SyncFormat"`
+	AWSKMSKeyARN           string                                  `json:"AWSKMSKeyARN,omitempty"`
+	Prefix                 string                                  `json:"Prefix,omitempty"`
+}
+
+// ResourceDataSyncDestinationDataSharing mirrors types.ResourceDataSyncDestinationDataSharing (types.go:5503).
+type ResourceDataSyncDestinationDataSharing struct {
+	DestinationDataSharingType string `json:"DestinationDataSharingType,omitempty"`
+}
+
+// ResourceDataSyncAwsOrganizationsSource mirrors types.ResourceDataSyncAwsOrganizationsSource (types.go:5483).
+type ResourceDataSyncAwsOrganizationsSource struct {
+	OrganizationSourceType string                         `json:"OrganizationSourceType"`
+	OrganizationalUnits    []ResourceDataSyncOrganization `json:"OrganizationalUnits,omitempty"`
+}
+
+// ResourceDataSyncOrganization mirrors types.ResourceDataSyncOrganizationalUnit (types.go:5552).
+type ResourceDataSyncOrganization struct {
+	OrganizationalUnitID string `json:"OrganizationalUnitId,omitempty"`
 }
 
 // DeleteActivationInput is the request for DeleteActivation.
@@ -93,15 +106,13 @@ type UpdateManagedInstanceRoleInput struct {
 // ResourceDataSyncSource mirrors types.ResourceDataSyncSource (types.go:5593)
 // on the request side and types.ResourceDataSyncSourceWithState (types.go:5641)
 // on the response side -- both wire shapes share the same field set here.
-// AwsOrganizationsSource is deliberately not modeled, matching this
-// backend's established shallow-scalar convention for optional deep-nested
-// sync-source config (same simplification Runbook/StartAutomationExecutionInput
-// already make for their own optional nested types).
+// Both shapes share one Go type here.
 type ResourceDataSyncSource struct {
-	SourceType              string   `json:"SourceType"`
-	SourceRegions           []string `json:"SourceRegions"`
-	EnableAllOpsDataSources bool     `json:"EnableAllOpsDataSources,omitempty"`
-	IncludeFutureRegions    bool     `json:"IncludeFutureRegions,omitempty"`
+	AwsOrganizationsSource  *ResourceDataSyncAwsOrganizationsSource `json:"AwsOrganizationsSource,omitempty"`
+	SourceType              string                                  `json:"SourceType"`
+	SourceRegions           []string                                `json:"SourceRegions"`
+	EnableAllOpsDataSources bool                                    `json:"EnableAllOpsDataSources,omitempty"`
+	IncludeFutureRegions    bool                                    `json:"IncludeFutureRegions,omitempty"`
 }
 
 // UpdateResourceDataSyncInput is the request payload.

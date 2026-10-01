@@ -350,10 +350,8 @@ const filterKeyStatus = "Status"
 // (api_op_ListCommands.go types.CommandFilter doc comment): Status
 // (case-insensitive exact match), DocumentName (exact match), InvokedAfter/
 // InvokedBefore (RFC3339 timestamp bounds on RequestedDateTime, inclusive
-// per "occurring July 7, 2021, and later"). ExecutionStage is not applied:
-// it requires deriving a Pending/Executing/Complete stage this backend
-// doesn't model separately from Status, and is documented ListCommands-only.
-// An unparseable timestamp value is ignored (filter doesn't exclude).
+// per "occurring July 7, 2021, and later"). An unparseable timestamp value is
+// ignored (filter doesn't exclude). ExecutionStage is ListCommands-only, see commandStageMatches.
 func matchesCommandFilters(status, documentName string, requestedDateTime float64, filters []CommandFilter) bool {
 	for _, f := range filters {
 		switch f.Key {
@@ -373,6 +371,29 @@ func matchesCommandFilters(status, documentName string, requestedDateTime float6
 			if t, err := time.Parse(time.RFC3339, f.Value); err == nil && requestedDateTime > float64(t.Unix()) {
 				return false
 			}
+		}
+	}
+
+	return true
+}
+
+const (
+	commandStageComplete  = "Complete"
+	commandStageExecuting = "Executing"
+)
+
+// commandStageMatches applies the ListCommands-only ExecutionStage filter: Executing is a
+// still-running command, Complete a finished one (types.CommandFilter doc).
+func commandStageMatches(status string, filters []CommandFilter) bool {
+	complete := status != commandStatusPending && status != commandStatusInProgress
+
+	for _, f := range filters {
+		if f.Key != "ExecutionStage" {
+			continue
+		}
+
+		if (f.Value == commandStageComplete && !complete) || (f.Value == commandStageExecuting && complete) {
+			return false
 		}
 	}
 
@@ -400,7 +421,8 @@ func (b *InMemoryBackend) ListCommands(
 		if input.InstanceID != "" && !slices.Contains(cmdPtr.InstanceIDs, input.InstanceID) {
 			continue
 		}
-		if !matchesCommandFilters(cmdPtr.Status, cmdPtr.DocumentName, cmdPtr.RequestedDateTime, input.Filters) {
+		if !matchesCommandFilters(cmdPtr.Status, cmdPtr.DocumentName, cmdPtr.RequestedDateTime, input.Filters) ||
+			!commandStageMatches(cmdPtr.Status, input.Filters) {
 			continue
 		}
 		cmd := *cmdPtr

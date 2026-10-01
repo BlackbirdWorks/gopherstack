@@ -413,11 +413,8 @@ items_still_open:
     DescribeMaintenanceWindowSchedule/Executions synthesize a single always-on execution
     and don't even honor Enabled, so factoring in a date range needs a real scheduler this
     backend doesn't have."
-  - "CreateResourceDataSync's S3Destination.DestinationDataSharing and
-    SyncSource.AwsOrganizationsSource (Organizations cross-account config) remain
-    unmodeled, matching this backend's shallow-scalar convention; DeleteResourceDataSync's
-    SyncType is unobservable since resourceDataSyncsStore keys solely by SyncName.
-    ListResourceDataSync's ResourceDataSyncItem.LastSuccessfulSyncTime/
+  - "DeleteResourceDataSync's SyncType is unobservable since resourceDataSyncsStore keys
+    solely by SyncName. ListResourceDataSync's ResourceDataSyncItem.LastSuccessfulSyncTime/
     LastSyncStatusMessage/SyncLastModifiedTime and SyncSource.State (found 2026-09-18,
     structfielddiff) are also unmodeled -- a sync is created once at LastStatus
     'InProgress' and never advances (no sync-completion janitor/reconciler), so there is
@@ -427,11 +424,8 @@ items_still_open:
     synchronous unit) -- CommandPlugins/PluginName/ResponseCode,
     AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/TriggeredAlarms (no
     CloudWatch-alarm/notification infra), and DocumentHash/DocumentHashType remain
-    unmodeled. ListCommands/ListCommandInvocations' CommandFilter-based Filters (fixed
-    2026-09-24, filters-silently-ignored sweep) now apply Status, DocumentName,
-    InvokedAfter, InvokedBefore -- ExecutionStage (ListCommands-only) remains unmodeled:
-    it requires deriving a Pending/Executing/Complete stage this backend doesn't track
-    separately from Status."
+    unmodeled. ListCommands/ListCommandInvocations' CommandFilter-based Filters (Status,
+    DocumentName, InvokedAfter, InvokedBefore, ExecutionStage) are real."
   - "GetParameter/GetParameters/GetParametersByPath's SourceResult (advanced-parameter
     source resolution) and GetParameterHistory/DescribeParameters' LastModifiedUser (no
     caller-identity infra) remain unmodeled; the deprecated ParametersFilter (superseded by
@@ -446,20 +440,15 @@ items_still_open:
     multi-account/key-value targeting schemes this backend's Targets-only model doesn't
     support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real
     scheduler (associations run synchronously on demand, not on a cron loop)."
-  - "ListAssociations marshals the same internal Association record every other op in this
-    family uses, over-projecting fields real AWS's narrower types.Association response
-    never carries -- not a wire break (a real client discards unknown keys), disclosed
-    rather than hand-syncing a second narrower type against the same store."
   - "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/Tags/TargetLocations/
     TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one
     synchronous single-account/region execution, nothing for multi-target fan-out to plug
     into); SendAutomationSignal's Payload is stored but not consulted since this backend
     has no per-step Waiting/InProgress state (every step goes straight to Success)."
   - "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput's
-    AlarmConfiguration/ClientToken/LoggingInfo/TaskInvocationParameters/TaskParameters
-    remain unmodeled -- TaskInvocationParameters is a real 4-variant union
-    (RunCommand/Automation/StepFunctions/Lambda) this backend's shallow task model has
-    nothing to plug into."
+    AlarmConfiguration (no CloudWatch-alarm infra) and ClientToken (also on CreatePatchBaseline/
+    StartAutomationExecution; idempotency/reuse semantics undocumented) remain unmodeled. LoggingInfo/TaskInvocationParameters/
+    TaskParameters round-trip (2026-10-01)."
   - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual
     command/automation parameters used for one invocation) is unmodeled -- this backend has
     no per-invocation parameter snapshot, only task-level defaults."
@@ -468,7 +457,6 @@ items_still_open:
     the real per-Property map-key convention for the untyped []map[string]string output
     can't be verified from the pinned SDK source, so fixing it risks fabricating a
     differently-wrong shape."
-  - "CreatePatchBaselineInput.ClientToken (idempotency) is low-value and unmodeled."
   - "GetDeployablePatchSnapshotForInstanceInput.BaselineOverride is unmodeled -- this
     backend's snapshot response is already synthetic, so honoring a second, non-registered
     baseline needs real effective-patch computation this backend doesn't have."
@@ -513,6 +501,18 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-10-01: items_still_open burn-down (task parameters, list shapes, command stage)
+
+Fixed, each proven with a typed aws-sdk-go-v2 client (mw_task_params_test.go): (1)
+Register/UpdateMaintenanceWindowTask's LoggingInfo, TaskParameters and
+TaskInvocationParameters (4-variant union) are stored and returned by Get/Describe/Update,
+with merge and Replace=true null-out semantics; (2) ListAssociations returns the narrow
+types.Association shape instead of the full AssociationDescription record; (3)
+CreateResourceDataSync's DestinationDataSharing and SyncSource.AwsOrganizationsSource
+round-trip through ListResourceDataSync; (4) ListCommands' ExecutionStage filter derives
+Executing/Complete from command status (CommandFilter doc). Remaining items need unmodeled
+subsystems or undocumented AWS behaviour.
 
 ### 2026-09-30: items_still_open burn-down (query filters, association versions, VersionName)
 

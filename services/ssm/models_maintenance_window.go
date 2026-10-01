@@ -219,17 +219,20 @@ type RegisterTargetWithMaintenanceWindowOutput struct {
 
 // RegisterTaskWithMaintenanceWindowInput is the request payload.
 type RegisterTaskWithMaintenanceWindowInput struct {
-	WindowID       string         `json:"WindowId"`
-	TaskArn        string         `json:"TaskArn"`
-	TaskType       string         `json:"TaskType"`
-	Name           string         `json:"Name,omitempty"`
-	Description    string         `json:"Description,omitempty"`
-	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string         `json:"MaxErrors,omitempty"`
-	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
-	Targets        []WindowTarget `json:"Targets,omitempty"`
-	Priority       int32          `json:"Priority,omitempty"`
+	LoggingInfo              *MaintenanceWindowLoggingInfo                  `json:"LoggingInfo,omitempty"`
+	TaskInvocationParameters *MaintenanceWindowTaskInvocationParameters     `json:"TaskInvocationParameters,omitempty"`
+	TaskParameters           map[string]MaintenanceWindowTaskParameterValue `json:"TaskParameters,omitempty"`
+	WindowID                 string                                         `json:"WindowId"`
+	TaskArn                  string                                         `json:"TaskArn"`
+	TaskType                 string                                         `json:"TaskType"`
+	Name                     string                                         `json:"Name,omitempty"`
+	Description              string                                         `json:"Description,omitempty"`
+	ServiceRoleArn           string                                         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency           string                                         `json:"MaxConcurrency,omitempty"`
+	MaxErrors                string                                         `json:"MaxErrors,omitempty"`
+	CutoffBehavior           string                                         `json:"CutoffBehavior,omitempty"`
+	Targets                  []WindowTarget                                 `json:"Targets,omitempty"`
+	Priority                 int32                                          `json:"Priority,omitempty"`
 }
 
 // RegisterTaskWithMaintenanceWindowOutput is the response payload.
@@ -332,18 +335,21 @@ type MaintenanceWindowTarget struct {
 // the same request/response wire-key inconsistency already found on
 // GetMaintenanceWindowExecutionTask.
 type MaintenanceWindowTask struct {
-	WindowID       string         `json:"WindowId"`
-	WindowTaskID   string         `json:"WindowTaskId"`
-	TaskArn        string         `json:"TaskArn"`
-	TaskType       string         `json:"Type"`
-	Name           string         `json:"Name,omitempty"`
-	Description    string         `json:"Description,omitempty"`
-	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string         `json:"MaxErrors,omitempty"`
-	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
-	Targets        []WindowTarget `json:"Targets,omitempty"`
-	Priority       int32          `json:"Priority,omitempty"`
+	LoggingInfo              *MaintenanceWindowLoggingInfo                  `json:"LoggingInfo,omitempty"`
+	TaskInvocationParameters *MaintenanceWindowTaskInvocationParameters     `json:"TaskInvocationParameters,omitempty"`
+	TaskParameters           map[string]MaintenanceWindowTaskParameterValue `json:"TaskParameters,omitempty"`
+	WindowID                 string                                         `json:"WindowId"`
+	WindowTaskID             string                                         `json:"WindowTaskId"`
+	TaskArn                  string                                         `json:"TaskArn"`
+	TaskType                 string                                         `json:"Type"`
+	Name                     string                                         `json:"Name,omitempty"`
+	Description              string                                         `json:"Description,omitempty"`
+	ServiceRoleArn           string                                         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency           string                                         `json:"MaxConcurrency,omitempty"`
+	MaxErrors                string                                         `json:"MaxErrors,omitempty"`
+	CutoffBehavior           string                                         `json:"CutoffBehavior,omitempty"`
+	Targets                  []WindowTarget                                 `json:"Targets,omitempty"`
+	Priority                 int32                                          `json:"Priority,omitempty"`
 }
 
 // MaintenanceWindowExecution represents a single execution of a maintenance window.
@@ -476,18 +482,21 @@ type GetMaintenanceWindowTaskInput struct {
 // case "TaskType"), while the shared types.MaintenanceWindowTask used by
 // DescribeMaintenanceWindowTasks uses "Type" instead, confirmed separately.
 type GetMaintenanceWindowTaskOutput struct {
-	WindowID       string         `json:"WindowId,omitempty"`
-	WindowTaskID   string         `json:"WindowTaskId,omitempty"`
-	TaskArn        string         `json:"TaskArn,omitempty"`
-	TaskType       string         `json:"TaskType,omitempty"`
-	Name           string         `json:"Name,omitempty"`
-	Description    string         `json:"Description,omitempty"`
-	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string         `json:"MaxErrors,omitempty"`
-	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
-	Targets        []WindowTarget `json:"Targets,omitempty"`
-	Priority       int32          `json:"Priority,omitempty"`
+	LoggingInfo              *MaintenanceWindowLoggingInfo                  `json:"LoggingInfo,omitempty"`
+	TaskInvocationParameters *MaintenanceWindowTaskInvocationParameters     `json:"TaskInvocationParameters,omitempty"`
+	TaskParameters           map[string]MaintenanceWindowTaskParameterValue `json:"TaskParameters,omitempty"`
+	WindowID                 string                                         `json:"WindowId,omitempty"`
+	WindowTaskID             string                                         `json:"WindowTaskId,omitempty"`
+	TaskArn                  string                                         `json:"TaskArn,omitempty"`
+	TaskType                 string                                         `json:"TaskType,omitempty"`
+	Name                     string                                         `json:"Name,omitempty"`
+	Description              string                                         `json:"Description,omitempty"`
+	ServiceRoleArn           string                                         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency           string                                         `json:"MaxConcurrency,omitempty"`
+	MaxErrors                string                                         `json:"MaxErrors,omitempty"`
+	CutoffBehavior           string                                         `json:"CutoffBehavior,omitempty"`
+	Targets                  []WindowTarget                                 `json:"Targets,omitempty"`
+	Priority                 int32                                          `json:"Priority,omitempty"`
 }
 
 // maintenanceWindowTaskToGetOutput projects a stored MaintenanceWindowTask
@@ -507,6 +516,10 @@ func maintenanceWindowTaskToGetOutput(t *MaintenanceWindowTask) GetMaintenanceWi
 		CutoffBehavior: t.CutoffBehavior,
 		Targets:        t.Targets,
 		Priority:       t.Priority,
+
+		LoggingInfo:              cloneLoggingInfo(t.LoggingInfo),
+		TaskInvocationParameters: cloneTaskInvocationParameters(t.TaskInvocationParameters),
+		TaskParameters:           cloneTaskParameters(t.TaskParameters),
 	}
 }
 
@@ -535,33 +548,39 @@ type UpdateMaintenanceWindowTargetOutput struct {
 // UpdateMaintenanceWindowTaskInput is the request payload for UpdateMaintenanceWindowTask.
 // Fields ordered for alignment.
 type UpdateMaintenanceWindowTaskInput struct {
-	Priority       *int32         `json:"Priority,omitempty"`
-	WindowID       string         `json:"WindowId"`
-	WindowTaskID   string         `json:"WindowTaskId"`
-	TaskArn        *string        `json:"TaskArn,omitempty"`
-	Name           *string        `json:"Name,omitempty"`
-	Description    *string        `json:"Description,omitempty"`
-	ServiceRoleArn *string        `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency *string        `json:"MaxConcurrency,omitempty"`
-	MaxErrors      *string        `json:"MaxErrors,omitempty"`
-	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
-	Replace        *bool          `json:"Replace,omitempty"`
-	Targets        []WindowTarget `json:"Targets,omitempty"`
+	LoggingInfo              *MaintenanceWindowLoggingInfo                  `json:"LoggingInfo,omitempty"`
+	TaskInvocationParameters *MaintenanceWindowTaskInvocationParameters     `json:"TaskInvocationParameters,omitempty"`
+	TaskParameters           map[string]MaintenanceWindowTaskParameterValue `json:"TaskParameters,omitempty"`
+	Priority                 *int32                                         `json:"Priority,omitempty"`
+	WindowID                 string                                         `json:"WindowId"`
+	WindowTaskID             string                                         `json:"WindowTaskId"`
+	TaskArn                  *string                                        `json:"TaskArn,omitempty"`
+	Name                     *string                                        `json:"Name,omitempty"`
+	Description              *string                                        `json:"Description,omitempty"`
+	ServiceRoleArn           *string                                        `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency           *string                                        `json:"MaxConcurrency,omitempty"`
+	MaxErrors                *string                                        `json:"MaxErrors,omitempty"`
+	CutoffBehavior           string                                         `json:"CutoffBehavior,omitempty"`
+	Replace                  *bool                                          `json:"Replace,omitempty"`
+	Targets                  []WindowTarget                                 `json:"Targets,omitempty"`
 }
 
 // UpdateMaintenanceWindowTaskOutput is the response payload for UpdateMaintenanceWindowTask.
 type UpdateMaintenanceWindowTaskOutput struct {
-	WindowID       string         `json:"WindowId,omitempty"`
-	WindowTaskID   string         `json:"WindowTaskId,omitempty"`
-	TaskArn        string         `json:"TaskArn,omitempty"`
-	Name           string         `json:"Name,omitempty"`
-	Description    string         `json:"Description,omitempty"`
-	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string         `json:"MaxErrors,omitempty"`
-	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
-	Targets        []WindowTarget `json:"Targets,omitempty"`
-	Priority       int32          `json:"Priority,omitempty"`
+	LoggingInfo              *MaintenanceWindowLoggingInfo                  `json:"LoggingInfo,omitempty"`
+	TaskInvocationParameters *MaintenanceWindowTaskInvocationParameters     `json:"TaskInvocationParameters,omitempty"`
+	TaskParameters           map[string]MaintenanceWindowTaskParameterValue `json:"TaskParameters,omitempty"`
+	WindowID                 string                                         `json:"WindowId,omitempty"`
+	WindowTaskID             string                                         `json:"WindowTaskId,omitempty"`
+	TaskArn                  string                                         `json:"TaskArn,omitempty"`
+	Name                     string                                         `json:"Name,omitempty"`
+	Description              string                                         `json:"Description,omitempty"`
+	ServiceRoleArn           string                                         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency           string                                         `json:"MaxConcurrency,omitempty"`
+	MaxErrors                string                                         `json:"MaxErrors,omitempty"`
+	CutoffBehavior           string                                         `json:"CutoffBehavior,omitempty"`
+	Targets                  []WindowTarget                                 `json:"Targets,omitempty"`
+	Priority                 int32                                          `json:"Priority,omitempty"`
 }
 
 // DescribeMaintenanceWindowsForTargetInput is the request payload.

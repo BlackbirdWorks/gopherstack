@@ -706,7 +706,7 @@ func (b *InMemoryBackend) ListAssociations(
 	defer b.mu.RUnlock()
 
 	associations := b.associationsStore(region)
-	list := make([]Association, 0, associations.Len())
+	list := make([]AssociationSummary, 0, associations.Len())
 
 	for _, a := range associations.All() {
 		matched := true
@@ -720,7 +720,7 @@ func (b *InMemoryBackend) ListAssociations(
 		}
 
 		if matched {
-			list = append(list, *a)
+			list = append(list, summarizeAssociation(a))
 		}
 	}
 
@@ -734,6 +734,31 @@ func (b *InMemoryBackend) ListAssociations(
 	page, next := paginateSlice(list, input.NextToken, maxResults, defaultDescribeMaxResults)
 
 	return &ListAssociationsOutputFull{Associations: page, NextToken: next}, nil
+}
+
+func summarizeAssociation(a *Association) AssociationSummary {
+	s := AssociationSummary{
+		AssociationID:      a.AssociationID,
+		Name:               a.Name,
+		ScheduleExpression: a.ScheduleExpression,
+		AssociationName:    a.AssociationName,
+		DocumentVersion:    a.DocumentVersion,
+		InstanceID:         a.InstanceID,
+		AssociationVersion: a.AssociationVersion,
+		Targets:            append([]AssociationTarget(nil), a.Targets...),
+	}
+
+	if a.Duration != nil {
+		d := *a.Duration
+		s.Duration = &d
+	}
+
+	if a.Overview != nil {
+		o := *a.Overview
+		s.Overview = &o
+	}
+
+	return s
 }
 
 // applyAssociationCoreUpdates replaces (not merges) assoc's original

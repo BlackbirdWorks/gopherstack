@@ -750,6 +750,12 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowTasks(
 		input.NextToken, maxResultsOrZero(input.MaxResults),
 	)
 
+	for i := range page {
+		page[i].LoggingInfo = cloneLoggingInfo(page[i].LoggingInfo)
+		page[i].TaskInvocationParameters = cloneTaskInvocationParameters(page[i].TaskInvocationParameters)
+		page[i].TaskParameters = cloneTaskParameters(page[i].TaskParameters)
+	}
+
 	return &DescribeMaintenanceWindowTasksOutput{Tasks: page, NextToken: next}, nil
 }
 
@@ -932,6 +938,10 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		return nil, err
 	}
 
+	if err := validateLoggingInfo(input.LoggingInfo); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("RegisterTaskWithMaintenanceWindow")
 	defer b.mu.Unlock()
@@ -954,6 +964,10 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		MaxErrors:      input.MaxErrors,
 		CutoffBehavior: input.CutoffBehavior,
 		Targets:        input.Targets,
+
+		LoggingInfo:              input.LoggingInfo,
+		TaskInvocationParameters: input.TaskInvocationParameters,
+		TaskParameters:           input.TaskParameters,
 	}
 
 	b.maintenanceWindowTasksStore(region).Put(&task)
@@ -1296,6 +1310,18 @@ func mergeMaintenanceWindowTaskUpdate(task *MaintenanceWindowTask, input *Update
 	if len(input.Targets) > 0 {
 		task.Targets = input.Targets
 	}
+
+	if input.LoggingInfo != nil {
+		task.LoggingInfo = input.LoggingInfo
+	}
+
+	if input.TaskInvocationParameters != nil {
+		task.TaskInvocationParameters = input.TaskInvocationParameters
+	}
+
+	if input.TaskParameters != nil {
+		task.TaskParameters = input.TaskParameters
+	}
 }
 
 // replaceMaintenanceWindowTaskUpdate applies Replace=true: omitted fields are nulled.
@@ -1308,6 +1334,9 @@ func replaceMaintenanceWindowTaskUpdate(task *MaintenanceWindowTask, input *Upda
 	task.MaxErrors = ptrconv.String(input.MaxErrors)
 	task.CutoffBehavior = input.CutoffBehavior
 	task.Targets = input.Targets
+	task.LoggingInfo = input.LoggingInfo
+	task.TaskInvocationParameters = input.TaskInvocationParameters
+	task.TaskParameters = input.TaskParameters
 
 	task.Priority = 0
 	if input.Priority != nil {
@@ -1329,6 +1358,10 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 	}
 
 	if err := validateMaxErrors(ptrconv.String(input.MaxErrors)); err != nil {
+		return nil, err
+	}
+
+	if err := validateLoggingInfo(input.LoggingInfo); err != nil {
 		return nil, err
 	}
 
@@ -1369,5 +1402,9 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		MaxErrors:      task.MaxErrors,
 		CutoffBehavior: task.CutoffBehavior,
 		Targets:        task.Targets,
+
+		LoggingInfo:              cloneLoggingInfo(task.LoggingInfo),
+		TaskInvocationParameters: cloneTaskInvocationParameters(task.TaskInvocationParameters),
+		TaskParameters:           cloneTaskParameters(task.TaskParameters),
 	}, nil
 }
