@@ -3,6 +3,7 @@
 package asl
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,24 @@ var ErrParseError = errors.New("parse error")
 
 // StateTypeMap is the ASL state type for Map states.
 const StateTypeMap = "Map"
+
+const (
+	stateTypePass     = "Pass"
+	stateTypeSucceed  = "Succeed"
+	stateTypeFail     = "Fail"
+	stateTypeWait     = "Wait"
+	stateTypeChoice   = "Choice"
+	stateTypeTask     = "Task"
+	stateTypeParallel = "Parallel"
+
+	fieldSeconds = "Seconds"
+	fieldItems   = "Items"
+)
+
+// mapItemContext is the `$$.Map` / `$states.context.Map` object for one item.
+func mapItemContext(idx int, value any) map[string]any {
+	return map[string]any{"Item": map[string]any{"Index": float64(idx), "Value": value}}
+}
 
 // ProcessorConfig specifies configuration for an ItemProcessor.
 type ProcessorConfig struct {
@@ -27,6 +46,7 @@ type StateMachine struct {
 	States          map[string]*State `json:"States"`
 	Comment         string            `json:"Comment,omitempty"`
 	StartAt         string            `json:"StartAt"`
+	QueryLanguage   string            `json:"QueryLanguage,omitempty"`
 }
 
 // ItemBatcher configures batching for a Map state's Distributed Map.
@@ -109,6 +129,16 @@ type State struct {
 	paramsTmpl    atomic.Pointer[parsedTemplate]
 	resultSelTmpl atomic.Pointer[parsedTemplate]
 	itemSelTmpl   atomic.Pointer[parsedTemplate]
+	jx            *jxState
+	assignVals    map[string]any
+	// numExprs holds JSONata strings for fields that are integers in JSONPath.
+	Assign        json.RawMessage `json:"Assign,omitempty"`
+	Arguments     json.RawMessage `json:"Arguments,omitempty"`
+	Output        json.RawMessage `json:"Output,omitempty"`
+	Items         json.RawMessage `json:"Items,omitempty"`
+	numExprs      map[string]string
+	QueryLanguage string `json:"QueryLanguage,omitempty"`
+	lang          string
 	Iterator      *StateMachine   `json:"Iterator,omitempty"`
 	ItemProcessor *StateMachine   `json:"ItemProcessor,omitempty"`
 	ItemBatcher   *ItemBatcher    `json:"ItemBatcher,omitempty"`
@@ -181,6 +211,10 @@ type Retrier struct {
 
 // Catcher defines catch behavior for a Task state on error.
 type Catcher struct {
+	Assign      json.RawMessage `json:"Assign,omitempty"`
+	Output      json.RawMessage `json:"Output,omitempty"`
+	assignVals  map[string]any
+	outputVal   any
 	Next        string   `json:"Next"`
 	ResultPath  string   `json:"ResultPath,omitempty"`
 	ErrorEquals []string `json:"ErrorEquals"`
@@ -188,13 +222,18 @@ type Catcher struct {
 
 // Branch represents a parallel branch (or iterator root).
 type Branch struct {
-	States  map[string]*State `json:"States"`
-	StartAt string            `json:"StartAt"`
-	Comment string            `json:"Comment,omitempty"`
+	States        map[string]*State `json:"States"`
+	StartAt       string            `json:"StartAt"`
+	Comment       string            `json:"Comment,omitempty"`
+	QueryLanguage string            `json:"QueryLanguage,omitempty"`
 }
 
 // ChoiceRule represents a single condition/transition in a Choice state.
 type ChoiceRule struct {
+	// Condition and Assign are the JSONata-mode rule fields.
+	Condition  string          `json:"Condition,omitempty"`
+	Assign     json.RawMessage `json:"Assign,omitempty"`
+	assignVals map[string]any
 	// Numeric comparisons
 	NumericEquals                *float64 `json:"NumericEquals,omitempty"`
 	NumericLessThan              *float64 `json:"NumericLessThan,omitempty"`
@@ -276,6 +315,10 @@ func Parse(definition string) (*StateMachine, error) {
 	}
 
 	if err := validateMapStates(sm.States); err != nil {
+		return nil, err
+	}
+
+	if err := validateQueryLanguage(&sm); err != nil {
 		return nil, err
 	}
 
@@ -426,4 +469,74 @@ func hasDistributedMapFields(st *State) bool {
 		st.ToleratedFailurePercentage != nil ||
 		st.ToleratedFailureCountPath != "" ||
 		st.ToleratedFailurePercentagePath != ""
+}
+
+type stateAlias State
+
+// numExprFieldTypes maps each integer field that accepts a JSONata string to
+// the one state type that owns it.
+var numExprFieldTypes = map[string]string{ //nolint:gochecknoglobals // static lookup table
+	fieldSeconds:       stateTypeWait,
+	"TimeoutSeconds":   stateTypeTask,
+	"HeartbeatSeconds": stateTypeTask,
+	"MaxConcurrency":   StateTypeMap,
+}
+
+// UnmarshalJSON lifts JSONata strings out of integer-typed fields (Seconds,
+// TimeoutSeconds, ...) into numExprs before the default decode.
+func (s *State) UnmarshalJSON(b []byte) error {
+	var exprs map[string]string
+
+	if bytes.Contains(b, []byte("{%")) {
+		var err error
+		if b, exprs, err = liftNumExprs(b); err != nil {
+			return err
+		}
+	}
+
+	if err := json.Unmarshal(b, (*stateAlias)(s)); err != nil {
+		return err
+	}
+
+	s.numExprs = exprs
+
+	return nil
+}
+
+// liftNumExprs removes string-valued integer fields from the state object and
+// returns them separately; the object is returned untouched if there are none.
+func liftNumExprs(b []byte) ([]byte, map[string]string, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return nil, nil, err
+	}
+
+	var exprs map[string]string
+
+	for k := range numExprFieldTypes {
+		v := raw[k]
+		if len(v) == 0 || v[0] != '"' {
+			continue
+		}
+
+		var str string
+		if err := json.Unmarshal(v, &str); err != nil {
+			return nil, nil, err
+		}
+
+		if exprs == nil {
+			exprs = map[string]string{}
+		}
+
+		exprs[k] = str
+		delete(raw, k)
+	}
+
+	if exprs == nil {
+		return b, nil, nil
+	}
+
+	out, err := json.Marshal(raw)
+
+	return out, exprs, err
 }

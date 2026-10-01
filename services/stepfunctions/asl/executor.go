@@ -368,8 +368,8 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	s3                   S3Reader
-	s3w                  S3Writer
+	lambda               LambdaInvoker
+	mapItemValue         any
 	callback             TaskTokenCallbackInvoker
 	sqs                  SQSIntegration
 	sns                  SNSIntegration
@@ -382,16 +382,22 @@ type Executor struct {
 	history              HistoryRecorder
 	mapRunNotifier       MapRunNotifier
 	distributedMapRunner DistributedMapRunner
-	lambda               LambdaInvoker
+	s3w                  S3Writer
+	s3                   S3Reader
 	activity             ActivityInvoker
-	mapItemValue         any
-	execSem              *semaphore.Weighted
+	matchedRule          *ChoiceRule
 	jsonPathCache        *jsonPathCache
 	sm                   *StateMachine
+	jx                   *jxScope
+	outerVars            map[string]any
+	execSem              *semaphore.Weighted
+	jxNums               map[string]int
+	vars                 map[string]any
 	execMeta             executionMeta
 	branchName           string
 	mapItemIdx           int
 	inMapItem            bool
+	caught               bool
 }
 
 // executionMeta is the subset of context object data that ASL exposes via `$$`.
@@ -459,6 +465,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		inMapItem:            e.inMapItem,
 		mapItemIdx:           e.mapItemIdx,
 		mapItemValue:         e.mapItemValue,
+		outerVars:            e.visibleVars(),
 	}
 }
 
@@ -521,12 +528,7 @@ func (e *Executor) buildContextObject() map[string]any {
 	}
 
 	if e.inMapItem {
-		ctx["Map"] = map[string]any{
-			"Item": map[string]any{
-				"Index": float64(e.mapItemIdx),
-				"Value": e.mapItemValue,
-			},
-		}
+		ctx["Map"] = mapItemContext(e.mapItemIdx, e.mapItemValue)
 	}
 
 	return ctx
@@ -622,31 +624,20 @@ func (e *Executor) runStates(
 			e.history.RecordStateEntered(executionARN, current, state.Type, value)
 		}
 
-		// Apply InputPath.
-		effectiveInput, err := applyPath(state.InputPath, value, e.jsonPathCache)
-		if err != nil {
-			return nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
+		var (
+			nextState   string
+			finalOutput any
+			err         error
+		)
+
+		e.caught = false
+
+		if state.jx != nil {
+			nextState, finalOutput, err = e.runJSONataState(ctx, executionARN, current, state, value)
+		} else {
+			nextState, finalOutput, err = e.runJSONPathState(ctx, executionARN, current, state, value)
 		}
 
-		// Apply Parameters to transform the effective input for this state.
-		taskInput := effectiveInput
-		if len(state.Parameters) > 0 {
-			tmpl := loadTemplate(&state.paramsTmpl, state.Parameters)
-			taskInput, err = tmpl.eval(e, effectiveInput)
-			if err != nil {
-				return nil, fmt.Errorf("parameters error in state %q: %w", current, err)
-			}
-		}
-
-		var result any
-		var nextState string
-
-		nextState, result, err = e.executeState(ctx, executionARN, current, state, effectiveInput, taskInput)
-		if err != nil {
-			return nil, err
-		}
-
-		finalOutput, err := e.applyStateOutputTransforms(state, value, result, current)
 		if err != nil {
 			return nil, err
 		}
@@ -664,6 +655,62 @@ func (e *Executor) runStates(
 	}
 
 	return nil, ErrMaxTransitions
+}
+
+// runJSONPathState runs one JSONPath-mode state: InputPath, Parameters, the
+// state body, Assign, then ResultSelector/ResultPath/OutputPath.
+func (e *Executor) runJSONPathState(
+	ctx context.Context,
+	executionARN, current string,
+	state *State,
+	value any,
+) (string, any, error) {
+	effectiveInput, err := applyPath(state.InputPath, value, e.jsonPathCache)
+	if err != nil {
+		return "", nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
+	}
+
+	taskInput := effectiveInput
+	if len(state.Parameters) > 0 {
+		tmpl := loadTemplate(&state.paramsTmpl, state.Parameters)
+		taskInput, err = tmpl.eval(e, effectiveInput)
+		if err != nil {
+			return "", nil, fmt.Errorf("parameters error in state %q: %w", current, err)
+		}
+	}
+
+	nextState, result, err := e.executeState(ctx, executionARN, current, state, effectiveInput, taskInput)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if len(state.assignVals) > 0 && !e.caught {
+		assignData := effectiveInput
+		if jsonPathAssignsResult(state.Type) {
+			assignData = result
+		}
+
+		if err = e.assignJSONPath(state.assignVals, assignData); err != nil {
+			return "", nil, fmt.Errorf("state %q: %w", current, err)
+		}
+	}
+
+	if rule := e.matchedRule; rule != nil {
+		e.matchedRule = nil
+
+		if err = e.assignJSONPath(rule.assignVals, effectiveInput); err != nil {
+			return "", nil, fmt.Errorf("state %q: %w", current, err)
+		}
+	}
+
+	finalOutput, err := e.applyStateOutputTransforms(state, value, result, current)
+
+	return nextState, finalOutput, err
+}
+
+func jsonPathAssignsResult(stateType string) bool {
+	return stateType == stateTypeTask || stateType == stateTypeParallel || stateType == StateTypeMap ||
+		stateType == stateTypePass
 }
 
 // applyStateOutputTransforms applies ResultSelector, ResultPath, and OutputPath to produce the final state output.
@@ -711,19 +758,19 @@ func (e *Executor) executeState(
 	pathInput, input any,
 ) (string, any, error) {
 	switch state.Type {
-	case "Pass":
+	case stateTypePass:
 		return e.executePass(state, input)
-	case "Succeed":
+	case stateTypeSucceed:
 		return "", input, nil
-	case "Fail":
+	case stateTypeFail:
 		return "", nil, &FailError{ErrCode: state.Error, Cause: state.Cause}
-	case "Wait":
+	case stateTypeWait:
 		return e.executeWait(ctx, state, input)
-	case "Choice":
+	case stateTypeChoice:
 		return e.executeChoice(state, input)
-	case "Task":
+	case stateTypeTask:
 		return e.executeTask(ctx, executionARN, stateName, state, pathInput, input)
-	case "Parallel":
+	case stateTypeParallel:
 		return e.executeParallel(ctx, executionARN, stateName, state, input)
 	case StateTypeMap:
 		return e.executeMap(ctx, executionARN, stateName, state, pathInput, input)
@@ -874,6 +921,10 @@ func (e *Executor) executeChoice(state *State, input any) (string, any, error) {
 				return "", nil, ErrChoiceNoNext
 			}
 
+			if len(rule.assignVals) > 0 {
+				e.matchedRule = &rule
+			}
+
 			return rule.Next, input, nil
 		}
 	}
@@ -941,8 +992,10 @@ func (e *Executor) executeTask(
 			continue
 		}
 
-		if next, out, matched := e.checkCatchers(executionARN, stateName, state, input, taskErr); matched {
-			return next, out, nil
+		if next, out, matched, catchErr := e.checkCatchers(
+			executionARN, stateName, state, input, taskErr,
+		); matched {
+			return next, out, catchErr
 		}
 
 		e.recordTaskFailed(
@@ -1186,8 +1239,9 @@ func (e *Executor) checkCatchers(
 	state *State,
 	input any,
 	taskErr error,
-) (string, any, bool) {
-	for _, catcher := range state.Catch {
+) (string, any, bool, error) {
+	for i := range state.Catch {
+		catcher := &state.Catch[i]
 		if catchesError(catcher.ErrorEquals, taskErr) {
 			errCode := stepFunctionsErrorCode(taskErr)
 			cause := stepFunctionsErrorCause(taskErr)
@@ -1202,15 +1256,31 @@ func (e *Executor) checkCatchers(
 				errorResult["Cause"] = cause
 			}
 
-			out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
+			e.caught = true
+			out, err := e.catchOutput(state, catcher, input, errorResult)
 
 			e.recordTaskFailed(executionARN, stateName, state.Resource, errCode, cause)
 
-			return catcher.Next, out, true
+			return catcher.Next, out, true, err
 		}
 	}
 
-	return "", nil, false
+	return "", nil, false, nil
+}
+
+// catchOutput builds a matched Catch's output and applies its Assign.
+func (e *Executor) catchOutput(state *State, catcher *Catcher, input any, errorResult map[string]any) (any, error) {
+	if state.jx != nil {
+		return e.jxCatchOutput(catcher, errorResult)
+	}
+
+	if err := e.assignJSONPath(catcher.assignVals, errorResult); err != nil {
+		return nil, err
+	}
+
+	out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
+
+	return out, nil
 }
 
 // recordTaskSucceeded records a task success event if a history recorder is configured.
@@ -1803,8 +1873,10 @@ func (e *Executor) executeWithStateRetryAndCatch(
 			continue
 		}
 
-		if next, out, matched := e.checkCatchers(executionARN, stateName, state, input, err); matched {
-			return next, out, nil
+		if next, out, matched, catchErr := e.checkCatchers(
+			executionARN, stateName, state, input, err,
+		); matched {
+			return next, out, catchErr
 		}
 
 		return "", nil, err
@@ -1884,11 +1956,8 @@ func (e *Executor) executeMap(
 				return nil, err
 			}
 
-			if len(state.ItemSelector) > 0 {
-				items, err = applyMapItemSelector(&state.itemSelTmpl, state.ItemSelector, items)
-				if err != nil {
-					return nil, err
-				}
+			if items, err = e.selectMapItems(state, items); err != nil {
+				return nil, err
 			}
 
 			// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
@@ -1913,6 +1982,18 @@ func (e *Executor) executeMap(
 			return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, items)
 		},
 	)
+}
+
+// selectMapItems applies the Map state's ItemSelector (JSONata or JSONPath) per item.
+func (e *Executor) selectMapItems(state *State, items []any) ([]any, error) {
+	switch {
+	case len(state.ItemSelector) == 0:
+		return items, nil
+	case state.jx != nil:
+		return e.jxItemSelector(state, items)
+	default:
+		return applyMapItemSelector(&state.itemSelTmpl, state.ItemSelector, items, e.varFn())
+	}
 }
 
 // runMapItemsAndFinalize runs iterator over items (or pre-built batches) at
@@ -2107,21 +2188,16 @@ func applyMapItemSelector(
 	slot *atomic.Pointer[parsedTemplate],
 	itemSelector json.RawMessage,
 	items []any,
+	vars varFunc,
 ) ([]any, error) {
 	selectedItems := make([]any, len(items))
 	tmpl := loadTemplate(slot, itemSelector)
 
 	for idx, item := range items {
 		contextInput := pathEvalInput{
-			data: item,
-			context: map[string]any{
-				"Map": map[string]any{
-					"Item": map[string]any{
-						"Index": float64(idx),
-						"Value": item,
-					},
-				},
-			},
+			vars:    vars,
+			data:    item,
+			context: map[string]any{"Map": mapItemContext(idx, item)},
 		}
 
 		selected, err := tmpl.evalWith(contextInput)
@@ -2218,6 +2294,10 @@ func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any)
 		}
 
 		return e.truncateReaderItems(items, state.ItemReader.ReaderConfig, input)
+	}
+
+	if state.jx != nil {
+		return e.jxMapItems(state)
 	}
 
 	items, err := resolveItems(state.ItemsPath, input)
@@ -2944,6 +3024,10 @@ var ErrMaxConcurrencyPathNotNumber = errors.New("MaxConcurrencyPath: value is no
 // state's pre-Parameters input, the same way resolveToleratedFailureCount
 // resolves ToleratedFailureCountPath.
 func (e *Executor) resolveMaxConcurrency(state *State, mapInput any) (int, error) {
+	if v, ok := e.jxNums["MaxConcurrency"]; ok {
+		return v, nil
+	}
+
 	if state.MaxConcurrencyPath == "" {
 		return state.MaxConcurrency, nil
 	}
@@ -2978,6 +3062,10 @@ var ErrHeartbeatSecondsPathNotNumber = errors.New("HeartbeatSecondsPath: value i
 // retry attempts), so resolving once before the retry loop gives the same
 // value every attempt.
 func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, error) {
+	if v, ok := e.jxNums["TimeoutSeconds"]; ok {
+		return v, nil
+	}
+
 	if state.TimeoutSecondsPath == "" {
 		return state.TimeoutSeconds, nil
 	}
@@ -2998,6 +3086,10 @@ func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, erro
 // resolveTaskHeartbeatSeconds resolves HeartbeatSeconds(Path) against the
 // Task state's own input; see resolveTaskTimeoutSeconds.
 func (e *Executor) resolveTaskHeartbeatSeconds(state *State, input any) (int, error) {
+	if v, ok := e.jxNums["HeartbeatSeconds"]; ok {
+		return v, nil
+	}
+
 	if state.HeartbeatSecondsPath == "" {
 		return state.HeartbeatSeconds, nil
 	}
@@ -3046,6 +3138,7 @@ func (e *FailError) Error() string {
 // pathEvalInput wraps path evaluation scope.
 // data is target for "$" paths; context is target for "$$" paths.
 type pathEvalInput struct {
+	vars    varFunc
 	data    any
 	context any
 }
@@ -3082,6 +3175,10 @@ func applyPath(path string, value any, pathCache ...*jsonPathCache) (any, error)
 
 	if strings.HasPrefix(path, "$$.") {
 		return jsonPathGet(path[3:], pathInput.context, cache)
+	}
+
+	if _, _, isVar := splitVarRef(path); isVar {
+		return resolveVarRef(path, pathInput, cache)
 	}
 
 	return nil, fmt.Errorf("%w: %q", ErrUnsupportedPathExpr, path)
@@ -3922,7 +4019,7 @@ func (pt *parsedTemplate) evalWith(input any) (any, error) {
 
 // eval evaluates the template, building the context object only if it refers to "$$".
 func (pt *parsedTemplate) eval(e *Executor, data any) (any, error) {
-	in := pathEvalInput{data: data}
+	in := pathEvalInput{data: data, vars: e.varFn()}
 	if pt.usesContext {
 		in.context = e.buildContextObject()
 	}

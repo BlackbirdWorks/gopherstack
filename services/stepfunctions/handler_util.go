@@ -86,6 +86,9 @@ func (h *Handler) utilActions() map[string]actionFn {
 	}
 }
 
+// bareStateName names the state when TestState is given a bare state definition.
+const bareStateName = "TestStateName"
+
 type testStateInput struct {
 	Definition string `json:"definition"`
 	Input      string `json:"input"`
@@ -112,6 +115,11 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 	var states map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(input.Definition), &states); err != nil {
 		return nil, fmt.Errorf("%w: invalid state definition JSON: %w", ErrInvalidDefinition, err)
+	}
+
+	if _, bare := states["Type"]; bare {
+		states = map[string]json.RawMessage{bareStateName: json.RawMessage(input.Definition)}
+		input.Definition = fmt.Sprintf(`{%q:%s}`, bareStateName, input.Definition)
 	}
 
 	if len(states) != 1 {

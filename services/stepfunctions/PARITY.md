@@ -521,6 +521,7 @@ items_still_open:
   - "No TaskSubmitted/TaskStarted history events are emitted for .sync/.waitForTaskToken Task states; this emulator models neither event kind (bd: gopherstack-996)."
   - "TestState InspectionLevel/RevealSecrets are accepted but have no effect: asl.Executor keeps no per-stage InspectionData snapshots and makes no real HTTP Task calls (gopherstack-xhu2t)."
   - "Non-standard intrinsics (StringConcat, ArraySlice, MathSubtract, etc.) are accepted here but do not exist in AWS; informational, a definition using them would fail on real AWS."
+  - "JSONata (gopherstack-iisrz) gaps: Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ToleratedFailureCount/Percentage and ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS); TestState does not take StateConfiguration.Variables."
 deferred: []
 leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execution's context via b.cancelFns; Wait/waitForRetry/execSem/semaphore all select on ctx.Done(); Map/Parallel goroutines (wg.Go) all respect ctx cancellation. FIXED this pass: DeleteActivity leaked a permanent h.tags tombstone entry per deleted activity (see ops.DeleteActivity). No new goroutines introduced this pass (resolveExecutionTarget/S3Reader wiring are synchronous, no new goroutines)."}
 ---
@@ -1463,3 +1464,21 @@ backend-only workaround documented in both tests' prior comments.
 
 `leak_main_test.go` and `Destroy()` (cancels execution goroutines) already
 existed from a prior pass; re-ran `go test -race -count=2`, still clean.
+
+## 2026-10-01 JSONata query language (gopherstack-iisrz)
+
+Implemented per AWS dev guide "Transforming data with JSONata in Step Functions"
+and "Passing data between states with variables": top-level and per-state
+`QueryLanguage`; `Arguments`/`Output`/`Assign`; `{% %}` expressions (strict
+wrapping, validated at CreateStateMachine/ValidateStateMachineDefinition);
+`$states.input/result/errorOutput/context` with creation-time checks of where
+`result`/`errorOutput` are readable; Choice `Condition` (+ rule `Assign`); Map
+`Items`/`ItemSelector`/`MaxConcurrency`; Wait `Seconds`/`Timestamp`; Task
+`TimeoutSeconds`/`HeartbeatSeconds`; Fail `Error`/`Cause`; Catch `Output`/`Assign`;
+`States.QueryEvaluationError` (catchable) for failed/undefined/mistyped
+expressions and the 1s evaluation timeout; `$partition/$range/$hash/$random/
+$uuid/$parse` (`$eval` rejected). Variables (also in JSONPath states): evaluation
+at state entry, new values visible from the next state, inner scopes (Parallel/
+Map) read outer variables and may not redeclare outer names, variable-name syntax
+and 80-char limit. Engine: github.com/recolabs/gnata v0.5.0 (JSONata 2.x, MIT).
+Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
