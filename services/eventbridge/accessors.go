@@ -187,9 +187,9 @@ func (b *InMemoryBackend) archivesTable(region string) *store.Table[Archive] {
 
 // archivedEventsStore returns the archived-events map for the given region.
 // Callers must hold b.mu.
-func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventEntry {
+func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]archivedEvent {
 	if b.archivedEvents[region] == nil {
-		b.archivedEvents[region] = make(map[string][]EventEntry)
+		b.archivedEvents[region] = make(map[string][]archivedEvent)
 	}
 
 	return b.archivedEvents[region]
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventE
 // callers holding only a read lock. Creating the region map on a pure read is
 // pointless anyway, and doing it under RLock is a concurrent map write plus a
 // race -- the same class fixed across 17 services in c381f62b3.
-func (b *InMemoryBackend) archivedEventsStoreRO(region string) map[string][]EventEntry {
+func (b *InMemoryBackend) archivedEventsStoreRO(region string) map[string][]archivedEvent {
 	return b.archivedEvents[region]
 }
 

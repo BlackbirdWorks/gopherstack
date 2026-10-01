@@ -61,7 +61,11 @@ func BenchmarkFilterArchivedEvents(b *testing.B) {
 		}
 	}
 
-	be.archivedEventsStore(region)["a"] = events
+	archived := make([]archivedEvent, len(events))
+	for i, e := range events {
+		archived[i] = archivedEvent{entry: e}
+	}
+	be.archivedEventsStore(region)["a"] = archived
 	pattern := `{"source":["bench.app"],"detail":{"id":[{"numeric":[">=",500]}]}}`
 
 	b.ReportAllocs()

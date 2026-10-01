@@ -67,7 +67,11 @@ func TestFilterArchivedEvents_Pattern(t *testing.T) {
 
 			be := NewInMemoryBackend()
 			t.Cleanup(be.Close)
-			be.archivedEventsStore(be.region)["arc"] = events
+			archived := make([]archivedEvent, len(events))
+			for i, e := range events {
+				archived[i] = archivedEvent{entry: e}
+			}
+			be.archivedEventsStore(be.region)["arc"] = archived
 
 			got := be.filterArchivedEvents(be.region, "arc", tt.pattern, time.Time{}, time.Time{})
 			require.Len(t, got, tt.want)

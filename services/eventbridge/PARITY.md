@@ -123,6 +123,10 @@ leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery
 
 ## Notes
 
+## 2026-10-01: per-event archive retention (gopherstack-pm4ym)
+
+SDK v1.53.0 CreateArchive: "RetentionDays ... If set to 0, events are retained indefinitely"; types.Archive: "number of days to retain events in the archive before they are deleted". The janitor wrongly deleted the whole archive at creation+retention and never pruned events; it now prunes events by capture time (an archive never expires), keeping EventCount/SizeBytes in step (SizeBytes now tracked). Leaks: unbounded archivedEvents growth fixed. Test: archive_retention_test.go.
+
 ### 2026-09-24 (leak sweep) terminal replays now evicted after 1h
 
 CancelReplay/scheduleReplayWorker transitioned a replay to COMPLETED/

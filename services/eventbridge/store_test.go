@@ -808,59 +808,6 @@ func TestPutRule_RuleIndexUpdatedOnRuleUpdate(t *testing.T) {
 	}
 }
 
-func TestArchiveJanitor_SweepOnce(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		archiveName    string
-		retentionDays  int
-		age            time.Duration
-		expectArchived bool
-	}{
-		{
-			name:           "expired_archive_is_removed",
-			archiveName:    "expired",
-			retentionDays:  1,
-			age:            48 * time.Hour,
-			expectArchived: false,
-		},
-		{
-			name:           "archive_without_retention_is_kept",
-			archiveName:    "keep-forever",
-			retentionDays:  0,
-			age:            365 * 24 * time.Hour,
-			expectArchived: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			backend := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			_, err := backend.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
-				ArchiveName:    tt.archiveName,
-				EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
-				RetentionDays:  tt.retentionDays,
-			})
-			require.NoError(t, err)
-
-			err = backend.SetArchiveCreationTimeForTest(tt.archiveName, time.Now().Add(-tt.age))
-			require.NoError(t, err)
-
-			janitor := eventbridge.NewArchiveJanitor(backend, time.Millisecond)
-			janitor.SweepOnce(t.Context())
-
-			if tt.expectArchived {
-				assert.Equal(t, 1, backend.ArchiveCount())
-			} else {
-				assert.Equal(t, 0, backend.ArchiveCount())
-			}
-		})
-	}
-}
-
 func newBackend() *eventbridge.InMemoryBackend {
 	return eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 }

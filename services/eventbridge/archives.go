@@ -180,6 +180,7 @@ func (b *InMemoryBackend) captureEventInArchives(region string, entry EventEntry
 	busARN := b.busARN(region, busName)
 	var envelope map[string]any
 	archivedEvents := b.archivedEventsStore(region)
+	capturedAt := time.Now()
 	for _, archive := range b.archivesTable(region).All() {
 		if archive.EventSourceArn != busARN {
 			continue
@@ -195,9 +196,10 @@ func (b *InMemoryBackend) captureEventInArchives(region string, entry EventEntry
 		}
 		archivedEvents[archive.ArchiveName] = append(
 			archivedEvents[archive.ArchiveName],
-			entry,
+			archivedEvent{entry: entry, capturedAt: capturedAt},
 		)
 		archive.EventCount++
+		archive.SizeBytes += int64(putEventsEntryBytes(entry))
 	}
 }
 
@@ -208,4 +210,48 @@ func (b *InMemoryBackend) AddArchiveInternal(archive *Archive) {
 
 	cp := *archive
 	b.archivesTable(b.region).Put(&cp)
+}
+
+// archivedEvent is an archived entry plus the time it was captured, which
+// retention is measured from (EventEntry.Time is client-supplied and optional).
+type archivedEvent struct {
+	capturedAt time.Time
+	entry      EventEntry
+}
+
+// pruneArchivedEventsLocked drops events captured more than RetentionDays ago
+// and keeps EventCount/SizeBytes in step. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) pruneArchivedEventsLocked(now time.Time) int {
+	pruned := 0
+
+	for region, archives := range b.archives {
+		store := b.archivedEvents[region]
+
+		for _, archive := range archives.All() {
+			if archive.RetentionDays <= 0 {
+				continue
+			}
+
+			cutoff := now.Add(-time.Duration(archive.RetentionDays) * 24 * time.Hour)
+			events := store[archive.ArchiveName]
+			kept := events[:0]
+
+			for _, ev := range events {
+				if ev.capturedAt.After(cutoff) {
+					kept = append(kept, ev)
+
+					continue
+				}
+
+				archive.EventCount--
+				archive.SizeBytes -= int64(putEventsEntryBytes(ev.entry))
+				pruned++
+			}
+
+			clear(events[len(kept):])
+			store[archive.ArchiveName] = kept
+		}
+	}
+
+	return pruned
 }

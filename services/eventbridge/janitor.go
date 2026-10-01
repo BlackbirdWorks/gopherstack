@@ -11,7 +11,7 @@ import (
 
 const defaultArchiveJanitorInterval = time.Minute
 
-// ArchiveJanitor removes expired archives based on RetentionDays.
+// ArchiveJanitor prunes archived events older than their archive's RetentionDays.
 type ArchiveJanitor struct {
 	Backend  *InMemoryBackend
 	now      func() time.Time
@@ -40,7 +40,7 @@ func (j *ArchiveJanitor) Run(ctx context.Context) {
 	g.Stop()
 }
 
-// SweepOnce executes one archive cleanup pass.
+// SweepOnce executes one archived-event pruning pass.
 func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 	now := j.now()
 
@@ -50,22 +50,7 @@ func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 		j.Backend.mu.Lock("EventBridgeArchiveJanitor")
 		defer j.Backend.mu.Unlock()
 
-		for region, archives := range j.Backend.archives {
-			for _, archive := range archives.All() {
-				if archive.RetentionDays <= 0 {
-					continue
-				}
-
-				expiry := archive.CreationTime.Add(time.Duration(archive.RetentionDays) * 24 * time.Hour)
-				if now.Before(expiry) {
-					continue
-				}
-
-				archives.Delete(archive.ArchiveName)
-				delete(j.Backend.archivedEvents[region], archive.ArchiveName)
-				count++
-			}
-		}
+		count = j.Backend.pruneArchivedEventsLocked(now)
 	}()
 
 	j.Backend.patternCache.Clear()
@@ -76,5 +61,5 @@ func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 	}
 
 	telemetry.RecordWorkerItems("eventbridge", "ArchiveJanitor", count)
-	logger.Load(ctx).InfoContext(ctx, "EventBridge archive janitor: expired archives removed", "count", count)
+	logger.Load(ctx).InfoContext(ctx, "EventBridge archive janitor: expired archived events pruned", "count", count)
 }

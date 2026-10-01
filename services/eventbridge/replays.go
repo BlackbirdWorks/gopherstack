@@ -273,7 +273,8 @@ func (b *InMemoryBackend) filterArchivedEvents(
 	}
 
 	result := make([]EventEntry, 0, len(raw))
-	for _, e := range raw {
+	for _, ae := range raw {
+		e := ae.entry
 		t := time.Now()
 		if e.Time != nil {
 			t = *e.Time
