@@ -661,10 +661,12 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 		TableName: targetTableName, TableStatus: models.TableStatusActive,
 		TableArn: newTable.TableArn, TableID: newTableID,
 		KeySchema: keySchema, AttributeDefinitions: attrDefs,
-		GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items)), newTable.TableArn),
-		LocalSecondaryIndexes:  buildLSIDescriptions(lsis, newTable.TableArn),
-		BillingModeSummary:     billingModeSummary(billingMode),
-		ItemCount:              len(p.Items),
+		GlobalSecondaryIndexes: buildGSIDescriptions(
+			gsis, int64(len(p.Items)), newTable.TableArn, billingMode == string(sdktypes.BillingModePayPerRequest),
+		),
+		LocalSecondaryIndexes: buildLSIDescriptions(lsis, newTable.TableArn),
+		BillingModeSummary:    billingModeSummary(billingMode),
+		ItemCount:             len(p.Items),
 	})
 	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
 	if onDemandMaxReadRRU != nil || onDemandMaxWriteRRU != nil {
@@ -758,6 +760,7 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 			p.GlobalSecondaryIndexes,
 			int64(len(itemsCopy)),
 			newTable.TableArn,
+			billingMode == string(sdktypes.BillingModePayPerRequest),
 		),
 		LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes, newTable.TableArn),
 		BillingModeSummary:    billingModeSummary(billingMode),

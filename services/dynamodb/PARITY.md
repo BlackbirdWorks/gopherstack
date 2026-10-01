@@ -126,6 +126,10 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 
 ## Notes
 
+### 2026-10-01 on-demand ProvisionedThroughput
+
+Create/Update/Delete/DescribeTable now return ProvisionedThroughput (and per-GSI) with RCU=WCU=NumberOfDecreasesToday=0 for PAY_PER_REQUEST (types.ProvisionedThroughputDescription: "0, because on-demand mode does not use provisioned throughput"); GSI create output honours the requested throughput. Proved by realclient_ondemand_throughput_test.go.
+
 ### 2026-10-01 items_still_open burn-down
 
 Already fixed, entries removed: ReturnConsumedCapacity=INDEXES (TestConsumedCapacity_Indexes_TableDriven); legacy Expected/AttributeUpdates (legacy_conditional_params_test.go). Fixed with typed-client tests (table_wire_fields_test.go): CreateTable ResourcePolicy (20 KB cap per SDK doc), ProvisionedThroughputDescription LastIncrease/LastDecreaseDateTime and per-UTC-day NumberOfDecreasesToday (omitted when 0), RestoreTableFromBackup/ToPointInTime LocalSecondaryIndexOverride (subset by name), ReplicaDescription.ReplicaArn (table ARN with the replica region).

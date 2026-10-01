@@ -136,6 +136,10 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 
 ## Notes
 
+### 2026-10-01 items_still_open burn-down
+
+Audited all 7 entries: none already fixed; none fixable with verified behaviour (JS/VTL evaluator, WAF/dns, introspection specifiedByURL/isOneOf and SDL/JSON format are unverified or unmodeled; GetIntrospectionSchema declares no BadRequest, SDK deserializers.go). No entries removed.
+
 ### 2026-09-23 lakeformation-appsync-neptune-and-athena terraform coverage
 
 Real bugs from a real terraform apply of source_api_association/api_cache/domain_name/function/type: missing SourceAPIARN/MergedAPIARN on SourceAPIAssociation broke the provider's ARN-based create-waiter; ARN identifiers in mergedApis/sourceApis URIs were never re-joined after net/http's percent-decoding split them; initial AssociationStatus was MERGE_SCHEDULED instead of MERGE_SUCCESS. All fixed for real; see AssociateSourceGraphqlApi note.

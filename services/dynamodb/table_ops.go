@@ -374,15 +374,26 @@ func buildCreateTableOutput(
 	t *Table,
 ) *dynamodb.CreateTableOutput {
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(input.GlobalSecondaryIndexes))
+	onDemand := input.BillingMode == types.BillingModePayPerRequest
+
 	for i, gsi := range input.GlobalSecondaryIndexes {
+		var pt models.ProvisionedThroughput
+		if gsi.ProvisionedThroughput != nil {
+			pt = models.ProvisionedThroughput{
+				ReadCapacityUnits:  gsi.ProvisionedThroughput.ReadCapacityUnits,
+				WriteCapacityUnits: gsi.ProvisionedThroughput.WriteCapacityUnits,
+			}
+		}
+
+		rc, wc := gsiCapacity(pt, onDemand)
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  aws.ToString(gsi.IndexName),
 			IndexArn:   indexArn(t.TableArn, aws.ToString(gsi.IndexName)),
 			KeySchema:  models.FromSDKKeySchema(gsi.KeySchema),
 			Projection: models.FromSDKProjection(gsi.Projection),
 			ProvisionedThroughput: models.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  models.DefaultReadCapacity,
-				WriteCapacityUnits: models.DefaultWriteCapacity,
+				ReadCapacityUnits:  int(rc),
+				WriteCapacityUnits: int(wc),
 			},
 			IndexStatus: models.TableStatusActive,
 		}
@@ -400,6 +411,9 @@ func buildCreateTableOutput(
 
 	rcu, wcu, tableStatus, keySchema, attrDefs, sseEnabled, sseType, sseKMSMasterKeyArn :=
 		snapshotTableForCreateOutputRLocked(t)
+	if onDemand {
+		rcu, wcu = 0, 0
+	}
 
 	td := &types.TableDescription{
 		TableName:              input.TableName,
@@ -411,8 +425,9 @@ func buildCreateTableOutput(
 		LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
 		ItemCount:              aws.Int64(0),
 		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-			ReadCapacityUnits:  &rcu,
-			WriteCapacityUnits: &wcu,
+			ReadCapacityUnits:      &rcu,
+			WriteCapacityUnits:     &wcu,
+			NumberOfDecreasesToday: aws.Int64(0),
 		},
 	}
 	// t.TableID is assigned once at creation, before newTable is published to
@@ -529,18 +544,11 @@ func (db *InMemoryDB) DeleteTable(
 	// it under table.mu without re-checking db.tables -- reading these fields
 	// here without table.mu would be a real data race, so take a read lock for
 	// the snapshot, consistent with this backend's db.mu -> table.mu order.
-	gsis, keySchema, attrDefs, itemCountSnapshot := snapshotTableForDeleteOutputRLocked(table)
+	gsis, keySchema, attrDefs, itemCountSnapshot, onDemand := snapshotTableForDeleteOutputRLocked(table)
 
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsis))
 	for i, gsi := range gsis {
-		rc := int64(models.DefaultReadCapacity)
-		wc := int64(models.DefaultWriteCapacity)
-		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
-			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
-		}
-		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
-			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
-		}
+		rc, wc := gsiCapacity(gsi.ProvisionedThroughput, onDemand)
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
 			IndexArn:   indexArn(table.TableArn, gsi.IndexName),
@@ -583,6 +591,7 @@ func snapshotTableForDeleteOutputRLocked(table *Table) (
 	[]models.KeySchemaElement,
 	[]models.AttributeDefinition,
 	int,
+	bool,
 ) {
 	table.mu.RLock("DeleteTable.snapshot")
 	defer table.mu.RUnlock()
@@ -594,7 +603,7 @@ func snapshotTableForDeleteOutputRLocked(table *Table) (
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
 	copy(attrDefs, table.AttributeDefinitions)
 
-	return gsis, keySchema, attrDefs, len(table.Items)
+	return gsis, keySchema, attrDefs, len(table.Items), table.BillingMode == string(types.BillingModePayPerRequest)
 }
 
 // removeGlobalTableReplicaLocked removes a region from a global table's ReplicationGroup.
@@ -637,17 +646,11 @@ func buildGSIDescriptions(
 	gsiList []models.GlobalSecondaryIndex,
 	itemCount int64,
 	tableArn string,
+	onDemand bool,
 ) []models.GlobalSecondaryIndexDescription {
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsiList))
 	for i, gsi := range gsiList {
-		rc := int64(models.DefaultReadCapacity)
-		wc := int64(models.DefaultWriteCapacity)
-		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
-			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
-		}
-		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
-			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
-		}
+		rc, wc := gsiCapacity(gsi.ProvisionedThroughput, onDemand)
 
 		status := gsi.IndexStatus
 		if status == "" {
@@ -791,15 +794,38 @@ func snapshotTable(table *Table) tableSnapshot {
 	return s
 }
 
+// gsiCapacity returns a GSI's RCU/WCU; on-demand indexes report 0 per the SDK doc.
+func gsiCapacity(pt models.ProvisionedThroughput, onDemand bool) (int64, int64) {
+	if onDemand {
+		return 0, 0
+	}
+
+	rc := int64(models.DefaultReadCapacity)
+	wc := int64(models.DefaultWriteCapacity)
+
+	if pt.ReadCapacityUnits != nil {
+		rc = *pt.ReadCapacityUnits
+	}
+
+	if pt.WriteCapacityUnits != nil {
+		wc = *pt.WriteCapacityUnits
+	}
+
+	return rc, wc
+}
+
 // buildTableDescription constructs the SDK TableDescription for a DescribeTable response.
 func buildTableDescription(tableName *string, table *Table) *types.TableDescription {
 	s := snapshotTable(table)
 
-	gsiDescs := buildGSIDescriptions(s.gsiList, s.itemCount, s.tableArn)
+	onDemand := s.billingMode == string(types.BillingModePayPerRequest)
+	gsiDescs := buildGSIDescriptions(s.gsiList, s.itemCount, s.tableArn, onDemand)
 	lsiDescs := buildLSIDescriptions(s.lsiList, s.tableArn)
 
-	rcu := int64(s.pt.ReadCapacityUnits)
-	wcu := int64(s.pt.WriteCapacityUnits)
+	var rcu, wcu int64
+	if !onDemand {
+		rcu, wcu = int64(s.pt.ReadCapacityUnits), int64(s.pt.WriteCapacityUnits)
+	}
 
 	tableSizeBytes := s.itemSizeBytes
 
@@ -822,15 +848,16 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 		DeletionProtectionEnabled: &s.deletionProtectionEnabled,
 	}
 
-	// Only populate ProvisionedThroughput for PROVISIONED billing mode.
-	if billingMode == types.BillingModeProvisioned {
-		td.ProvisionedThroughput = &types.ProvisionedThroughputDescription{
-			ReadCapacityUnits:      &rcu,
-			WriteCapacityUnits:     &wcu,
-			LastIncreaseDateTime:   epochToTime(s.pt.LastIncreaseDateTime),
-			LastDecreaseDateTime:   epochToTime(s.pt.LastDecreaseDateTime),
-			NumberOfDecreasesToday: aws.Int64(decreasesToday(s.pt, time.Now())),
-		}
+	td.ProvisionedThroughput = &types.ProvisionedThroughputDescription{
+		ReadCapacityUnits:      &rcu,
+		WriteCapacityUnits:     &wcu,
+		NumberOfDecreasesToday: aws.Int64(0),
+	}
+
+	if !onDemand {
+		td.ProvisionedThroughput.LastIncreaseDateTime = epochToTime(s.pt.LastIncreaseDateTime)
+		td.ProvisionedThroughput.LastDecreaseDateTime = epochToTime(s.pt.LastDecreaseDateTime)
+		td.ProvisionedThroughput.NumberOfDecreasesToday = aws.Int64(decreasesToday(s.pt, time.Now()))
 	}
 
 	setReplicaArns(td.Replicas, s.tableArn)
@@ -1656,22 +1683,18 @@ func buildUpdateTableOutput(
 	input *dynamodb.UpdateTableInput,
 	table *Table,
 ) *dynamodb.UpdateTableOutput {
-	rcu := int64(table.ProvisionedThroughput.ReadCapacityUnits)
-	wcu := int64(table.ProvisionedThroughput.WriteCapacityUnits)
+	onDemand := table.BillingMode == string(types.BillingModePayPerRequest)
+
+	var rcu, wcu int64
+	if !onDemand {
+		rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
+		wcu = int64(table.ProvisionedThroughput.WriteCapacityUnits)
+	}
 
 	gsiDescs := make([]types.GlobalSecondaryIndexDescription, 0, len(table.GlobalSecondaryIndexes))
 
 	for _, gsi := range table.GlobalSecondaryIndexes {
-		rc := int64(models.DefaultReadCapacity)
-		wc := int64(models.DefaultWriteCapacity)
-
-		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
-			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
-		}
-
-		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
-			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
-		}
+		rc, wc := gsiCapacity(gsi.ProvisionedThroughput, onDemand)
 
 		status := gsi.IndexStatus
 		if status == "" {
@@ -1684,8 +1707,9 @@ func buildUpdateTableOutput(
 			Projection:  models.ToSDKProjection(gsi.Projection),
 			IndexStatus: types.IndexStatus(status),
 			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  &rc,
-				WriteCapacityUnits: &wc,
+				ReadCapacityUnits:      &rc,
+				WriteCapacityUnits:     &wc,
+				NumberOfDecreasesToday: aws.Int64(0),
 			},
 		})
 	}
@@ -1700,8 +1724,9 @@ func buildUpdateTableOutput(
 		Replicas:                  toSDKReplicaDescriptions(table.Replicas),
 		DeletionProtectionEnabled: aws.Bool(table.DeletionProtectionEnabled),
 		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-			ReadCapacityUnits:  &rcu,
-			WriteCapacityUnits: &wcu,
+			ReadCapacityUnits:      &rcu,
+			WriteCapacityUnits:     &wcu,
+			NumberOfDecreasesToday: aws.Int64(decreasesToday(table.ProvisionedThroughput, time.Now())),
 		},
 	}
 
