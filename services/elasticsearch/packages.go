@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 )
 
@@ -51,6 +52,7 @@ func (b *InMemoryBackend) CreatePackage(
 		PackageSource: source,
 		CreatedAt:     now,
 		LastUpdatedAt: now,
+		Versions:      []PackageVersion{{Number: 1, CreatedAt: now}},
 		region:        region,
 	}
 	b.packagePut(pkg)
@@ -162,8 +164,8 @@ func (b *InMemoryBackend) DissociatePackage(ctx context.Context, packageID, doma
 	return nil
 }
 
-// GetPackageVersionHistory returns the version history for a package.
-func (b *InMemoryBackend) GetPackageVersionHistory(ctx context.Context, packageID string) ([]*Package, error) {
+// GetPackageVersionHistory returns the package's versions, newest first.
+func (b *InMemoryBackend) GetPackageVersionHistory(ctx context.Context, packageID string) ([]PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("GetPackageVersionHistory")
 	defer b.mu.RUnlock()
@@ -173,9 +175,43 @@ func (b *InMemoryBackend) GetPackageVersionHistory(ctx context.Context, packageI
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
-	cp := *pkg
+	versions := packageVersions(pkg)
+	out := make([]PackageVersion, 0, len(versions))
 
-	return []*Package{&cp}, nil
+	for _, v := range slices.Backward(versions) {
+		out = append(out, v)
+	}
+
+	return out, nil
+}
+
+// packageVersions returns the package's versions, treating a package restored
+// without version data as a single version 1.
+func packageVersions(p *Package) []PackageVersion {
+	if len(p.Versions) == 0 {
+		return []PackageVersion{{Number: 1, CreatedAt: p.CreatedAt}}
+	}
+
+	return p.Versions
+}
+
+// availablePackageVersion returns the latest version label, such as "v2".
+func availablePackageVersion(p *Package) string {
+	versions := packageVersions(p)
+
+	return packageVersionLabel(versions[len(versions)-1].Number)
+}
+
+func packageVersionLabel(n int) string {
+	return "v" + strconv.Itoa(n)
+}
+
+// clonePackage copies p including its version slice.
+func clonePackage(p *Package) *Package {
+	cp := *p
+	cp.Versions = slices.Clone(p.Versions)
+
+	return &cp
 }
 
 // ListDomainsForPackage returns all domain names associated with a package.
@@ -220,7 +256,7 @@ func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName 
 
 // UpdatePackage updates a package description.
 func (b *InMemoryBackend) UpdatePackage(
-	ctx context.Context, packageID, description string, source PackageSource,
+	ctx context.Context, packageID, description, commitMessage string, source PackageSource,
 ) (*Package, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("UpdatePackage")
@@ -234,7 +270,17 @@ func (b *InMemoryBackend) UpdatePackage(
 	pkg.Description = description
 	pkg.PackageSource = source
 	pkg.LastUpdatedAt = time.Now()
-	cp := *pkg
 
-	return &cp, nil
+	versions := packageVersions(pkg)
+	pkg.Versions = append(slices.Clone(versions), PackageVersion{
+		Number:        versions[len(versions)-1].Number + 1,
+		CommitMessage: commitMessage,
+		CreatedAt:     pkg.LastUpdatedAt,
+	})
+
+	if len(pkg.Versions) > maxPackageVersions {
+		pkg.Versions = slices.Clone(pkg.Versions[len(pkg.Versions)-maxPackageVersions:])
+	}
+
+	return clonePackage(pkg), nil
 }

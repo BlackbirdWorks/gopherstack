@@ -178,6 +178,7 @@ type autoTuneMaintenanceScheduleJSON struct {
 // (types.AutoTuneOptionsInput).
 type autoTuneOptionsRequestJSON struct {
 	DesiredState         string                            `json:"DesiredState,omitempty"`
+	RollbackOnDisable    string                            `json:"RollbackOnDisable,omitempty"`
 	MaintenanceSchedules []autoTuneMaintenanceScheduleJSON `json:"MaintenanceSchedules,omitempty"`
 }
 
@@ -199,24 +200,24 @@ type deploymentStrategyOptionsJSON struct {
 }
 
 // domainJSON is the JSON request body for CreateElasticsearchDomain.
-type domainJSON struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	ClusterConfig             *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
-	EBSOptions                *domainEBSOptions                   `json:"EBSOptions"`
+type domainJSON struct {
+	AdvancedSecurityOptions   *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
+	AutoTuneOptions           *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions"`
 	SnapshotOptions           *domainSnapshotOptions              `json:"SnapshotOptions"`
 	EncryptionAtRest          *domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
 	NodeToNodeEncryption      *domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
 	DomainEndpointOpts        *domainEndpointOptions              `json:"DomainEndpointOptions"`
 	VPCOptions                *vpcOptionsRequestJSON              `json:"VPCOptions"`
 	CognitoOptions            *cognitoOptionsJSON                 `json:"CognitoOptions"`
-	AdvancedSecurityOptions   *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
-	AutoTuneOptions           *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions"`
+	EBSOptions                *domainEBSOptions                   `json:"EBSOptions"`
 	DeploymentStrategyOptions *deploymentStrategyOptionsJSON      `json:"DeploymentStrategyOptions"`
+	ClusterConfig             *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
 	LogPublishingOptions      map[string]logPublishingOptionJSON  `json:"LogPublishingOptions"`
 	AdvancedOptions           map[string]string                   `json:"AdvancedOptions"`
-	TagList                   []domainTagJSON                     `json:"TagList"`
 	DomainName                string                              `json:"DomainName"`
 	ElasticsearchVersion      string                              `json:"ElasticsearchVersion"`
 	AccessPolicies            string                              `json:"AccessPolicies"`
+	TagList                   []domainTagJSON                     `json:"TagList"`
 }
 
 // domainTagJSON is one element of CreateElasticsearchDomainInput.TagList
@@ -227,29 +228,30 @@ type domainTagJSON struct {
 }
 
 // domainStatusJSON is the JSON response for domain operations.
-type domainStatusJSON struct { //nolint:govet // fieldalignment: readability over micro-optimization
+type domainStatusJSON struct {
+	AdvancedOptions             map[string]string                  `json:"AdvancedOptions"`
+	LogPublishingOptions        map[string]logPublishingOptionJSON `json:"LogPublishingOptions"`
+	VPCOptions                  *vpcDerivedInfoJSON                `json:"VPCOptions,omitempty"`
+	DeploymentStrategyOptions   *deploymentStrategyOptionsJSON     `json:"DeploymentStrategyOptions,omitempty"`
+	AutoTuneOptions             autoTuneOptionsJSON                `json:"AutoTuneOptions"`
+	ARN                         string                             `json:"ARN"`
+	DomainProcessingStatus      string                             `json:"DomainProcessingStatus"`
+	AdvancedSecurityOptions     advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions"`
+	AccessPolicies              string                             `json:"AccessPolicies"`
+	Endpoint                    string                             `json:"Endpoint"`
+	ElasticsearchVersion        string                             `json:"ElasticsearchVersion"`
+	DomainID                    string                             `json:"DomainId"`
+	DomainName                  string                             `json:"DomainName"`
+	CognitoOptions              cognitoOptionsJSON                 `json:"CognitoOptions"`
+	EncryptionAtRestOptions     domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
+	DomainEndpointOptions       domainEndpointOptions              `json:"DomainEndpointOptions"`
 	ElasticsearchClusterConfig  clusterConfigJSON                  `json:"ElasticsearchClusterConfig"`
 	EBSOptions                  ebsOptionsJSON                     `json:"EBSOptions"`
-	CognitoOptions              cognitoOptionsJSON                 `json:"CognitoOptions"`
 	SnapshotOptions             domainSnapshotOptions              `json:"SnapshotOptions"`
-	EncryptionAtRestOptions     domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
 	NodeToNodeEncryptionOptions domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
-	DomainEndpointOptions       domainEndpointOptions              `json:"DomainEndpointOptions"`
-	AdvancedSecurityOptions     advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions"`
-	AutoTuneOptions             autoTuneOptionsJSON                `json:"AutoTuneOptions"`
-	DeploymentStrategyOptions   *deploymentStrategyOptionsJSON     `json:"DeploymentStrategyOptions,omitempty"`
-	VPCOptions                  *vpcDerivedInfoJSON                `json:"VPCOptions,omitempty"`
-	LogPublishingOptions        map[string]logPublishingOptionJSON `json:"LogPublishingOptions"`
-	AdvancedOptions             map[string]string                  `json:"AdvancedOptions"`
-	DomainName                  string                             `json:"DomainName"`
-	DomainID                    string                             `json:"DomainId"`
-	ARN                         string                             `json:"ARN"`
-	ElasticsearchVersion        string                             `json:"ElasticsearchVersion"`
-	Endpoint                    string                             `json:"Endpoint"`
-	DomainProcessingStatus      string                             `json:"DomainProcessingStatus"`
-	AccessPolicies              string                             `json:"AccessPolicies"`
 	Processing                  bool                               `json:"Processing"`
 	Created                     bool                               `json:"Created"`
+	Deleted                     bool                               `json:"Deleted"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
@@ -800,12 +802,21 @@ func autoTuneOptionsFromRequest(req *autoTuneOptionsRequestJSON) (*AutoTuneOptio
 			ErrValidation, req.DesiredState)
 	}
 
+	if rb := req.RollbackOnDisable; rb != "" && rb != "NO_ROLLBACK" && rb != "DEFAULT_ROLLBACK" {
+		return nil, fmt.Errorf("%w: AutoTuneOptions.RollbackOnDisable must be NO_ROLLBACK or DEFAULT_ROLLBACK, got %q",
+			ErrValidation, req.RollbackOnDisable)
+	}
+
 	schedules, err := maintenanceSchedulesFromRequest(req.MaintenanceSchedules)
 	if err != nil {
 		return nil, err
 	}
 
-	return &AutoTuneOptions{DesiredState: req.DesiredState, MaintenanceSchedules: schedules}, nil
+	return &AutoTuneOptions{
+		DesiredState:         req.DesiredState,
+		RollbackOnDisable:    req.RollbackOnDisable,
+		MaintenanceSchedules: schedules,
+	}, nil
 }
 
 // validDeploymentStrategies is the set of values accepted for
