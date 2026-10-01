@@ -48,6 +48,7 @@ func (b *InMemoryBackend) resolveClusterARN(region, ref string) (string, bool) {
 func (b *InMemoryBackend) CreateGlobalCluster(
 	ctx context.Context,
 	id, sourceDBClusterID, engine, engineVersion string,
+	opts CreateGlobalClusterOptions,
 ) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
@@ -71,6 +72,10 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		Engine:                  engine,
 		EngineVersion:           engineVersion,
 		GlobalClusterArn:        b.globalClusterARN(id),
+		GlobalClusterResourceID: newResourceID("cluster-"),
+		DatabaseName:            opts.DatabaseName,
+		DeletionProtection:      opts.DeletionProtection != nil && *opts.DeletionProtection,
+		StorageEncrypted:        opts.StorageEncrypted != nil && *opts.StorageEncrypted,
 	}
 	if clusterARN, exists := b.resolveClusterARN(region, sourceDBClusterID); exists {
 		gc.GlobalClusterMembers = []GlobalClusterMember{

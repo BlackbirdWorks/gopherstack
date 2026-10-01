@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (any, error) {
@@ -273,6 +274,9 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		MultiAZ:                      c.MultiAZ,
 		DeletionProtection:           c.DeletionProtection,
 		ClusterCreateTime:            c.ClusterCreateTime,
+		DBClusterResourceID:          c.DBClusterResourceID,
+		EarliestRestorableTime:       c.ClusterCreateTime,
+		LatestRestorableTime:         time.Now().UTC().Format(time.RFC3339),
 		HostedZoneID:                 c.HostedZoneID,
 		KmsKeyID:                     c.KmsKeyID,
 		ReplicationSourceIdentifier:  c.ReplicationSourceIdentifier,
@@ -332,6 +336,9 @@ type xmlDBCluster struct {
 	DBClusterArn                 string                            `xml:"DBClusterArn,omitempty"`
 	EngineVersion                string                            `xml:"EngineVersion,omitempty"`
 	ClusterCreateTime            string                            `xml:"ClusterCreateTime,omitempty"`
+	DBClusterResourceID          string                            `xml:"DbClusterResourceId,omitempty"`
+	EarliestRestorableTime       string                            `xml:"EarliestRestorableTime,omitempty"`
+	LatestRestorableTime         string                            `xml:"LatestRestorableTime,omitempty"`
 	HostedZoneID                 string                            `xml:"HostedZoneId,omitempty"`
 	KmsKeyID                     string                            `xml:"KmsKeyId,omitempty"`
 	StorageType                  string                            `xml:"StorageType,omitempty"`

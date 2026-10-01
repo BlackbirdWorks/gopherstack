@@ -123,6 +123,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 
 	cluster := &DBCluster{
+		DBClusterResourceID:          newResourceID("cluster-"),
 		region:                       region,
 		DBClusterIdentifier:          id,
 		Engine:                       engine,
@@ -235,6 +236,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 			PercentProgress:             snapshotPercentageComplete,
 			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
 			DBClusterArn:                b.clusterARN(region, id),
+			StorageType:                 c.StorageType,
 		}
 		b.clusterSnapshotPut(snap)
 	}
@@ -494,6 +496,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", clusterID, region)
 	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", clusterID, region)
 	cluster := &DBCluster{
+		DBClusterResourceID:         newResourceID("cluster-"),
 		region:                      region,
 		DBClusterIdentifier:         clusterID,
 		Engine:                      engine,
@@ -563,6 +566,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", targetClusterID, region)
 	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", targetClusterID, region)
 	cluster := &DBCluster{
+		DBClusterResourceID:         newResourceID("cluster-"),
 		region:                      region,
 		DBClusterIdentifier:         targetClusterID,
 		Engine:                      src.Engine,

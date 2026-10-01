@@ -29,7 +29,12 @@ func (h *Handler) handleCreateGlobalCluster(ctx context.Context, vals url.Values
 	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
-	gc, err := h.Backend.CreateGlobalCluster(ctx, id, sourceDBClusterID, engine, engineVersion)
+	gc, err := h.Backend.CreateGlobalCluster(ctx, id, sourceDBClusterID, engine, engineVersion,
+		CreateGlobalClusterOptions{
+			DatabaseName:       vals.Get("DatabaseName"),
+			DeletionProtection: parseBoolParam(vals, "DeletionProtection"),
+			StorageEncrypted:   parseBoolParam(vals, "StorageEncrypted"),
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +159,8 @@ type xmlGlobalCluster struct {
 	EngineVersion           string                     `xml:"EngineVersion,omitempty"`
 	GlobalClusterArn        string                     `xml:"GlobalClusterArn,omitempty"`
 	Status                  string                     `xml:"Status"`
+	DatabaseName            string                     `xml:"DatabaseName,omitempty"`
+	GlobalClusterResourceID string                     `xml:"GlobalClusterResourceId,omitempty"`
 	GlobalClusterMembers    xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
 	StorageEncrypted        bool                       `xml:"StorageEncrypted"`
 	DeletionProtection      bool                       `xml:"DeletionProtection"`
@@ -217,5 +224,7 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		GlobalClusterMembers:    xmlGlobalClusterMemberList{Members: members},
 		StorageEncrypted:        gc.StorageEncrypted,
 		DeletionProtection:      gc.DeletionProtection,
+		DatabaseName:            gc.DatabaseName,
+		GlobalClusterResourceID: gc.GlobalClusterResourceID,
 	}
 }

@@ -167,6 +167,7 @@ func (rc *ResourceCreator) createDocDBGlobalCluster(
 		strProp(props, "SourceDBClusterIdentifier", params, physicalIDs),
 		strProp(props, "Engine", params, physicalIDs),
 		strProp(props, "EngineVersion", params, physicalIDs),
+		docdbbackend.CreateGlobalClusterOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("create DocDB global cluster %s: %w", id, err)
