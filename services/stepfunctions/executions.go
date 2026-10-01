@@ -60,6 +60,7 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		}
 	}
 
+	b.pruneMapRunsLocked(cutoff)
 	b.sweepOrphanedTombstonesLocked()
 
 	return len(toDelete)
@@ -117,11 +118,10 @@ func (b *InMemoryBackend) StartSyncExecution(
 	}
 
 	smName := sm.Name
-	definition := sm.Definition
+	parsedSM, parseErr := sm.parseDefinition()
 	integrations := b.snapshotIntegrationsLocked()
 	b.mu.RUnlock()
 
-	parsedSM, parseErr := asl.Parse(definition)
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
@@ -338,7 +338,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// leaves an orphaned RUNNING execution in the store.
 	definition := sm.Definition
 
-	parsedSM, parseErr := asl.Parse(definition)
+	parsedSM, parseErr := sm.parseDefinition()
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
@@ -793,7 +793,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 
 	definition := sm.Definition
 
-	parsedSM, parseErr := asl.Parse(definition)
+	parsedSM, parseErr := sm.parseDefinition()
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}

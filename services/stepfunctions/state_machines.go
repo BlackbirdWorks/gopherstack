@@ -84,7 +84,8 @@ func (b *InMemoryBackend) CreateStateMachine(
 	}
 
 	// Validate the definition before storing.
-	if _, err := asl.Parse(definition); err != nil {
+	parsed, err := asl.Parse(definition)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 	}
 
@@ -133,6 +134,7 @@ func (b *InMemoryBackend) CreateStateMachine(
 		Status:          statusActive,
 		Definition:      definition,
 		RoleArn:         roleArn,
+		parsed:          &parsedDefinition{sm: parsed, def: definition},
 	}
 	b.stateMachines.Put(sm)
 	nameIdx[name] = smARN
@@ -206,6 +208,7 @@ func (b *InMemoryBackend) completeDeleteLocked(arn string, sm *StateMachine) {
 	}
 
 	delete(b.smExecsByStatus, arn)
+	b.deleteMapRunsForStateMachineLocked(arn)
 
 	// Remove all versions for this state machine. Cloned first for the same
 	// reason as executions above: b.versions.Delete mutates the
@@ -315,8 +318,10 @@ func (b *InMemoryBackend) DescribeStateMachine(arn string) (*StateMachine, error
 // RevisionId (see StateMachine.RevisionID's doc comment).
 func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) (float64, string, error) {
 	// Validate the new definition before acquiring the lock.
+	var parsed *asl.StateMachine
 	if definition != "" {
-		if _, err := asl.Parse(definition); err != nil {
+		var err error
+		if parsed, err = asl.Parse(definition); err != nil {
 			return 0, "", fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 		}
 	}
@@ -341,6 +346,7 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 
 	if definition != "" {
 		sm.Definition = definition
+		sm.parsed = &parsedDefinition{sm: parsed, def: definition}
 	}
 
 	if roleArn != "" {

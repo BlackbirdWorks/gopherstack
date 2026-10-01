@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 )
 
 // ErrParseError is returned when the state machine definition cannot be parsed.
@@ -105,6 +106,9 @@ type ResultWriterConfig struct {
 
 // State represents a single state in the state machine.
 type State struct {
+	paramsTmpl    atomic.Pointer[parsedTemplate]
+	resultSelTmpl atomic.Pointer[parsedTemplate]
+	itemSelTmpl   atomic.Pointer[parsedTemplate]
 	Iterator      *StateMachine   `json:"Iterator,omitempty"`
 	ItemProcessor *StateMachine   `json:"ItemProcessor,omitempty"`
 	ItemBatcher   *ItemBatcher    `json:"ItemBatcher,omitempty"`

@@ -27118,6 +27118,7 @@
       "StateMachine.TracingConfiguration *TracingConfiguration `json:\"tracingConfiguration,omitempty\"`",
       "StateMachine.Type string `json:\"type\"`",
       "StateMachine.UpdatedDate float64 `json:\"updatedDate,omitempty\"`",
+      "StateMachine.parsed *parsedDefinition",
       "StateMachineAlias.CreationDate float64 `json:\"creationDate\"`",
       "StateMachineAlias.Description string `json:\"description,omitempty\"`",
       "StateMachineAlias.Name string `json:\"name\"`",
@@ -27188,7 +27189,9 @@
       "integrationsSnapshot.s3Reader asl.S3Reader",
       "integrationsSnapshot.s3ResultWriter asl.S3Writer",
       "integrationsSnapshot.snsIntegration asl.SNSIntegration",
-      "integrationsSnapshot.sqsIntegration asl.SQSIntegration"
+      "integrationsSnapshot.sqsIntegration asl.SQSIntegration",
+      "parsedDefinition.def string",
+      "parsedDefinition.sm *asl.StateMachine"
     ],
     "version": 1
   },

@@ -631,8 +631,8 @@ func (e *Executor) runStates(
 		// Apply Parameters to transform the effective input for this state.
 		taskInput := effectiveInput
 		if len(state.Parameters) > 0 {
-			paramInput := pathEvalInput{data: effectiveInput, context: e.buildContextObject()}
-			taskInput, err = applyParametersTemplate(state.Parameters, paramInput)
+			tmpl := loadTemplate(&state.paramsTmpl, state.Parameters)
+			taskInput, err = tmpl.eval(e, effectiveInput)
 			if err != nil {
 				return nil, fmt.Errorf("parameters error in state %q: %w", current, err)
 			}
@@ -676,9 +676,8 @@ func (e *Executor) applyStateOutputTransforms(
 	if len(state.ResultSelector) > 0 {
 		var err error
 
-		rsInput := pathEvalInput{data: result, context: e.buildContextObject()}
-
-		result, err = applyParametersTemplate(state.ResultSelector, rsInput)
+		tmpl := loadTemplate(&state.resultSelTmpl, state.ResultSelector)
+		result, err = tmpl.eval(e, result)
 		if err != nil {
 			return nil, fmt.Errorf("ResultSelector error in state %q: %w", stateName, err)
 		}
@@ -1886,7 +1885,7 @@ func (e *Executor) executeMap(
 			}
 
 			if len(state.ItemSelector) > 0 {
-				items, err = applyMapItemSelector(state.ItemSelector, items)
+				items, err = applyMapItemSelector(&state.itemSelTmpl, state.ItemSelector, items)
 				if err != nil {
 					return nil, err
 				}
@@ -2104,8 +2103,14 @@ func wrapItemBatcherBatches(rawBatches []any, batchInput json.RawMessage) ([]any
 	return wrapped, nil
 }
 
-func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, error) {
+func applyMapItemSelector(
+	slot *atomic.Pointer[parsedTemplate],
+	itemSelector json.RawMessage,
+	items []any,
+) ([]any, error) {
 	selectedItems := make([]any, len(items))
+	tmpl := loadTemplate(slot, itemSelector)
+
 	for idx, item := range items {
 		contextInput := pathEvalInput{
 			data: item,
@@ -2119,7 +2124,7 @@ func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, err
 			},
 		}
 
-		selected, err := applyParametersTemplate(itemSelector, contextInput)
+		selected, err := tmpl.evalWith(contextInput)
 		if err != nil {
 			return nil, fmt.Errorf("map ItemSelector error: %w", err)
 		}
@@ -3884,16 +3889,45 @@ func marshalInput(v any) string {
 	return string(b)
 }
 
-// applyParametersTemplate evaluates a Parameters or ResultSelector template
-// (json.RawMessage) against the given input context.
-// Keys ending in ".$" are evaluated as JSONPath or intrinsic function references.
-func applyParametersTemplate(template json.RawMessage, input any) (any, error) {
-	var tmpl any
-	if err := json.Unmarshal(template, &tmpl); err != nil {
-		return nil, fmt.Errorf("invalid template: %w", err)
+// parsedTemplate is a Parameters/ResultSelector/ItemSelector template decoded once.
+type parsedTemplate struct {
+	tmpl        any
+	err         error
+	usesContext bool
+}
+
+// loadTemplate returns the slot's parsed template, decoding raw on first use.
+func loadTemplate(slot *atomic.Pointer[parsedTemplate], raw json.RawMessage) *parsedTemplate {
+	if pt := slot.Load(); pt != nil {
+		return pt
 	}
 
-	return evalTemplate(tmpl, input)
+	pt := &parsedTemplate{usesContext: bytes.Contains(raw, []byte("$$"))}
+	if err := json.Unmarshal(raw, &pt.tmpl); err != nil {
+		pt.err = fmt.Errorf("invalid template: %w", err)
+	}
+
+	slot.CompareAndSwap(nil, pt)
+
+	return slot.Load()
+}
+
+func (pt *parsedTemplate) evalWith(input any) (any, error) {
+	if pt.err != nil {
+		return nil, pt.err
+	}
+
+	return evalTemplate(pt.tmpl, input)
+}
+
+// eval evaluates the template, building the context object only if it refers to "$$".
+func (pt *parsedTemplate) eval(e *Executor, data any) (any, error) {
+	in := pathEvalInput{data: data}
+	if pt.usesContext {
+		in.context = e.buildContextObject()
+	}
+
+	return pt.evalWith(in)
 }
 
 // evalTemplate recursively evaluates a template structure against the input context.
