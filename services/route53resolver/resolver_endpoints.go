@@ -17,8 +17,11 @@ const dirPrefixLen = 2
 // that doesn't already have one.
 func copyIPAddressesWithIDs(ips []IPAddress) []IPAddress {
 	cp := make([]IPAddress, len(ips))
+	now := currentTime()
 	for i, ip := range ips {
 		cp[i] = ip
+		cp[i].CreationTime = now
+		cp[i].ModificationTime = now
 		if cp[i].IPID == "" {
 			cp[i].IPID = "rni-" + uuid.New().String()[:8]
 		}
@@ -228,13 +231,15 @@ func (b *InMemoryBackend) AssociateResolverEndpointIPAddress(
 	}
 
 	newIP := IPAddress{
-		IPID:     "rni-" + uuid.New().String()[:8],
-		SubnetID: subnetID,
-		IP:       ip,
-		Ipv6:     ipv6,
+		IPID:             "rni-" + uuid.New().String()[:8],
+		SubnetID:         subnetID,
+		IP:               ip,
+		Ipv6:             ipv6,
+		CreationTime:     currentTime(),
+		ModificationTime: currentTime(),
 	}
 	ep.IPAddresses = append(ep.IPAddresses, newIP)
-	ep.ModificationTime = currentTime()
+	ep.ModificationTime = newIP.CreationTime
 
 	return cloneEndpoint(ep), nil
 }
@@ -470,6 +475,7 @@ func applyUpdateIPAddresses(existing []IPAddress, updates []UpdateIPAddress) {
 		for i := range existing {
 			if existing[i].IPID == u.IPID {
 				existing[i].Ipv6 = u.Ipv6
+				existing[i].ModificationTime = currentTime()
 
 				break
 			}
