@@ -274,10 +274,11 @@ func (b *InMemoryBackend) buildPublishedEvent(
 	// signature already computed for it in Publish instead of signing again.
 	sn, ok := signed[message]
 	if !ok {
-		canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
-		sn = signedNotification{
-			signature: b.signer.signWithVersion(canonical, sigVersion),
-			certURL:   b.signer.certURL(),
+		sn.certURL = b.signer.certURL()
+
+		if eventNeedsSignature(subs) {
+			canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
+			sn.signature = b.signer.signWithVersion(canonical, sigVersion)
 		}
 	}
 
@@ -293,6 +294,23 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		SignatureVersion: sigVersion,
 		SigningCertURL:   sn.certURL,
 	}
+}
+
+// eventNeedsSignature reports whether any channel fed by the published event
+// embeds its Signature (SQS envelope, Lambda, Firehose). RSA signing is costly.
+func eventNeedsSignature(subs []events.SNSSubscriptionSnapshot) bool {
+	for _, sub := range subs {
+		switch sub.Protocol {
+		case protocolSQS:
+			if !sub.RawMessageDelivery {
+				return true
+			}
+		case protocolLambda, protocolFirehose:
+			return true
+		}
+	}
+
+	return false
 }
 
 // emitPublishedEvent broadcasts ev to the publish emitter (e.g. to SQS). It is
