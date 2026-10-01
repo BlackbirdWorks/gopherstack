@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -235,8 +236,12 @@ func (b *InMemoryBackend) DescribeImages(
 		if len(tags) == 0 && img.ImageID.ImageTag != "" {
 			tags = []string{img.ImageID.ImageTag}
 		}
-		// Sort for stable output.
-		sort.Strings(tags)
+		// digestTags is shared under RLock: sort a private copy, never in place.
+		if !slices.IsSorted(tags) {
+			tags = slices.Clone(tags)
+			slices.Sort(tags)
+		}
+
 		img.Tags = tags
 
 		// imageScanFindingsSummary/imageScanStatus are derived fresh from the

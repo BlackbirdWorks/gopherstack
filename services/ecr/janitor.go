@@ -51,6 +51,8 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 
 // sweepLifecycle evaluates all lifecycle policies and deletes expired images.
 func (j *Janitor) sweepLifecycle(ctx context.Context) {
+	j.Backend.pruneExpiredLayerUploads(time.Now())
+
 	deleted := j.Backend.RunLifecycleExpiry(ctx)
 
 	telemetry.RecordWorkerTask(ecrWorkerService, lifecycleSweeperName, "success")

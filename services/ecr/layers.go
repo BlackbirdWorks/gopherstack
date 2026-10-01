@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -305,6 +306,29 @@ func (b *InMemoryBackend) InitiateLayerUpload(
 	b.layerUploadQueue = append(b.layerUploadQueue, layerUploadQueueEntry{id: uploadID})
 
 	return &LayerUploadInitiation{PartSize: layerUploadPartSize, UploadID: uploadID}, nil
+}
+
+// pruneExpiredLayerUploads drops sessions idle longer than layerUploadTTL, so
+// abandoned uploads release their buffered bytes without another Initiate call.
+func (b *InMemoryBackend) pruneExpiredLayerUploads(now time.Time) {
+	b.mu.Lock("PruneExpiredLayerUploads")
+	defer b.mu.Unlock()
+
+	for id, upload := range b.layerUploads {
+		if now.Sub(upload.CreatedAt) > layerUploadTTL {
+			delete(b.layerUploads, id)
+
+			if idx, ok := b.repoUploadIndex[upload.RepositoryName]; ok {
+				delete(idx, id)
+			}
+		}
+	}
+
+	b.layerUploadQueue = slices.DeleteFunc(b.layerUploadQueue, func(e layerUploadQueueEntry) bool {
+		_, live := b.layerUploads[e.id]
+
+		return !live
+	})
 }
 
 // UploadLayerPart records uploaded bytes for an existing upload session.
