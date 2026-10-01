@@ -635,9 +635,8 @@ func directoryToJSON(d *Directory) map[string]any {
 		"SsoEnabled":               d.SsoEnabled,
 		keyLaunchTime:              awstime.Epoch(d.LaunchTime),
 		"StageLastUpdatedDateTime": awstime.Epoch(d.StageLastUpdatedDateTime),
-		"DnsIpAddrs":               dnsIPAddrs,
-		"DnsIpv6Addrs":             dnsIPv6Addrs,
 	}
+	addDNSJSON(out, dnsIPAddrs, dnsIPv6Addrs)
 	if vs := directoryVpcSettingsJSON(d.VpcSettings); vs != nil {
 		out["VpcSettings"] = vs
 	}
@@ -657,8 +656,44 @@ func directoryToJSON(d *Directory) map[string]any {
 	if hs := directoryHybridSettingsJSON(d.HybridSettings); hs != nil {
 		out["HybridSettings"] = hs
 	}
+	addSharedDirectoryJSON(out, d)
 
 	return out
+}
+
+func addDNSJSON(out map[string]any, v4, v6 []string) {
+	out["DnsIpAddrs"] = v4
+	out["DnsIpv6Addrs"] = v6
+}
+
+func addSharedDirectoryJSON(out map[string]any, d *Directory) {
+	if d.ShareStatus == "" {
+		return
+	}
+
+	out["ShareMethod"] = string(d.ShareMethod)
+	out["ShareStatus"] = string(d.ShareStatus)
+	out["ShareNotes"] = d.ShareNotes
+
+	o := d.OwnerDirectoryDescription
+	if o == nil {
+		return
+	}
+
+	owner := map[string]any{
+		"AccountId":    o.AccountID,
+		keyDirectoryID: o.DirectoryID,
+		"NetworkType":  string(o.NetworkType),
+	}
+	addDNSJSON(owner, append([]string{}, o.DNSIPAddrs...), append([]string{}, o.DNSIPv6Addrs...))
+	if vs := directoryVpcSettingsJSON(o.VpcSettings); vs != nil {
+		owner["VpcSettings"] = vs
+	}
+	if rs := directoryRadiusSettingsJSON(o.RadiusSettings); rs != nil {
+		owner["RadiusSettings"] = rs
+		owner["RadiusStatus"] = string(o.RadiusStatus)
+	}
+	out["OwnerDirectoryDescription"] = owner
 }
 
 func snapshotToJSON(s *Snapshot) map[string]any {

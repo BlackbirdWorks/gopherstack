@@ -19,7 +19,8 @@ func (h *Handler) handleAddIpRoutes(c *echo.Context) error { //nolint:revive,sta
 	var req struct {
 		DirectoryID string     `json:"DirectoryId"`
 		IpRoutes    []struct { //nolint:revive,staticcheck // existing issue.
-			CidrIp      string `json:"CidrIp"` //nolint:revive,staticcheck // existing issue.
+			CidrIp      string `json:"CidrIp"`   //nolint:revive,staticcheck // existing issue.
+			CidrIpv6    string `json:"CidrIpv6"` //nolint:revive,staticcheck // existing issue.
 			Description string `json:"Description"`
 		} `json:"IpRoutes"`
 	}
@@ -34,7 +35,7 @@ func (h *Handler) handleAddIpRoutes(c *echo.Context) error { //nolint:revive,sta
 
 	routes := make([]IpRoute, 0, len(req.IpRoutes))
 	for _, r := range req.IpRoutes {
-		routes = append(routes, IpRoute{CidrIP: r.CidrIp, Description: r.Description})
+		routes = append(routes, IpRoute{CidrIP: r.CidrIp, CidrIPv6: r.CidrIpv6, Description: r.Description})
 	}
 
 	if addErr := h.Backend.AddIpRoutes(h.contextWithRegion(c), req.DirectoryID, routes); addErr != nil {
@@ -53,6 +54,7 @@ func (h *Handler) handleRemoveIpRoutes(c *echo.Context) error { //nolint:revive,
 	var req struct {
 		DirectoryID string   `json:"DirectoryId"`
 		CidrIPs     []string `json:"CidrIps"`
+		CidrIPv6s   []string `json:"CidrIpv6s"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -63,7 +65,8 @@ func (h *Handler) handleRemoveIpRoutes(c *echo.Context) error { //nolint:revive,
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
-	if removeErr := h.Backend.RemoveIpRoutes(h.contextWithRegion(c), req.DirectoryID, req.CidrIPs); removeErr != nil {
+	ctx := h.contextWithRegion(c)
+	if removeErr := h.Backend.RemoveIpRoutes(ctx, req.DirectoryID, req.CidrIPs, req.CidrIPv6s); removeErr != nil {
 		return h.mapError(c, removeErr)
 	}
 
@@ -104,13 +107,17 @@ func (h *Handler) handleListIpRoutes(c *echo.Context) error { //nolint:revive,st
 
 	routeList := make([]map[string]any, 0, len(routes))
 	for _, r := range routes {
-		routeList = append(routeList, map[string]any{
+		entry := map[string]any{
 			keyDirectoryID:     r.DirectoryID,
 			"CidrIp":           r.CidrIP,
 			"Description":      r.Description, //nolint:goconst // existing issue.
 			"AddedDateTime":    awstime.Epoch(r.AddedTime),
 			"IpRouteStatusMsg": r.Status,
-		})
+		}
+		if r.CidrIPv6 != "" {
+			entry["CidrIpv6"] = r.CidrIPv6
+		}
+		routeList = append(routeList, entry)
 	}
 
 	resp := map[string]any{"IpRoutesInfo": routeList}

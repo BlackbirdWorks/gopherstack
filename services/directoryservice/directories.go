@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 )
@@ -164,7 +165,8 @@ func (b *InMemoryBackend) describeDirectory(d *storedDirectory) Directory {
 			AuthenticationProtocol: rs.AuthenticationProtocol,
 			DisplayLabel:           rs.DisplayLabel,
 			SharedSecret:           rs.SharedSecret,
-			RadiusServers:          rs.RadiusServers,
+			RadiusServers:          slices.Clone(rs.RadiusServers),
+			RadiusServersIPv6:      slices.Clone(rs.RadiusServersIPv6),
 			RadiusPort:             rs.RadiusPort,
 			RadiusRetries:          rs.RadiusRetries,
 			RadiusTimeout:          rs.RadiusTimeout,
@@ -329,7 +331,7 @@ func (b *InMemoryBackend) DescribeDirectories(
 
 	if len(directoryIDs) > 0 {
 		for _, id := range directoryIDs {
-			if _, ok := b.directoryGet(region, id); !ok {
+			if _, ok := b.describeByID(region, id); !ok {
 				return nil, "", ErrDirectoryNotFound
 			}
 		}
@@ -358,8 +360,7 @@ func (b *InMemoryBackend) DescribeDirectories(
 
 	result := make([]*Directory, 0, end-start)
 	for _, id := range ids[start:end] {
-		d, _ := b.directoryGet(region, id)
-		cp := b.describeDirectory(d)
+		cp, _ := b.describeByID(region, id)
 		result = append(result, &cp)
 	}
 

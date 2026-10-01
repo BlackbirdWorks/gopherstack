@@ -84,6 +84,7 @@ func (b *InMemoryBackend) UpdateSettings(
 			e.RequestedValue = s.Value
 			e.Status = "Requested"
 			e.LastUpdatedDateTime = now
+			e.LastRequestedTime = now
 		} else {
 			ns := &storedDirectorySetting{
 				DirectoryID:         directoryID,
@@ -93,6 +94,7 @@ func (b *InMemoryBackend) UpdateSettings(
 				AppliedValue:        s.Value,
 				Status:              "Updated",
 				LastUpdatedDateTime: now,
+				LastRequestedTime:   now,
 			}
 			dirSettings[directoryID] = append(dirSettings[directoryID], ns)
 		}

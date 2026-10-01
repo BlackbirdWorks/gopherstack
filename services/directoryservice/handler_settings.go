@@ -170,7 +170,7 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 
 	settingList := make([]map[string]any, 0, len(settings))
 	for _, s := range settings {
-		settingList = append(settingList, map[string]any{
+		entry := map[string]any{
 			"Name":           s.Name, //nolint:goconst // existing issue.
 			"AllowedValues":  s.AllowedValues,
 			"AppliedValue":   s.AppliedValue,
@@ -183,7 +183,11 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 			// silently decoded to its zero value on every call.
 			"RequestStatus":       s.Status,
 			"LastUpdatedDateTime": awstime.Epoch(s.LastUpdatedDateTime), //nolint:goconst // existing issue.
-		})
+		}
+		if !s.LastRequestedTime.IsZero() {
+			entry["LastRequestedDateTime"] = awstime.Epoch(s.LastRequestedTime)
+		}
+		settingList = append(settingList, entry)
 	}
 
 	resp := map[string]any{
