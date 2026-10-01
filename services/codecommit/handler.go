@@ -17,27 +17,29 @@ import (
 )
 
 const (
-	keyRepositoryID     = "repositoryId"
-	keyRepositoryName   = "repositoryName"
-	keyCreationDate     = "creationDate"
-	keyErrors           = "errors"
-	keyMessage          = "message"
-	keyCommitID         = "commitId"
-	keyTreeID           = "treeId"
-	keyLastModifiedDate = "lastModifiedDate"
-	keyApprovalRuleTmpl = "approvalRuleTemplate"
-	keyPullRequest      = "pullRequest"
-	keyComment          = "comment"
-	keySourceCommitID   = "sourceCommitId"
-	keyDestCommitID     = "destinationCommitId"
-	keyBlobID           = "blobId"
-	keyFilePath         = "filePath"
-	keyFileMode         = "fileMode"
-	keyAfterCommitID    = "afterCommitId"
-	keyPullRequestID    = "pullRequestId"
-	keyAbsolutePath     = "absolutePath"
-	keyApprovalRuleID   = "approvalRuleId"
-	fileModeNormal      = "NORMAL"
+	keyRepositoryID      = "repositoryId"
+	keyRepositoryName    = "repositoryName"
+	keyCreationDate      = "creationDate"
+	keyErrors            = "errors"
+	keyMessage           = "message"
+	keyCommitID          = "commitId"
+	keyTreeID            = "treeId"
+	keyLastModifiedDate  = "lastModifiedDate"
+	keyApprovalRuleTmpl  = "approvalRuleTemplate"
+	keyPullRequest       = "pullRequest"
+	keyComment           = "comment"
+	keySourceCommitID    = "sourceCommitId"
+	keyBaseCommitID      = "baseCommitId"
+	keyRuleContentSha256 = "ruleContentSha256"
+	keyDestCommitID      = "destinationCommitId"
+	keyBlobID            = "blobId"
+	keyFilePath          = "filePath"
+	keyFileMode          = "fileMode"
+	keyAfterCommitID     = "afterCommitId"
+	keyPullRequestID     = "pullRequestId"
+	keyAbsolutePath      = "absolutePath"
+	keyApprovalRuleID    = "approvalRuleId"
+	fileModeNormal       = "NORMAL"
 )
 
 const codecommitTargetPrefix = "CodeCommit_20150413."
@@ -153,9 +155,6 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"MergeBranchesByFastForward":                       h.handleMergeBranchesByFastForward,
 		"MergeBranchesBySquash":                            h.handleMergeBranchesBySquash,
 		"MergeBranchesByThreeWay":                          h.handleMergeBranchesByThreeWay,
-		"MergePullRequestByFastForward":                    h.handleMergePullRequestByFastForward,
-		"MergePullRequestBySquash":                         h.handleMergePullRequestBySquash,
-		"MergePullRequestByThreeWay":                       h.handleMergePullRequestByThreeWay,
 		// OverridePullRequestApprovalRules is dispatched directly from
 		// dispatch(), not through this table -- it needs ctx (see dispatch's
 		// doc comment).
@@ -354,6 +353,15 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return json.Marshal(resp)
 	}
 
+	if option, isPRMerge := pullRequestMergeOption(action); isPRMerge {
+		resp, err := h.handleMergePullRequest(ctx, option, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
+	}
+
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
@@ -399,6 +407,7 @@ var errCodeLookup = []errCodeEntry{
 	{sentinel: ErrFileNotFound, code: http.StatusNotFound, errType: "FileDoesNotExistException"},
 	{sentinel: ErrBlobNotFound, code: http.StatusNotFound, errType: "BlobIdDoesNotExistException"},
 	{sentinel: ErrCommentNotFound, code: http.StatusNotFound, errType: "CommentDoesNotExistException"},
+	{sentinel: ErrInvalidRuleContentSha256, code: http.StatusBadRequest, errType: "InvalidRuleContentSha256Exception"},
 	{sentinel: ErrApprovalRuleNotFound, code: http.StatusNotFound, errType: "ApprovalRuleDoesNotExistException"},
 	{sentinel: ErrPullRequestNotFound, code: http.StatusNotFound, errType: "PullRequestDoesNotExistException"},
 	{
@@ -468,4 +477,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		"__type":   errType,
 		keyMessage: err.Error(),
 	})
+}
+
+func pullRequestMergeOption(action string) (string, bool) {
+	switch action {
+	case "MergePullRequestByFastForward":
+		return mergeOptionFastForward, true
+	case "MergePullRequestBySquash":
+		return mergeOptionSquash, true
+	case "MergePullRequestByThreeWay":
+		return mergeOptionThreeWay, true
+	}
+
+	return "", false
 }

@@ -37,7 +37,7 @@ func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
 		"approvalRuleTemplateDescription": t.ApprovalRuleTemplateDescription,
 		keyCreationDate:                   t.CreationDate.Unix(),
 		keyLastModifiedDate:               t.LastModifiedDate.Unix(),
-		"ruleContentSha256":               t.RuleContentSha256,
+		keyRuleContentSha256:              t.RuleContentSha256,
 	}
 	if t.LastModifiedUser != "" {
 		m["lastModifiedUser"] = t.LastModifiedUser
@@ -217,6 +217,7 @@ func (h *Handler) handleUpdateApprovalRuleTemplateContent(body []byte) (any, err
 	var req struct {
 		ApprovalRuleTemplateName string `json:"approvalRuleTemplateName"`
 		NewRuleContent           string `json:"newRuleContent"`
+		ExistingRuleContentSha   string `json:"existingRuleContentSha256"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -228,6 +229,7 @@ func (h *Handler) handleUpdateApprovalRuleTemplateContent(body []byte) (any, err
 	if err := h.Backend.UpdateApprovalRuleTemplateContent(
 		req.ApprovalRuleTemplateName,
 		req.NewRuleContent,
+		req.ExistingRuleContentSha,
 	); err != nil {
 		return nil, err
 	}

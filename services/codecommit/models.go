@@ -10,6 +10,10 @@ const (
 	prStatusOpen   = "OPEN"
 	prStatusClosed = "CLOSED"
 
+	mergeOptionFastForward = "FAST_FORWARD_MERGE"
+	mergeOptionSquash      = "SQUASH_MERGE"
+	mergeOptionThreeWay    = "THREE_WAY_MERGE"
+
 	fileModeDefault = "NORMAL"
 
 	// maxBatchGetRepositories is the AWS limit for BatchGetRepositories.
@@ -63,12 +67,21 @@ type PutFileEntry struct {
 
 // PullRequestTarget represents a target for a pull request.
 type PullRequestTarget struct {
-	RepositoryName       string `json:"repositoryName"`
-	SourceReference      string `json:"sourceReference"`
-	DestinationReference string `json:"destinationReference,omitempty"`
-	SourceCommit         string `json:"sourceCommit,omitempty"`
-	DestinationCommit    string `json:"destinationCommit,omitempty"`
-	MergeBase            string `json:"mergeBase,omitempty"`
+	MergeMetadata        *MergeMetadata `json:"mergeMetadata,omitempty"`
+	RepositoryName       string         `json:"repositoryName"`
+	SourceReference      string         `json:"sourceReference"`
+	DestinationReference string         `json:"destinationReference,omitempty"`
+	SourceCommit         string         `json:"sourceCommit,omitempty"`
+	DestinationCommit    string         `json:"destinationCommit,omitempty"`
+	MergeBase            string         `json:"mergeBase,omitempty"`
+}
+
+// MergeMetadata records how and by whom a pull request target was merged.
+type MergeMetadata struct {
+	MergeCommitID string `json:"mergeCommitId,omitempty"`
+	MergeOption   string `json:"mergeOption,omitempty"`
+	MergedBy      string `json:"mergedBy,omitempty"`
+	IsMerged      bool   `json:"isMerged"`
 }
 
 // PullRequest represents a CodeCommit pull request.
