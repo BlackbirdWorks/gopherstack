@@ -138,87 +138,12 @@ ops:
 
 gaps: []
 items_still_open:
-  - ErrValidation is still mapped to a single generic ValidationException wire type for
-    most Put* validation paths. This pass added the three most load-bearing per-op
-    Invalid*Exception types (InvalidConfigurationRecorderNameException,
-    InvalidRoleException on PutConfigurationRecorder; InvalidDeliveryChannelNameException
-    on PutDeliveryChannel). Still generic: InvalidRecordingGroupException,
-    InvalidS3KeyPrefixException, InvalidS3KmsKeyArnException, InvalidSNSTopicARNException,
-    and the full per-op taxonomy for every other Put* op (bd: gopherstack-eboy, updated
-    this pass with a comment noting partial completion -- not closed)
-  - FIXED (gopherstack-jkma triage, 2026-09-07): errtargetaudit's module-conditional
-    genericProtocolCodes (gopherstack-udkm) surfaced 19 ops emitting ValidationException
-    that configservice@v1.68.4 does not declare for them. 8 had a fitting declared
-    alternative and were fixed: DeleteAggregationAuthorization/PutConfigurationAggregator/
-    DeletePendingAggregationRequest/PutConfigRule/PutConformancePack/
-    StartRemediationExecution/PutRetentionConfiguration now raise ErrInvalidParameterValue
-    (InvalidParameterValueException, the same generic-fallback sentinel PutRemediationExceptions
-    already used); DescribeConfigRules' invalid-NextToken check now raises a new
-    ErrInvalidNextToken (InvalidNextTokenException, a word-for-word match per its doc
-    comment). The remaining 11 (DeleteConfigurationAggregator, DeleteConfigRule,
-    DeleteEvaluationResults, StartConfigurationRecorder, StopConfigurationRecorder,
-    DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel's s3BucketName
-    check, DeleteDeliveryChannel, DeleteOrganizationConfigRule,
-    DeleteOrganizationConformancePack) have no declared validation-shaped code at all
-    (verified per-op against deserializers.go) -- left on ErrValidation with a landmine
-    comment at each site rather than inventing a code, per this campaign's no-swap rule.
-  - PutConformancePack's TemplateS3Uri/TemplateSSMDocumentDetails template sources
-    (bd: gopherstack-ag85, JSON+YAML TemplateBody parsing FIXED this pass) still deploy
-    zero rules rather than being fetched/parsed: real fetching needs cross-service S3/SSM
-    access, which this service has no wiring for -- appsync/vpclattice-style cross-service
-    calls in this fleet are wired centrally in cli.go, outside this task's
-    services/awsconfig/ edit boundary. Buildable with that wiring in place (not a
-    structural impossibility), so kept in gaps rather than structural_gaps. Honest
-    limitation: the request is accepted and the source is stored on nothing (not
-    fabricated), documented in conformance_pack_template.go/conformance_packs.go.
-  - PutConformancePack accepts zero template sources (TemplateBody/TemplateS3Uri/
-    TemplateSSMDocumentDetails all empty) without erroring, though real AWS Config
-    requires exactly one. This pass added rejection for *more than one* source (a genuine
-    new validation, real and tested), but left the zero-sources case alone: this
-    codebase's existing test suite routinely calls PutConformancePack with no template
-    purely to establish a pack's existence for unrelated assertions (DeleteConformancePack,
-    ARN format, etc.), and enforcing the full requirement would need updating every one of
-    those call sites' intent, which is per-field validation-taxonomy work already tracked
-    under gopherstack-eboy, not this issue's scope.
-  - MaxNumberOfConnectorsExceededException (PutConnector's per-account connector-count
-    limit) is declared by the real API but its numeric value isn't published anywhere in
-    AWS's docs (checked the API reference and the Config service-limits page as of this
-    pass -- no "connectors" row exists in either). Not enforced rather than guessing an
-    unverifiable number; the wire error type isn't wired into errorWireMappings since
-    nothing in this backend raises it.
-  - FIXED (parity sweep 2026-09-04): the single-customer-managed-recorder-per-account
-    limit ("You can create only one customer managed configuration recorder
-    for each account for each Amazon Web Services Region" -- api_op_PutConfigurationRecorder.go
-    doc comment) was unenforced: PutConfigurationRecorder created a new recorder for any
-    unseen name with no cap. Now hasCustomerManagedRecorderLocked (configuration_recorders.go)
-    rejects a second customer-managed recorder under a different name with
-    MaxNumberOfConfigurationRecordersExceededException (ErrAlreadyExists), matching the
-    modelled error on PutConfigurationRecorder's deserializer. Service-linked and
-    third-party service-linked recorders don't count against the limit -- confirmed via
-    PutThirdPartyServiceLinkedConfigurationRecorder's own, separately-enforced
-    one-per-ServicePrincipal limit (still real, unchanged). Test:
-    TestAWSConfigBackend_PutConfigurationRecorder_MaxOneCustomerManaged.
-  - GetDiscoveredResourceCounts.Limit/NextToken are inert: they page the real,
-    required ResourceCounts per-type breakdown, which is not modeled (see the
-    existing TotalDiscoveredResources-only gap above) -- there is nothing to
-    paginate until that breakdown exists (gopherstack-xhu2t tier-1 sweep,
-    2026-09-12).
-  - GetAggregateDiscoveredResourceCounts.Limit/NextToken are inert for the same
-    reason: they page the real, optional GroupedResourceCounts breakdown, which
-    is not modeled (see the existing gap above) (gopherstack-xhu2t tier-1
-    sweep, 2026-09-12).
-  - ListDiscoveredResources.IncludeDeletedResources has no backend counterpart:
-    DeleteResourceConfig removes a resource from b.resourceConfigs outright
-    rather than tombstoning it, so there is no deleted-resource record this op
-    could ever include. Would need new tombstone tracking in
-    pkgs/store/resources.go, not a wire-key fix (gopherstack-xhu2t tier-1
-    sweep, 2026-09-12).
-  - StartResourceEvaluation.EvaluationTimeout has no backend counterpart:
-    StartResourceEvaluation completes synchronously and always lands on
-    statusSucceeded, so there is no in-flight evaluation a timeout could ever
-    interrupt. Real AWS proactive evaluation is asynchronous; modeling that
-    would need an async evaluation pipeline, not a field read (gopherstack-xhu2t
-    tier-1 sweep, 2026-09-12).
+  - "Generic ValidationException remains on ops whose declared error set has no validation-shaped code (DeleteConfigurationAggregator, DeleteConfigRule, DeleteEvaluationResults, Start/Stop/DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel s3BucketName, DeleteDeliveryChannel, DeleteOrganizationConfigRule, DeleteOrganizationConformancePack; verified against configservice@v1.68.4); InvalidS3KeyPrefixException has no documented rule to enforce (bd: gopherstack-eboy)."
+  - "RecordingGroup models only allSupported/includeGlobalResourceTypes/resourceTypes: exclusionByResourceTypes and recordingStrategy are dropped, so the remaining InvalidRecordingGroupException cases cannot be checked."
+  - "PutConformancePack TemplateS3Uri/TemplateSSMDocumentDetails deploy zero rules (needs cross-service S3/SSM wiring in cli.go); zero template sources is still accepted because 29 existing call sites rely on it."
+  - "MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs."
+  - "ListDiscoveredResources.IncludeDeletedResources: DeleteResourceConfig removes the resource outright, so there is no tombstone to include."
+  - "StartResourceEvaluation.EvaluationTimeout: evaluation completes synchronously, so there is nothing to time out."
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}
@@ -981,3 +906,6 @@ ExcludedAccounts, so aws_config_organization_managed_rule/aws_config_organizatio
 always read back as not-found. RemediationConfiguration also gained ResourceType/TargetVersion/
 Parameters/Arn/Automatic/MaximumAutomaticAttempts/RetryAttemptSeconds, closing a real drift
 against aws_config_remediation_configuration. See organization.go, aggregators.go, remediation.go.
+
+### 2026-09-30 items_still_open burn-down
+Fixed with typed-client tests in open_items_client_test.go: GetDiscoveredResourceCounts per-type ResourceCounts/resourceTypes filter/Limit/NextToken; GetAggregateDiscoveredResourceCounts GroupedResourceCounts (RESOURCE_TYPE/ACCOUNT_ID/AWS_REGION), Filters, Limit/NextToken; InvalidRecordingGroupException (allSupported with resourceTypes), InvalidSNSTopicARNException/InvalidS3KmsKeyArnException (non-ARN / non-KMS ARN); DeliveryChannel.s3KmsKeyArn is now stored and returned (omitempty, additive). Describe paths clone recorder/channel pointers. Already fixed and removed from the list: per-op ValidationException swaps (jkma) and the one-customer-managed-recorder limit (TestAWSConfigBackend_PutConfigurationRecorder_MaxOneCustomerManaged). The integration flake TestIntegration_AWSConfig_PutConfigurationRecorder was that limit: parallel tests on one container used recorder names "default" and "describe-test", so the second got MaxNumberOfConfigurationRecordersExceededException; the describe test now reuses "default".

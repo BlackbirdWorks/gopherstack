@@ -60,7 +60,7 @@ func TestIntegration_AWSConfig_DescribeConfigurationRecorders(t *testing.T) {
 
 	awsconfigPost(t, "PutConfigurationRecorder", map[string]any{
 		"ConfigurationRecorder": map[string]any{
-			"name":    "describe-test",
+			"name":    "default",
 			"roleARN": "arn:aws:iam::000000000000:role/config",
 		},
 	})

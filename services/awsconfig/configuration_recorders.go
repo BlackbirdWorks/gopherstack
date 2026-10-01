@@ -28,6 +28,10 @@ func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordi
 		return fmt.Errorf("%w: ConfigurationRecorder roleARN is required", ErrInvalidRole)
 	}
 
+	if recordingGroup != nil && recordingGroup.AllSupported && len(recordingGroup.ResourceTypes) > 0 {
+		return fmt.Errorf("%w: resourceTypes cannot be set when allSupported is true", ErrInvalidRecordingGroup)
+	}
+
 	b.mu.Lock("PutConfigurationRecorder")
 	defer b.mu.Unlock()
 
@@ -97,14 +101,14 @@ func (b *InMemoryBackend) DescribeConfigurationRecorders(names []string) []Confi
 
 	if len(names) == 0 {
 		for _, r := range b.recorders.All() {
-			cp := *r
+			cp := r.clone()
 			cp.Arn = b.recorderArn(r.Name)
 			out = append(out, cp)
 		}
 	} else {
 		for _, n := range names {
 			if r, ok := b.recorders.Get(n); ok {
-				cp := *r
+				cp := r.clone()
 				cp.Arn = b.recorderArn(r.Name)
 				out = append(out, cp)
 			}
@@ -607,4 +611,15 @@ func (b *InMemoryBackend) PutThirdPartyServiceLinkedConfigurationRecorder(
 	b.setResourceTagsLocked(arn, tags)
 
 	return name, arn, nil
+}
+
+func (r *ConfigurationRecorder) clone() ConfigurationRecorder {
+	cp := *r
+	if r.RecordingGroup != nil {
+		rg := *r.RecordingGroup
+		rg.ResourceTypes = slices.Clone(r.RecordingGroup.ResourceTypes)
+		cp.RecordingGroup = &rg
+	}
+
+	return cp
 }

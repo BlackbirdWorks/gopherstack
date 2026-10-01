@@ -74,6 +74,7 @@ type DeliveryChannel struct {
 	Name                             string                      `json:"name"`
 	S3Bucket                         string                      `json:"s3BucketName,omitempty"`
 	S3KeyPrefix                      string                      `json:"s3KeyPrefix,omitempty"`
+	S3KmsKeyArn                      string                      `json:"s3KmsKeyArn,omitempty"`
 	SNSArn                           string                      `json:"snsTopicARN,omitempty"`
 }
 
