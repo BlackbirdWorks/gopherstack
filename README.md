@@ -488,7 +488,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 8 gaps |
-| [S3](services/s3/README.md) | A | 26 | 8 gaps |
+| [S3](services/s3/README.md) | A | 26 | 7 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
@@ -509,7 +509,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [RDS](services/rds/README.md) | A | 52 | 6 gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 3 gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 6 gaps |
-| [Redshift Data](services/redshiftdata/README.md) | A | 12 | 8 gaps; 1 deferred |
+| [Redshift Data](services/redshiftdata/README.md) | A | 12 | 5 gaps; 1 deferred |
 | [Timestream Query](services/timestreamquery/README.md) | A | 12 | 5 gaps; 1 deferred |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 4 gaps |
 
@@ -631,7 +631,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amplify](services/amplify/README.md) | A | 37 | 7 gaps |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 7 gaps; 3 deferred |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 5 gaps; 1 deferred |
-| [CodeCommit](services/codecommit/README.md) | A | 79 | 8 gaps |
+| [CodeCommit](services/codecommit/README.md) | A | 79 | 2 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 5 gaps; 2 deferred |
 | [CodePipeline](services/codepipeline/README.md) | A | 22 | 5 gaps; 1 deferred |
@@ -661,7 +661,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [MediaConvert](services/mediaconvert/README.md) | A | 34 | 8 gaps; 1 deferred |
+| [MediaConvert](services/mediaconvert/README.md) | A | 34 | 2 gaps; 1 deferred |
 | [MediaLive](services/medialive/README.md) | A | — | 26 families; 6 gaps |
 | [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 deferred |
 | [MediaStore](services/mediastore/README.md) | A | 21 | 1 gap |
@@ -709,7 +709,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 4 gaps; 1 deferred |
 | [Kafkaconnect](services/kafkaconnect/README.md) | B | 19 | 3 gaps |
-| [Kinesisvideo](services/kinesisvideo/README.md) | B | 22 | 3 gaps |
+| [Kinesisvideo](services/kinesisvideo/README.md) | B | 31 | 3 gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 8 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 3 gaps; 5 structural gaps; 1 deferred |
