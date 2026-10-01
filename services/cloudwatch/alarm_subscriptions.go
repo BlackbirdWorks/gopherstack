@@ -32,6 +32,10 @@ func (b *InMemoryBackend) SubscribeAlarmStateChange(
 		b.mu.Lock("UnsubscribeAlarmStateChange")
 		defer b.mu.Unlock()
 		delete(b.alarmStateSubscribers[alarmArn], id)
+
+		if len(b.alarmStateSubscribers[alarmArn]) == 0 {
+			delete(b.alarmStateSubscribers, alarmArn)
+		}
 	}
 }
 

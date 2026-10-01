@@ -19,11 +19,20 @@ func dimensionSetKey(dims []Dimension) string {
 		return ""
 	}
 
-	sorted := make([]Dimension, len(dims))
-	copy(sorted, dims)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	sorted := dims
+	if !slices.IsSortedFunc(dims, cmpDimensionName) {
+		sorted = slices.Clone(dims)
+		slices.SortFunc(sorted, cmpDimensionName)
+	}
+
+	n := len(sorted) * dimKeySeparators
+	for _, d := range sorted {
+		n += len(d.Name) + len(d.Value)
+	}
 
 	var b strings.Builder
+	b.Grow(n)
+
 	for i, d := range sorted {
 		if i > 0 {
 			b.WriteByte(',')
@@ -36,6 +45,11 @@ func dimensionSetKey(dims []Dimension) string {
 
 	return b.String()
 }
+
+// dimKeySeparators is the '=' and ',' bytes added per dimension in a set key.
+const dimKeySeparators = 2
+
+func cmpDimensionName(a, b Dimension) int { return strings.Compare(a.Name, b.Name) }
 
 // metricStorageKey returns the composite inner-map key for a metric series.
 func metricStorageKey(metricName string, dims []Dimension) string {
