@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+const (
+	sourceURLTypeZip          = "ZIP"
+	sourceURLTypeBucketPrefix = "BUCKET_PREFIX"
+)
+
 // CreateDeployment creates a pre-signed upload URL for a manual deployment.
 func (b *InMemoryBackend) CreateDeployment(appID, branchName string) (string, string, error) {
 	b.mu.RLock("CreateDeployment")
@@ -31,8 +36,12 @@ func (b *InMemoryBackend) CreateDeployment(appID, branchName string) (string, st
 
 // StartDeployment starts a deployment from a pre-uploaded artifact.
 func (b *InMemoryBackend) StartDeployment(
-	appID, branchName, jobID, sourceURL string,
+	appID, branchName, jobID, sourceURL, sourceURLType string,
 ) (*Job, error) {
+	if sourceURLType != "" && sourceURLType != sourceURLTypeZip && sourceURLType != sourceURLTypeBucketPrefix {
+		return nil, fmt.Errorf("%w: invalid sourceUrlType %q", ErrValidation, sourceURLType)
+	}
+
 	b.mu.Lock("StartDeployment")
 	defer b.mu.Unlock()
 
@@ -48,6 +57,10 @@ func (b *InMemoryBackend) StartDeployment(
 		jobID = randomID()
 	}
 
+	if sourceURL != "" && sourceURLType == "" {
+		sourceURLType = sourceURLTypeZip
+	}
+
 	now := time.Now().UTC()
 
 	job := &Job{
@@ -59,6 +72,11 @@ func (b *InMemoryBackend) StartDeployment(
 		StartTime:  now,
 		AppID:      appID,
 		BranchName: branchName,
+		SourceURL:  sourceURL,
+	}
+
+	if sourceURL != "" {
+		job.SourceURLType = sourceURLType
 	}
 
 	b.jobs.Put(job)
