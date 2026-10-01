@@ -33,6 +33,17 @@ type StorageBackend interface {
 	UpdateSignalingChannel(channelARN, currentVersion string, messageTTLSeconds *int32) error
 	DeleteSignalingChannel(channelARN, currentVersion string) error
 
+	DescribeStreamStorageConfiguration(name, streamARN string) (*Stream, error)
+	UpdateStreamStorageConfiguration(name, streamARN, currentVersion, defaultStorageTier string) error
+	DescribeMediaStorageConfiguration(name, channelARN string) (*MediaStorage, error)
+	UpdateMediaStorageConfiguration(channelARN string, cfg MediaStorage) error
+	GetSignalingChannelEndpoint(channelARN, role, region string, protocols []string) ([]ChannelEndpoint, error)
+
+	StartEdgeConfigurationUpdate(name, streamARN string, cfg EdgeConfig) (*EdgeState, error)
+	DescribeEdgeConfiguration(name, streamARN string) (*EdgeState, error)
+	DeleteEdgeConfiguration(name, streamARN string) error
+	ListEdgeAgentConfigurations(hubDeviceARN, nextToken string, maxResults int) ([]*EdgeState, string, error)
+
 	Reset()
 }
 

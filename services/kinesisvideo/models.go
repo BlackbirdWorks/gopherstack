@@ -15,6 +15,7 @@ type Stream struct {
 	CreationTime         time.Time
 	ImageGeneration      *ImageGenerationConfig
 	Notification         *NotificationConfig
+	Edge                 *EdgeState
 	Tags                 map[string]string
 	Name                 string
 	ARN                  string
@@ -48,6 +49,8 @@ func (s *Stream) clone() *Stream {
 		cp.Notification = &n
 	}
 
+	cp.Edge = s.Edge.clone()
+
 	return &cp
 }
 
@@ -73,6 +76,7 @@ type NotificationConfig struct {
 // Channel is the persisted representation of a signaling channel.
 type Channel struct {
 	CreationTime      time.Time
+	MediaStorage      *MediaStorage
 	Tags              map[string]string
 	Name              string
 	ARN               string
@@ -90,6 +94,7 @@ func (c *Channel) clone() *Channel {
 	cp := *c
 	cp.Tags = make(map[string]string, len(c.Tags))
 	maps.Copy(cp.Tags, c.Tags)
+	cp.MediaStorage = ptrCopy(c.MediaStorage)
 
 	return &cp
 }

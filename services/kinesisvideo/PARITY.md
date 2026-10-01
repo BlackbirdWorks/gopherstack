@@ -27,6 +27,15 @@ ops:
   UpdateImageGenerationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeNotificationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateNotificationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeStreamStorageConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "DefaultStorageTier, HOT when never set"}
+  UpdateStreamStorageConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "CurrentVersion optimistic lock; bumps the stream version"}
+  DescribeMediaStorageConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "absent until first Update"}
+  UpdateMediaStorageConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "ENABLED needs an existing stream with non-zero retention (NoDataRetentionException)"}
+  GetSignalingChannelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "one emulator-hosted endpoint per requested protocol; nothing listens on it"}
+  StartEdgeConfigurationUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "SYNCING, reported IN_SYNC after 2s in place of an edge agent ack"}
+  DescribeEdgeConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "EdgeAgentStatus omitted: no agent exists"}
+  DeleteEdgeConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "removed immediately, no DELETING state"}
+  ListEdgeAgentConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "filtered by HubDeviceArn; opaque NextToken via pkgs/page"}
 families:
   Stream: {status: ok, note: "CreateStream/DescribeStream/ListStreams/UpdateStream/DeleteStream/UpdateDataRetention verified end-to-end against the real aws-sdk-go-v2 client over an httptest server -- wire shapes, epoch CreationTime, ARN format, CurrentVersion optimistic locking, and error deserialization (ResourceNotFoundException/ResourceInUseException/VersionMismatchException) all round-trip cleanly."}
   SignalingChannel: {status: ok, note: "Same CRUD + optimistic-lock coverage as Stream. SingleMasterConfiguration.MessageTtlSeconds defaults to 60s per AWS docs."}
@@ -44,13 +53,9 @@ items_still_open:
     wire-accurate, AWS-shaped hostname so control-plane callers (e.g. Rekognition stream processor
     setup, which only needs a stream to exist and its ARN) get a realistic response, but nothing is
     listening on that hostname."
-  - "GetSignalingChannelEndpoint, CreateSignalingChannel's WebRTC ingestion, and the Edge Agent /
-    MediaStorageConfiguration operation family (DescribeEdgeConfiguration, DeleteEdgeConfiguration,
-    StartEdgeConfigurationUpdate, ListEdgeAgentConfigurations, DescribeMediaStorageConfiguration,
-    UpdateMediaStorageConfiguration, DescribeMappedResourceConfiguration,
-    DescribeStreamStorageConfiguration, UpdateStreamStorageConfiguration) are not implemented --
-    structural, out of scope for this pass (not needed by the terraform aws_kinesis_video_stream
-    resource or by Rekognition stream processors, which only need CreateStream/DescribeStream)."
+  - "DescribeMappedResourceConfiguration is not implemented: the emulator has no resources mapped to a
+    stream to report. Edge agent status (EdgeAgentStatus, FailedStatusDetails) is never populated
+    because no edge agent exists."
   - "CREATING/UPDATING/DELETING transient stream and channel states are not modeled: CreateStream
     and CreateSignalingChannel return ACTIVE immediately and DeleteStream/DeleteSignalingChannel
     remove the resource immediately, rather than lingering through a transient state on a lazy

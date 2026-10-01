@@ -15,4 +15,8 @@ var (
 	ErrVersionMismatch = awserr.New("version mismatch", awserr.ErrConflict)
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = awserr.New("invalid argument", awserr.ErrInvalidParameter)
+	// ErrEdgeConfigNotFound is returned when a stream has no edge configuration.
+	ErrEdgeConfigNotFound = awserr.New("stream edge configuration not found", awserr.ErrNotFound)
+	// ErrNoDataRetention is returned when an operation needs a stream with a non-zero data retention.
+	ErrNoDataRetention = awserr.New("stream data retention is zero", awserr.ErrInvalidParameter)
 )

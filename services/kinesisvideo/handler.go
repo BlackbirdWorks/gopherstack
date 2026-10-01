@@ -47,6 +47,17 @@ const (
 	opUpdateImageGenerationConfiguration   = "UpdateImageGenerationConfiguration"
 	opDescribeNotificationConfiguration    = "DescribeNotificationConfiguration"
 	opUpdateNotificationConfiguration      = "UpdateNotificationConfiguration"
+
+	opDescribeStreamStorageConfiguration = "DescribeStreamStorageConfiguration"
+	opUpdateStreamStorageConfiguration   = "UpdateStreamStorageConfiguration"
+	opDescribeMediaStorageConfiguration  = "DescribeMediaStorageConfiguration"
+	opUpdateMediaStorageConfiguration    = "UpdateMediaStorageConfiguration"
+	opGetSignalingChannelEndpoint        = "GetSignalingChannelEndpoint"
+
+	opStartEdgeConfigurationUpdate = "StartEdgeConfigurationUpdate"
+	opDescribeEdgeConfiguration    = "DescribeEdgeConfiguration"
+	opDeleteEdgeConfiguration      = "DeleteEdgeConfiguration"
+	opListEdgeAgentConfigurations  = "ListEdgeAgentConfigurations"
 )
 
 // URI paths. AWS emits camelCase action paths for every operation except the
@@ -80,6 +91,17 @@ const (
 	pathUpdateImageGenerationConfiguration   = "/updateImageGenerationConfiguration"
 	pathDescribeNotificationConfiguration    = "/describeNotificationConfiguration"
 	pathUpdateNotificationConfiguration      = "/updateNotificationConfiguration"
+
+	pathDescribeStreamStorageConfiguration = "/describeStreamStorageConfiguration"
+	pathUpdateStreamStorageConfiguration   = "/updateStreamStorageConfiguration"
+	pathDescribeMediaStorageConfiguration  = "/describeMediaStorageConfiguration"
+	pathUpdateMediaStorageConfiguration    = "/updateMediaStorageConfiguration"
+	pathGetSignalingChannelEndpoint        = "/getSignalingChannelEndpoint"
+
+	pathStartEdgeConfigurationUpdate = "/startEdgeConfigurationUpdate"
+	pathDescribeEdgeConfiguration    = "/describeEdgeConfiguration"
+	pathDeleteEdgeConfiguration      = "/deleteEdgeConfiguration"
+	pathListEdgeAgentConfigurations  = "/listEdgeAgentConfigurations"
 )
 
 // kinesisVideoUniquePaths are claimed unconditionally: none of them are
@@ -108,6 +130,17 @@ var kinesisVideoUniquePaths = map[string]string{ //nolint:gochecknoglobals // pa
 	pathUpdateImageGenerationConfiguration:   opUpdateImageGenerationConfiguration,
 	pathDescribeNotificationConfiguration:    opDescribeNotificationConfiguration,
 	pathUpdateNotificationConfiguration:      opUpdateNotificationConfiguration,
+
+	pathDescribeStreamStorageConfiguration: opDescribeStreamStorageConfiguration,
+	pathUpdateStreamStorageConfiguration:   opUpdateStreamStorageConfiguration,
+	pathDescribeMediaStorageConfiguration:  opDescribeMediaStorageConfiguration,
+	pathUpdateMediaStorageConfiguration:    opUpdateMediaStorageConfiguration,
+	pathGetSignalingChannelEndpoint:        opGetSignalingChannelEndpoint,
+
+	pathStartEdgeConfigurationUpdate: opStartEdgeConfigurationUpdate,
+	pathDescribeEdgeConfiguration:    opDescribeEdgeConfiguration,
+	pathDeleteEdgeConfiguration:      opDeleteEdgeConfiguration,
+	pathListEdgeAgentConfigurations:  opListEdgeAgentConfigurations,
 }
 
 // kinesisVideoSharedPaths are the generic-tagging paths several restjson1
@@ -272,6 +305,10 @@ func (h *Handler) buildOps() map[string]handlerFunc {
 
 	maps.Copy(ops, h.buildConfigOps())
 
+	maps.Copy(ops, h.buildStorageOps())
+
+	maps.Copy(ops, h.buildEdgeOps())
+
 	return ops
 }
 
@@ -309,6 +346,10 @@ func (h *Handler) writeError(c *echo.Context, status int, errType, message strin
 // writeBackendError maps a backend error to an HTTP error response with the appropriate AWS error type.
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, ErrEdgeConfigNotFound):
+		return h.writeError(c, http.StatusNotFound, "StreamEdgeConfigurationNotFoundException", err.Error())
+	case errors.Is(err, ErrNoDataRetention):
+		return h.writeError(c, http.StatusBadRequest, "NoDataRetentionException", err.Error())
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
