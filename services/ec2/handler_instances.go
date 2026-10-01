@@ -554,7 +554,9 @@ func (h *Handler) handleDescribeInstanceConnectEndpoints(
 	reqID string,
 ) (any, error) {
 	ids := parseMemberList(vals, "InstanceConnectEndpointId")
-	eps := h.Backend.DescribeInstanceConnectEndpoints(ids)
+	eps := applyInstanceConnectEndpointFilters(
+		h.Backend.DescribeInstanceConnectEndpoints(ids), parseEC2Filters(vals), h.Backend,
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

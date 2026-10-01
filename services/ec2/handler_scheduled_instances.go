@@ -227,7 +227,7 @@ func (h *Handler) handleDescribeScheduledInstanceAvailability(vals url.Values, r
 
 func (h *Handler) handleDescribeScheduledInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ScheduledInstanceId")
-	instances := h.Backend.DescribeScheduledInstances(ids)
+	instances := applyScheduledInstanceFilters(h.Backend.DescribeScheduledInstances(ids), parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinScheduledInstances, ec2PageMaxScheduledInstances, ec2PageDefaultScheduledInstances,

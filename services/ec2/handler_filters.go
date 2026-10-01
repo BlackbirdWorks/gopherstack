@@ -19,6 +19,10 @@ import (
 
 // Common EC2 filter key name constants — shared across filter match functions.
 const (
+	filterKeySnapshotID       = "snapshot-id"
+	filterKeyPlatform         = "platform"
+	filterKeyGroupID          = "group-id"
+	filterKeyTaskState        = "task-state"
 	filterKeyVPCID            = "vpc-id"
 	filterKeySubnetID         = "subnet-id"
 	filterKeyState            = "state"
@@ -435,7 +439,7 @@ snapLoop:
 
 func snapshotMatchesFilter(s *Snapshot, filterName string, values []string, b Backend) bool {
 	switch filterName {
-	case "snapshot-id":
+	case filterKeySnapshotID:
 		return anyEqual(s.SnapshotID, values)
 	case filterKeyVolumeID:
 		return anyEqual(s.VolumeID, values)
@@ -762,7 +766,7 @@ func imageMatchesFilter(a *AMIStub, filterName string, values []string, b Backen
 		return anyEqual(a.Name, values)
 	case "architecture":
 		return anyEqual(a.Architecture, values)
-	case "platform":
+	case filterKeyPlatform:
 		return anyEqual(a.Platform, values)
 	case filterKeyState:
 		st := a.State
@@ -1227,7 +1231,7 @@ func sgMatchesFilter(sg *SecurityGroup, filterName string, values []string, b Ba
 		return anyEqual(sg.VPCID, values)
 	case "group-name":
 		return anyEqual(sg.Name, values)
-	case "group-id":
+	case filterKeyGroupID:
 		return anyEqual(sg.ID, values)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
@@ -1922,7 +1926,7 @@ clLoop:
 
 func classicLinkInstanceMatchesFilter(link *ClassicLinkInstance, filterName string, values []string, b Backend) bool {
 	switch filterName {
-	case "group-id":
+	case filterKeyGroupID:
 		return anyContains(link.Groups, values)
 	case filterKeyVPCID:
 		return anyEqual(link.VpcID, values)
@@ -4067,7 +4071,7 @@ func fpgaImageMatchesFilter(img *FpgaImage, filterName string, values []string, 
 // fabricated.
 func applyImportImageTaskFilters(tasks []*ImageImportTask, filters map[string][]string) []*ImageImportTask {
 	return applyFilterList(tasks, filters, func(t *ImageImportTask, name string, values []string) bool {
-		if name == "task-state" {
+		if name == filterKeyTaskState {
 			return anyEqual(t.Status, values)
 		}
 

@@ -557,7 +557,7 @@ func (h *Handler) handleExportImage(vals url.Values, reqID string) (any, error) 
 
 func (h *Handler) handleDescribeExportImageTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ExportImageTaskId")
-	tasks := h.Backend.DescribeExportImageTasks(ids)
+	tasks := applyExportImageTaskFilters(h.Backend.DescribeExportImageTasks(ids), parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -765,7 +765,7 @@ func (h *Handler) handleDisableFastLaunch(vals url.Values, reqID string) (any, e
 
 func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ImageId")
-	items := h.Backend.DescribeFastLaunchImages(ids)
+	items := applyFastLaunchImageFilters(h.Backend.DescribeFastLaunchImages(ids), parseEC2Filters(vals), h.AccountID)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

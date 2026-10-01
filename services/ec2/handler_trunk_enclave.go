@@ -156,7 +156,9 @@ func (h *Handler) handleDisassociateTrunkInterface(vals url.Values, reqID string
 
 func (h *Handler) handleDescribeTrunkInterfaceAssociations(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "AssociationId")
-	assocs := h.Backend.DescribeTrunkInterfaceAssociations(ids)
+	assocs := applyTrunkInterfaceAssociationFilters(
+		h.Backend.DescribeTrunkInterfaceAssociations(ids), parseEC2Filters(vals),
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

@@ -567,23 +567,9 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
-  - "2026-09-26: CreateVpnConnection wrongly hard-required VpnGatewayId, rejecting any
-    real transit-gateway-terminated VPN connection outright (api_op_CreateVpnConnection.go:
-    'If you specify a transit gateway, you cannot specify a virtual private gateway' --
-    the two are mutually exclusive alternatives, neither unconditionally required). FIXED:
-    CreateVpnConnection/ModifyVpnConnection now accept TransitGatewayId, validate exactly
-    one of VpnGatewayId/TransitGatewayId, and DescribeVpnConnections' transit-gateway-id
-    filter (previously dead, since the field was never populated) now matches real data.
-    See TestCreateVpnConnection_TransitGateway (realclient_filters_tgw_vpn_test.go)."
-  - "2026-09-26: Key pairs -- ED25519 CreateKeyPair generation FIXED (crypto/ed25519 +
-    ssh.MarshalPrivateKey OpenSSH-format PEM; fingerprint algorithms for both KeyTypes
-    corrected to match CreateKeyPairOutput's own doc comment: SHA-1 digest of the DER
-    private key for RSA, base64 SHA-256 digest of the public key blob for ED25519 -- RSA's
-    fingerprint was previously MD5-of-public-key, wrong for either real KeyType). See
-    TestCreateKeyPair_ED25519. Still open: the PPK KeyFormat is not modeled (needs a real
-    PuTTY binary encoder, not attempted)."
-  - "Filter.N/Filters ignored on ~72 of 181 filterable Describe*/Get* ops (2026-09-24
-    gopherstack-rwwvt sweep; ~109 already fixed across two prior batches). Needing the
+  - "CreateKeyPair KeyFormat=ppk is not modeled (needs a real PuTTY PPK encoder); pem works for RSA and ED25519."
+  - "Filter.N/Filters ignored on ~61 of 181 filterable Describe*/Get* ops (2026-09-24
+    gopherstack-rwwvt sweep; 2026-10-01 fixed 10 more). Needing the
     same treatment as the ops already fixed (read the op's SDK doc comment for its
     documented filter names, cross-check against what this backend's struct actually
     stores, add an applyXxxFilters/xxxMatchesFilter pair, wire it in after any existing
@@ -591,14 +577,11 @@ items_still_open:
     (DescribeTransitGatewayMeteringPolicies/PolicyTables/RouteTableAnnouncements and their
     GetTransitGatewayMeteringPolicyEntries/PolicyTableAssociations/PolicyTableEntries
     sub-ops); a long tail of lower-priority families -- DescribeCapacityBlock*,
-    DescribeInstance*/Fleet* sub-ops, MacModificationTasks, DescribeStoreImageTasks,
-    DescribeReplaceRootVolumeTasks, DescribeReservedInstancesListings/
-    ReservedInstancesModifications, DescribeScheduledInstances,
-    DescribeSecurityGroupVpcAssociations, DescribeVpcBlockPublicAccessExclusions/
+    DescribeInstance*/Fleet* sub-ops, DescribeReplaceRootVolumeTasks,
+    DescribeReservedInstancesModifications, DescribeVpcBlockPublicAccessExclusions/
     VpcClassicLink/VpcEncryptionControls, DescribeTrafficMirrorFilterRules,
-    DescribeTrunkInterfaceAssociations, DescribeOutpostLags, DescribeElasticGpus,
-    DescribeExportImageTasks/FastLaunchImages/FastSnapshotRestores,
-    DescribeInstanceConnectEndpoints/ImageMetadata/Topology, DescribeSecondaryInterfaces
+    DescribeOutpostLags, DescribeElasticGpus, DescribeInstanceImageMetadata/Topology,
+    DescribeSecondaryInterfaces
     (tag-key only, rest already fixed). Confirmed PERMANENT non-gaps (the pinned SDK's own
     doc comment enumerates zero filter names, e.g. 'One or more filters to apply.', so named
     matching would be fabricated semantics): the bulk of the IPAM Describe*/Get* surface;
@@ -702,16 +685,7 @@ items_still_open:
     LaunchSpecification field one at a time against a live container; the panic's file:line
     never moved. Dropped from ec2-compute-and-storage.tf rather than merged failing;
     aws_spot_instance_request and aws_ec2_fleet (same test) work end-to-end."
-  - "ec2-compute-and-storage/12 residual drift (2026-09-19): aws_spot_instance_request's
-    source_dest_check always shows false->true drift -- DescribeInstances never renders a
-    top-level sourceDestCheck field at all (a real, structural gap; fixing it risks a
-    deadlock via PrimaryNetworkInterfaceSourceDestCheck taking its own RLock from an
-    already-locked path, plus golden-test regeneration -- not fixed this pass). The other 5
-    drift findings from the same investigation (aws_vpn_connection's ike_versions,
-    aws_default_vpc_dhcp_options tags, aws_ec2_fleet's destroy-order dependency,
-    aws_vpc_peering_connection_accepter's tag clearing, aws_ebs_snapshot_copy's description)
-    were all confirmed via TF_LOG=trace to be terraform-provider-aws-side quirks or
-    real-AWS-matching behavior, not gopherstack gaps."
+  - "ec2-compute-and-storage/12 drift (2026-09-19): the 5 remaining drift findings (aws_vpn_connection ike_versions, default_vpc_dhcp_options tags, ec2_fleet destroy order, vpc_peering_connection_accepter tag clearing, ebs_snapshot_copy description) are terraform-provider-aws quirks, not gopherstack gaps."
   - "AssociateVpcCidrBlock (2026-09-25): enforces the documented /16-/28 size range and
     same-VPC overlap rejection, but not the full vpc-cidr-blocks.html 'IPv4 CIDR block
     association restrictions' matrix (e.g. cross-family rejections between the RFC1918
@@ -746,6 +720,12 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-10-01: items_still_open burn-down
+
+DescribeInstances/RunInstances now render the instance-level sourceDestCheck from the primary ENI (one batched
+read lock per page); Filter.N now works on the 10 ops listed in the Filter item above; StoreImageTask state is
+"Completed" per the SDK doc. See realclient_filters_describe_tail_test.go.
 
 ### 2026-09-24: tombstone maps now expire (unbounded-growth fix)
 

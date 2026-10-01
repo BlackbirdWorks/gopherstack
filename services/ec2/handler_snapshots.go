@@ -199,7 +199,7 @@ itemLoop:
 	for _, item := range items {
 		for name, values := range filters {
 			switch name {
-			case "snapshot-id":
+			case filterKeySnapshotID:
 				if !anyEqual(item.SnapshotID, values) {
 					continue itemLoop
 				}
@@ -665,7 +665,9 @@ func (h *Handler) handleDisableFastSnapshotRestores(vals url.Values, reqID strin
 }
 
 func (h *Handler) handleDescribeFastSnapshotRestores(vals url.Values, reqID string) (any, error) {
-	items := h.Backend.DescribeFastSnapshotRestores()
+	items := applyFastSnapshotRestoreFilters(
+		h.Backend.DescribeFastSnapshotRestores(), parseEC2Filters(vals), h.AccountID,
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

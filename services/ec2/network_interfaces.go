@@ -366,6 +366,24 @@ func (b *InMemoryBackend) PrimaryNetworkInterfaceSourceDestCheck(instanceID stri
 	return true
 }
 
+// PrimaryNetworkInterfaceSourceDestChecks resolves several instances under one read lock.
+func (b *InMemoryBackend) PrimaryNetworkInterfaceSourceDestChecks(instanceIDs []string) map[string]bool {
+	b.mu.RLock("PrimaryNetworkInterfaceSourceDestChecks")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]bool, len(instanceIDs))
+
+	for _, id := range instanceIDs {
+		out[id] = true
+
+		if eni := b.primaryNetworkInterfaceLocked(id); eni != nil {
+			out[id] = eni.SourceDestCheck
+		}
+	}
+
+	return out
+}
+
 // DescribeNetworkInterfaceAttribute returns a requested attribute for a network interface.
 func (b *InMemoryBackend) DescribeNetworkInterfaceAttribute(
 	niID string, _ string,

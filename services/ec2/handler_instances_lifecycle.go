@@ -241,6 +241,15 @@ func (h *Handler) iamProfilesByInstance() map[string]*iamProfileSpec {
 // securityGroupNamesFor returns the ID→Name map for every security group
 // referenced by instances, fetched with a single DescribeSecurityGroups call
 // instead of one per instance.
+func instanceIDsOf(instances []*Instance) []string {
+	ids := make([]string, len(instances))
+	for i, inst := range instances {
+		ids[i] = inst.ID
+	}
+
+	return ids
+}
+
 func securityGroupNamesFor(b Backend, instances []*Instance) map[string]string {
 	var ids []string
 
@@ -337,12 +346,13 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	tagsByID := h.Backend.TagsForResources(ids)
 	iamProfiles := h.iamProfilesByInstance()
 	sgNames := securityGroupNamesFor(h.Backend, instances)
+	sdcByID := h.Backend.PrimaryNetworkInterfaceSourceDestChecks(instanceIDsOf(instances))
 
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
 		items = append(
 			items,
-			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames),
+			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID]),
 		)
 	}
 
@@ -411,12 +421,13 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	iamProfiles := h.iamProfilesByInstance()
 	sgNames := securityGroupNamesFor(h.Backend, instances)
+	sdcByID := h.Backend.PrimaryNetworkInterfaceSourceDestChecks(instanceIDsOf(instances))
 
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
 		items = append(
 			items,
-			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames),
+			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID]),
 		)
 	}
 
@@ -588,6 +599,7 @@ func (h *Handler) instanceAttributeValue(inst *Instance, instanceID, attr string
 
 func toInstanceItem(
 	inst *Instance, instanceTags map[string]string, iamProfile *iamProfileSpec, sgNames map[string]string,
+	sourceDestCheck bool,
 ) instanceItem {
 	tagItems := make([]instanceTagItem, 0, len(instanceTags))
 	for k, v := range instanceTags {
@@ -622,6 +634,7 @@ func toInstanceItem(
 		SriovNetSupport:       inst.SriovNetSupport,
 		EBSOptimized:          inst.EBSOptimized,
 		EnaSupport:            inst.EnaSupport,
+		SourceDestCheck:       &sourceDestCheck,
 		GroupSet:              instanceGroupSet{Items: groupItems},
 		TagSet:                instanceTagItemSet{Items: tagItems},
 		IamInstanceProfile:    iamProfile,
@@ -733,6 +746,7 @@ type instanceItem struct {
 	StateReasonItem           *stateReasonItem                       `xml:"stateReason,omitempty"`
 	IamInstanceProfile        *iamProfileSpec                        `xml:"iamInstanceProfile,omitempty"`
 	PrivateDNSNameOptions     *instancePrivateDNSNameOptionsItem     `xml:"privateDnsNameOptions,omitempty"`
+	SourceDestCheck           *bool                                  `xml:"sourceDestCheck,omitempty"`
 	Placement                 instancePlacementItem                  `xml:"placement"`
 	// OutpostArn is a top-level field, sibling to Placement -- see
 	// store.go's Instance.OutpostArn doc comment for the SDK confirmation.

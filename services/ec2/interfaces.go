@@ -25,6 +25,8 @@ type Backend interface {
 	// of instanceID's primary network interface (defaults to true, matching
 	// AWS's default for VPC instances).
 	PrimaryNetworkInterfaceSourceDestCheck(instanceID string) bool
+	// PrimaryNetworkInterfaceSourceDestChecks is the batched form for DescribeInstances.
+	PrimaryNetworkInterfaceSourceDestChecks(instanceIDs []string) map[string]bool
 
 	// DescribeInstances returns instances, optionally filtered by IDs or state name.
 	DescribeInstances(ids []string, state string) []*Instance
