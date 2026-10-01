@@ -251,6 +251,33 @@ type NodegroupUpdateConfig struct {
 	UpdateStrategy           string `json:"updateStrategy,omitempty"`
 }
 
+// NodeRepairOverride mirrors types.NodeRepairConfigOverrides.
+type NodeRepairOverride struct {
+	MinRepairWaitTimeMins   *int32 `json:"minRepairWaitTimeMins,omitempty"`
+	NodeMonitoringCondition string `json:"nodeMonitoringCondition,omitempty"`
+	NodeUnhealthyReason     string `json:"nodeUnhealthyReason,omitempty"`
+	RepairAction            string `json:"repairAction,omitempty"`
+}
+
+// NodeRepairConfig mirrors types.NodeRepairConfig.
+type NodeRepairConfig struct {
+	Enabled                             *bool                `json:"enabled,omitempty"`
+	MaxParallelNodesRepairedCount       *int32               `json:"maxParallelNodesRepairedCount,omitempty"`
+	MaxParallelNodesRepairedPercentage  *int32               `json:"maxParallelNodesRepairedPercentage,omitempty"`
+	MaxUnhealthyNodeThresholdCount      *int32               `json:"maxUnhealthyNodeThresholdCount,omitempty"`
+	MaxUnhealthyNodeThresholdPercentage *int32               `json:"maxUnhealthyNodeThresholdPercentage,omitempty"`
+	NodeRepairConfigOverrides           []NodeRepairOverride `json:"nodeRepairConfigOverrides,omitempty"`
+}
+
+// WarmPoolConfig mirrors types.WarmPoolConfig.
+type WarmPoolConfig struct {
+	Enabled                  *bool  `json:"enabled,omitempty"`
+	MaxGroupPreparedCapacity *int32 `json:"maxGroupPreparedCapacity,omitempty"`
+	MinSize                  *int32 `json:"minSize,omitempty"`
+	ReuseOnScaleIn           *bool  `json:"reuseOnScaleIn,omitempty"`
+	PoolState                string `json:"poolState,omitempty"`
+}
+
 // Nodegroup represents an EKS managed node group.
 //
 // The Tags field is backend-owned. Callers must treat the returned pointer as
@@ -264,6 +291,8 @@ type Nodegroup struct {
 	LaunchTemplate *LaunchTemplate        `json:"launchTemplate,omitempty"`
 	Resources      *NodegroupResources    `json:"resources,omitempty"`
 	UpdateConfig   *NodegroupUpdateConfig `json:"updateConfig,omitempty"`
+	NodeRepair     *NodeRepairConfig      `json:"nodeRepairConfig,omitempty"`
+	WarmPool       *WarmPoolConfig        `json:"warmPoolConfig,omitempty"`
 	CapacityType   string                 `json:"capacityType,omitempty"`
 	Region         string                 `json:"region"`
 	ARN            string                 `json:"nodegroupArn"`
@@ -615,15 +644,17 @@ type Cancellation struct {
 // restored Update and emptying the nodegroupName filter
 // (handler_updates.go:286) for any pre-restart update.
 type Update struct {
-	CreatedAt     time.Time     `json:"createdAt"`
-	Cancellation  *Cancellation `json:"cancellation,omitempty"`
-	ID            string        `json:"id"`
-	ClusterName   string        `json:"clusterName"`
-	NodegroupName string        `json:"nodegroupName,omitempty"`
-	Status        string        `json:"status"`
-	Type          string        `json:"type"`
-	Params        []UpdateParam `json:"params,omitempty"`
-	Errors        []UpdateError `json:"errors,omitempty"`
+	CreatedAt      time.Time     `json:"createdAt"`
+	Cancellation   *Cancellation `json:"cancellation,omitempty"`
+	ID             string        `json:"id"`
+	ClusterName    string        `json:"clusterName"`
+	NodegroupName  string        `json:"nodegroupName,omitempty"`
+	AddonName      string        `json:"addonName,omitempty"`
+	CapabilityName string        `json:"capabilityName,omitempty"`
+	Status         string        `json:"status"`
+	Type           string        `json:"type"`
+	Params         []UpdateParam `json:"params,omitempty"`
+	Errors         []UpdateError `json:"errors,omitempty"`
 }
 
 // CertificateAuthority represents an EKS Hybrid Nodes cluster certificate
