@@ -247,8 +247,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return slices.Contains(h.GetSupportedOperations(), op)
 		}
 
-		if target := extractTargetOperation(r.Header.Get("X-Amz-Target")); target != "" {
-			return slices.Contains(h.GetSupportedOperations(), target)
+		if target := r.Header.Get("X-Amz-Target"); target != "" {
+			return strings.HasPrefix(target, jsonTargetPrefix) &&
+				slices.Contains(h.GetSupportedOperations(), extractTargetOperation(target))
 		}
 
 		ct := r.Header.Get("Content-Type")
@@ -291,7 +292,10 @@ func extractTargetOperation(target string) string {
 	return parts[len(parts)-1]
 }
 
-const cloudwatchMatchPriority = 80
+const (
+	cloudwatchMatchPriority = 80
+	jsonTargetPrefix        = "GraniteServiceVersion20100801."
+)
 
 // MatchPriority returns the routing priority for the CloudWatch handler.
 func (h *Handler) MatchPriority() int { return cloudwatchMatchPriority }

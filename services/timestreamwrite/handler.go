@@ -26,9 +26,10 @@ import (
 var requestHostKey = ctxval.NewKey[string]("timestreamwrite.requestHost")
 
 const (
-	targetPrefix    = "Timestream_20181101."
-	keyTypeField    = "__type"
-	keyMessageField = "message"
+	targetPrefix        = "Timestream_20181101."
+	describeEndpointsOp = "DescribeEndpoints"
+	keyTypeField        = "__type"
+	keyMessageField     = "message"
 )
 
 // defaultTimestreamMaxResults is the default page size when MaxResults is not specified.
@@ -78,7 +79,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DeleteTable":           service.WrapOp(h.handleDeleteTable),
 		"DescribeBatchLoadTask": service.WrapOp(h.handleDescribeBatchLoadTask),
 		"DescribeDatabase":      service.WrapOp(h.handleDescribeDatabase),
-		"DescribeEndpoints":     service.WrapOp(h.handleDescribeEndpoints),
+		describeEndpointsOp:     service.WrapOp(h.handleDescribeEndpoints),
 		"DescribeTable":         service.WrapOp(h.handleDescribeTable),
 		"ListBatchLoadTasks":    service.WrapOp(h.handleListBatchLoadTasks),
 		"ListDatabases":         service.WrapOp(h.handleListDatabases),
@@ -114,7 +115,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteTable",
 		"DescribeBatchLoadTask",
 		"DescribeDatabase",
-		"DescribeEndpoints",
+		describeEndpointsOp,
 		"DescribeTable",
 		"ListBatchLoadTasks",
 		"ListDatabases",
@@ -150,6 +151,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		operation := strings.TrimPrefix(target, targetPrefix)
+
+		if operation == describeEndpointsOp && isQueryClient(c.Request()) {
+			return false
+		}
 
 		return h.supportedOps[operation]
 	}
@@ -321,4 +326,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyMessageField: err.Error(),
 		})
 	}
+}
+
+// isQueryClient mirrors the Timestream Query matcher's check so exactly one of the two claims DescribeEndpoints.
+func isQueryClient(r *http.Request) bool {
+	return service.MatchesUserAgentMarker(r.Header, "api/timestreamquery") || strings.HasPrefix(r.Host, "query.")
 }

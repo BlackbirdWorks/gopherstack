@@ -8359,7 +8359,7 @@ POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.ListCh
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.ListShards	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.ListStreamConsumers	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.ListStreams	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
-POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	CloudWatch	Kinesis
+POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.ListTagsForStream	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.MergeShards	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.PutRecord	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
@@ -8371,8 +8371,8 @@ POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.SplitS
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.StartStreamEncryption	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.StopStreamEncryption	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.SubscribeToShard	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
-POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	CloudWatch	Kinesis
-POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	CloudWatch	Kinesis
+POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
+POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.UpdateAccountSettings	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.UpdateChannel	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
 POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.UpdateMaxRecordSize	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
@@ -14928,8 +14928,8 @@ POST	localhost:4566	/		application/x-amz-json-1.0	Timestream_20181101.DescribeAc
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	Timestream_20181101.DescribeAccountSettings	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreamquery#1.0.0	TimestreamQuery	TimestreamQuery
 POST	timestream.us-east-1.amazonaws.com	/	timestream	application/x-amz-json-1.0	Timestream_20181101.DescribeAccountSettings	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreamquery#1.0.0	TimestreamQuery	TimestreamQuery
 POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftimestream%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	Timestream_20181101.DescribeAccountSettings	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreamquery#1.0.0	TimestreamQuery	TimestreamQuery
-POST	localhost:4566	/	timestream	application/x-amz-json-1.0	Timestream_20181101.DescribeEndpoints	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreamquery#1.0.0	TimestreamWrite	TimestreamQuery
-POST	localhost:4566	/		application/x-amz-json-1.0	Timestream_20181101.DescribeEndpoints	{}		TimestreamWrite	TimestreamQuery
+POST	localhost:4566	/	timestream	application/x-amz-json-1.0	Timestream_20181101.DescribeEndpoints	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreamquery#1.0.0	TimestreamQuery	TimestreamQuery
+POST	localhost:4566	/		application/x-amz-json-1.0	Timestream_20181101.DescribeEndpoints	{}		TimestreamWrite	TimestreamWrite
 POST	localhost:4566	/	timestream	application/x-amz-json-1.0	Timestream_20181101.DescribeScheduledQuery	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreamquery#1.0.0	TimestreamQuery	TimestreamQuery
 POST	localhost:4566	/		application/x-amz-json-1.0	Timestream_20181101.DescribeScheduledQuery	{}		TimestreamQuery	TimestreamQuery
 POST	localhost:4566	/	timestream	application/x-amz-json-1.0	Timestream_20181101.ExecuteScheduledQuery	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreamquery#1.0.0	TimestreamQuery	TimestreamQuery

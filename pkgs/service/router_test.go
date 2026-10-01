@@ -200,9 +200,7 @@ func (m *mockGuardedTagsService) MatchPriority() int { return m.priority }
 
 // TestRouter_GuardedPrefixCollision reproduces gopherstack-0y8bi: two
 // services sharing the "/tags/" prefix, disambiguated only by an
-// ARN-content guard (no shared cache key touches path-based routing —
-// see router.go's targetCache, which only engages for non-empty
-// X-Amz-Target requests). Sequential and goroutine-interleaved requests
+// ARN-content guard. Sequential and goroutine-interleaved requests
 // under -race must each reach their own handler; a false match here would
 // mean the router's per-request Matcher loop leaks state across requests,
 // not just a single service's guard being wrong.

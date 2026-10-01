@@ -3,7 +3,6 @@ package service
 import (
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 )
@@ -14,9 +13,8 @@ const amzTargetHeader = "X-Amz-Target"
 // first matching service. Implements centralized routing logic that replaces
 // scattered pre-middleware and manual routing checks.
 type Router struct {
-	targetCache sync.Map
-	services    []*Entry
-	gates       [][]string
+	services []*Entry
+	gates    [][]string
 }
 
 // NewServiceRouter creates a router from the registered services.
@@ -66,10 +64,6 @@ func (r *Router) RouteHandler() echo.MiddlewareFunc {
 
 // Lookup returns the service entry the router selects for c, or nil if none matches.
 func (r *Router) Lookup(c *echo.Context) *Entry {
-	if entry := r.matchFastPath(c); entry != nil {
-		return entry
-	}
-
 	target := extractTargetHeader(c)
 
 	for i, entry := range r.services {
@@ -78,51 +72,11 @@ func (r *Router) Lookup(c *echo.Context) *Entry {
 		}
 
 		if entry.Matcher(c) {
-			r.recordTargetFastPath(c, entry)
-
 			return entry
 		}
 	}
 
 	return nil
-}
-
-func (r *Router) matchFastPath(c *echo.Context) *Entry {
-	target := extractTargetHeader(c)
-	if target == "" {
-		return nil
-	}
-
-	prefix := extractTargetPrefix(target)
-	if prefix == "" {
-		return nil
-	}
-
-	val, ok := r.targetCache.Load(prefix)
-	if !ok {
-		return nil
-	}
-
-	entry, ok := val.(*Entry)
-	if !ok || !entry.Matcher(c) {
-		return nil
-	}
-
-	return entry
-}
-
-func (r *Router) recordTargetFastPath(c *echo.Context, entry *Entry) {
-	target := extractTargetHeader(c)
-	if target == "" {
-		return
-	}
-
-	prefix := extractTargetPrefix(target)
-	if prefix == "" {
-		return
-	}
-
-	r.targetCache.Store(prefix, entry)
 }
 
 func hasAnyPrefix(s string, prefixes []string) bool {
@@ -142,13 +96,4 @@ func extractTargetHeader(c *echo.Context) string {
 	}
 
 	return req.Header.Get(amzTargetHeader)
-}
-
-func extractTargetPrefix(target string) string {
-	dot := strings.IndexByte(target, '.')
-	if dot <= 0 {
-		return ""
-	}
-
-	return target[:dot+1]
 }

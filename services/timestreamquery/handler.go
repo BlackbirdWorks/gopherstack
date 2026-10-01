@@ -23,6 +23,7 @@ const (
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
 	opListTagsForResource = "ListTagsForResource"
+	opDescribeEndpoints   = "DescribeEndpoints"
 )
 
 const (
@@ -83,7 +84,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateScheduledQuery",
 		"DeleteScheduledQuery",
 		"DescribeAccountSettings",
-		"DescribeEndpoints",
+		opDescribeEndpoints,
 		"DescribeScheduledQuery",
 		"ExecuteScheduledQuery",
 		"ListScheduledQueries",
@@ -126,6 +127,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		// database/table ARNs and scheduled-query ARNs all share the same tag
 		// store under a single endpoint.
 		if writeServiceTagOps()[operation] {
+			return false
+		}
+
+		if operation == opDescribeEndpoints && !isQueryClient(c.Request()) {
 			return false
 		}
 
@@ -210,7 +215,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatch(ctx context.Context, op string, body []byte, host string) ([]byte, error) {
 	switch op {
-	case "DescribeEndpoints":
+	case opDescribeEndpoints:
 		return h.handleDescribeEndpoints(host)
 	case "Query":
 		return h.handleQuery(ctx, body)
@@ -294,4 +299,10 @@ func errorPayload(errType, msg string) []byte {
 	})
 
 	return b
+}
+
+// isQueryClient reports whether r came from a Timestream Query SDK client; both services share
+// DescribeEndpoints and the Write handler claims it otherwise.
+func isQueryClient(r *http.Request) bool {
+	return service.MatchesUserAgentMarker(r.Header, "api/timestreamquery") || strings.HasPrefix(r.Host, "query.")
 }
