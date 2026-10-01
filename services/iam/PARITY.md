@@ -16,6 +16,10 @@ overall: A   # parity-sweep (2026-09-19): implemented Role Manager (AcquireRole,
   # console-only-resource seam services/cloudwatchlogs's AddAnomalyInternal and
   # services/quicksight's AddAppInternal already establish. See ops.AcquireRole
   # et al and families.role_manager/account_properties below.
+  # 2026-10-01 (items_still_open burn-down): GetServiceLastAccessedDetails now paginates
+  # (Marker/MaxItems, TestGetServiceLastAccessedDetails_Pagination); Simulate* return one
+  # EvaluationResult per action with ResourceSpecificResults, most-restrictive top-level
+  # decision (TestSimulateCustomPolicy_AggregatesPerAction, iam@v1.63.0 types.EvaluationResult).
   # sweep 14 (2026-09-26, items_still_open triage): confirmed the 2026-09-26
   # condition-operator/--enforce-iam fixes (condeval.ArnMatch, net.IP compare,
   # aws:SecureTransport, epoch Date, NullIfExists rejection) were already
@@ -142,30 +146,19 @@ gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 items_still_open:
   - "aws_iam_security_token_service_preferences (2026-09-24): dropped from the iam-detective-and-s3-replication
-    terraform fixture -- terraform-provider-aws v5.100.0's Put-then-immediate-Read singleton-settings pattern
-    trips a state-consistency check in Terraform Core itself (same symptom as services/ecr's
-    aws_ecr_registry_scanning_configuration, gopherstack-101r), not this emulator; the op itself is already
-    wire-verified (see SetSecurityTokenServicePreferences ops entry). External tooling issue, not re-chased."
-  - "Role manager/account properties (2026-09-19): PutAccountProperties enforces AWS's documented structural
-    key constraints but not per-property value typing (AWS publishes no namespace/property/type registry to
-    check against); AcquireRole's List-type ReplacementValues join with ',' (AWS doesn't document the real
-    join format) and its idempotency match is by resolved role name only; role templates have no
-    Create/Put/List/Delete/Enable/Disable op in the pinned SDK at all (AddRoleTemplateVersionInternal is the
-    only seam). All disclosed choices, not bugs -- see families.role_manager/account_properties."
-  - "Policy simulation (SimulateCustomPolicy/SimulatePrincipalPolicy, evaluator.go) has not been field-diffed
-    since sweep 4, and the top-of-file sdk_module note flags that its response shape changed in SDK v1.57
-    (per-resource entries -> aggregated top-level results) with no re-verification since the version bump --
-    building a real IAM policy evaluator is out of this campaign's charter regardless (modelling gap)."
-  - "resource_arn.go (resource-policy evaluation) has not been re-verified since sweep 4; conditions.go
-    (condition-key evaluation) WAS re-verified and fixed this sweep (2026-09-26, see condeval.ArnMatch/
-    net.IP/aws:SecureTransport/epoch-Date/NullIfExists fixes, enforcement_integration_test.go)."
-  - "Access advisor: GenerateServiceLastAccessedDetailsInput's optional Granularity (SERVICE_LEVEL|ACTION_LEVEL)
-    is not honored and GetServiceLastAccessedDetailsInput's Marker/MaxItems are not paginated -- the backend
-    (access_advisor.go) tracks only per-service data with no per-action tracking or pagination concept, so
-    ACTION_LEVEL would mean fabricating data gopherstack cannot honestly produce (same line as
-    GetHumanReadableSummary's LLM-content gap); Marker/MaxItems pagination is mechanical but not yet done.
-    ListDelegationRequests' real OwnerId filter is the same class of gap: no caller-identity plumbing exists
-    to ever populate a stored request's owner, so the filter is deliberately left unapplied (see its ops entry)."
+    terraform fixture; provider v5.100.0's Put-then-Read singleton pattern trips a Terraform Core state-consistency
+    check (same as ecr's registry scanning config, gopherstack-101r). External tooling issue; the op is wire-verified."
+  - "Role manager/account properties (2026-09-19): no per-property value typing (AWS publishes no registry),
+    AcquireRole's List join format is undocumented, and role templates have no Create/Put/List op in the pinned SDK
+    (AddRoleTemplateVersionInternal is the only seam). Disclosed choices, see families.role_manager."
+  - "Policy simulation (evaluator.go): response aggregation per action matches SDK v1.57+ (2026-10-01), but
+    MatchedStatements, MissingContextValues and OrganizationsDecisionDetail are not produced, and top-level
+    EvalResourceName is '*' (no per-action ARN-template catalogue). Modelling gap, needs an IAM service-authorization
+    reference dataset."
+  - "resource_arn.go (resource-policy ARN extraction) not re-audited since sweep 4; conditions.go was re-verified
+    2026-09-26 (enforcement_integration_test.go)."
+  - "Access advisor: Granularity=ACTION_LEVEL is not honored (no per-action tracking; would fabricate data).
+    ListDelegationRequests' OwnerId filter is unapplied (no caller-identity plumbing to populate request owners)."
 ---
 
 ## Notes
