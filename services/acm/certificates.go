@@ -2,6 +2,7 @@ package acm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -29,6 +30,10 @@ func (b *InMemoryBackend) RequestCertificate(
 	}
 
 	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, keyAlgorithm)
+	if errors.Is(err, errWeakKey) {
+		return nil, fmt.Errorf("%w: %w", ErrRequestCertInvalidParameter, err)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
@@ -465,6 +470,10 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 	validationMethod := c.ValidationMethod
 
 	certBody, privateKey, meta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, c.KeyAlgorithm)
+	if errors.Is(err, errWeakKey) {
+		return fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to generate self-signed certificate: %w", err)
 	}

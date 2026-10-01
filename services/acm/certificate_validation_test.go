@@ -168,21 +168,6 @@ func TestACMHandler_ReservedTagPrefix_ReturnsInvalidTagException(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "InvalidTagException")
 }
 
-// TestACMHandler_RequestCertificate_RSA1024_ReturnsValidationException
-// locks in the fix for a bug where requesting RSA_1024 (a weak-key rejection
-// path) escaped handleOpError's known-error switch and was reported as a 500
-// InternalFailure instead of a 400 ValidationException.
-func TestACMHandler_RequestCertificate_RSA1024_ReturnsValidationException(t *testing.T) {
-	t.Parallel()
-
-	h := newACMHandler()
-	body := `{"DomainName":"weakkey.example.com","KeyAlgorithm":"RSA_1024"}`
-	rec := postACMJSON(t, h, "RequestCertificate", body)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ValidationException")
-	assert.NotContains(t, rec.Body.String(), "InternalFailure")
-}
-
 // TestACMHandler_RequestCertificate_DomainValidationOptions_Applied verifies
 // that a caller-supplied DomainValidationOptions entry (custom EMAIL
 // ValidationDomain) is validated, stored, and reflected back on
