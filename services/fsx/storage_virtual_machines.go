@@ -37,7 +37,6 @@ func (s *storedStorageVirtualMachine) toPublic() *StorageVirtualMachine {
 type createStorageVirtualMachineInput struct {
 	FileSystemID            string `json:"FileSystemId"`
 	Name                    string `json:"Name"`
-	Subtype                 string `json:"Subtype,omitempty"`
 	RootVolumeSecurityStyle string `json:"RootVolumeSecurityStyle,omitempty"`
 	Tags                    []Tag  `json:"Tags,omitempty"`
 }
@@ -74,7 +73,7 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 		Name:                    input.Name,
 		Lifecycle:               svmLifecycleCreated,
 		ResourceARN:             arn,
-		Subtype:                 input.Subtype,
+		Subtype:                 svmSubtypeDefault,
 		RootVolumeSecurityStyle: input.RootVolumeSecurityStyle,
 	}
 

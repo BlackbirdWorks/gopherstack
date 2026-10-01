@@ -12564,6 +12564,7 @@
       "storedBackup.Lifecycle string `json:\"lifecycle\"`",
       "storedBackup.ResourceARN string `json:\"resourceArn\"`",
       "storedBackup.Tags map[string]string `json:\"tags\"`",
+      "storedBackup.Volume *storedVolume `json:\"volume,omitempty\"`",
       "storedDataRepositoryAssoc.AssociationID string `json:\"associationId\"`",
       "storedDataRepositoryAssoc.CreationTime time.Time `json:\"creationTime\"`",
       "storedDataRepositoryAssoc.DataRepositoryPath string `json:\"dataRepositoryPath\"`",

@@ -243,6 +243,7 @@ type DataRepositoryConfiguration struct {
 type Backup struct {
 	CreationTime epochTime   `json:"CreationTime"`
 	FileSystem   *FileSystem `json:"FileSystem,omitempty"`
+	Volume       *Volume     `json:"Volume,omitempty"`
 	BackupID     string      `json:"BackupId"`
 	BackupType   string      `json:"Type"`
 	Lifecycle    string      `json:"Lifecycle"`

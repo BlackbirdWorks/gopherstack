@@ -151,19 +151,20 @@ func (s *storedFileSystem) toOpenZFSConfiguration() *OpenZFSConfiguration {
 
 // createFileSystemInput holds parameters for CreateFileSystem.
 type createFileSystemInput struct {
-	LustreConfiguration  *createLustreConfiguration  `json:"LustreConfiguration,omitempty"`
-	WindowsConfiguration *createWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
-	OntapConfiguration   *createOntapConfiguration   `json:"OntapConfiguration,omitempty"`
-	OpenZFSConfiguration *createOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
-	FileSystemType       string                      `json:"FileSystemType"`
-	StorageType          string                      `json:"StorageType,omitempty"`
-	VpcID                string                      `json:"VpcId,omitempty"`
-	NetworkType          string                      `json:"NetworkType,omitempty"`
-	ClientRequestToken   string                      `json:"ClientRequestToken,omitempty"`
-	Tags                 []Tag                       `json:"Tags,omitempty"`
-	SubnetIDs            []string                    `json:"SubnetIds,omitempty"`
-	SecurityGroupIDs     []string                    `json:"SecurityGroupIds,omitempty"`
-	StorageCapacityGiB   int32                       `json:"StorageCapacity,omitempty"`
+	LustreConfiguration   *createLustreConfiguration  `json:"LustreConfiguration,omitempty"`
+	WindowsConfiguration  *createWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
+	OntapConfiguration    *createOntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration  *createOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemType        string                      `json:"FileSystemType"`
+	StorageType           string                      `json:"StorageType,omitempty"`
+	VpcID                 string                      `json:"VpcId,omitempty"`
+	NetworkType           string                      `json:"NetworkType,omitempty"`
+	FileSystemTypeVersion string                      `json:"FileSystemTypeVersion,omitempty"`
+	ClientRequestToken    string                      `json:"ClientRequestToken,omitempty"`
+	Tags                  []Tag                       `json:"Tags,omitempty"`
+	SubnetIDs             []string                    `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs      []string                    `json:"SecurityGroupIds,omitempty"`
+	StorageCapacityGiB    int32                       `json:"StorageCapacity,omitempty"`
 }
 
 // createLustreConfiguration mirrors the CreateFileSystemLustreConfiguration
@@ -509,11 +510,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		return nil, err
 	}
 
-	if err := validateSubnetIDs(input.SubnetIDs); err != nil {
-		return nil, err
-	}
-
-	if err := validateSecurityGroupIDs(input.SecurityGroupIDs); err != nil {
+	if err := validateCreateNetworkAndVersion(input); err != nil {
 		return nil, err
 	}
 
@@ -557,6 +554,10 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		SubnetIDs:           input.SubnetIDs,
 		NetworkInterfaceIDs: networkInterfaceIDsForSubnets(input.SubnetIDs),
 		NetworkType:         networkType,
+	}
+
+	if input.FileSystemType == fileSystemTypeLustre {
+		fs.FileSystemTypeVersion = input.FileSystemTypeVersion
 	}
 
 	if err := applyFileSystemTypeConfig(fs, input); err != nil {
@@ -1261,4 +1262,27 @@ func (b *InMemoryBackend) StartMisconfiguredStateRecovery(fileSystemID string) e
 	}
 
 	return nil
+}
+
+// validateLustreVersion rejects a Lustre FileSystemTypeVersion outside the
+// documented 2.10/2.12/2.15 set (api_op_CreateFileSystem.go).
+func validateLustreVersion(input *createFileSystemInput) error {
+	switch input.FileSystemTypeVersion {
+	case "", "2.10", "2.12", "2.15":
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported FileSystemTypeVersion %q", ErrValidation, input.FileSystemTypeVersion)
+	}
+}
+
+func validateCreateNetworkAndVersion(input *createFileSystemInput) error {
+	if err := validateLustreVersion(input); err != nil {
+		return err
+	}
+
+	if err := validateSubnetIDs(input.SubnetIDs); err != nil {
+		return err
+	}
+
+	return validateSecurityGroupIDs(input.SecurityGroupIDs)
 }
