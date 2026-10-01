@@ -86,16 +86,18 @@ func checkTransactWriteItemSizeAndDupe(
 		return nil
 	}
 
-	wireKey := models.FromSDKItem(keyItem)
+	var wireKey map[string]any
 
-	// Resolve the table to extract only the key attributes.
 	if table, ok := tables[tableName]; ok {
 		pkDef, skDef := getPKAndSK(table.KeySchema)
-		keyOnly := map[string]any{pkDef.AttributeName: wireKey[pkDef.AttributeName]}
+		wireKey = make(map[string]any)
+		wireKey[pkDef.AttributeName] = sdkAttrOrNil(keyItem, pkDef.AttributeName)
+
 		if skDef.AttributeName != "" {
-			keyOnly[skDef.AttributeName] = wireKey[skDef.AttributeName]
+			wireKey[skDef.AttributeName] = sdkAttrOrNil(keyItem, skDef.AttributeName)
 		}
-		wireKey = keyOnly
+	} else {
+		wireKey = models.FromSDKItem(keyItem)
 	}
 
 	// A marshal failure only affects duplicate-key detection (not a real
@@ -117,6 +119,16 @@ func checkTransactWriteItemSizeAndDupe(
 	}
 
 	return nil
+}
+
+// sdkAttrOrNil converts one attribute, or returns nil when it is absent.
+func sdkAttrOrNil(item map[string]types.AttributeValue, name string) any {
+	av, ok := item[name]
+	if !ok {
+		return nil
+	}
+
+	return models.FromSDKAttributeValue(av)
 }
 
 // validateTransactUpdateKeys rejects a TransactWriteItem Update action whose
