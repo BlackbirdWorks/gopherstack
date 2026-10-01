@@ -613,7 +613,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 4 gaps |
-| [CloudFormation](services/cloudformation/README.md) | A | 73 | 8 gaps |
+| [CloudFormation](services/cloudformation/README.md) | A | 73 | 9 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 3 gaps; 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 14 gaps |
