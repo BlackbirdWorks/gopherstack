@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 9 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -23,7 +23,8 @@
 - Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model) and treats Replacement Conditionally as Update:Replace; StackPolicyURL is not fetched (no S3 client) (gopherstack-cqy3).
 - No nested-stack, update-rollback or multi-version type machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks, UpdateStack RetainExceptOnCreate, RollbackStack (status-only; drops RoleARN/RetainExceptOnCreate), ActivateType MajorVersion/VersionBump/TypeNameAlias (gopherstack-xhu2t).
 - ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan, so MaxResults/Resources have nothing to page or seed from.
-- SAM transform (AWS::Serverless-2016-10-31) not yet expanded: AWS::Serverless::HttpApi and HttpApi events, S3 and ScheduleV2 events, Api event Auth/Cors/RequestParameters, SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, FunctionUrlConfig, EventInvokeConfig, StateMachine Events, Api Domain/UsagePlan. All fail the stack/change set with an explicit reason, never silently dropped.
+- SAM transform (AWS::Serverless-2016-10-31) still unexpanded: HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, FunctionUrlConfig, EventInvokeConfig, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped.
+- SAM HttpApi emits separate AWS::ApiGatewayV2::Integration/Route resources (<Fn><Event>Integration/Route) instead of the OpenAPI Body real SAM generates, and SAM S3 events omit the Bucket DependsOn Permission edge (it would be circular here); logical IDs for those extras differ from real SAM.
 
 ## More
 

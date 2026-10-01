@@ -474,7 +474,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Batch](services/batch/README.md) | A | 45 | 5 gaps |
 | [EC2](services/ec2/README.md) | A | — | 22 families; 12 gaps; 2 structural gaps; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 7 gaps |
-| [Lambda](services/lambda/README.md) | A | — | 10 families |
+| [Lambda](services/lambda/README.md) | A | — | 10 families; 3 gaps |
 
 ### Containers
 
@@ -568,7 +568,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 5 gaps; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 gaps |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 5 gaps |
-| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 4 gaps |
+| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 5 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 19 | 2 gaps |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 5 gaps |
@@ -614,7 +614,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 4 gaps |
-| [CloudFormation](services/cloudformation/README.md) | A | 73 | 9 gaps |
+| [CloudFormation](services/cloudformation/README.md) | A | 73 | 10 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 3 gaps; 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 14 gaps |

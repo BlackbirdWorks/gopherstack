@@ -8,9 +8,15 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 10 (10 ok) |
-| Known gaps | none |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | ok |
+
+### Known gaps
+
+- Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985).
+- Kafka ESM: Amazon MQ (ActiveMQ/RabbitMQ) sources are not polled -- services/mq is metadata-only with no real broker (gopherstack-ce985).
+- Kafka ESM (self-managed): SourceAccessConfigurations (SASL/SCRAM, mTLS, TLS root CA, VPC) are ignored -- only plaintext brokers are reachable; ProvisionedPollersConfig, DestinationConfig.OnFailure and per-partition concurrency are not honored (gopherstack-ce985).
 
 ## More
 
