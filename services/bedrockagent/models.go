@@ -597,8 +597,10 @@ type FlowAliasSummary struct {
 
 // FlowValidationError is a flow definition validation error.
 type FlowValidationError struct {
-	Message  string `json:"message"`
-	Severity string `json:"severity"`
+	Details  map[string]any `json:"details,omitempty"`
+	Message  string         `json:"message"`
+	Severity string         `json:"severity"`
+	Type     string         `json:"type,omitempty"`
 }
 
 // Prompt is a Bedrock Prompt resource. Tags are deliberately NOT a field

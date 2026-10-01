@@ -185,11 +185,11 @@ func (b *InMemoryBackend) PrepareFlow(_ context.Context, flowID string) (*Flow, 
 	return flowCopy(f), nil
 }
 
-// ValidateFlowDefinition validates a flow definition (stub - always passes).
+// ValidateFlowDefinition reports structural problems in a flow definition's top-level graph.
 func (b *InMemoryBackend) ValidateFlowDefinition(
-	_ context.Context, _ map[string]any,
+	_ context.Context, definition map[string]any,
 ) ([]FlowValidationError, error) {
-	return []FlowValidationError{}, nil
+	return validateFlowGraph(definition), nil
 }
 
 // ---------------------------------------------------------------------------
