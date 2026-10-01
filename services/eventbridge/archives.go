@@ -178,15 +178,18 @@ func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchive
 // pattern at most once instead of once per archive per event.
 func (b *InMemoryBackend) captureEventInArchives(region string, entry EventEntry, busName string) {
 	busARN := b.busARN(region, busName)
-	envelope := buildEventEnvelope(entry)
+	var envelope map[string]any
 	archivedEvents := b.archivedEventsStore(region)
 	for _, archive := range b.archivesTable(region).All() {
 		if archive.EventSourceArn != busARN {
 			continue
 		}
 		if archive.EventPattern != "" {
+			if envelope == nil {
+				envelope = buildEventEnvelopeMap(entry)
+			}
 			compiled, err := b.getOrCompilePattern(archive.EventPattern)
-			if err != nil || !matchCompiledPattern(compiled, envelope) {
+			if err != nil || !matchCompiledPatternData(compiled, envelope) {
 				continue
 			}
 		}

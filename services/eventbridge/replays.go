@@ -264,6 +264,14 @@ func (b *InMemoryBackend) filterArchivedEvents(
 		return nil
 	}
 
+	var compiled *compiledPattern
+	if pattern != "" {
+		var err error
+		if compiled, err = compilePattern(pattern); err != nil {
+			return make([]EventEntry, 0)
+		}
+	}
+
 	result := make([]EventEntry, 0, len(raw))
 	for _, e := range raw {
 		t := time.Now()
@@ -276,11 +284,8 @@ func (b *InMemoryBackend) filterArchivedEvents(
 		if !endTime.IsZero() && !t.Before(endTime) {
 			continue
 		}
-		if pattern != "" {
-			envelope := buildEventEnvelope(e)
-			if !matchPattern(pattern, envelope) {
-				continue
-			}
+		if compiled != nil && !matchCompiledPatternData(compiled, buildEventEnvelopeMap(e)) {
+			continue
 		}
 		result = append(result, e)
 	}

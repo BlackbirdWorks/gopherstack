@@ -243,6 +243,14 @@ func matchCompiledPattern(compiled *compiledPattern, event string) bool {
 	return matchObject(compiled.pattern, eventData)
 }
 
+func matchCompiledPatternData(compiled *compiledPattern, eventData map[string]any) bool {
+	if compiled == nil || len(compiled.pattern) == 0 {
+		return true
+	}
+
+	return matchObject(compiled.pattern, eventData)
+}
+
 // matchObject checks whether all fields in pattern are satisfied by the eventData object.
 func matchObject(pattern, eventData map[string]any) bool {
 	for key, patternVal := range pattern {

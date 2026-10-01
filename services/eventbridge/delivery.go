@@ -308,14 +308,18 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 	}
 
 	busKey := ebBusKey(busName)
-	eventEnvelope := buildEventEnvelope(entry)
+	eventEnvelope := buildEventEnvelopeMap(entry)
 
 	var busDLQ *DeadLetterConfig
 	if bus, exists := b.busesTable(region).Get(busKey); exists {
 		busDLQ = bus.DeadLetterConfig
 	}
 
-	var groups []deliveryGroup
+	var (
+		groups      []deliveryGroup
+		detail      any
+		detailReady bool
+	)
 	for _, rule := range indexedRulesForEvent(ruleIndex[busKey], entry.Source, entry.DetailType) {
 		if !ruleMatchesForDelivery(rule, eventEnvelope, filterRuleARNs) {
 			continue
@@ -328,8 +332,12 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 
 		// Build the delivery envelope once per matched rule so all targets
 		// for this rule share the same event id, matching AWS behaviour.
+		if !detailReady {
+			detail, detailReady = parseDeliveryDetail(entry), true
+		}
+
 		groups = append(groups, deliveryGroup{
-			envelope: buildDeliveryEnvelope(entry, accountID, region),
+			envelope: buildDeliveryEnvelopeWithDetail(entry, accountID, region, detail),
 			busDLQ:   busDLQ,
 			targets:  snapshotTargets(storedTargets),
 		})
@@ -344,7 +352,7 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 // empty filter), and the event pattern matches. eventEnvelope is the entry's
 // JSON-encoded event (see buildEventEnvelope), not the per-target delivery
 // envelope built separately below.
-func ruleMatchesForDelivery(rule *Rule, eventEnvelope string, filterRuleARNs map[string]struct{}) bool {
+func ruleMatchesForDelivery(rule *Rule, eventEnvelope map[string]any, filterRuleARNs map[string]struct{}) bool {
 	if rule.State != "ENABLED" || rule.EventPattern == "" {
 		return false
 	}
@@ -355,7 +363,7 @@ func ruleMatchesForDelivery(rule *Rule, eventEnvelope string, filterRuleARNs map
 		}
 	}
 
-	return matchCompiledPattern(rule.compiledPattern, eventEnvelope)
+	return matchCompiledPatternData(rule.compiledPattern, eventEnvelope)
 }
 
 // snapshotTargets returns copies of the stored target structs so delivery cannot
@@ -512,6 +520,14 @@ func indexedRulesForEvent(
 
 // buildEventEnvelope creates a JSON string representing the normalized event for pattern matching.
 func buildEventEnvelope(entry EventEntry) string {
+	b, _ := json.Marshal(buildEventEnvelopeMap(entry))
+
+	return string(b)
+}
+
+// buildEventEnvelopeMap returns the normalized event as the value a JSON round-trip
+// of buildEventEnvelope would yield, so pattern matching can skip the re-parse.
+func buildEventEnvelopeMap(entry EventEntry) map[string]any {
 	envelope := map[string]any{
 		"source":      entry.Source,
 		"detail-type": entry.DetailType,
@@ -532,16 +548,17 @@ func buildEventEnvelope(entry EventEntry) string {
 
 	if entry.Detail != "" {
 		var detail map[string]any
-		if err := json.Unmarshal([]byte(entry.Detail), &detail); err == nil {
-			envelope["detail"] = detail
-		} else {
+		switch err := json.Unmarshal([]byte(entry.Detail), &detail); {
+		case err != nil:
 			envelope["detail"] = entry.Detail
+		case detail == nil:
+			envelope["detail"] = nil
+		default:
+			envelope["detail"] = detail
 		}
 	}
 
-	b, _ := json.Marshal(envelope)
-
-	return string(b)
+	return envelope
 }
 
 // deliverToTarget delivers a single event to a single target.
@@ -717,19 +734,27 @@ func buildPayload(target *Target, envelope map[string]any) string {
 // buildDeliveryEnvelope creates the full AWS EventBridge event envelope used for delivery payloads.
 // It includes id, version, time, account, region, source, detail-type, resources, and detail.
 func buildDeliveryEnvelope(entry EventEntry, accountID, region string) map[string]any {
+	return buildDeliveryEnvelopeWithDetail(entry, accountID, region, parseDeliveryDetail(entry))
+}
+
+// parseDeliveryDetail decodes entry.Detail once; the result is shared read-only.
+func parseDeliveryDetail(entry EventEntry) any {
+	if entry.Detail == "" {
+		return nil
+	}
+
+	var d any
+	if err := json.Unmarshal([]byte(entry.Detail), &d); err != nil {
+		return entry.Detail
+	}
+
+	return d
+}
+
+func buildDeliveryEnvelopeWithDetail(entry EventEntry, accountID, region string, detail any) map[string]any {
 	eventTime := time.Now()
 	if entry.Time != nil {
 		eventTime = *entry.Time
-	}
-
-	var detail any
-	if entry.Detail != "" {
-		var d any
-		if err := json.Unmarshal([]byte(entry.Detail), &d); err == nil {
-			detail = d
-		} else {
-			detail = entry.Detail
-		}
 	}
 
 	resources := entry.Resources
