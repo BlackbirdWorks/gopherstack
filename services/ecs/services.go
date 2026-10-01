@@ -671,6 +671,7 @@ func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 	defer b.mu.RUnlock()
 
 	out := make([]serviceSnapshot, 0, len(b.serviceIndex))
+	runningByCluster := make(map[string]map[string]int)
 
 	for ref := range b.serviceIndex {
 		svc, ok := b.services.Get(scopedKey(ref.cluster, ref.name))
@@ -678,13 +679,34 @@ func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 			continue
 		}
 
+		counts, seen := runningByCluster[ref.cluster]
+		if !seen {
+			counts = b.runningTasksByGroupLocked(ref.cluster)
+			runningByCluster[ref.cluster] = counts
+		}
+
 		out = append(out, serviceSnapshot{
 			clusterName: ref.cluster,
 			service:     cloneServiceForSnapshot(svc),
+			running:     counts["service:"+ref.name],
 		})
 	}
 
 	return out
+}
+
+// runningTasksByGroupLocked counts RUNNING tasks per group in one pass over the
+// cluster. Must be called with at least the read lock held.
+func (b *InMemoryBackend) runningTasksByGroupLocked(clusterName string) map[string]int {
+	counts := make(map[string]int)
+
+	for _, t := range b.tasksByCluster.Get(clusterName) {
+		if t.LastStatus == statusRunning {
+			counts[t.Group]++
+		}
+	}
+
+	return counts
 }
 
 // cloneServiceForSnapshot copies svc for use outside the lock. `*svc` alone is
@@ -705,6 +727,7 @@ func cloneServiceForSnapshot(svc *Service) Service {
 type serviceSnapshot struct {
 	clusterName string
 	service     Service
+	running     int
 }
 
 // CountRunningTasksForService counts running tasks for a service on a cluster.
@@ -820,6 +843,8 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 		oldest.StoppedReason = "service scale-in"
 		syncContainerStatuses(oldest, nil)
 		b.deregisterTaskFromELBv2Locked(oldest, clusterName)
+		b.releaseTaskHostPortsLocked(clusterName, oldest)
+		delete(b.lifecycle, oldest.TaskArn)
 
 		// Decrement the cached running counter (scale-in always stops a running task).
 		if c, _ := b.clusters.Get(clusterName); c != nil {
@@ -845,6 +870,7 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 		b.mu.Lock("StopOldestServiceTask-unindex")
 		defer b.mu.Unlock()
 
+		b.taskProtections.Delete(taskArn)
 		b.unindexTaskFromInstance(clusterName, instanceArn, taskArn)
 	}()
 

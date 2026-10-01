@@ -10763,6 +10763,7 @@
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.TaskDefinitions map[string][]*TaskDefinition `json:\"taskDefinitions\"`",
       "serviceSnapshot.clusterName string",
+      "serviceSnapshot.running int",
       "serviceSnapshot.service Service"
     ],
     "version": 1
