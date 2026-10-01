@@ -468,7 +468,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps |
 | [Batch](services/batch/README.md) | A | 45 | 8 gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 16 gaps; 2 structural gaps; 8 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 13 gaps; 2 structural gaps; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 13 gaps |
 | [Lambda](services/lambda/README.md) | A | — | 10 families |
 
@@ -484,7 +484,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Backup](services/backup/README.md) | A | 66 | 11 gaps |
+| [Backup](services/backup/README.md) | A | 66 | 7 gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 12 gaps |
@@ -710,7 +710,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 4 gaps; 1 deferred |
 | [Kafkaconnect](services/kafkaconnect/README.md) | B | 19 | 3 gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | B | 22 | 3 gaps |
-| [Lightsail](services/lightsail/README.md) | A | — | 28 families; 18 gaps; 2 deferred |
+| [Lightsail](services/lightsail/README.md) | A | — | 28 families; 8 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 3 gaps; 5 structural gaps; 1 deferred |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 6 gaps; 2 structural gaps |
