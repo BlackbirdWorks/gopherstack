@@ -186,13 +186,9 @@ gaps: []
   # cleanup item rather than touched this pass.
 residual_gaps: []
 items_still_open:
-  - "ListBackupJobSummaries/ListCopyJobSummaries/ListRestoreJobSummaries/ListScanJobSummaries ignore AccountId/AggregationPeriod/MessageCategory filters and never populate ResourceType/StartTime/EndTime on summary rows (api_op_List*JobSummaries.go) -- this backend produces one point-in-time snapshot per call, not a time series, and MessageCategory is hardcoded 'SUCCESS' on every job, so honoring either needs a historical-bucketing model this service doesn't have. (gopherstack-i25e, gopherstack-21my)"
-  - "DescribeBackupVault omits MpaSessionArn/LatestMpaApprovalTeamUpdate (api_op_DescribeBackupVault.go) -- no MPA-session-approval workflow modeled anywhere in this service. (gopherstack-i8p8)"
-  - "GetPITRMalwareScanResults and BackupRule.ScanActions/BackupPlan.ScanSettings are unmodeled -- no GuardDuty malware-scan engine; recovery points also aren't checked for PITR eligibility (no EnableContinuousBackup-style flag)."
-  - "DescribeScanJob/ListScanJobs's required CreatedBy (types.ScanJobCreator) is never populated -- no plan/rule association tracked on RecoveryPoint or StartScanJobInput to source it from. (gopherstack-r80d)"
-  - "ListBackupPlans ignores IncludeDeleted -- DeleteBackupPlan hard-removes records (no DeletionDate retained), so there is no soft-delete model to serve it from. (gopherstack-i25e)"
-  - "BackupRule.IndexActions (needs the search-index subsystem) and TargetLogicallyAirGappedBackupVaultArn (CreateBackupPlan only targets vaults by name) remain unmodeled. (gopherstack-21my)"
-  - "ProtectedResource.ResourceName is never populated on DescribeProtectedResource/ListProtectedResources/ListProtectedResourcesByBackupVault -- Job/StartBackupJob carry no resource-name field to source it from. (gopherstack-21my)"
+  - "List*JobSummaries: AggregationPeriod bucketing, AGGREGATE_ALL sums and per-row ResourceType/StartTime/EndTime need a historical-bucketing model; copy MessageCategory and ScanResultStatus filters have no backing job field."
+  - "Unmodeled subsystems: MPA session approval (DescribeBackupVault MpaSessionArn/LatestMpaApprovalTeamUpdate), GuardDuty malware scanning (GetPITRMalwareScanResults, ScanActions/ScanSettings, PITR eligibility), the search-index subsystem (IndexActions), and cross-account vaults (TargetLogicallyAirGappedBackupVaultArn)."
+  - "DescribeScanJob/ListScanJobs CreatedBy and ProtectedResource.ResourceName have no source: no plan/rule lineage on recovery points and no resource-name field on jobs."
 deferred: []
   # All 4 deferred items from the 2026-07-12 audit are now closed with real
   # fixes + tests (see the matching families/ops entries above):
@@ -204,6 +200,14 @@ leaks: {status: clean, note: "Janitor's advanceCreatedJobs takes the backend RLo
 ---
 
 ## Notes
+
+### 2026-10-01 (items_still_open burn-down)
+
+`ListBackupPlans` now honours `IncludeDeleted` via a bounded (1000) `deletedPlans` tombstone table,
+rows carrying `DeletionDate` (`list_backup_plans_include_deleted_test.go`). The four
+`List*JobSummaries` ops now honour `AccountId`, `ResourceType`, `State` and, where the job has the
+field, `MessageCategory`/`MalwareScanner` (`job_summary_filters_test.go`); `ANY`/`AGGREGATE_ALL`
+apply no filter. Six `DeletedPlan` rows added to `snapshot_inventory.json`.
 
 ### 2026-09-19 (terraform-coverage sweep, ssm-and-backup)
 

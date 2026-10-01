@@ -82,7 +82,7 @@ func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error
 func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opListCopyJobSummaries:
-		summaries := h.Backend.ListCopyJobSummaries()
+		summaries := h.Backend.ListCopyJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
 
 		return true, c.JSON(http.StatusOK, map[string]any{"CopyJobSummaries": summaries})
 	case opStartCopyJob:

@@ -83,7 +83,7 @@ func TestStartCopyJob(t *testing.T) {
 	require.Len(t, destRPs, 1)
 	assert.Equal(t, job.DestinationRecoveryPointArn, destRPs[0].RecoveryPointArn)
 
-	summaries := b.ListCopyJobSummaries()
+	summaries := b.ListCopyJobSummaries(backup.JobSummaryFilter{})
 	assert.NotEmpty(t, summaries)
 }
 

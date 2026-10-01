@@ -105,12 +105,15 @@ func (h *Handler) handleListBackupPlans(c *echo.Context) error {
 	f := ListPlansFilter{
 		NextToken:  q.Get("nextToken"),
 		MaxResults: parseInt(q.Get("maxResults")),
+
+		IncludeDeleted: q.Get("includeDeleted") == "true",
 	}
 
 	plans, nextToken := h.Backend.ListBackupPlansPaged(f)
 	items := make([]map[string]any, 0, len(plans))
 
-	for _, p := range plans {
+	for _, e := range plans {
+		p := e.Plan
 		item := map[string]any{
 			keyBackupPlanName: p.BackupPlanName,
 			keyBackupPlanArn:  p.BackupPlanArn,
@@ -121,6 +124,11 @@ func (h *Handler) handleListBackupPlans(c *echo.Context) error {
 		if p.UpdateTime != nil {
 			item["LastExecutionDate"] = epochSeconds(*p.UpdateTime)
 		}
+
+		if e.DeletionTime != nil {
+			item["DeletionDate"] = epochSeconds(*e.DeletionTime)
+		}
+
 		items = append(items, item)
 	}
 

@@ -163,6 +163,7 @@ func (b *InMemoryBackend) DeleteBackupPlan(idOrName string) error {
 	delete(b.planARNIndex, p.BackupPlanArn)
 	delete(b.planIDIndex, p.BackupPlanID)
 	b.plans.Delete(planName)
+	b.recordDeletedPlanLocked(p)
 	p.Tags.Close()
 
 	return nil
@@ -257,34 +258,84 @@ func validateRules(rules []Rule) error {
 
 // ListPlansFilter contains pagination parameters for listing backup plans.
 type ListPlansFilter struct {
-	NextToken  string
-	MaxResults int
+	NextToken      string
+	MaxResults     int
+	IncludeDeleted bool
 }
 
-// ListBackupPlansPaged returns backup plans with pagination.
-func (b *InMemoryBackend) ListBackupPlansPaged(f ListPlansFilter) ([]*Plan, string) {
+// maxDeletedPlans bounds the retained plan tombstones; the oldest are evicted first.
+const maxDeletedPlans = 1000
+
+// recordDeletedPlanLocked keeps a tombstone for IncludeDeleted listings. Must be called with b.mu held.
+func (b *InMemoryBackend) recordDeletedPlanLocked(p *Plan) {
+	b.deletedPlans.Put(&DeletedPlan{
+		CreationTime:   p.CreationTime,
+		DeletionTime:   time.Now().UTC(),
+		BackupPlanName: p.BackupPlanName,
+		BackupPlanArn:  p.BackupPlanArn,
+		BackupPlanID:   p.BackupPlanID,
+		VersionID:      p.VersionID,
+	})
+
+	all := b.deletedPlans.All()
+	if len(all) <= maxDeletedPlans {
+		return
+	}
+
+	slices.SortFunc(all, func(x, y *DeletedPlan) int { return x.DeletionTime.Compare(y.DeletionTime) })
+
+	for _, old := range all[:len(all)-maxDeletedPlans] {
+		b.deletedPlans.Delete(old.BackupPlanID)
+	}
+}
+
+// ListBackupPlansPaged returns backup plans with pagination. Deleted plans are listed
+// only when f.IncludeDeleted is set, each carrying its DeletionDate.
+func (b *InMemoryBackend) ListBackupPlansPaged(f ListPlansFilter) ([]PlanListEntry, string) {
 	b.mu.RLock("ListBackupPlansPaged")
 	defer b.mu.RUnlock()
 
 	all := b.plans.All()
-	list := make([]*Plan, 0, len(all))
+	list := make([]PlanListEntry, 0, len(all))
+
 	for _, p := range all {
 		cp := *p
 		cp.Rules = make([]Rule, len(p.Rules))
 		copy(cp.Rules, p.Rules)
-		list = append(list, &cp)
+		list = append(list, PlanListEntry{Plan: cp})
 	}
 
-	slices.SortFunc(list, func(a, b *Plan) int {
-		return strings.Compare(a.BackupPlanName, b.BackupPlanName)
+	if f.IncludeDeleted {
+		for _, d := range b.deletedPlans.All() {
+			del := d.DeletionTime
+			list = append(list, PlanListEntry{
+				Plan: Plan{
+					CreationTime:   d.CreationTime,
+					BackupPlanName: d.BackupPlanName,
+					BackupPlanArn:  d.BackupPlanArn,
+					BackupPlanID:   d.BackupPlanID,
+					VersionID:      d.VersionID,
+				},
+				DeletionTime: &del,
+			})
+		}
+	}
+
+	slices.SortFunc(list, func(a, b PlanListEntry) int {
+		return strings.Compare(a.cursorKey(), b.cursorKey())
 	})
 
-	return paginateByID(
-		list,
-		func(p *Plan) string { return p.BackupPlanName },
-		f.MaxResults,
-		f.NextToken,
-	)
+	return paginateByID(list, PlanListEntry.cursorKey, f.MaxResults, f.NextToken)
+}
+
+// PlanListEntry is one ListBackupPlans row; DeletionTime is set for deleted plans.
+type PlanListEntry struct {
+	DeletionTime *time.Time
+	Plan         Plan
+}
+
+func (e PlanListEntry) cursorKey() string {
+	return e.Plan.BackupPlanName + "\x00" + e.Plan.BackupPlanID
 }
 
 // ---- DeleteBackupPlan with selection validation ----
@@ -318,6 +369,7 @@ func (b *InMemoryBackend) DeleteBackupPlanChecked(idOrName string) (*Plan, error
 	delete(b.planARNIndex, p.BackupPlanArn)
 	delete(b.planIDIndex, p.BackupPlanID)
 	b.plans.Delete(planName)
+	b.recordDeletedPlanLocked(p)
 
 	// Cascade-delete any remaining selections for this plan. Clone the
 	// index's result first: deleting from the table while ranging over the

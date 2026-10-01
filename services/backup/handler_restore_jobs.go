@@ -170,7 +170,7 @@ func (h *Handler) dispatchRestoreJobOps(
 
 		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobs": items})
 	case opListRestoreJobSummaries:
-		summaries := h.Backend.ListRestoreJobSummaries()
+		summaries := h.Backend.ListRestoreJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
 
 		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobSummaries": summaries})
 	case opGetRestoreJobMetadata:
