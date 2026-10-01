@@ -558,7 +558,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 2 gaps |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 4 gaps |
 | [Glue](services/glue/README.md) | A | 59 | 4 gaps; 6 deferred |
-| [Glue DataBrew](services/databrew/README.md) | A | 44 | 6 gaps |
+| [Glue DataBrew](services/databrew/README.md) | A | 44 | 2 gaps |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 5 gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 5 gaps; 1 deferred |
@@ -673,7 +673,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
-| [IoT Core](services/iot/README.md) | A | 88 | 6 gaps |
+| [IoT Core](services/iot/README.md) | A | 88 | 4 gaps |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 3 gaps; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 gaps |
 

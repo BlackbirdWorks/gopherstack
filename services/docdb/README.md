@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/MasterUserSecret(+KmsKeyId, ManageMasterUserPassword)/NetworkType/PercentProgress/ServerlessV2ScalingConfiguration; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState/TagList.
+- Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/MasterUserSecret(+KmsKeyId, ManageMasterUserPassword)/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously).
 - ReplicationSourceIdentifier/ReadReplicaIdentifiers stay empty: CreateDBClusterInput has no such member and docdb has no PromoteReadReplicaDBCluster, so only an unbuilt global-cluster secondary-attach path could populate them.
 - DBClusterSnapshot.VpcId stays empty: CreateDBSubnetGroupInput has no VpcId and this backend cannot resolve subnet-to-VPC without EC2, so every subnet group's VpcId is empty.
 - Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn: no authoritative source for the built-in catalog values or ARN format; not guessed.
