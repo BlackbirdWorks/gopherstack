@@ -9,23 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 11 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- changeset_diff.go requiresRecreation() covers only a curated subset of resource types' replacement-forcing properties — expanding it is future work under gopherstack-e5h, not a regression (re-verified 2026-09-18)
-- SetTypeConfiguration accepts configuration for any type name without prior registration — intentional permissiveness for first-party AWS types this emulator doesn't catalog fully (bd: gopherstack-e5h; re-verified 2026-09-18)
-- StackSets DeploymentTargets.AccountsUrl (S3-hosted account list) is accepted on the wire but not fetched — no S3 client wired for it, same structural gap as TemplateURL not being fetched elsewhere in this service (bd: gopherstack-g7b5; AccountFilterType INTERSECTION/DIFFERENCE/UNION themselves were fixed 2026-09-26, see ops: CreateStackInstances/UpdateStackInstances/DeleteStackInstances)
-- ImportStacksToStackSet doesn't tag imported instances with a real OU — ImportStacksToStackSetInput has no DeploymentTargets to source one from (structural, unaffected by the gopherstack-g7b5 OU work; re-verified 2026-09-18)
-- StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable) — deliberate: cloudformation has no clock/janitor-driven lifecycle anywhere, every op resolves inside its own handler call (gopherstack-b3pm; see families: stacksets for the full writeup and tests; re-verified 2026-09-18)
-- Stack policy enforcement doesn't implement NotAction/NotResource (disclosed, not approximated), treats Replacement=='Conditionally' as Update:Replace (errs protective), doesn't model StackPolicyBody/URL at Create/UpdateStack time, and doesn't check parameter-only updates (no TemplateBody diff to compute) — see families: stack_policy_enforcement (gopherstack-cqy3; re-verified 2026-09-18)
-- CreateChangeSet's IncludeNestedStacks (api_op_CreateChangeSet.go:209) is read nowhere — changeset_diff.go's computeChanges has no nested-stack awareness to include/exclude against (unmodeled subsystem; DisableValidation/ResourceTypes were the same class of gap and are now fixed, see ops: CreateChangeSet, 2026-09-18)
-- UpdateStack.RetainExceptOnCreate is accepted and validated but has nothing to act on outside CreateStack/ExecuteChangeSet's create-fallback (which IS wired): UpdateStack has no resource-level create-then-rollback machinery at all (gopherstack-xhu2t; re-verified 2026-09-18)
-- RollbackStack is a status-only stub (flips StackStatus, replays nothing) and drops RoleARN/RetainExceptOnCreate both — same missing rollback machinery as the UpdateStack line above (gopherstack-xhu2t; re-verified 2026-09-18)
-- ListResourceScanRelatedResources ignores MaxResults/NextToken and always returns an empty list — this backend computes no cross-resource relationship graph for a scan, so there's nothing to paginate over (gopherstack-xhu2t; re-verified 2026-09-18)
-- ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped — no multi-version type catalog exists for them to gate (RegisterType stores one version per type, ActivateType hardcodes VersionID "00000001"; same class as SetTypeConfiguration above) (gopherstack-xhu2t; re-verified 2026-09-18)
+- changeset_diff.go requiresRecreation() covers only a curated subset of resource types' replacement-forcing properties; expanding it is ongoing work (gopherstack-e5h).
+- SetTypeConfiguration accepts configuration for any type name without prior registration, intentionally, since first-party AWS types are not fully cataloged (gopherstack-e5h).
+- StackSets DeploymentTargets.AccountsUrl is accepted but not fetched: no S3 client is wired for it, same gap as TemplateURL elsewhere (gopherstack-g7b5).
+- ImportStacksToStackSet cannot tag imported instances with an OU: ImportStacksToStackSetInput carries no DeploymentTargets to source one from.
+- StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): the service has no clock- or janitor-driven lifecycle (gopherstack-b3pm).
+- Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model), treats Replacement Conditionally as Update:Replace, and ignores StackPolicyBody/URL at Create/UpdateStack and parameter-only updates (gopherstack-cqy3).
+- No nested-stack, update-rollback or multi-version type machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks, UpdateStack RetainExceptOnCreate, RollbackStack (status-only; drops RoleARN/RetainExceptOnCreate), ActivateType MajorVersion/VersionBump/TypeNameAlias (gopherstack-xhu2t).
+- ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan.
 
 ## More
 
