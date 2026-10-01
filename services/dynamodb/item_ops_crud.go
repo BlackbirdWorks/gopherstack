@@ -52,7 +52,8 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
-	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wireItem, itemSize)
+	wire := putWire{item: wireItem, eav: wireEAV}
+	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wire, itemSize)
 	if putErr != nil {
 		return nil, putErr
 	}
@@ -63,6 +64,12 @@ func (db *InMemoryDB) PutItem(
 	}
 
 	return out, nil
+}
+
+// putWire is a PutItem request's already-converted item and ExpressionAttributeValues.
+type putWire struct {
+	item map[string]any
+	eav  map[string]any
 }
 
 // putItemLocked performs the table.mu-guarded portion of PutItem. Using a
@@ -76,9 +83,10 @@ func (db *InMemoryDB) putItemLocked(
 	tableName string,
 	table *Table,
 	input *dynamodb.PutItemInput,
-	wireItem map[string]any,
+	wire putWire,
 	itemSize int,
 ) (*dynamodb.PutItemOutput, string, string, error) {
+	wireItem := wire.item
 	table.mu.Lock("PutItem")
 	defer table.mu.Unlock()
 
@@ -100,7 +108,7 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
-	if condErr := db.checkPutCondition(ctx, input, oldItem); condErr != nil {
+	if condErr := db.checkPutCondition(ctx, input, oldItem, wire.eav); condErr != nil {
 		return nil, "", "", condErr
 	}
 
@@ -143,6 +151,28 @@ func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[st
 	return nil, -1
 }
 
+// findMatchForPutSDK is findMatchForPut keyed straight off an SDK item, converting only the key attributes.
+func (db *InMemoryDB) findMatchForPutSDK(
+	table *Table,
+	item map[string]types.AttributeValue,
+) (map[string]any, int) {
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyStringFromSDK(item, pkDef.AttributeName)
+
+	if skDef.AttributeName != "" {
+		skVal := BuildKeyStringFromSDK(item, skDef.AttributeName)
+		if skMap, ok := table.pkskIndex[pkVal]; ok {
+			if idx, okIdx := skMap[skVal]; okIdx {
+				return table.Items[idx], idx
+			}
+		}
+	} else if idx, ok := table.pkIndex[pkVal]; ok {
+		return table.Items[idx], idx
+	}
+
+	return nil, -1
+}
+
 // conditionalCheckFailed builds a ConditionalCheckFailedException, attaching the
 // existing item when the caller requested ReturnValuesOnConditionCheckFailure=ALL_OLD.
 // This mirrors AWS, which returns the current item in the error body so clients doing
@@ -164,6 +194,7 @@ func (db *InMemoryDB) checkPutCondition(
 	ctx context.Context,
 	input *dynamodb.PutItemInput,
 	oldItem map[string]any,
+	eav map[string]any,
 ) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
@@ -175,9 +206,6 @@ func (db *InMemoryDB) checkPutCondition(
 		"expression", condition,
 		"attributeNames", input.ExpressionAttributeNames,
 		"attributeValues", input.ExpressionAttributeValues)
-
-	// Convert EAV to Wire format for evaluator
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	match, err := evaluateExpression(
 		condition,
@@ -297,7 +325,7 @@ func computeLSICollectionSize(
 func buildItemCollectionMetrics(
 	table *Table,
 	rim types.ReturnItemCollectionMetrics,
-	pkKey map[string]types.AttributeValue,
+	src map[string]types.AttributeValue,
 	collectionBytes int64,
 ) *types.ItemCollectionMetrics {
 	if rim == "" || rim == types.ReturnItemCollectionMetricsNone {
@@ -310,7 +338,7 @@ func buildItemCollectionMetrics(
 	sizeGB := collectionBytesToGB(collectionBytes)
 
 	return &types.ItemCollectionMetrics{
-		ItemCollectionKey:   pkKey,
+		ItemCollectionKey:   pkOnlyKey(table, src),
 		SizeEstimateRangeGB: []float64{sizeGB, sizeGB},
 	}
 }
@@ -386,7 +414,7 @@ func (db *InMemoryDB) populatePutItemOutput(
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,
-		pkOnlyKey(table, input.Item),
+		input.Item,
 		lsiCollectionBytes,
 	)
 
@@ -543,7 +571,7 @@ func (db *InMemoryDB) DeleteItem(
 
 	wireKey := models.FromSDKItem(input.Key)
 
-	out, globalTableName, region, oldItem, delErr := db.deleteItemLocked(ctx, tableName, table, input, wireKey)
+	out, globalTableName, region, oldItem, delErr := db.deleteItemLocked(ctx, tableName, table, input, wireKey, wireEAV)
 	if delErr != nil {
 		return nil, delErr
 	}
@@ -571,6 +599,7 @@ func (db *InMemoryDB) deleteItemLocked(
 	table *Table,
 	input *dynamodb.DeleteItemInput,
 	wireKey map[string]any,
+	wireEAV map[string]any,
 ) (*dynamodb.DeleteItemOutput, string, string, map[string]any, error) {
 	table.mu.Lock("DeleteItem")
 	defer table.mu.Unlock()
@@ -609,7 +638,7 @@ func (db *InMemoryDB) deleteItemLocked(
 		}
 	}
 
-	if err := db.checkDeleteCondition(ctx, input, oldItem); err != nil {
+	if err := db.checkDeleteCondition(ctx, input, oldItem, wireEAV); err != nil {
 		return nil, "", "", nil, err
 	}
 
@@ -629,6 +658,7 @@ func (db *InMemoryDB) checkDeleteCondition(
 	ctx context.Context,
 	input *dynamodb.DeleteItemInput,
 	oldItem map[string]any,
+	eav map[string]any,
 ) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
@@ -640,8 +670,6 @@ func (db *InMemoryDB) checkDeleteCondition(
 		"expression", condition,
 		"attributeNames", input.ExpressionAttributeNames,
 		"attributeValues", input.ExpressionAttributeValues)
-
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	match, err := evaluateExpression(
 		condition,
@@ -690,7 +718,7 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,
-		pkOnlyKey(table, input.Key),
+		input.Key,
 		currentLSICollectionBytes(table, pkVal),
 	)
 
@@ -784,7 +812,7 @@ func (db *InMemoryDB) UpdateItem(
 
 	wireKey := models.FromSDKItem(input.Key)
 
-	out, globalTableName, region, updated, outErr := db.updateItemLocked(ctx, tableName, table, input, wireKey)
+	out, globalTableName, region, updated, outErr := db.updateItemLocked(ctx, tableName, table, input, wireKey, wireEAV)
 	if outErr != nil {
 		return nil, outErr
 	}
@@ -806,6 +834,7 @@ func (db *InMemoryDB) updateItemLocked(
 	table *Table,
 	input *dynamodb.UpdateItemInput,
 	wireKey map[string]any,
+	wireEAV map[string]any,
 ) (*dynamodb.UpdateItemOutput, string, string, map[string]any, error) {
 	table.mu.Lock("UpdateItem")
 	defer table.mu.Unlock()
@@ -829,11 +858,12 @@ func (db *InMemoryDB) updateItemLocked(
 		}
 	}
 
-	if err := db.checkUpdateCondition(ctx, input, existing); err != nil {
+	if err := db.checkUpdateCondition(ctx, input, existing, wireEAV); err != nil {
 		return nil, "", "", nil, err
 	}
 
-	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex)
+	wire := updateWire{key: wireKey, eav: wireEAV}
+	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex, wire)
 	if err != nil {
 		return nil, "", "", nil, err
 	}
@@ -855,6 +885,7 @@ func (db *InMemoryDB) checkUpdateCondition(
 	ctx context.Context,
 	input *dynamodb.UpdateItemInput,
 	item map[string]any,
+	eav map[string]any,
 ) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
@@ -867,7 +898,6 @@ func (db *InMemoryDB) checkUpdateCondition(
 		"attributeNames", input.ExpressionAttributeNames,
 		"attributeValues", input.ExpressionAttributeValues)
 
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	match, err := evaluateExpression(
 		condition,
 		item,
@@ -884,6 +914,12 @@ func (db *InMemoryDB) checkUpdateCondition(
 	return nil
 }
 
+// updateWire carries an UpdateItem request's pre-converted key and values; nil fields are converted on demand.
+type updateWire struct {
+	key map[string]any
+	eav map[string]any
+}
+
 // computeUpdate is the pure half of doUpdate: it applies the UpdateExpression to a
 // copy of existing and validates the result, without touching table state. Reused
 // by UpdateItem (via doUpdate) and by TransactWriteItems' prepare phase, which must
@@ -893,14 +929,18 @@ func (db *InMemoryDB) computeUpdate(
 	table *Table,
 	input *dynamodb.UpdateItemInput,
 	existing map[string]any,
+	wire updateWire,
 ) (map[string]any, map[string]struct{}, error) {
 	updated := make(map[string]any)
-	wireKey := models.FromSDKItem(input.Key)
 
 	if existing != nil {
 		maps.Copy(updated, deepCopyItem(existing))
 	} else {
-		// Create new item from key
+		wireKey := wire.key
+		if wireKey == nil {
+			wireKey = models.FromSDKItem(input.Key)
+		}
+
 		maps.Copy(updated, wireKey)
 	}
 
@@ -914,7 +954,11 @@ func (db *InMemoryDB) computeUpdate(
 			"attributeNames", input.ExpressionAttributeNames,
 			"attributeValues", input.ExpressionAttributeValues)
 
-		eav := models.FromSDKItem(input.ExpressionAttributeValues)
+		eav := wire.eav
+		if eav == nil {
+			eav = models.FromSDKItem(input.ExpressionAttributeValues)
+		}
+
 		var err error
 		updatedPaths, err = applyUpdate(
 			updated,
@@ -966,8 +1010,9 @@ func (db *InMemoryDB) doUpdate(
 	input *dynamodb.UpdateItemInput,
 	existing map[string]any,
 	matchIndex int,
+	wire updateWire,
 ) (map[string]any, map[string]struct{}, error) {
-	updated, updatedPaths, err := db.computeUpdate(ctx, table, input, existing)
+	updated, updatedPaths, err := db.computeUpdate(ctx, table, input, existing, wire)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1082,7 +1127,7 @@ func (db *InMemoryDB) populateUpdateOutput(
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,
-		pkOnlyKey(table, input.Key),
+		input.Key,
 		currentLSICollectionBytes(table, pkVal),
 	)
 

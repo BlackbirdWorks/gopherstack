@@ -59,7 +59,8 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	// Pre-parse PK value before locking so we can do a targeted index copy.
-	precomputedPKValue := preParseQueryPKValue(input)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+	precomputedPKValue := preParseQueryPKValue(input, eav)
 	snapshotTable, billingMode, ttlAttr := db.snapshotTableForQuery(
 		table, idxName, precomputedPKValue,
 	)
@@ -81,7 +82,7 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	candidates, err := db.filterCandidatesForKeyCondition(
-		ctx, snapshotTable, input, projection, keySchema,
+		ctx, snapshotTable, input, projection, keySchema, eav,
 	)
 	if err != nil {
 		return nil, err
@@ -106,7 +107,7 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	return db.processQueryResults(
-		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr, snapshotTable,
+		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr, snapshotTable, eav,
 	)
 }
 
@@ -207,6 +208,7 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 	input *dynamodb.QueryInput,
 	projection *models.Projection,
 	keySchema []models.KeySchemaElement,
+	eav map[string]any,
 ) ([]map[string]any, error) {
 	cond := aws.ToString(input.KeyConditionExpression)
 	if cond != "" {
@@ -228,8 +230,6 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 
 	pkDef, skDef := getPKAndSK(keySchema)
 	idxName := aws.ToString(input.IndexName)
-
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	if err := checkUndefinedExpressionAttributeNames(
 		input.ExpressionAttributeNames, "KeyConditionExpression", cond,
@@ -541,8 +541,8 @@ func (db *InMemoryDB) processQueryResults(
 	tableKeySchema []models.KeySchemaElement,
 	ttlAttr string,
 	table *Table,
+	eav map[string]any,
 ) (*dynamodb.QueryOutput, error) {
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	exclusiveStartKey := models.FromSDKItem(input.ExclusiveStartKey)
 
 	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema, tableKeySchema)
@@ -712,8 +712,7 @@ func inferSKType(candidates []map[string]any, skName string) string {
 // query targets the base table or a GSI/LSI -- so the same helper scopes the
 // targeted index-snapshot copy for both (see snapshotIndexForQuery and
 // snapshotSecondaryIndexForQuery).
-func preParseQueryPKValue(input *dynamodb.QueryInput) string {
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+func preParseQueryPKValue(input *dynamodb.QueryInput, eav map[string]any) string {
 	exprParts := dynamoattr.SplitANDConditions(aws.ToString(input.KeyConditionExpression))
 
 	if len(exprParts) == 0 {

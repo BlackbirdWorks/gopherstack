@@ -825,7 +825,7 @@ func (db *InMemoryDB) processBatchPutRequests(
 			pkVal := BuildKeyString(wireItem, pkDef.AttributeName)
 			collectionBytes := computeLSICollectionSize(table, pkVal, wireItem, matchIndex)
 			if m := buildItemCollectionMetrics(
-				table, rim, pkOnlyKey(table, wwr.req.PutRequest.Item), collectionBytes,
+				table, rim, wwr.req.PutRequest.Item, collectionBytes,
 			); m != nil {
 				metrics = append(metrics, *m)
 			}
@@ -876,7 +876,7 @@ func (db *InMemoryDB) processBatchDeleteRequests(
 			pkVal := BuildKeyString(wireKey, pkDef.AttributeName)
 			remaining := currentLSICollectionBytes(table, pkVal) - int64(table.itemSizes[matchIndex])
 			if m := buildItemCollectionMetrics(
-				table, rim, pkOnlyKey(table, wwr.req.DeleteRequest.Key), remaining,
+				table, rim, wwr.req.DeleteRequest.Key, remaining,
 			); m != nil {
 				metrics = append(metrics, *m)
 			}
