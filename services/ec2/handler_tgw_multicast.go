@@ -651,10 +651,31 @@ func (h *Handler) handleDeregisterTransitGatewayMulticastGroupSources(
 	}, nil
 }
 
+// splitMulticastGroupRoles emits one row per role, as AWS does; the provider's finders
+// filter is-group-member=true with is-group-source=false and need a member-only row.
+func splitMulticastGroupRoles(in []*TransitGatewayMulticastGroupEntry) []*TransitGatewayMulticastGroupEntry {
+	out := make([]*TransitGatewayMulticastGroupEntry, 0, len(in))
+
+	for _, e := range in {
+		if e.IsMember && e.IsSource {
+			m, s := *e, *e
+			m.IsSource = false
+			s.IsMember = false
+			out = append(out, &m, &s)
+
+			continue
+		}
+
+		out = append(out, e)
+	}
+
+	return out
+}
+
 func (h *Handler) handleSearchTransitGatewayMulticastGroups(vals url.Values, reqID string) (any, error) {
 	domainID := vals.Get("TransitGatewayMulticastDomainId")
 	entries := applyTGWMulticastGroupFilters(
-		h.Backend.SearchTransitGatewayMulticastGroups(domainID), parseEC2Filters(vals),
+		splitMulticastGroupRoles(h.Backend.SearchTransitGatewayMulticastGroups(domainID)), parseEC2Filters(vals),
 	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
