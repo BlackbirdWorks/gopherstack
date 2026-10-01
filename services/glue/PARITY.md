@@ -178,7 +178,7 @@ items_still_open:
   - "DataCatalogExportConfiguration.S3TableBucketArn has no corresponding input field anywhere in the real API to derive it from, so it stays empty; its ENABLING/DISABLING transient states are not modeled since this backend has no async export pipeline (Status settles synchronously, honestly, not eventually-consistent)."
   - "quota/idempotency exceptions: IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException remain unenforced -- ConcurrentModificationException is structurally unreachable (coarse b.mu.Lock serializes every op, so no real race exists to detect); OperationTimeoutException would need a fabricated timeout threshold with nothing real behind it; IdempotentParameterMismatchException's real trigger condition isn't derivable from the SDK alone for the ops that declare it (none have a ClientToken/RequestToken input field). ResourceNumberLimitExceededException is real for 15 ops (limits.go, 2026-09-11 section below)."
   - "CustomEntityType has no ARN or Tags concept modeled at all (no ARN-building helper, no Tags field, CreateCustomEntityType's wire input doesn't accept tags) -- Blueprint/DevEndpoint/MLTransform/UserDefinedFunction all dispatch tags correctly; extending CustomEntityType is a larger lift (adding the concept from scratch, not just wiring existing-but-undispatched support)."
-  - "2026-09-18: StartDataQualityRulesetEvaluationRun's DataSource/AdditionalDataSources/AdditionalRunOptions/Role are now real (declared, stored, echoed back by GetDataQualityRulesetEvaluationRun); ClientToken is accepted but not stored (idempotent-replay detection needs a request-dedup store this backend has nowhere, same class as IdempotentParameterMismatchException above). Still open: this backend never evaluates a ruleset against real data, so DataSource is accepted but never applied to an actual evaluation."
+  - "StartDataQualityRulesetEvaluationRun accepts DataSource but never evaluates a ruleset against real data (unmodeled engine). ClientToken replay is real as of 2026-09-30 (dq_evaluation_run_client_token_test.go), not persisted across restore."
   - "GetTable's AttributesToGet (DEFAULT/LATEST_ICEBERG_METADATA) is declared on the wire but inert -- this backend has no Iceberg table metadata state to return."
 deferred:
   # Every family below was field-diffed against the pinned SDK this pass (none
@@ -195,6 +195,10 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
 ---
 
 ## Notes
+
+### 2026-09-30: items_still_open burn-down
+
+Fixed StartDataQualityRulesetEvaluationRun ClientToken replay (same token returns the original RunId; the SDK lists no mismatch error for this op). Other open items need unmodeled subsystems or external AWS evidence (the CustomEntityType ARN format is unverifiable offline).
 
 ### 2026-09-24 unbounded-growth sweep: job run and crawl history never pruned
 
