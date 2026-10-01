@@ -50,6 +50,7 @@ func copyJobToJSON(j *CopyJob) map[string]any {
 	setOptionalStr(resp, "ResourceType", j.ResourceType)
 	setOptionalStr(resp, "IamRoleArn", j.IAMRoleArn)
 	setOptionalStr(resp, "SourceBackupVaultArn", j.SourceBackupVaultArn)
+	setOptionalStr(resp, "SourceRecoveryPointArn", j.SourceRecoveryPointArn)
 	setOptionalStr(resp, "DestinationBackupVaultArn", j.DestinationBackupVaultArn)
 	setOptionalStr(resp, "DestinationRecoveryPointArn", j.DestinationRecoveryPointArn)
 	if j.CompletionDate != nil {
