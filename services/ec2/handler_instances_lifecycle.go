@@ -5,7 +5,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-	"sort"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -366,22 +367,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 	// Parse named EC2 filters: Filter.N.Name / Filter.N.Value.M
 	filters := parseEC2Filters(vals)
 
-	// Fetch all instances matching the IDs (state filter applied post-fetch so
-	// that multi-value OR semantics work: e.g. state=running OR state=stopped).
-	instances := h.Backend.DescribeInstances(ids, "")
-
-	// Snapshot tags once for every candidate instance: reused below for both
-	// tag: filter evaluation and TagSet rendering, instead of one
-	// TagsForResource backend lock per instance per use.
-	preFilterIDs := make([]string, len(instances))
-	for i, inst := range instances {
-		preFilterIDs[i] = inst.ID
-	}
-
-	tagsByID := h.Backend.TagsForResources(preFilterIDs)
-
-	// Apply all filters post-fetch (AND across filter names, OR within values).
-	instances = applyInstanceFilters(instances, filters, tagsByID)
+	instances, tagsByID := h.describeInstancesFiltered(ids, filters)
 
 	// Pagination: MaxResults / NextToken.
 	maxResults := 0
@@ -446,6 +432,32 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		ReservationSet: reservationSet{Items: []reservationItem{reservation}},
 		NextToken:      nextToken,
 	}, nil
+}
+
+// instanceMatcher is the optional backend fast path that filters before copying.
+type instanceMatcher interface {
+	DescribeInstancesMatching(
+		ids []string, match func(inst *Instance, tags map[string]string) bool,
+	) ([]*Instance, map[string]map[string]string)
+}
+
+func (h *Handler) describeInstancesFiltered(
+	ids []string, filters map[string][]string,
+) ([]*Instance, map[string]map[string]string) {
+	if m, ok := h.Backend.(instanceMatcher); ok {
+		return m.DescribeInstancesMatching(ids, compileInstanceFilters(filters))
+	}
+
+	instances := h.Backend.DescribeInstances(ids, "")
+
+	allIDs := make([]string, len(instances))
+	for i, inst := range instances {
+		allIDs[i] = inst.ID
+	}
+
+	tagsByID := h.Backend.TagsForResources(allIDs)
+
+	return applyInstanceFilters(instances, filters, tagsByID), tagsByID
 }
 
 func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, error) {
@@ -582,7 +594,7 @@ func toInstanceItem(
 		tagItems = append(tagItems, instanceTagItem{Key: k, Value: v})
 	}
 
-	sort.Slice(tagItems, func(i, j int) bool { return tagItems[i].Key < tagItems[j].Key })
+	slices.SortFunc(tagItems, func(a, b instanceTagItem) int { return strings.Compare(a.Key, b.Key) })
 
 	// GroupIdentifier carries both groupId and groupName (ec2@v1.329.0
 	// deserializers.go:107843 awsEc2query_deserializeDocumentGroupIdentifier);

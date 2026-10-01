@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -1091,14 +1092,20 @@ func parseTagSpecification(vals url.Values, resourceType string) map[string]stri
 	return tags
 }
 
+const marshalXMLInitialCap = 4096
+
 // marshalXML encodes the payload with the XML declaration header.
 func marshalXML(v any) ([]byte, error) {
-	raw, err := xml.Marshal(v)
-	if err != nil {
+	var buf bytes.Buffer
+
+	buf.Grow(marshalXMLInitialCap)
+	buf.WriteString(xml.Header)
+
+	if err := xml.NewEncoder(&buf).Encode(v); err != nil {
 		return nil, err
 	}
 
-	return append([]byte(xml.Header), raw...), nil
+	return buf.Bytes(), nil
 }
 
 // newRequestID generates a unique request ID.

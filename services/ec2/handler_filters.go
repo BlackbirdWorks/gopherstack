@@ -1109,6 +1109,48 @@ instanceLoop:
 	return out
 }
 
+type compiledInstanceFilter struct {
+	name   string
+	tagKey string
+	values []string
+	isTag  bool
+}
+
+// compileInstanceFilters returns a predicate equivalent to applyInstanceFilters'
+// per-instance test, or nil when there are no filters.
+func compileInstanceFilters(filters map[string][]string) func(*Instance, map[string]string) bool {
+	if len(filters) == 0 {
+		return nil
+	}
+
+	compiled := make([]compiledInstanceFilter, 0, len(filters))
+
+	for name, values := range filters {
+		f := compiledInstanceFilter{name: name, values: values}
+		f.tagKey, f.isTag = strings.CutPrefix(name, "tag:")
+		compiled = append(compiled, f)
+	}
+
+	return func(inst *Instance, tags map[string]string) bool {
+		for i := range compiled {
+			f := &compiled[i]
+			if f.isTag {
+				if v, ok := tags[f.tagKey]; !ok || !slices.Contains(f.values, v) {
+					return false
+				}
+
+				continue
+			}
+
+			if !instanceMatchesFilter(inst, f.name, f.values, nil) {
+				return false
+			}
+		}
+
+		return true
+	}
+}
+
 // instanceMatchesFilter returns true if the instance matches any value in the filter.
 func instanceMatchesFilter(inst *Instance, filterName string, values []string, tags map[string]string) bool {
 	switch filterName {

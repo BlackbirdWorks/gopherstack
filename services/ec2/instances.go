@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -937,6 +938,59 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 	}
 
 	return out
+}
+
+// DescribeInstancesMatching returns copies of only the instances (restricted to
+// ids when non-empty) accepted by match, plus copies of their tags, in one lock.
+func (b *InMemoryBackend) DescribeInstancesMatching(
+	ids []string, match func(inst *Instance, tags map[string]string) bool,
+) ([]*Instance, map[string]map[string]string) {
+	b.mu.RLock("DescribeInstancesMatching")
+	defer b.mu.RUnlock()
+
+	var (
+		out    []*Instance
+		tagsBy map[string]map[string]string
+	)
+
+	visit := func(inst *Instance) {
+		src := b.tags[inst.ID]
+		if match != nil && !match(inst, src) {
+			return
+		}
+
+		cp := *inst
+		out = append(out, &cp)
+
+		if len(src) == 0 {
+			return
+		}
+
+		if tagsBy == nil {
+			tagsBy = make(map[string]map[string]string)
+		}
+
+		tagsBy[inst.ID] = maps.Clone(src)
+	}
+
+	if len(ids) > 0 {
+		out = make([]*Instance, 0, len(ids))
+
+		for _, id := range ids {
+			if inst, ok := b.instances.Get(id); ok {
+				visit(inst)
+			}
+		}
+
+		return out, tagsBy
+	}
+
+	out = make([]*Instance, 0, b.instances.Len())
+	for _, inst := range b.instances.All() {
+		visit(inst)
+	}
+
+	return out, tagsBy
 }
 
 // TerminateInstances transitions instances to shutting-down then terminated.
