@@ -180,11 +180,10 @@ type Stream struct {
 	// Defaults to defaultMaxRecordSizeBytes (1 MiB); updatable via UpdateMaxRecordSize
 	// (wire unit is MaxRecordSizeInKiB; converted to bytes on write via bytesPerKiB).
 	MaxRecordSizeBytes int `json:"maxRecordSizeBytes,omitempty"`
-	// WarmThroughputMiBps is the stream's current UpdateStreamWarmThroughput
-	// setting. Applied synchronously (this backend has no UPDATING transient
-	// state), so Current and Target always match on read -- see
-	// UpdateStreamWarmThroughputOutput and PARITY.md.
-	WarmThroughputMiBps int `json:"warmThroughputMiBps,omitempty"`
+	// WarmThroughputMiBps is the target; PrevWarmThroughputMiBps is the
+	// Current value reported while the stream is UPDATING.
+	WarmThroughputMiBps     int `json:"warmThroughputMiBps,omitempty"`
+	PrevWarmThroughputMiBps int `json:"prevWarmThroughputMiBps,omitempty"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
@@ -315,6 +314,8 @@ type DescribeStreamOutput struct {
 	// handleDescribeStreamSummary reads these.
 	MaxRecordSizeBytes  int
 	WarmThroughputMiBps int
+	// CurrentWarmThroughputMiBps lags WarmThroughputMiBps while UPDATING.
+	CurrentWarmThroughputMiBps int
 }
 
 // ShardDescription describes a shard in a DescribeStream response.

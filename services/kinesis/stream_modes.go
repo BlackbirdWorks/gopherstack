@@ -3,12 +3,8 @@ package kinesis
 import "context"
 
 // UpdateStreamWarmThroughput configures pre-warmed throughput for a stream
-// (kinesis@v1.46.4 api_op_UpdateStreamWarmThroughput.go:63-70, required
-// WarmThroughputMiBps). Real AWS applies this asynchronously (stream goes
-// UPDATING then back to ACTIVE); this backend applies the change
-// synchronously and Current/Target always match on read -- see
-// UpdateStreamWarmThroughputOutput and PARITY.md -- but does now reject a
-// non-ACTIVE stream with ResourceInUseException, matching the declared error.
+// (kinesis@v1.53.0 api_op_UpdateStreamWarmThroughput.go:24-27: the stream goes
+// UPDATING, then back to ACTIVE; Current stays at the old value until then).
 func (b *InMemoryBackend) UpdateStreamWarmThroughput(
 	ctx context.Context,
 	input *UpdateStreamWarmThroughputInput,
@@ -38,14 +34,18 @@ func (b *InMemoryBackend) UpdateStreamWarmThroughput(
 		return nil, ErrStreamNotActive
 	}
 
+	prev := stream.WarmThroughputMiBps
+	stream.PrevWarmThroughputMiBps = prev
 	stream.WarmThroughputMiBps = input.WarmThroughputMiBps
+	stream.Status = streamStatusUpdating
+	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 	arnOut, nameOut := stream.ARN, stream.Name
 
 	return &UpdateStreamWarmThroughputOutput{
 		StreamARN:  arnOut,
 		StreamName: nameOut,
 		WarmThroughput: WarmThroughputObject{
-			CurrentMiBps: input.WarmThroughputMiBps,
+			CurrentMiBps: prev,
 			TargetMiBps:  input.WarmThroughputMiBps,
 		},
 	}, nil
@@ -101,6 +101,7 @@ func (b *InMemoryBackend) UpdateStreamMode(ctx context.Context, input *UpdateStr
 		if v < 0 || v > maxWarmThroughputMiBps {
 			return ErrInvalidArgument
 		}
+		stream.PrevWarmThroughputMiBps = stream.WarmThroughputMiBps
 		stream.WarmThroughputMiBps = v
 	}
 

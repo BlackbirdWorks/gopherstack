@@ -258,6 +258,11 @@ func (b *InMemoryBackend) DescribeStream(
 		encType = encryptionTypeNone
 	}
 
+	currentWarm := stream.WarmThroughputMiBps
+	if stream.Status == streamStatusUpdating {
+		currentWarm = stream.PrevWarmThroughputMiBps
+	}
+
 	return &DescribeStreamOutput{
 		StreamName:              stream.Name,
 		StreamARN:               stream.ARN,
@@ -272,6 +277,8 @@ func (b *InMemoryBackend) DescribeStream(
 		StreamMode:              stream.StreamMode,
 		MaxRecordSizeBytes:      stream.MaxRecordSizeBytes,
 		WarmThroughputMiBps:     stream.WarmThroughputMiBps,
+
+		CurrentWarmThroughputMiBps: currentWarm,
 	}, nil
 }
 

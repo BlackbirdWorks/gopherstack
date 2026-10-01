@@ -298,6 +298,7 @@ func TestDescribeStreamSummary_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 		WarmThroughputMiBps: aws.Int32(5),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	after, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
 		StreamName: aws.String(streamName),
@@ -443,6 +444,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
 		WarmThroughputMiBps: aws.Int32(7),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	summary, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
 		StreamName: aws.String(streamName),
@@ -517,6 +519,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
 		WarmThroughputMiBps: aws.Int32(0),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	zeroed, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
 		StreamName: aws.String(streamName),

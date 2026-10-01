@@ -329,10 +329,8 @@ func (h *Handler) handleDescribeStreamSummary(
 			StreamCreationTimestamp: float64(out.StreamCreationTimestamp.Unix()),
 			StreamModeDetails:       &jsonStreamModeDetails{StreamMode: out.StreamMode},
 			MaxRecordSizeInKiB:      maxRecordSizeBytes / bytesPerKiB,
-			// Applied synchronously (no UPDATING transient-state model), so
-			// Current and Target always match -- see UpdateStreamWarmThroughput.
 			WarmThroughput: &jsonWarmThroughputObject{
-				CurrentMiBps: out.WarmThroughputMiBps,
+				CurrentMiBps: out.CurrentWarmThroughputMiBps,
 				TargetMiBps:  out.WarmThroughputMiBps,
 			},
 		},

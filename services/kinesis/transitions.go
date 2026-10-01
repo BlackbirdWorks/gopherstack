@@ -62,6 +62,7 @@ func (b *InMemoryBackend) resolveStreamTransitionLocked(region, name string) (*S
 		streamDeadlinePassed(stream, now):
 		stream.Status = streamStatusActive
 		stream.ReadyAt = time.Time{}
+		stream.PrevWarmThroughputMiBps = 0
 	}
 	stream.mu.Unlock()
 

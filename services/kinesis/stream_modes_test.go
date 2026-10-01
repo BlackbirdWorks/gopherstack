@@ -53,7 +53,7 @@ func TestUpdateStreamWarmThroughput_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.WarmThroughput)
-	assert.Equal(t, int32(500), aws.ToInt32(out.WarmThroughput.CurrentMiBps))
+	assert.Equal(t, int32(0), aws.ToInt32(out.WarmThroughput.CurrentMiBps))
 	assert.Equal(t, int32(500), aws.ToInt32(out.WarmThroughput.TargetMiBps))
 	assert.Equal(t, aws.ToString(desc.StreamDescription.StreamARN), aws.ToString(out.StreamARN))
 	assert.Equal(t, streamName, aws.ToString(out.StreamName))
@@ -478,6 +478,70 @@ func TestUpdateStreamMode_NotFound(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestUpdateStreamWarmThroughput_UpdatingWindow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		wantStatus  kinesissdktypes.StreamStatus
+		wantCurrent int32
+		settle      bool
+	}{
+		{name: "during update", wantStatus: kinesissdktypes.StreamStatusUpdating, wantCurrent: 100},
+		{name: "after settle", settle: true, wantStatus: kinesissdktypes.StreamStatusActive, wantCurrent: 500},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clock := newFakeClock(time.Now())
+			client := newTestKinesisClient(t, kinesis.NewHandler(kinesis.NewInMemoryBackend().WithClock(clock.Now)))
+			name := aws.String("warm-window")
+
+			_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+				StreamName:        name,
+				StreamModeDetails: &kinesissdktypes.StreamModeDetails{StreamMode: kinesissdktypes.StreamModeOnDemand},
+			})
+			require.NoError(t, err)
+			clock.Advance(streamSettleWait)
+
+			_, err = client.UpdateStreamWarmThroughput(t.Context(), &kinesissdk.UpdateStreamWarmThroughputInput{
+				StreamName: name, WarmThroughputMiBps: aws.Int32(100),
+			})
+			require.NoError(t, err)
+			clock.Advance(streamSettleWait)
+
+			out, err := client.UpdateStreamWarmThroughput(t.Context(), &kinesissdk.UpdateStreamWarmThroughputInput{
+				StreamName: name, WarmThroughputMiBps: aws.Int32(500),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, int32(100), aws.ToInt32(out.WarmThroughput.CurrentMiBps))
+			assert.Equal(t, int32(500), aws.ToInt32(out.WarmThroughput.TargetMiBps))
+
+			if !tt.settle {
+				_, err = client.UpdateStreamWarmThroughput(t.Context(), &kinesissdk.UpdateStreamWarmThroughputInput{
+					StreamName: name, WarmThroughputMiBps: aws.Int32(600),
+				})
+				var inUse *kinesissdktypes.ResourceInUseException
+				require.ErrorAs(t, err, &inUse)
+			} else {
+				clock.Advance(streamSettleWait)
+			}
+
+			sum, err := client.DescribeStreamSummary(
+				t.Context(),
+				&kinesissdk.DescribeStreamSummaryInput{StreamName: name},
+			)
+			require.NoError(t, err)
+			d := sum.StreamDescriptionSummary
+			assert.Equal(t, tt.wantStatus, d.StreamStatus)
+			assert.Equal(t, tt.wantCurrent, aws.ToInt32(d.WarmThroughput.CurrentMiBps))
+			assert.Equal(t, int32(500), aws.ToInt32(d.WarmThroughput.TargetMiBps))
 		})
 	}
 }
