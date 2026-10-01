@@ -276,7 +276,7 @@ func (b *InMemoryBackend) finishRotationLocked(region string, secret *Secret, ve
 	now := UnixTimeFloat(b.now())
 	secret.LastChangedDate = &now
 	secret.LastRotatedDate = &now
-	pruneVersions(secret)
+	pruneVersions(secret, now)
 	b.syncReplicationStatusLocked(region, secret)
 }
 

@@ -833,7 +833,7 @@ func (b *InMemoryBackend) updateSecretVersion(
 	secret.LastChangedDate = &now
 	b.syncReplicationStatusLocked(region, secret)
 
-	pruneVersions(secret)
+	pruneVersions(secret, now)
 
 	return versionID, nil
 }
