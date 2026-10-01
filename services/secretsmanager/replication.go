@@ -65,6 +65,11 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 	}
 
 	configs[name] = existing
+
+	if input.ForceOverwriteReplicaSecret {
+		b.overwriteReplicaCollisionsLocked(secret, input.AddReplicaRegions)
+	}
+
 	b.syncReplicationStatusLocked(region, secret)
 
 	return &ReplicateSecretToRegionsOutput{
@@ -222,12 +227,45 @@ func (b *InMemoryBackend) syncReplicationStatusLocked(region string, secret *Sec
 	}
 
 	for i := range statuses {
+		if b.replicaNameCollidesLocked(secret, statuses[i].Region) {
+			statuses[i].Status = replicationStatusFailed
+			statuses[i].StatusMessage = "a secret with this name already exists in the destination Region"
+
+			continue
+		}
+
 		statuses[i].Status = replicationStatusInSync
 		statuses[i].StatusMessage = "replicated version " + currentVer.VersionID
 		b.upsertReplicaSecretLocked(secret, statuses[i].Region, statuses[i].KmsKeyID)
 	}
 
 	configs[secret.Name] = statuses
+}
+
+// replicaNameCollidesLocked reports whether replicaRegion holds a same-named secret
+// that is not this primary's replica. Must be called with b.mu held.
+func (b *InMemoryBackend) replicaNameCollidesLocked(primary *Secret, replicaRegion string) bool {
+	existing, found := b.secretGet(replicaRegion, primary.Name)
+
+	return found && existing.ARN != replicaARN(primary.ARN, replicaRegion)
+}
+
+// overwriteReplicaCollisionsLocked deletes foreign same-named secrets in the target
+// regions so replication can replace them. Must be called with b.mu held.
+func (b *InMemoryBackend) overwriteReplicaCollisionsLocked(primary *Secret, targets []ReplicaRegion) {
+	for _, t := range targets {
+		if !b.replicaNameCollidesLocked(primary, t.Region) {
+			continue
+		}
+
+		if old, found := b.secretGet(t.Region, primary.Name); found && old.Tags != nil {
+			old.Tags.Close()
+		}
+
+		b.secretDelete(t.Region, primary.Name)
+		delete(b.resourcePoliciesStore(t.Region), primary.Name)
+		delete(b.replicationConfigsStore(t.Region), primary.Name)
+	}
 }
 
 // upsertReplicaSecretLocked mirrors primary's current version set into a

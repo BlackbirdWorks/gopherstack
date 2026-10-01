@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -213,6 +215,10 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 			})
 		}
 		b.replicationConfigsStore(region)[input.Name] = replicas
+	}
+
+	if input.ForceOverwriteReplicaSecret {
+		b.overwriteReplicaCollisionsLocked(secret, input.AddReplicaRegions)
 	}
 
 	b.syncReplicationStatusLocked(region, secret)
@@ -563,17 +569,14 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 	case "name":
 		return anyMatchPrefix(f.Values, s.Name)
 	case "description":
-		return anyMatchPrefix(f.Values, s.Description)
+		return anyMatchPrefixFold(f.Values, s.Description)
 	case "tag-key":
 		return secretHasTagKey(s, f.Values)
 	case "tag-value":
 		return secretHasTagValue(s, f.Values)
 	case "all":
 		// "all" matches any of the filterable string fields.
-		return anyMatchPrefix(f.Values, s.Name) ||
-			anyMatchPrefix(f.Values, s.Description) ||
-			secretHasTagKey(s, f.Values) ||
-			secretHasTagValue(s, f.Values)
+		return matchPrefix(f.Values, secretAllAttributes(s), hasPrefixFold)
 	case "primary-region":
 		// In a single-region mock every secret belongs to the single region;
 		// the filter always passes (no cross-region replication routing needed).
@@ -591,19 +594,32 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 	}
 }
 
-// anyMatchPrefix returns true if target matches values under prefix semantics,
-// honouring AWS's documented negation prefix: "You can prefix your search value with
-// an exclamation mark ( ! ) in order to perform negation filters" (types.Filter.Values
-// doc comment, aws-sdk-go-v2/service/secretsmanager@v1.44.4 types/types.go -- Filter is
-// the shared type both ListSecretsInput and BatchGetSecretValueInput carry as Filters).
-// A negated value excludes any target with that prefix; if any positive (non-negated)
-// values are present, at least one must also match.
+// anyMatchPrefix applies the "!" negation prefix documented on types.Filter.Values
+// (secretsmanager@v1.48.0 types/types.go) over a single target.
 func anyMatchPrefix(values []string, target string) bool {
+	return matchPrefix(values, []string{target}, strings.HasPrefix)
+}
+
+// anyMatchPrefixFold is anyMatchPrefix for the keys documented as not case-sensitive.
+func anyMatchPrefixFold(values []string, target string) bool {
+	return matchPrefix(values, []string{target}, hasPrefixFold)
+}
+
+func hasPrefixFold(target, prefix string) bool {
+	return strings.HasPrefix(strs.Fold(target), strs.Fold(prefix))
+}
+
+// matchPrefix applies prefix and "!" negation semantics across every target: a negated
+// value excludes the secret if any target has the prefix, and any positive value needs a match.
+func matchPrefix(values, targets []string, hasPrefix func(target, prefix string) bool) bool {
 	hasPositive, positiveMatch := false, false
 
 	for _, v := range values {
-		if negated, ok := strings.CutPrefix(v, "!"); ok {
-			if strings.HasPrefix(target, negated) {
+		negated, isNeg := strings.CutPrefix(v, "!")
+		matched := slices.ContainsFunc(targets, func(t string) bool { return hasPrefix(t, negated) })
+
+		if isNeg {
+			if matched {
 				return false
 			}
 
@@ -611,44 +627,40 @@ func anyMatchPrefix(values []string, target string) bool {
 		}
 
 		hasPositive = true
-		if strings.HasPrefix(target, v) {
-			positiveMatch = true
-		}
+		positiveMatch = positiveMatch || slices.ContainsFunc(targets, func(t string) bool { return hasPrefix(t, v) })
 	}
 
 	return !hasPositive || positiveMatch
 }
 
-// secretHasTagKey returns true if the secret has at least one of the given tag keys.
-func secretHasTagKey(s *Secret, keys []string) bool {
-	if s.Tags == nil {
-		return false
-	}
-
-	tagMap := s.Tags.Clone()
-	for _, k := range keys {
-		if _, ok := tagMap[k]; ok {
-			return true
-		}
-	}
-
-	return false
+func secretAllAttributes(s *Secret) []string {
+	return slices.Concat([]string{s.Name, s.Description}, tagKeys(s), tagValues(s))
 }
 
-// secretHasTagValue returns true if the secret has at least one tag with any of the given values.
-func secretHasTagValue(s *Secret, values []string) bool {
+func tagKeys(s *Secret) []string {
 	if s.Tags == nil {
-		return false
+		return nil
 	}
 
-	tagMap := s.Tags.Clone()
-	for _, v := range tagMap {
-		if slices.Contains(values, v) {
-			return true
-		}
+	return slices.Collect(maps.Keys(s.Tags.Clone()))
+}
+
+func tagValues(s *Secret) []string {
+	if s.Tags == nil {
+		return nil
 	}
 
-	return false
+	return slices.Collect(maps.Values(s.Tags.Clone()))
+}
+
+// secretHasTagKey reports whether a tag key matches the filter values (prefix, case-sensitive).
+func secretHasTagKey(s *Secret, keys []string) bool {
+	return matchPrefix(keys, tagKeys(s), strings.HasPrefix)
+}
+
+// secretHasTagValue reports whether a tag value matches the filter values (prefix, case-sensitive).
+func secretHasTagValue(s *Secret, values []string) bool {
+	return matchPrefix(values, tagValues(s), strings.HasPrefix)
 }
 
 // DescribeSecret returns metadata about a secret.
