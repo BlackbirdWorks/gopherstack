@@ -135,6 +135,7 @@ type StorageBackend interface {
 	CreateGlobalCluster(
 		ctx context.Context,
 		globalClusterID, sourceDBClusterID, databaseName string,
+		opts GlobalClusterCreateOptions,
 	) (*GlobalCluster, error)
 	DescribeGlobalClusters(ctx context.Context) []GlobalCluster
 
@@ -205,6 +206,7 @@ type StorageBackend interface {
 	RestoreDBClusterFromSnapshot(
 		ctx context.Context,
 		snapshotID, clusterID string,
+		opts RestoreClusterOptions,
 	) (*DBCluster, error)
 	RestoreDBClusterToPointInTime(
 		ctx context.Context,

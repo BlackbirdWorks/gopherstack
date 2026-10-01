@@ -731,13 +731,16 @@ func (b *InMemoryBackend) RemoveRoleFromDBCluster(
 
 // RestoreDBClusterFromSnapshot restores a Neptune DB cluster from a snapshot.
 func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
-	ctx context.Context, snapshotID, clusterID string,
+	ctx context.Context, snapshotID, clusterID string, opts RestoreClusterOptions,
 ) (*DBCluster, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
 	}
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if err := validateRestorePort(opts.Port); err != nil {
+		return nil, err
 	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("RestoreDBClusterFromSnapshot")
@@ -753,6 +756,11 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	if b.clusterHas(region, clusterID) {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
+	if opts.DBSubnetGroupName != "" && !b.subnetGroupHas(region, opts.DBSubnetGroupName) {
+		return nil, fmt.Errorf(
+			"%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName,
+		)
+	}
 	// Derive parameter group from the source cluster if available.
 	paramGroupName := pgFamilyDefaultNeptune13
 	if srcCluster, ok := b.clusterGet(region, snap.DBClusterIdentifier); ok {
@@ -761,27 +769,86 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", clusterID, region)
 	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", clusterID, region)
 	cluster := &DBCluster{
-		region:                      region,
-		DBClusterIdentifier:         clusterID,
-		DBClusterArn:                b.clusterARN(region, clusterID),
-		DBClusterResourceID:         fmt.Sprintf("cluster-%s", clusterID),
-		ClusterCreateTime:           nowISO8601(),
-		Engine:                      snap.Engine,
-		EngineVersion:               snap.EngineVersion,
-		EngineMode:                  engineModeProvisioned,
-		Status:                      clusterStatusAvailable,
-		DBClusterParameterGroupName: paramGroupName,
-		Endpoint:                    endpoint,
-		ReaderEndpoint:              readerEndpoint,
-		Port:                        defaultNeptunePort,
-		StorageEncrypted:            snap.StorageEncrypted,
-		DBClusterMembers:            []DBClusterMember{},
-		BackupRetentionPeriod:       defaultBackupRetentionPeriod,
+		region:                          region,
+		DBClusterIdentifier:             clusterID,
+		DBClusterArn:                    b.clusterARN(region, clusterID),
+		DBClusterResourceID:             fmt.Sprintf("cluster-%s", clusterID),
+		ClusterCreateTime:               nowISO8601(),
+		Engine:                          snap.Engine,
+		EngineVersion:                   snap.EngineVersion,
+		EngineMode:                      engineModeProvisioned,
+		Status:                          clusterStatusAvailable,
+		DBClusterParameterGroupName:     paramGroupName,
+		Endpoint:                        endpoint,
+		ReaderEndpoint:                  readerEndpoint,
+		Port:                            defaultNeptunePort,
+		StorageEncrypted:                snap.StorageEncrypted,
+		DBClusterMembers:                []DBClusterMember{},
+		BackupRetentionPeriod:           defaultBackupRetentionPeriod,
+		AssociatedRoles:                 []string{},
+		NetworkType:                     networkTypeIPv4,
+		StorageType:                     defaultStorageType,
+		KmsKeyID:                        snap.KmsKeyID,
+		EnableIAMDatabaseAuthentication: snap.IAMDatabaseAuthenticationEnabled,
 	}
+	if snap.Port > 0 {
+		cluster.Port = snap.Port
+	}
+	applyRestoreOptions(cluster, opts)
 	b.clusterPut(cluster)
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
+}
+
+// validateRestorePort rejects an explicit Port outside Neptune's valid range.
+func validateRestorePort(port int) error {
+	if port != 0 && (port < minNeptunePort || port > maxNeptunePort) {
+		return fmt.Errorf(
+			"%w: Port %d is not a valid Neptune port; must be between %d and %d",
+			ErrInvalidParameter, port, minNeptunePort, maxNeptunePort,
+		)
+	}
+
+	return nil
+}
+
+// applyRestoreOptions overlays the request's explicit restore options on a new cluster.
+func applyRestoreOptions(c *DBCluster, o RestoreClusterOptions) {
+	if o.DBSubnetGroupName != "" {
+		c.DBSubnetGroupName = o.DBSubnetGroupName
+	}
+	if o.StorageType != "" {
+		c.StorageType = o.StorageType
+	}
+	if o.EngineVersion != "" {
+		c.EngineVersion = o.EngineVersion
+	}
+	if o.KmsKeyID != "" {
+		c.KmsKeyID = o.KmsKeyID
+	}
+	if o.NetworkType != "" {
+		c.NetworkType = o.NetworkType
+	}
+	if o.DBClusterParameterGroupName != "" {
+		c.DBClusterParameterGroupName = o.DBClusterParameterGroupName
+	}
+	if o.Port > 0 {
+		c.Port = o.Port
+	}
+	if len(o.AvailabilityZones) > 0 {
+		c.AvailabilityZones = slices.Clone(o.AvailabilityZones)
+	}
+	if len(o.VpcSecurityGroupIDs) > 0 {
+		c.VpcSecurityGroupIDs = slices.Clone(o.VpcSecurityGroupIDs)
+	}
+	if o.ServerlessV2ScalingConfig != nil {
+		sv2 := *o.ServerlessV2ScalingConfig
+		c.ServerlessV2ScalingConfig = &sv2
+	}
+	c.EnableIAMDatabaseAuthentication = c.EnableIAMDatabaseAuthentication || o.EnableIAMAuth
+	c.DeletionProtection = c.DeletionProtection || o.DeletionProtection
+	c.CopyTagsToSnapshot = c.CopyTagsToSnapshot || o.CopyTagsToSnapshot
 }
 
 // RestoreDBClusterToPointInTime restores a Neptune DB cluster to a point in time.
@@ -806,9 +873,17 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 			ErrInvalidParameter,
 		)
 	}
+	if err := validateRestorePort(opts.Port); err != nil {
+		return nil, err
+	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("RestoreDBClusterToPointInTime")
 	defer b.mu.Unlock()
+	if opts.DBSubnetGroupName != "" && !b.subnetGroupHas(region, opts.DBSubnetGroupName) {
+		return nil, fmt.Errorf(
+			"%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName,
+		)
+	}
 	src, srcExists := b.clusterGet(region, srcClusterID)
 	if !srcExists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, srcClusterID)
@@ -841,7 +916,12 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		DeletionProtection:              src.DeletionProtection,
 		DBClusterMembers:                []DBClusterMember{},
 		BackupRetentionPeriod:           src.BackupRetentionPeriod,
+		AssociatedRoles:                 []string{},
+		NetworkType:                     src.NetworkType,
+		StorageType:                     src.StorageType,
+		KmsKeyID:                        src.KmsKeyID,
 	}
+	applyRestoreOptions(cluster, opts.RestoreClusterOptions)
 	b.clusterPut(cluster)
 	cp := cloneCluster(cluster)
 
