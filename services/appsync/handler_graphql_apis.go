@@ -25,6 +25,8 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		OpenIDConnectConfig               *OpenIDConnectConfig               `json:"openIDConnectConfig"`
 		LambdaAuthorizerConfig            *LambdaAuthorizerConfig            `json:"lambdaAuthorizerConfig"`
 		LogConfig                         *LogConfig                         `json:"logConfig"`
+		EnhancedMetricsConfig             *EnhancedMetricsConfig             `json:"enhancedMetricsConfig"`
+		MergedAPIExecutionRoleARN         string                             `json:"mergedApiExecutionRoleArn"`
 		Name                              string                             `json:"name"`
 		AuthenticationType                string                             `json:"authenticationType"`
 		APIType                           string                             `json:"apiType"`
@@ -55,6 +57,8 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		OpenIDConnectConfig:    input.OpenIDConnectConfig,
 		LambdaAuthorizerConfig: input.LambdaAuthorizerConfig,
 		LogConfig:              input.LogConfig,
+		EnhancedMetricsConfig:  input.EnhancedMetricsConfig,
+		MergedAPIExecutionRole: input.MergedAPIExecutionRoleARN,
 		IntrospectionConfig:    input.IntrospectionConfig,
 		OwnerContact:           input.OwnerContact,
 		QueryDepthLimit:        input.QueryDepthLimit,
@@ -179,6 +183,8 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		OpenIDConnectConfig               *OpenIDConnectConfig               `json:"openIDConnectConfig"`
 		LambdaAuthorizerConfig            *LambdaAuthorizerConfig            `json:"lambdaAuthorizerConfig"`
 		LogConfig                         *LogConfig                         `json:"logConfig"`
+		EnhancedMetricsConfig             *EnhancedMetricsConfig             `json:"enhancedMetricsConfig"`
+		MergedAPIExecutionRoleARN         string                             `json:"mergedApiExecutionRoleArn"`
 		XrayEnabled                       *bool                              `json:"xrayEnabled"`
 		Name                              string                             `json:"name"`
 		AuthenticationType                string                             `json:"authenticationType"`
@@ -199,6 +205,8 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		OpenIDConnectConfig:    input.OpenIDConnectConfig,
 		LambdaAuthorizerConfig: input.LambdaAuthorizerConfig,
 		LogConfig:              input.LogConfig,
+		EnhancedMetricsConfig:  input.EnhancedMetricsConfig,
+		MergedAPIExecutionRole: input.MergedAPIExecutionRoleARN,
 		IntrospectionConfig:    input.IntrospectionConfig,
 		OwnerContact:           input.OwnerContact,
 		QueryDepthLimit:        input.QueryDepthLimit,

@@ -2977,7 +2977,7 @@ func wireCrossServiceDependencies(
 	wireComputeAndObservabilityIntegrations(appCtx, byName)
 	wireCWLogsMetricEmitters(byName)
 	wireStorageAndSecretsIntegrations(byName)
-	wireAppSyncAndStreamsIntegrations(byName)
+	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
 }
@@ -3867,7 +3867,7 @@ func wireAppConfigDeployments(appconfigReg, appconfigdataReg service.Registerabl
 // wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB
 // resolvers, AppSync's Cognito/OIDC JWT verification, DynamoDB Streams to the
 // DynamoDB backend, and CloudFront KeyValueStore to the CloudFront backend.
-func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
+func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, sigV4Secret string) {
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
@@ -3876,6 +3876,8 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire AppSync → Cognito for AMAZON_COGNITO_USER_POOLS/OPENID_CONNECT JWT signature verification.
 	wireAppSyncCognito(byName["AppSync"], byName["CognitoIDP"])
+
+	wireAppSyncSigV4(byName["AppSync"], sigV4Secret)
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
@@ -7253,6 +7255,27 @@ func wireAppSyncCognito(appSyncReg, cognitoReg service.Registerable) {
 
 	if cognitoH, cogOk := cognitoReg.(*cognitoidpbackend.Handler); cogOk {
 		appSyncBk.SetJWKSProvider(cognitoH.Backend)
+	}
+}
+
+// sigV4SecretOf returns the configured --sigv4-secret, or empty when appCtx carries no CLI.
+func sigV4SecretOf(appCtx *service.AppContext) string {
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		return cli.SigV4Secret
+	}
+
+	return ""
+}
+
+// wireAppSyncSigV4 passes --sigv4-secret to AppSync so AWS_IAM GraphQL auth verifies against it.
+func wireAppSyncSigV4(appSyncReg service.Registerable, secret string) {
+	appSyncH, ok := appSyncReg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if appSyncBk, bkOk := appSyncH.Backend.(*appsyncbackend.InMemoryBackend); bkOk {
+		appSyncBk.SetSigV4Secret(secret)
 	}
 }
 
