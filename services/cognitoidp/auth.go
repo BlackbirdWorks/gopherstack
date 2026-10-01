@@ -115,7 +115,7 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 	// mutate state, but real AWS still surfaces a trigger invocation error to the
 	// ConfirmSignUp caller (the user's confirmation itself is NOT rolled back --
 	// Cognito confirms first, then invokes the trigger, matching this ordering).
-	if _, err := b.invokeLambdaTrigger(pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationSignUp,
+	if _, err := b.invokeTriggerUnlocked(pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationSignUp,
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
@@ -229,7 +229,7 @@ func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error 
 	// self-service and admin confirmation paths. AdminConfirmSignUp has no app
 	// client in scope, so callerContext.clientId is left empty (matches the
 	// admin API not routing through a client).
-	if _, err := b.invokeLambdaTrigger(pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationSignUp,
+	if _, err := b.invokeTriggerUnlocked(pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationSignUp,
 		"", username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
@@ -858,7 +858,7 @@ func (b *InMemoryBackend) SignUpWithValidation(
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
-	preSignUpResp, err := b.invokeLambdaTrigger(
+	preSignUpResp, err := b.invokeTriggerUnlocked(
 		pool, triggerKeyPreSignUp, triggerSourcePreSignUpSignUp, clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(attrs),
@@ -871,28 +871,15 @@ func (b *InMemoryBackend) SignUpWithValidation(
 		return nil, err
 	}
 
-	lambdaAutoConfirm, lambdaAutoVerifyEmail, lambdaAutoVerifyPhone := parsePreSignUpResponse(preSignUpResp)
-
-	// AutoVerifiedAttributes only selects which contact channel Cognito sends
-	// the confirmation code to; it does not skip confirmation itself -- a
-	// self-signed-up user always starts UNCONFIRMED unless the PreSignUp
-	// trigger's autoConfirmUser says otherwise (AWS docs, "Signing up and
-	// confirming user accounts"). Only lambdaAutoConfirm may bypass the code.
-	autoConfirmed := lambdaAutoConfirm
-
-	for _, attr := range pool.AutoVerifiedAttributes {
-		if _, hasAttr := attrs[attr]; hasAttr {
-			attrs[attr+"_verified"] = attrVerifiedTrue
-		}
+	if slotErr := b.newUserSlotFreeLocked(pool, username); slotErr != nil {
+		return nil, slotErr
 	}
 
-	if lambdaAutoVerifyEmail {
-		attrs[attrEmail+"_verified"] = attrVerifiedTrue
+	if err = validatePassword(pool.PasswordPolicy, password); err != nil {
+		return nil, err
 	}
 
-	if lambdaAutoVerifyPhone {
-		attrs["phone_number_verified"] = attrVerifiedTrue
-	}
+	autoConfirmed := applyPreSignUpVerification(pool, attrs, preSignUpResp)
 
 	status := UserStatusUnconfirmed
 	var confirmCode string
@@ -926,4 +913,26 @@ func (b *InMemoryBackend) SignUpWithValidation(
 	cp := *user
 
 	return &cp, nil
+}
+
+// applyPreSignUpVerification marks auto-verified attributes and returns whether PreSignUp
+// requested autoConfirmUser; AutoVerifiedAttributes alone never skips the confirmation code.
+func applyPreSignUpVerification(pool *UserPool, attrs map[string]string, resp map[string]any) bool {
+	autoConfirm, autoVerifyEmail, autoVerifyPhone := parsePreSignUpResponse(resp)
+
+	for _, attr := range pool.AutoVerifiedAttributes {
+		if _, hasAttr := attrs[attr]; hasAttr {
+			attrs[attr+"_verified"] = attrVerifiedTrue
+		}
+	}
+
+	if autoVerifyEmail {
+		attrs[attrEmail+"_verified"] = attrVerifiedTrue
+	}
+
+	if autoVerifyPhone {
+		attrs["phone_number_verified"] = attrVerifiedTrue
+	}
+
+	return autoConfirm
 }

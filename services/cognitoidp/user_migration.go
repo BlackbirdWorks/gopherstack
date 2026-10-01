@@ -59,6 +59,10 @@ func (b *InMemoryBackend) tryUserMigration(
 		return nil, "", nil
 	}
 
+	if slotErr := b.newUserSlotFreeLocked(pool, username); slotErr != nil {
+		return nil, "", slotErr
+	}
+
 	hash, saltHex, verifierHex, err := hashAndSRP(pool.ID, username, password)
 	if err != nil {
 		return nil, "", fmt.Errorf("hashing migrated password: %w", err)
@@ -100,6 +104,10 @@ func (b *InMemoryBackend) tryUserMigrationForgotPassword(pool *UserPool, clientI
 
 	if resp == nil {
 		return nil, nil //nolint:nilnil // sentinel "declined" pair, documented above
+	}
+
+	if slotErr := b.newUserSlotFreeLocked(pool, username); slotErr != nil {
+		return nil, slotErr
 	}
 
 	now := time.Now()

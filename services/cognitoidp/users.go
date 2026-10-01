@@ -499,7 +499,9 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
-	if tempPassword != "" {
+	suppliedPassword := tempPassword != ""
+
+	if suppliedPassword {
 		if err := validatePassword(pool.PasswordPolicy, tempPassword); err != nil {
 			return nil, err
 		}
@@ -522,6 +524,16 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 
 	if verifyErr := b.applyAdminCreateUserAutoVerifyLocked(pool, username, attrs); verifyErr != nil {
 		return nil, verifyErr
+	}
+
+	if slotErr := b.newUserSlotFreeLocked(pool, username); slotErr != nil {
+		return nil, slotErr
+	}
+
+	if suppliedPassword {
+		if polErr := validatePassword(pool.PasswordPolicy, tempPassword); polErr != nil {
+			return nil, polErr
+		}
 	}
 
 	_ = desiredDeliveryMediums
@@ -564,7 +576,7 @@ func (b *InMemoryBackend) applyAdminCreateUserAutoVerifyLocked(
 		}
 	}
 
-	preSignUpResp, err := b.invokeLambdaTrigger(
+	preSignUpResp, err := b.invokeTriggerUnlocked(
 		pool, triggerKeyPreSignUp, triggerSourcePreSignUpAdminCreateUser, "", username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(attrs),

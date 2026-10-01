@@ -124,14 +124,9 @@ func lambdaConfigARN(cfg map[string]any, triggerKey string) string {
 	return ""
 }
 
-// invokeLambdaTrigger builds the standard Cognito trigger event envelope, invokes
-// the Lambda configured for triggerKey on pool (if any), and returns the "response"
-// sub-object from the (possibly modified) event the function returns.
-//
-// It returns (nil, nil) -- not an error -- when no invoker is wired or the pool has
-// no Lambda configured for triggerKey, so every call site's existing behavior is
-// preserved exactly for pools/deployments that never configure this feature.
-func (b *InMemoryBackend) invokeLambdaTrigger(
+// invokeTriggerUnlocked runs triggerKey's Lambda (if any) with b.mu released and returns its
+// "response"; caller holds the write lock and must re-validate what it read before the call.
+func (b *InMemoryBackend) invokeTriggerUnlocked(
 	pool *UserPool,
 	triggerKey, triggerSource, clientID, username string,
 	request map[string]any,
@@ -139,10 +134,17 @@ func (b *InMemoryBackend) invokeLambdaTrigger(
 ) (map[string]any, error) {
 	call := b.prepareTrigger(pool, triggerKey, triggerSource, clientID, username, request, defaultResponse)
 	if call == nil {
-		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
+		return nil, nil //nolint:nilnil // sentinel "not configured" pair
 	}
 
-	result, err := call.inv.InvokeTrigger(context.Background(), call.functionARN, call.event)
+	var (
+		result map[string]any
+		err    error
+	)
+
+	b.releaseLocked("Trigger", func() {
+		result, err = call.inv.InvokeTrigger(context.Background(), call.functionARN, call.event)
+	})
 
 	return parseTriggerResult(triggerKey, result, err)
 }
@@ -213,6 +215,20 @@ func (b *InMemoryBackend) releaseLocked(op string, fn func()) {
 	defer b.mu.Lock(op)
 
 	fn()
+}
+
+// newUserSlotFreeLocked re-checks, after an unlocked trigger, that pool is still live
+// and username is still unclaimed, so a concurrent create wins instead of being overwritten.
+func (b *InMemoryBackend) newUserSlotFreeLocked(pool *UserPool, username string) error {
+	if cur, ok := b.pools.Get(pool.ID); !ok || cur != pool {
+		return fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, pool.ID)
+	}
+
+	if _, exists := b.users.Get(userKey(pool.ID, username)); exists {
+		return fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
+	}
+
+	return nil
 }
 
 // authRecordCurrentLocked fails with the deleted-pool/user error when pool or user
@@ -351,6 +367,38 @@ func parsePreSignUpResponse(resp map[string]any) (bool, bool, bool) {
 	return autoConfirm, autoVerifyEmail, autoVerifyPhone
 }
 
+// prepareCustomMessage builds the CustomMessage invocation under the read lock; nil
+// means no override applies.
+func (b *InMemoryBackend) prepareCustomMessage(clientID, username, triggerSource string) *triggerCall {
+	b.mu.RLock("InvokeCustomMessageTrigger")
+	defer b.mu.RUnlock()
+
+	client, clientOK := b.clients.Get(clientID)
+	if !clientOK {
+		return nil
+	}
+
+	pool, poolOK := b.pools.Get(client.UserPoolID)
+	if !poolOK {
+		return nil
+	}
+
+	var attrs map[string]string
+	if user, userOK := b.users.Get(userKey(client.UserPoolID, username)); userOK {
+		attrs = user.Attributes
+	}
+
+	return b.prepareTrigger(pool, triggerKeyCustomMessage, triggerSource, clientID, username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(attrs),
+			"codeParameter":        customMessageCodeParameter,
+			"usernameParameter":    username,
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{"smsMessage": "", "emailMessage": "", "emailSubject": ""},
+	)
+}
+
 // InvokeCustomMessageTrigger fires the CustomMessage Lambda trigger (if configured)
 // for a code-delivery flow (SignUp, ResendConfirmationCode, ForgotPassword) and
 // returns any smsMessage/emailMessage/emailSubject override the Lambda supplied,
@@ -369,33 +417,14 @@ func parsePreSignUpResponse(resp map[string]any) (bool, bool, bool) {
 func (b *InMemoryBackend) InvokeCustomMessageTrigger(
 	clientID, username, code, triggerSource string,
 ) (string, string, error) {
-	b.mu.RLock("InvokeCustomMessageTrigger")
-	defer b.mu.RUnlock()
-
-	client, clientOK := b.clients.Get(clientID)
-	if !clientOK {
+	call := b.prepareCustomMessage(clientID, username, triggerSource)
+	if call == nil {
 		return "", "", nil
 	}
 
-	pool, poolOK := b.pools.Get(client.UserPoolID)
-	if !poolOK {
-		return "", "", nil
-	}
+	result, invErr := call.inv.InvokeTrigger(context.Background(), call.functionARN, call.event)
 
-	var attrs map[string]string
-	if user, userOK := b.users.Get(userKey(client.UserPoolID, username)); userOK {
-		attrs = user.Attributes
-	}
-
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyCustomMessage, triggerSource, clientID, username,
-		map[string]any{
-			eventKeyUserAttributes: stringMapToAny(attrs),
-			"codeParameter":        customMessageCodeParameter,
-			"usernameParameter":    username,
-			eventKeyClientMetadata: map[string]any{},
-		},
-		map[string]any{"smsMessage": "", "emailMessage": "", "emailSubject": ""},
-	)
+	resp, err := parseTriggerResult(triggerKeyCustomMessage, result, invErr)
 	if err != nil {
 		return "", "", err
 	}
@@ -532,7 +561,7 @@ func (b *InMemoryBackend) defineAuthChallenge(
 				"which is not configured for user pool %q", ErrInvalidUserPoolConfig, pool.ID)
 	}
 
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyDefineAuthChallenge, triggerSourceDefineAuthChallenge,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyDefineAuthChallenge, triggerSourceDefineAuthChallenge,
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(userAttrs),
@@ -561,7 +590,7 @@ func (b *InMemoryBackend) createAuthChallenge(
 	pool *UserPool, clientID, username string, userAttrs map[string]string,
 	challengeName string, session []customAuthChallengeResult,
 ) (map[string]string, map[string]string, string, error) {
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyCreateAuthChallenge, triggerSourceCreateAuthChallenge,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyCreateAuthChallenge, triggerSourceCreateAuthChallenge,
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(userAttrs),
@@ -593,7 +622,7 @@ func (b *InMemoryBackend) createAuthChallenge(
 func (b *InMemoryBackend) verifyCustomAuthChallenge(
 	pool *UserPool, clientID, username string, userAttrs, private map[string]string, answer string,
 ) (bool, error) {
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyVerifyAuthChallenge, triggerSourceVerifyAuthChallenge,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyVerifyAuthChallenge, triggerSourceVerifyAuthChallenge,
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes:       stringMapToAny(userAttrs),
@@ -680,7 +709,7 @@ func (b *InMemoryBackend) invokeUserMigrationTrigger(
 		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
 	}
 
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyUserMigration, triggerSourceUserMigrationAuth,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyUserMigration, triggerSourceUserMigrationAuth,
 		clientID, username,
 		map[string]any{
 			"password":             password,
@@ -711,7 +740,7 @@ func (b *InMemoryBackend) invokeUserMigrationTriggerForgotPassword(
 		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
 	}
 
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyUserMigration, triggerSourceUserMigrationForgotPwd,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyUserMigration, triggerSourceUserMigrationForgotPwd,
 		clientID, username,
 		map[string]any{
 			eventKeyValidationData: map[string]any{},
