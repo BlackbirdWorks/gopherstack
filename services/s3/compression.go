@@ -89,12 +89,39 @@ func gzipISizeHint(data []byte) int {
 	return int(isize)
 }
 
+// gzipReaderState pairs a reusable gzip.Reader with its source so a pooled
+// reader never pins the stored blob it last read.
+type gzipReaderState struct {
+	zr  *gzip.Reader
+	src bytes.Reader
+}
+
+var gzipReaderPool sync.Pool //nolint:gochecknoglobals // sync.Pool requires package-level allocation
+
+// Decompress gunzips data. Readers are pooled; each is owned by one call.
 func (c *GzipCompressor) Decompress(data []byte) ([]byte, error) {
-	r, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
+	st, _ := gzipReaderPool.Get().(*gzipReaderState)
+	if st == nil {
+		st = new(gzipReaderState)
+	}
+
+	st.src.Reset(data)
+
+	defer func() {
+		st.src.Reset(nil)
+		gzipReaderPool.Put(st)
+	}()
+
+	if st.zr == nil {
+		zr, err := gzip.NewReader(&st.src)
+		if err != nil {
+			return nil, err
+		}
+
+		st.zr = zr
+	} else if err := st.zr.Reset(&st.src); err != nil {
 		return nil, err
 	}
-	defer r.Close()
 
 	var buf bytes.Buffer
 	if hint := gzipISizeHint(data); hint > 0 {
@@ -102,8 +129,7 @@ func (c *GzipCompressor) Decompress(data []byte) ([]byte, error) {
 		// buffer doubles once at the end.
 		buf.Grow(hint + bytes.MinRead)
 	}
-	//nolint:gosec // G110: decompresses our own previously Compress'd bytes, not attacker-supplied gzip
-	if _, err = io.Copy(&buf, r); err != nil {
+	if _, err := io.Copy(&buf, st.zr); err != nil {
 		return nil, err
 	}
 

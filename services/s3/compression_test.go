@@ -3,6 +3,7 @@ package s3_test
 import (
 	"bytes"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -322,6 +323,75 @@ func TestCompressionMinBytes_CompleteMultipartUpload(t *testing.T) {
 			body, err := io.ReadAll(out.Body)
 			require.NoError(t, err)
 			assert.Equal(t, append(partData, partData...), body)
+		})
+	}
+}
+
+func TestGzipCompressor_ConcurrentDecompress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		size int
+	}{
+		{"tiny", 17},
+		{"medium", 256 << 10},
+		{"large", 3 << 20},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &s3.GzipCompressor{}
+			blobs := make([][]byte, 4)
+			plain := make([][]byte, 4)
+
+			for i := range blobs {
+				plain[i] = bytes.Repeat([]byte{byte('a' + i)}, tt.size)
+				plain[i][len(plain[i])/2] = byte(i)
+
+				var err error
+				blobs[i], err = c.Compress(plain[i])
+				require.NoError(t, err)
+			}
+
+			var wg sync.WaitGroup
+
+			errs := make([]error, 16)
+
+			for g := range errs {
+				wg.Go(func() {
+					i := g % len(blobs)
+
+					for range 20 {
+						got, err := c.Decompress(blobs[i])
+						if err != nil {
+							errs[g] = err
+
+							return
+						}
+
+						if !bytes.Equal(plain[i], got) {
+							errs[g] = io.ErrUnexpectedEOF
+
+							return
+						}
+
+						if _, err = c.Decompress([]byte("not gzip at all, definitely not")); err == nil {
+							errs[g] = io.ErrNoProgress
+
+							return
+						}
+					}
+				})
+			}
+
+			wg.Wait()
+
+			for _, err := range errs {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

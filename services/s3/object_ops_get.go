@@ -230,11 +230,17 @@ func (h *S3Handler) serveObjectBody(
 		return false
 	}
 
-	data, readErr := io.ReadAll(ver.Body)
-	if readErr != nil {
-		WriteError(ctx, w, r, readErr)
+	var data []byte
 
-		return true
+	if mb, ok := ver.Body.(*memBody); ok && mb.Len() == len(mb.data) {
+		data = mb.data
+	} else {
+		var readErr error
+		if data, readErr = io.ReadAll(ver.Body); readErr != nil {
+			WriteError(ctx, w, r, readErr)
+
+			return true
+		}
 	}
 
 	if h.serveRange(ctx, w, r, data, rangeHeader) {

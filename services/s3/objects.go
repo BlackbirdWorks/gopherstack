@@ -756,6 +756,15 @@ func (b *InMemoryBackend) decompressObjectData(
 	return data, nil
 }
 
+// memBody is an in-memory object body that exposes its backing slice so
+// ranged reads can slice it instead of copying through io.ReadAll.
+type memBody struct {
+	*bytes.Reader
+	data []byte
+}
+
+func (*memBody) Close() error { return nil }
+
 // buildGetObjectOutput assembles a GetObjectOutput from decompressed data and version fields.
 func buildGetObjectOutput(
 	data []byte,
@@ -770,7 +779,7 @@ func buildGetObjectOutput(
 	}
 
 	return &s3.GetObjectOutput{
-		Body:                      io.NopCloser(bytes.NewReader(data)),
+		Body:                      &memBody{Reader: bytes.NewReader(data), data: data},
 		ContentLength:             aws.Int64(size),
 		ContentType:               aws.String(ver.ContentType),
 		ContentEncoding:           ptrconv.NilIfEmpty(ver.ContentEncoding),
