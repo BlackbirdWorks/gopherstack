@@ -10388,6 +10388,7 @@
       "ContainerInstance.ClusterArn string `json:\"clusterArn\"`",
       "ContainerInstance.ContainerInstanceArn string `json:\"containerInstanceArn\"`",
       "ContainerInstance.EC2InstanceID string `json:\"ec2InstanceId\"`",
+      "ContainerInstance.InactiveAt time.Time `json:\"inactiveAt,omitzero\"`",
       "ContainerInstance.PendingTasksCount int `json:\"pendingTasksCount\"`",
       "ContainerInstance.RegisteredAt time.Time `json:\"registeredAt\"`",
       "ContainerInstance.RunningTasksCount int `json:\"runningTasksCount\"`",
