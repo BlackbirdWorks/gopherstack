@@ -83,6 +83,13 @@ func (b *InMemoryBackend) CreateDBCluster(
 	); err != nil {
 		return nil, err
 	}
+	var extras ClusterExtras
+	if opts != nil {
+		extras = opts.ClusterExtras
+	}
+	if err := extras.validate(); err != nil {
+		return nil, err
+	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBCluster")
 	defer b.mu.Unlock()
@@ -149,6 +156,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		VpcSecurityGroupIDs:          vpcSecurityGroupIDs,
 		EnabledCloudwatchLogsExports: enabledCloudwatchLogsExports,
 	}
+	extras.applyTo(cluster)
 	b.clusterPut(cluster)
 	if len(tags) > 0 {
 		b.tagsStore(region)[clusterArn] = tagsFromMap(tags)
@@ -303,6 +311,12 @@ func (b *InMemoryBackend) applyModifyDBClusterExtras(
 			return err
 		}
 	}
+	if err := opts.validate(); err != nil {
+		return err
+	}
+	if err := validateScaling(mergeScaling(c.ServerlessV2Scaling, opts.Scaling)); err != nil {
+		return err
+	}
 	if opts.StorageType != "" {
 		storageType, err := validateStorageType(opts.StorageType)
 		if err != nil {
@@ -311,6 +325,7 @@ func (b *InMemoryBackend) applyModifyDBClusterExtras(
 		c.StorageType = storageType
 	}
 
+	opts.applyTo(c)
 	applyModifyDBClusterOpts(c, opts)
 	if opts.NewDBClusterIdentifier != "" {
 		b.clusterDelete(region, id)
@@ -437,6 +452,7 @@ func (b *InMemoryBackend) FailoverDBCluster(
 // restore-a-new-cluster operations (RestoreDBClusterFromSnapshot,
 // RestoreDBClusterToPointInTime).
 type RestoreDBClusterOptions struct {
+	ClusterExtras
 	StorageType string
 	// RestoreToTime and UseLatestRestorableTime are mutually exclusive per
 	// docdb@v1.51.4 api_op_RestoreDBClusterToPointInTime.go:127-134 ("Must be
@@ -460,8 +476,13 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
 	var storageTypeIn string
+	var extras ClusterExtras
 	if opts != nil {
 		storageTypeIn = opts.StorageType
+		extras = opts.ClusterExtras
+	}
+	if err := extras.validate(); err != nil {
+		return nil, err
 	}
 	storageType, err := validateStorageType(storageTypeIn)
 	if err != nil {
@@ -512,6 +533,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		StorageEncrypted:            snap.StorageEncrypted,
 		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
 	}
+	extras.applyTo(cluster)
 	b.clusterPut(cluster)
 
 	return copyCluster(cluster), nil
@@ -531,13 +553,18 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	var storageTypeIn, restoreToTime string
 	var useLatestRestorableTime bool
+	var extras ClusterExtras
 	if opts != nil {
+		extras = opts.ClusterExtras
 		storageTypeIn = opts.StorageType
 		restoreToTime = opts.RestoreToTime
 		useLatestRestorableTime = opts.UseLatestRestorableTime
 	}
 	storageType, err := validateStorageType(storageTypeIn)
 	if err != nil {
+		return nil, err
+	}
+	if err = extras.validate(); err != nil {
 		return nil, err
 	}
 	switch {
@@ -585,6 +612,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		PreferredMaintenanceWindow:  src.PreferredMaintenanceWindow,
 		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
 	}
+	extras.applyTo(cluster)
 	b.clusterPut(cluster)
 
 	return copyCluster(cluster), nil

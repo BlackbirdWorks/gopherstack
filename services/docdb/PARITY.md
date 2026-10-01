@@ -90,7 +90,7 @@ gaps: []
   # present-but-always-empty field byte-identical on the wire to an absent
   # one, so modelling them as always-empty would also be zero-effect churn.
 items_still_open:
-  - "Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/MasterUserSecret(+KmsKeyId, ManageMasterUserPassword)/NetworkType/PercentProgress/ServerlessV2ScalingConfiguration; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState/TagList."
+  - "Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/MasterUserSecret(+KmsKeyId, ManageMasterUserPassword)/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously)."
   - "ReplicationSourceIdentifier/ReadReplicaIdentifiers stay empty: CreateDBClusterInput has no such member and docdb has no PromoteReadReplicaDBCluster, so only an unbuilt global-cluster secondary-attach path could populate them."
   - "DBClusterSnapshot.VpcId stays empty: CreateDBSubnetGroupInput has no VpcId and this backend cannot resolve subnet-to-VPC without EC2, so every subnet group's VpcId is empty."
   - "Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn: no authoritative source for the built-in catalog values or ARN format; not guessed."
@@ -102,6 +102,12 @@ leaks: {status: clean, note: "no goroutines, no time.After/NewTicker/Tick anywhe
 ---
 
 ## Notes
+
+- **2026-10-01 (items_still_open burn-down)**: Create/Modify/RestoreFromSnapshot/RestoreToPointInTime
+  now store and return NetworkType (IPV4|DUAL) and ServerlessV2ScalingConfiguration (half-step DCUs,
+  Min<=Max, per SDK doc; no numeric range is documented so none is enforced), proven by
+  `TestRealClient_ClusterNetworkTypeAndServerlessScaling`. GlobalCluster.TagList now reflects
+  AddTagsToResource tags, cleared on DeleteGlobalCluster (`TestRealClient_GlobalClusterTagList`).
 
 Protocol: query/XML (`Version=2014-10-31`), single POST with `Action=` form param, same
 family as RDS and Neptune (all three descend from a shared Smithy model lineage). Response

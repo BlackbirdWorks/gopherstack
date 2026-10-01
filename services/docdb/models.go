@@ -155,25 +155,27 @@ type DBCluster struct {
 	// marshaling DBCluster directly), but persistence.go must carry it
 	// through a DTO explicitly since json.Marshal never sees unexported fields.
 	region                      string
-	Tags                        map[string]string `json:"tags"`
-	DBClusterArn                string            `json:"dbClusterArn"`
-	EngineVersion               string            `json:"engineVersion"`
-	Engine                      string            `json:"engine"`
-	PreferredMaintenanceWindow  string            `json:"preferredMaintenanceWindow"`
-	MasterUsername              string            `json:"masterUsername"`
-	DBClusterParameterGroupName string            `json:"dbClusterParameterGroupName"`
-	Endpoint                    string            `json:"endpoint"`
-	DBClusterIdentifier         string            `json:"dbClusterIdentifier"`
-	ReaderEndpoint              string            `json:"readerEndpoint"`
-	Status                      string            `json:"status"`
-	StorageType                 string            `json:"storageType"`
-	DBSubnetGroupName           string            `json:"dbSubnetGroupName"`
-	PreferredBackupWindow       string            `json:"preferredBackupWindow"`
-	ClusterCreateTime           string            `json:"clusterCreateTime"`
-	HostedZoneID                string            `json:"hostedZoneId"`
-	KmsKeyID                    string            `json:"kmsKeyId"`
-	ReplicationSourceIdentifier string            `json:"replicationSourceIdentifier"`
-	DBClusterResourceID         string            `json:"dbClusterResourceId,omitempty"`
+	Tags                        map[string]string    `json:"tags"`
+	DBClusterArn                string               `json:"dbClusterArn"`
+	EngineVersion               string               `json:"engineVersion"`
+	Engine                      string               `json:"engine"`
+	PreferredMaintenanceWindow  string               `json:"preferredMaintenanceWindow"`
+	MasterUsername              string               `json:"masterUsername"`
+	DBClusterParameterGroupName string               `json:"dbClusterParameterGroupName"`
+	Endpoint                    string               `json:"endpoint"`
+	DBClusterIdentifier         string               `json:"dbClusterIdentifier"`
+	ReaderEndpoint              string               `json:"readerEndpoint"`
+	Status                      string               `json:"status"`
+	StorageType                 string               `json:"storageType"`
+	DBSubnetGroupName           string               `json:"dbSubnetGroupName"`
+	PreferredBackupWindow       string               `json:"preferredBackupWindow"`
+	ClusterCreateTime           string               `json:"clusterCreateTime"`
+	HostedZoneID                string               `json:"hostedZoneId"`
+	KmsKeyID                    string               `json:"kmsKeyId"`
+	ReplicationSourceIdentifier string               `json:"replicationSourceIdentifier"`
+	DBClusterResourceID         string               `json:"dbClusterResourceId,omitempty"`
+	NetworkType                 string               `json:"networkType,omitempty"`
+	ServerlessV2Scaling         *ServerlessV2Scaling `json:"serverlessV2Scaling,omitempty"`
 	// WriterInstanceID names the cluster member FailoverDBCluster last
 	// promoted to writer; empty means GetClusterMembers falls back to its
 	// default (alphabetically first member). Backend-internal state, never
@@ -440,6 +442,7 @@ type InMemoryBackend struct {
 
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.
 type CreateDBClusterOptions struct {
+	ClusterExtras
 	KmsKeyID                     string
 	StorageType                  string
 	VpcSecurityGroupIDs          []string
@@ -454,6 +457,7 @@ type DeleteDBClusterOptions struct {
 
 // ModifyDBClusterOptions holds optional extra parameters for ModifyDBCluster.
 type ModifyDBClusterOptions struct {
+	ClusterExtras
 	EngineVersion          string
 	MasterUserPassword     string
 	NewDBClusterIdentifier string

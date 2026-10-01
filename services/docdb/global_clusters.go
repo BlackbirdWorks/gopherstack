@@ -92,7 +92,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 }
 
 // DeleteGlobalCluster deletes a global cluster.
-func (b *InMemoryBackend) DeleteGlobalCluster(_ context.Context, id string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) DeleteGlobalCluster(ctx context.Context, id string) (*GlobalCluster, error) {
 	b.mu.Lock("DeleteGlobalCluster")
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters.Get(id)
@@ -116,6 +116,7 @@ func (b *InMemoryBackend) DeleteGlobalCluster(_ context.Context, id string) (*Gl
 
 	cp := copyGlobalCluster(gc)
 	b.globalClusters.Delete(id)
+	delete(b.tagsStore(regionFromARN(gc.GlobalClusterArn, getRegion(ctx, b.region))), gc.GlobalClusterArn)
 
 	return cp, nil
 }
