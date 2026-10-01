@@ -40,6 +40,12 @@ func (b *InMemoryBackend) RegisterConnection(clientID, sourceIP string) error {
 // models ResourceNotFoundException for this op -- see ErrConnectionNotFound).
 // ClientIDs beginning with '$' are rejected per AWS rules.
 func (b *InMemoryBackend) DeleteConnection(clientID string) error {
+	return b.DeleteConnectionWithOptions(clientID, false, false)
+}
+
+// DeleteConnectionWithOptions is DeleteConnection plus the real cleanSession
+// and preventWillMessage query flags, applied to the broker's live session.
+func (b *InMemoryBackend) DeleteConnectionWithOptions(clientID string, cleanSession, preventWill bool) error {
 	if strings.HasPrefix(clientID, "$") {
 		return fmt.Errorf("%w: clientId may not start with '$'", ErrValidation)
 	}
@@ -49,6 +55,12 @@ func (b *InMemoryBackend) DeleteConnection(clientID string) error {
 
 	if !b.connections.Has(clientID) {
 		return fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
+	}
+
+	if b.broker != nil {
+		if _, err := b.broker.DisconnectClient(clientID, cleanSession, preventWill); err != nil {
+			return fmt.Errorf("disconnect %s: %w", clientID, err)
+		}
 	}
 
 	b.connections.Delete(clientID)
@@ -108,18 +120,27 @@ func (b *InMemoryBackend) GetConnection(clientID string) (*Connection, error) {
 	}
 
 	b.mu.RLock("GetConnection")
-	defer b.mu.RUnlock()
-
 	entry, ok := b.connections.Get(clientID)
+	broker := b.broker
+	b.mu.RUnlock()
+
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
 	}
 
-	return &Connection{
+	conn := &Connection{
 		ClientID:    entry.clientID,
 		SourceIP:    entry.sourceIP,
 		ConnectedAt: entry.connectedAt,
-	}, nil
+	}
+
+	if broker != nil {
+		if info, live := broker.ClientSession(clientID); live {
+			conn.Session = &info
+		}
+	}
+
+	return conn, nil
 }
 
 // ListSubscriptions validates that clientID is a tracked connection, mirroring

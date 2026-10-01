@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -85,7 +87,11 @@ func (h *Handler) handleDeleteConnection(c *echo.Context) error {
 		return invalidRequestResponse(c, "clientId is required")
 	}
 
-	if err := h.Backend.DeleteConnection(clientID); err != nil {
+	q := c.Request().URL.Query()
+	cleanSession := parseRetainFlag(q.Get("cleanSession"))
+	preventWill := parseRetainFlag(q.Get("preventWillMessage"))
+
+	if err := h.Backend.DeleteConnectionWithOptions(clientID, cleanSession, preventWill); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -127,10 +133,32 @@ func (h *Handler) handleConnectionsWire(c *echo.Context) error {
 // zero value for these optional fields, so this is wire-compatible, not a
 // shortcut.
 type getConnectionResponse struct {
-	ClientID       string `json:"clientId"`
-	SourceIP       string `json:"sourceIp,omitempty"`
-	ConnectedSince int64  `json:"connectedSince,omitempty"`
-	Connected      bool   `json:"connected"`
+	ClientID          string `json:"clientId"`
+	SourceIP          string `json:"sourceIp,omitempty"`
+	TargetIP          string `json:"targetIp,omitempty"`
+	ConnectedSince    int64  `json:"connectedSince,omitempty"`
+	SessionExpiry     int64  `json:"sessionExpiry,omitempty"`
+	SourcePort        int32  `json:"sourcePort,omitempty"`
+	TargetPort        int32  `json:"targetPort,omitempty"`
+	KeepAliveDuration int32  `json:"keepAliveDuration,omitempty"`
+	Connected         bool   `json:"connected"`
+	CleanSession      bool   `json:"cleanSession,omitempty"`
+}
+
+// splitHostPort splits a socket address into host and port, returning zero
+// values for anything unparsable.
+func splitHostPort(addr string) (string, int32) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", 0
+	}
+
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return host, 0
+	}
+
+	return host, int32(port)
 }
 
 // handleGetConnection processes GET /connections/{clientId} requests.
@@ -154,8 +182,23 @@ func (h *Handler) handleGetConnection(c *echo.Context) error {
 	// includeSocketInformation defaults to false per GetConnectionInput; only
 	// echo the (genuinely tracked) sourceIp when the caller opted in, mirroring
 	// the real API's documented gating.
-	if parseRetainFlag(c.Request().URL.Query().Get("includeSocketInformation")) {
+	includeSocket := parseRetainFlag(c.Request().URL.Query().Get("includeSocketInformation"))
+	if includeSocket {
 		resp.SourceIP = conn.SourceIP
+	}
+
+	if sess := conn.Session; sess != nil {
+		resp.CleanSession = sess.Clean
+		resp.KeepAliveDuration = int32(sess.KeepAlive)
+
+		if sess.ExpiryKnown {
+			resp.SessionExpiry = int64(sess.SessionExpiry)
+		}
+
+		if includeSocket {
+			resp.SourceIP, resp.SourcePort = splitHostPort(sess.RemoteAddr)
+			resp.TargetIP, resp.TargetPort = splitHostPort(sess.LocalAddr)
+		}
 	}
 
 	return c.JSON(http.StatusOK, resp)

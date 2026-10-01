@@ -16,6 +16,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
+// mqttV5 is the MQTT protocol version number that carries DISCONNECT reason codes.
+const mqttV5 = 5
+
 // ErrBrokerNotStarted is returned when a publish is attempted before the broker is started.
 var ErrBrokerNotStarted = errors.New("mqtt broker not started")
 
@@ -219,6 +222,70 @@ func (b *Broker) SendToClient(clientID, topic string, payload []byte, qos byte) 
 		qos,
 		iotdataplane.MQTT5Properties{},
 	)
+}
+
+// ClientSession implements iotdataplane.MQTTPublisher from the live client's
+// CONNECT-time properties and socket addresses.
+func (b *Broker) ClientSession(clientID string) (iotdataplane.SessionInfo, bool) {
+	s := b.server.Load()
+	if s == nil {
+		return iotdataplane.SessionInfo{}, false
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok || cl.Closed() {
+		return iotdataplane.SessionInfo{}, false
+	}
+
+	info := iotdataplane.SessionInfo{
+		Clean:         cl.Properties.Clean,
+		KeepAlive:     cl.State.Keepalive,
+		RemoteAddr:    cl.Net.Remote,
+		SessionExpiry: cl.Properties.Props.SessionExpiryInterval,
+		ExpiryKnown:   cl.Properties.Props.SessionExpiryIntervalFlag,
+	}
+
+	if cl.Net.Conn != nil && cl.Net.Conn.LocalAddr() != nil {
+		info.LocalAddr = cl.Net.Conn.LocalAddr().String()
+	}
+
+	return info, true
+}
+
+// DisconnectClient implements iotdataplane.MQTTPublisher; cleanSession drops stored session
+// state and preventWill clears the Last Will so mochi-mqtt does not publish it.
+func (b *Broker) DisconnectClient(clientID string, cleanSession, preventWill bool) (bool, error) {
+	s := b.server.Load()
+	if s == nil {
+		return false, ErrBrokerNotStarted
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok || cl.Closed() {
+		return false, nil
+	}
+
+	if preventWill {
+		atomic.StoreUint32(&cl.Properties.Will.Flag, 0)
+	}
+
+	if cleanSession {
+		cl.Properties.Clean = true
+		cl.Properties.Props.SessionExpiryInterval = 0
+	}
+
+	if cl.Properties.ProtocolVersion >= mqttV5 {
+		if err := s.DisconnectClient(cl, packets.ErrAdministrativeAction); err != nil &&
+			!errors.Is(err, packets.ErrAdministrativeAction) {
+			return false, fmt.Errorf("iot broker: disconnect client %s: %w", clientID, err)
+		}
+
+		return true, nil
+	}
+
+	cl.Stop(packets.ErrAdministrativeAction)
+
+	return true, nil
 }
 
 // SendToClientWithProperties implements iotdataplane.MQTTPublisher. It

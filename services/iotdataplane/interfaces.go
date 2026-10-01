@@ -29,6 +29,17 @@ type MQTT5Properties struct {
 	MessageExpiry          int64
 }
 
+// SessionInfo describes a live broker session as GetConnection reports it.
+// ExpiryKnown is false when the client stated no expiry (MQTT 3.1.1 never does).
+type SessionInfo struct {
+	RemoteAddr    string
+	LocalAddr     string
+	SessionExpiry uint32
+	KeepAlive     uint16
+	Clean         bool
+	ExpiryKnown   bool
+}
+
 // MQTTPublisher publishes messages to the MQTT broker and can inspect or
 // target the broker's individually connected clients.
 type MQTTPublisher interface {
@@ -70,6 +81,14 @@ type MQTTPublisher interface {
 	// per-client route" from a genuine delivery failure.
 	SendToClient(clientID, topic string, payload []byte, qos byte) (ok bool, err error)
 
+	// ClientSession reports the live (not closed) session for clientID, or
+	// ok=false when the broker has none.
+	ClientSession(clientID string) (info SessionInfo, ok bool)
+
+	// DisconnectClient closes clientID's live connection, optionally dropping session state and
+	// its Last Will; ok is false, with nil err, when no such live client exists.
+	DisconnectClient(clientID string, cleanSession, preventWill bool) (ok bool, err error)
+
 	// SendToClientWithProperties behaves like SendToClient but also attaches
 	// props as real MQTT5 packet properties (see PublishWithProperties).
 	SendToClientWithProperties(
@@ -88,6 +107,7 @@ type StorageBackend interface {
 	ListThingsWithShadows() []string
 	RegisterConnection(clientID, sourceIP string) error
 	DeleteConnection(clientID string) error
+	DeleteConnectionWithOptions(clientID string, cleanSession, preventWill bool) error
 	ListConnections() []*Connection
 	GetConnection(clientID string) (*Connection, error)
 	ListSubscriptions(clientID string) ([]SubscriptionSummary, error)
