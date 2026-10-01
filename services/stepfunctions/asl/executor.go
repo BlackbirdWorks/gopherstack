@@ -389,6 +389,7 @@ type Executor struct {
 	jsonPathCache        *jsonPathCache
 	sm                   *StateMachine
 	jx                   *jxScope
+	mock                 *MockRun
 	outerVars            map[string]any
 	execSem              *semaphore.Weighted
 	jxNums               map[string]int
@@ -457,6 +458,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		s3:                   e.s3,
 		s3w:                  e.s3w,
 		execSem:              e.execSem,
+		mock:                 e.mock,
 		jsonPathCache:        e.jsonPathCache,
 		execMeta:             e.execMeta,
 		branchName:           e.branchName,
@@ -967,7 +969,10 @@ func (e *Executor) executeTask(
 	waitForTaskToken := isWaitForTaskTokenResource(state.Resource)
 
 	for {
-		result, taskErr := e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+		result, mocked, taskErr := e.mock.invoke(stateName)
+		if !mocked {
+			result, taskErr = e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+		}
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, state.Resource, result)
 

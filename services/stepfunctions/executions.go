@@ -91,6 +91,8 @@ func (b *InMemoryBackend) StartSyncExecution(
 		)
 	}
 
+	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
+
 	b.mu.RLock("StartSyncExecution")
 	resolved, resolveErr := b.resolveExecutionTarget(stateMachineArn)
 	if resolveErr != nil {
@@ -120,7 +122,14 @@ func (b *InMemoryBackend) StartSyncExecution(
 	smName := sm.Name
 	parsedSM, parseErr := sm.parseDefinition()
 	integrations := b.snapshotIntegrationsLocked()
+	mockRun, mockErr := b.mockRunLocked(smName, testCase, hasTestCase)
 	b.mu.RUnlock()
+
+	if mockErr != nil {
+		return nil, mockErr
+	}
+
+	integrations.mockRun = mockRun
 
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
@@ -278,6 +287,8 @@ type startedExecution struct {
 func (b *InMemoryBackend) startExecutionLocked(
 	stateMachineArn, name, input string,
 ) (*startedExecution, error) {
+	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
+
 	b.mu.Lock("StartExecution")
 	defer b.mu.Unlock()
 
@@ -311,6 +322,11 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
 	baseSMArn := sm.StateMachineArn
 	execArn := b.execARN(baseSMArn, sm.Name, name)
+
+	mockRun, mockErr := b.mockRunLocked(sm.Name, testCase, hasTestCase)
+	if mockErr != nil {
+		return nil, mockErr
+	}
 
 	// StartExecution is idempotent for STANDARD workflows: calling it again
 	// with the same name and input against a still-RUNNING execution
@@ -361,7 +377,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 		exec:            exec,
 		execArn:         execArn,
 		parsedSM:        parsedSM,
-		integrations:    b.snapshotIntegrationsLocked(),
+		integrations:    b.integrationsWithMockLocked(mockRun),
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil

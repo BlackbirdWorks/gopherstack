@@ -105,6 +105,7 @@ type InMemoryBackend struct {
 	ebIntegration   asl.EventBridgeIntegration
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
+	mockConfig      *asl.MockConfig
 	svcCtx          context.Context
 	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
 	// Left as a plain map (not a store.Table): activityTaskEntry carries
@@ -274,6 +275,13 @@ func (b *InMemoryBackend) SetSettings(s Settings) {
 	b.settings = s
 }
 
+// SetMockConfig installs the mocked service integration configuration.
+func (b *InMemoryBackend) SetMockConfig(c *asl.MockConfig) {
+	b.mu.Lock("SetMockConfig")
+	defer b.mu.Unlock()
+	b.mockConfig = c
+}
+
 // Destroy cancels all running execution goroutines and releases resources.
 func (b *InMemoryBackend) Destroy() {
 	b.mu.Lock("Destroy")
@@ -385,6 +393,7 @@ type integrationsSnapshot struct {
 	ebIntegration   asl.EventBridgeIntegration
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
+	mockRun         *asl.MockRun
 }
 
 // snapshotIntegrationsLocked copies the configured integrations. Must be
@@ -419,6 +428,7 @@ func applyIntegrations(executor *asl.Executor, s integrationsSnapshot) {
 	executor.SetEventBridgeIntegration(s.ebIntegration)
 	executor.SetS3Reader(s.s3Reader)
 	executor.SetS3ResultWriter(s.s3ResultWriter)
+	executor.SetMockRun(s.mockRun)
 }
 
 func (b *InMemoryBackend) smARN(region, name string) string {

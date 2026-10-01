@@ -2,9 +2,12 @@ package stepfunctions
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
 // ErrNilAppContext is returned when Init is called with a nil AppContext.
@@ -34,7 +37,20 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	if sp, ok := ctx.Config.(SettingsProvider); ok {
-		backend.SetSettings(sp.GetStepFunctionsSettings())
+		settings := sp.GetStepFunctionsSettings()
+		backend.SetSettings(settings)
+
+		if settings.MockConfig != "" {
+			mockCfg, err := asl.LoadMockConfig(settings.MockConfig)
+			if err != nil {
+				return nil, fmt.Errorf("stepfunctions: SFN_MOCK_CONFIG %q: %w", settings.MockConfig, err)
+			}
+
+			backend.SetMockConfig(mockCfg)
+			logger.Load(ctx.JanitorCtx).InfoContext(
+				ctx.JanitorCtx, "Step Functions mock config loaded", "path", settings.MockConfig,
+			)
+		}
 	}
 
 	handler := NewHandler(backend)

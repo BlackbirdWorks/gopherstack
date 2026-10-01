@@ -4,6 +4,8 @@ import "time"
 
 // Settings holds configurable settings for the Step Functions service.
 type Settings struct {
+	// MockConfig is the path to a Step Functions Local / LocalStack mock configuration file.
+	MockConfig string `json:"mock_config"         name:"mock-config"         env:"SFN_MOCK_CONFIG,LOCALSTACK_SFN_MOCK_CONFIG" help:"Path to a mocked service integrations JSON file."` //nolint:lll,golines // Kong struct tag makes this line long
 	// ExecutionRetention is how long execution history is kept before being pruned.
 	// Defaults to 24 hours for local mock stability.
 	ExecutionRetention time.Duration `json:"execution_retention" name:"execution-retention" env:"SFN_EXECUTION_RETENTION" default:"24h" help:"How long to retain execution history."` //nolint:lll // Kong struct tag makes this line long

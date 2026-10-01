@@ -371,6 +371,7 @@ func classifyError(reqErr error) (string, int) {
 		{ErrInvalidExecutionInput, "InvalidExecutionInput", http.StatusBadRequest},
 		{ErrInvalidName, "InvalidName", http.StatusBadRequest},
 		{ErrInvalidRoleArn, "InvalidArn", http.StatusBadRequest},
+		{ErrInvalidStateMachineArn, "InvalidArn", http.StatusBadRequest},
 		// AWS: Create/UpdateStateMachineAlias both model ValidationException,
 		// not "InvalidRoutingConfiguration" (names no type anywhere in this
 		// SDK) -- AWS represents this exact condition as
