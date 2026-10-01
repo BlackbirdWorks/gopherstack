@@ -1485,7 +1485,7 @@ Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
 
 ## 2026-10-01 Mocked service integrations (gopherstack-pu3k0)
 
-- Step Functions Local / LocalStack mock config (`StateMachines`/`TestCases`/`MockedResponses`, `Return`/`Throw`, `"N"` and `"N-M"` invocation keys) loaded from `SFN_MOCK_CONFIG` (also `LOCALSTACK_SFN_MOCK_CONFIG`, `--stepfunctions-mock-config`); invalid file fails startup with a clear error.
+- Step Functions Local / LocalStack mock config (`StateMachines`/`TestCases`/`MockedResponses`, `Return`/`Throw`, `"N"` and `"N-M"` invocation keys) loaded from `SFN_MOCK_CONFIG` (or `LOCALSTACK_SFN_MOCK_CONFIG`); env only, no CLI flag; invalid file fails startup with a clear error.
 - Activated by `StartExecution`/`StartSyncExecution` with `stateMachineArn#TestCase`; unknown test case or no config returns `InvalidArn`.
 - Mocked Task states skip the real integration (incl. `.waitForTaskToken`) in JSONPath and JSONata, inside Map/Parallel; Retry/Catch/ResultSelector apply. Invocation index is counted per state across the run; a missing index fails with `States.Runtime`.
 - Not mocked: Distributed Map child executions and RedriveExecution. Sources: docs.aws.amazon.com/step-functions/latest/dg/sfn-local-mock-cfg-file.html, docs.localstack.cloud/aws/services/stepfunctions/.

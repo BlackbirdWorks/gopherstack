@@ -27226,6 +27226,7 @@
       "integrationsSnapshot.glueIntegration asl.GlueIntegration",
       "integrationsSnapshot.glueSyncWaiter asl.GlueSyncWaiter",
       "integrationsSnapshot.lambdaInvoker asl.LambdaInvoker",
+      "integrationsSnapshot.mockRun *asl.MockRun",
       "integrationsSnapshot.s3Reader asl.S3Reader",
       "integrationsSnapshot.s3ResultWriter asl.S3Writer",
       "integrationsSnapshot.snsIntegration asl.SNSIntegration",
