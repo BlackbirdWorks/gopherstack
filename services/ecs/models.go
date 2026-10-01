@@ -1,6 +1,9 @@
 package ecs
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ---- Load balancer, logging, secrets, and volume models ----
 
@@ -686,6 +689,21 @@ type ContainerDefinition struct {
 	DisableNetworking      bool                   `json:"disableNetworking,omitempty"`
 	Privileged             bool                   `json:"privileged,omitempty"`
 	ReadonlyRootFilesystem bool                   `json:"readonlyRootFilesystem,omitempty"`
+}
+
+// UnmarshalJSON defaults Essential to true when the key is omitted, per
+// types.ContainerDefinition.Essential's documented default.
+func (c *ContainerDefinition) UnmarshalJSON(data []byte) error {
+	type plain ContainerDefinition
+
+	p := plain{Essential: true}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+
+	*c = ContainerDefinition(p)
+
+	return nil
 }
 
 // ContainerDependency specifies a start/stop dependency between containers.

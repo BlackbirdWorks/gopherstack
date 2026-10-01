@@ -53,6 +53,10 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		return &cp, nil
 	}
 
+	if err := b.validateCapacityProviderNamesLocked(input.CapacityProviders); err != nil {
+		return nil, err
+	}
+
 	if err := b.validateCapacityProviderStrategyLocked(input.DefaultCapacityProviderStrategy); err != nil {
 		return nil, err
 	}
@@ -298,6 +302,10 @@ func (b *InMemoryBackend) PutClusterCapacityProviders(
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+	}
+
+	if err := b.validateCapacityProviderNamesLocked(capacityProviders); err != nil {
+		return nil, err
 	}
 
 	if err := b.validateCapacityProviderStrategyLocked(defaultCapacityProviderStrategy); err != nil {

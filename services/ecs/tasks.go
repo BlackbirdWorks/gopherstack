@@ -628,14 +628,14 @@ func isStoppableStatus(status string) bool {
 // container the Docker runner started exits on its own, without an explicit
 // StopTask call -- wired as realDockerRunner's completion handler (see
 // SetTaskCompletionHandler in docker_runner.go and its wiring in
-// provider.go). "Essential container in task exited" is real ECS's own stop
-// reason for this case. A concurrent StopTask always wins the race to
-// finalize first: this is a no-op once the task has left an active state.
+// provider.go). Only an essential container's exit stops the task; a concurrent
+// StopTask wins the race, so this is a no-op once the task is inactive.
 func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName string, exitCode int) {
 	var (
 		clusterName string
 		instanceArn string
 		stopped     bool
+		stoppedTask Task
 	)
 
 	func() {
@@ -644,6 +644,12 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 
 		task, ok := b.tasks.Get(taskArn)
 		if !ok || !isStoppableStatus(task.LastStatus) {
+			return
+		}
+
+		if !b.containerExitStopsTaskLocked(task, containerName) {
+			markContainerStopped(task, containerName, exitCode)
+
 			return
 		}
 
@@ -676,11 +682,16 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 		delete(b.lifecycle, taskArn)
 
 		instanceArn = task.ContainerInstanceArn
+		stoppedTask = *task
 		stopped = true
 	}()
 
 	if !stopped {
 		return
+	}
+
+	if b.runner != nil {
+		_ = b.runner.StopTask(&stoppedTask)
 	}
 
 	func() {
@@ -1016,4 +1027,39 @@ func (b *InMemoryBackend) ExecuteCommand(
 			TokenValue: uuid.NewString(),
 		},
 	}, nil
+}
+
+// containerExitStopsTaskLocked reports whether containerName's exit stops the task: true for
+// essential containers, or when the definition is unresolvable or has none.
+func (b *InMemoryBackend) containerExitStopsTaskLocked(task *Task, containerName string) bool {
+	td, err := b.findTaskDefinitionLocked(task.TaskDefinitionArn)
+	if err != nil {
+		return true
+	}
+
+	exitedEssential := true
+	anyEssential := false
+
+	for _, cd := range td.ContainerDefinitions {
+		anyEssential = anyEssential || cd.Essential
+
+		if cd.Name == containerName {
+			exitedEssential = cd.Essential
+		}
+	}
+
+	return exitedEssential || !anyEssential
+}
+
+// markContainerStopped records the exit of a single container without
+// changing the task's own status.
+func markContainerStopped(task *Task, containerName string, exitCode int) {
+	for i := range task.Containers {
+		if task.Containers[i].Name == containerName {
+			task.Containers[i].LastStatus = statusStopped
+			task.Containers[i].ExitCode = &exitCode
+
+			return
+		}
+	}
 }
