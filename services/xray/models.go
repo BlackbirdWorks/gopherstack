@@ -291,13 +291,19 @@ type AnnotationOccurrence struct {
 	ServiceIDs []TraceSummaryServiceID
 }
 
+// TraceSummaryUser is a user seen in a trace and the services its requests hit.
+type TraceSummaryUser struct {
+	Name       string
+	ServiceIDs []TraceSummaryServiceID
+}
+
 // TraceSummaryData holds derived data for GetTraceSummaries response.
 type TraceSummaryData struct {
 	Annotations       map[string][]AnnotationOccurrence
 	HTTP              *TraceSummaryHTTP
 	EntryPoint        *TraceSummaryServiceID
 	TraceID           string
-	Users             []string
+	Users             []TraceSummaryUser
 	ServiceIDs        []TraceSummaryServiceID
 	AvailabilityZones []string
 	InstanceIDs       []string

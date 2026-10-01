@@ -35,6 +35,12 @@ type traceSummaryServiceIDView struct {
 
 type traceSummaryForecastView struct{}
 
+// traceUserView is the wire shape of types.TraceUser.
+type traceUserView struct {
+	UserName   string                      `json:"UserName"`
+	ServiceIds []traceSummaryServiceIDView `json:"ServiceIds"` //nolint:revive // AWS API field name
+}
+
 // availabilityZoneDetailView is the wire shape for one entry of
 // TraceSummary.AvailabilityZones (types.AvailabilityZoneDetail).
 type availabilityZoneDetailView struct {
@@ -119,7 +125,7 @@ type traceSummary struct {
 	EntryPoint         *traceSummaryServiceIDView           `json:"EntryPoint,omitempty"`
 	ID                 string                               `json:"Id"`
 	ServiceIds         []traceSummaryServiceIDView          `json:"ServiceIds,omitempty"` //nolint:revive // AWS field name
-	Users              []string                             `json:"Users,omitempty"`
+	Users              []traceUserView                      `json:"Users,omitempty"`
 	AvailabilityZones  []availabilityZoneDetailView         `json:"AvailabilityZones,omitempty"`
 	InstanceIds        []instanceIDDetailView               `json:"InstanceIds,omitempty"` //nolint:revive // AWS name
 	Duration           float64                              `json:"Duration"`
@@ -154,8 +160,13 @@ func buildTraceSummaryView(traceID string, sd TraceSummaryData, startTime time.T
 		s.EntryPoint = &traceSummaryServiceIDView{Name: sd.EntryPoint.Name, Type: sd.EntryPoint.Type}
 	}
 
-	if len(sd.Users) > 0 {
-		s.Users = sd.Users
+	for _, u := range sd.Users {
+		uv := traceUserView{UserName: u.Name, ServiceIds: make([]traceSummaryServiceIDView, 0, len(u.ServiceIDs))}
+		for _, svc := range u.ServiceIDs {
+			uv.ServiceIds = append(uv.ServiceIds, traceSummaryServiceIDView(svc))
+		}
+
+		s.Users = append(s.Users, uv)
 	}
 
 	if sd.HTTP != nil {
@@ -219,6 +230,7 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 	allSegs := h.Backend.GetAllParsedSegments()
 
 	summaries := make([]traceSummary, 0, len(traces))
+	processed := 0
 
 	for i := range traces {
 		// Apply optional time window filter when both bounds are provided.
@@ -228,6 +240,8 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 				continue
 			}
 		}
+
+		processed++
 
 		segs := allSegs[traces[i].TraceID]
 		sd := BuildTraceSummary(traces[i].TraceID, segs)
@@ -243,7 +257,7 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 
 	return json.Marshal(map[string]any{
 		"TraceSummaries":       pg.Data,
-		"TracesProcessedCount": len(summaries),
+		"TracesProcessedCount": processed,
 		// ApproximateTime is the start time of this page of results (per the real
 		// GetTraceSummariesOutput shape); it is an envelope-level field, not a
 		// per-TraceSummary field.

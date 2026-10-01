@@ -110,22 +110,39 @@ func extractRootHTTP(segHTTP *SegmentHTTP, existing *TraceSummaryHTTP) *TraceSum
 	return existing
 }
 
-// BuildTraceSummary derives TraceSummaryData from parsed segments.
-// accumulateUserFromAnnotations checks segment annotations for a "user" key and
-// appends the value to summary.Users when not already present.
-func accumulateUserFromAnnotations(summary *TraceSummaryData, seg *Segment, seenUsers map[string]bool) {
+// accumulateUserFromAnnotations records the "user" annotation as a TraceUser
+// and attaches the reporting segment's service to it.
+func accumulateUserFromAnnotations(summary *TraceSummaryData, seg *Segment) {
 	userVal, ok := seg.Annotations["user"]
 	if !ok {
 		return
 	}
 
 	userStr, isStr := userVal.(string)
-	if !isStr || userStr == "" || seenUsers[userStr] {
+	if !isStr || userStr == "" {
 		return
 	}
 
-	seenUsers[userStr] = true
-	summary.Users = append(summary.Users, userStr)
+	svcType := seg.Origin
+	if svcType == "" {
+		svcType = seg.Namespace
+	}
+
+	svc := TraceSummaryServiceID{Name: seg.Name, Type: svcType}
+
+	for i := range summary.Users {
+		if summary.Users[i].Name != userStr {
+			continue
+		}
+
+		if !slices.Contains(summary.Users[i].ServiceIDs, svc) {
+			summary.Users[i].ServiceIDs = append(summary.Users[i].ServiceIDs, svc)
+		}
+
+		return
+	}
+
+	summary.Users = append(summary.Users, TraceSummaryUser{Name: userStr, ServiceIDs: []TraceSummaryServiceID{svc}})
 }
 
 // accumulateAWSResourceInfo extracts EC2 instance/AZ info from seg's "aws"
@@ -225,7 +242,6 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 	var minStart, maxEnd float64
 
 	seen := map[serviceKey]bool{}
-	seenUsers := map[string]bool{}
 	seenAZ := map[string]bool{}
 	seenInstance := map[string]bool{}
 	hasRoot := false
@@ -242,7 +258,7 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 		}
 
 		accumulateAnnotations(&summary, seg)
-		accumulateUserFromAnnotations(&summary, seg, seenUsers)
+		accumulateUserFromAnnotations(&summary, seg)
 		accumulateServiceID(&summary, seg, seen)
 		accumulateAWSResourceInfo(&summary, seg, seenAZ, seenInstance)
 
