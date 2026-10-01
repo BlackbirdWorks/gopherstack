@@ -845,15 +845,8 @@ governance-with-bypass subtest failed exactly as predicted (`InvalidObjectState`
 409 where AWS would allow the bypassed delete); restored and confirmed
 byte-identical via `md5sum`.
 
-**Not fixed this pass, flagged as a related but separate gap**:
-`PutObjectRetention` itself has zero enforcement — it unconditionally
-overwrites `RetentionMode`/`RetainUntil` regardless of the object's existing
-retention state, so a caller can shorten or remove even a COMPLIANCE-mode
-retention today (real AWS forbids this unconditionally, and forbids
-shortening/removing a GOVERNANCE retention without the same bypass header).
-Implementing this correctly needs old-vs-new retention comparison logic that
-doesn't exist yet anywhere in this file; deferred rather than rushed, per
-this campaign's standing "don't ship a rushed partial feature" rule.
+`PutObjectRetention` retention-ratchet enforcement was added in the
+2026-08-23 entry below (`TestPutObjectRetention_Ratchet`).
 
 Gates: `go build ./...`, `go vet ./services/s3/...`, `go test -race -count=1
 ./services/s3/...`, `go fix -diff ./services/s3/...` (no diff), `gofmt -l
@@ -1671,10 +1664,10 @@ destination regardless of directive), and `ObjectOwnership` on CreateBucket
 (no OwnershipControls stored at creation time). New tests in
 `wire_field_fixes_test.go`.
 
-3 new `items_still_open` gaps recorded (each names the missing subsystem,
-not fabricated): CreateMultipartUpload's `X-Amz-Grant-*` headers (no
-grant-list-from-header construction exists anywhere in this service, not
-just this op), `PutBucketLifecycleConfiguration.TransitionDefaultMinimumObjectSize`
+2 new `items_still_open` gaps recorded (each names the missing subsystem,
+not fabricated; CreateMultipartUpload's `X-Amz-Grant-*` headers were later
+implemented, see `TestGrantHeaders`):
+`PutBucketLifecycleConfiguration.TransitionDefaultMinimumObjectSize`
 (the transition engine has no object-size gating to hang it on), and
 `PutBucketEncryption`/`PutBucketPolicy`'s `ChecksumAlgorithm` (whole-request
 checksum-trailer validation is a cross-cutting mechanism this service

@@ -1460,12 +1460,8 @@ handler doesn't error.
   inconsistency). If you add a new sentinel, verify its exact `ErrorCode()` string
   against `aws-sdk-go-v2/service/redshift@v1.62.3/types/errors.go` individually —
   do not assume the pattern from a neighboring sentinel.
-- `ScheduledAction.TargetAction`'s `NextInvocations`/`StartTime`/`EndTime` are
-  intentionally NOT modeled (empty list / never set) — this backend is
-  synchronous/instant-apply and has no cron/at-expression evaluator to compute
-  real next-invocation times. An empty `NextInvocations` list is valid per the AWS
-  docs (not "must always have up to 5 entries"), so this is a deliberate scope
-  bound, not a bug.
+- `ScheduledAction` `StartTime`/`EndTime` are not modeled; `NextInvocations` is computed
+  (`TestHandler_ScheduledAction_NextInvocations`).
 - `EndpointAccess.VpcEndpoint` (the nested network-interface/address list) is
   intentionally NOT modeled — would require simulating ENI allocation per subnet,
   out of proportion to this backend's fidelity level elsewhere.

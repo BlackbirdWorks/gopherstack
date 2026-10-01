@@ -79,3 +79,5 @@ service's claim rather than raising DSQL's MatchPriority (per
 ### 2026-10-01: DeleteStream DELETING state and orphaned streams
 
 DeleteStream now returns and reports DELETING (types.StreamStatusDeleting) before lazy removal, and a purged cluster takes its streams with it (previously GetStream kept resolving streams of a gone cluster and they leaked). Proven by TestDeleteStream and TestDeleteCluster_RemovesOwnedStreams.
+
+2026-10-01: reqfielddiff flags `ListStreams.MaxResults` as undeclared but it is read (`max-results` query, schema-bound in dsql@v1.22.1); locked by `TestListStreams_MaxResultsPaginates`.

@@ -359,12 +359,7 @@ If re-auditing other REST-XML services, check both status code AND `<Code>` stri
   (incorrectly) claimed the precondition was unenforced; that language predated the
   fix documented below it in this same file and was never updated to match. Corrected
   2026-07-30 -- no code change was needed, only the stale summary text.
-- ErrAlreadyExists (errors.go) remains an unused/dead sentinel. Reason not fixed: no
-  backend method needs AlreadyExists semantics currently (e.g. CreateAccessPoint does
-  not reject duplicate names), and confirming whether real AWS actually returns
-  AlreadyExists for any s3control Create* op -- versus silently overwriting, versus a
-  different validation error -- was out of scope for this pass's leak/error-code/
-  persistence focus.
+- The dead `ErrAlreadyExists` sentinel (errors.go) was removed; no s3control symbol remains.
 - The synchronous DELETE /v20180820/mrap/instances/{Name} route (mapped to the real
   op name DeleteMultiRegionAccessPoint, but via an HTTP verb/path combination the real
   SDK never sends) remains routable. Reason not removed: unlike the 3 fabricated

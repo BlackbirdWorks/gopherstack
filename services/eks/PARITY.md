@@ -680,11 +680,9 @@ nil) so DescribeAddon can observe the result.
 
 Addon-owned associations always land in the `kube-system` namespace
 (`addonPodIdentityNamespace` const): this backend does not track a per-addon
-`NamespaceConfig` override (CreateAddon's own `NamespaceConfig` field is
-separately unwired -- see open item below), so there is no per-addon
-namespace to use instead. `CreateAddon`'s own `PodIdentityAssociations`
-field remains unwired (it has no tri-state semantics on Create, just a plain
-create-time list) -- out of scope for gopherstack-tu95, filed as a follow-up.
+`NamespaceConfig` override (CreateAddon's `NamespaceConfig` was wired later, see 2026-09-07 below), so there is no per-addon
+namespace to use instead. `CreateAddon`'s `PodIdentityAssociations`
+was wired later (`TestAddon_CreateAddon_PodIdentityAssociations_Populated`).
 
 Regression tests (`addon_pod_identity_test.go`), all HTTP-handler-driven,
 each proven failing against unmodified code before this fix (reverted the

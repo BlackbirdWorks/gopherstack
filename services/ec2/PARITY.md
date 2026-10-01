@@ -4450,16 +4450,8 @@ association state machine (`associating`/`associated`/`disassociating`/
 `disassociated`) that this pass did not have high enough confidence in to
 fix without risking inventing behavior.
 
-RunInstances also still ignores the real `SecurityGroup.N` (group *name*,
-as opposed to `SecurityGroupId.N`) parameter entirely (confirmed on the
-wire, `serializers.go:92093`,
-`awsEc2query_serializeDocumentSecurityGroupStringList`) -- only
-`validateSecurityGroupIDs` (`handler_filters.go`) is wired, which reads
-`SecurityGroupId.N` only. Real AWS accepts group names for EC2-Classic and
-default-VPC launches. Not fixed this pass (separate bug, not IAM-related,
-and this mock has no EC2-Classic/default-VPC-name-resolution concept to
-verify the right semantics against without risking a fabricated
-implementation) -- flagged for a future pass.
+RunInstances' `SecurityGroup.N` (group name) is now honoured; see
+`TestRunInstances_SecurityGroupNames`.
 
 Dimension coverage this pass:
 1. AWS behavior compliance -- BUGS FOUND (RunInstances/IamInstanceProfile,
