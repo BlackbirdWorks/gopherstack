@@ -219,12 +219,10 @@ func (b *InMemoryBackend) DisposePackageVersions(
 // status (real ListPackageVersionsInput.Status, serializers.go's
 // SetQuery("status")) and reordered by publish time (real
 // ListPackageVersionsInput.SortBy, which has exactly one enum value,
-// PUBLISHED_TIME -- serializers.go's SetQuery("sortBy")). OriginType is a
-// real filter member too but this backend has no per-version origin concept
-// to source it from -- disclosed in PARITY.md rather than fabricated.
+// PUBLISHED_TIME -- serializers.go's SetQuery("sortBy")) and originType.
 func (b *InMemoryBackend) ListPackageVersions(
 	ctx context.Context,
-	domainName, repoName, format, namespace, name, status, sortBy string,
+	domainName, repoName, format, namespace, name, status, sortBy, originType string,
 ) ([]*PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
@@ -239,23 +237,7 @@ func (b *InMemoryBackend) ListPackageVersions(
 	result := make([]*PackageVersion, 0, len(entries))
 
 	for _, pv := range entries {
-		if pv.DomainName != domainName || pv.Repository != repoName {
-			continue
-		}
-
-		if format != "" && pv.Format != format {
-			continue
-		}
-
-		if namespace != "" && pv.Namespace != namespace {
-			continue
-		}
-
-		if name != "" && pv.PackageName != name {
-			continue
-		}
-
-		if status != "" && pv.Status != status {
+		if !versionMatchesFilters(pv, domainName, repoName, format, namespace, name, status, originType) {
 			continue
 		}
 
@@ -537,6 +519,9 @@ func (b *InMemoryBackend) PublishPackageVersion(
 			Revision:    uuid.NewString()[:8],
 			PublishedAt: time.Now().UTC(),
 			region:      region,
+
+			OriginType:       originTypeInternal,
+			OriginRepository: repoName,
 		}
 		b.packageVersions.Put(pv)
 	} else {
@@ -604,4 +589,45 @@ func (b *InMemoryBackend) UpdatePackageVersionsStatus(
 	}
 
 	return successful, failed, nil
+}
+
+const (
+	originTypeInternal = "INTERNAL"
+	originTypeExternal = "EXTERNAL"
+	originTypeUnknown  = "UNKNOWN"
+)
+
+// validOriginType reports whether v is a PackageVersionOriginType enum value.
+func validOriginType(v string) bool {
+	return v == originTypeInternal || v == originTypeExternal || v == originTypeUnknown
+}
+
+func versionOriginType(pv *PackageVersion) string {
+	if pv.OriginType == "" {
+		return originTypeUnknown
+	}
+
+	return pv.OriginType
+}
+
+func versionMatchesFilters(
+	pv *PackageVersion,
+	domainName, repoName, format, namespace, name, status, originType string,
+) bool {
+	switch {
+	case pv.DomainName != domainName || pv.Repository != repoName:
+		return false
+	case format != "" && pv.Format != format:
+		return false
+	case namespace != "" && pv.Namespace != namespace:
+		return false
+	case name != "" && pv.PackageName != name:
+		return false
+	case status != "" && pv.Status != status:
+		return false
+	case originType != "" && versionOriginType(pv) != originType:
+		return false
+	}
+
+	return true
 }

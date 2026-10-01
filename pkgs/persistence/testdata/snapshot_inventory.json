@@ -5575,6 +5575,8 @@
       "PackageVersion.DomainName string `json:\"domainName\"`",
       "PackageVersion.Format string `json:\"format\"`",
       "PackageVersion.Namespace string `json:\"namespace,omitempty\"`",
+      "PackageVersion.OriginRepository string `json:\"originRepository,omitempty\"`",
+      "PackageVersion.OriginType string `json:\"originType,omitempty\"`",
       "PackageVersion.PackageName string `json:\"packageName\"`",
       "PackageVersion.PublishedAt time.Time `json:\"publishedAt\"`",
       "PackageVersion.Repository string `json:\"repository\"`",

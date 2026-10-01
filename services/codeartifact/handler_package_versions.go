@@ -23,8 +23,18 @@ func packageVersionToMap(pv *PackageVersion) map[string]any {
 	if pv.Namespace != "" {
 		m["namespace"] = pv.Namespace
 	}
+	m["origin"] = packageVersionOriginToMap(pv)
 
 	return m
+}
+
+func packageVersionOriginToMap(pv *PackageVersion) map[string]any {
+	o := map[string]any{"originType": versionOriginType(pv)}
+	if pv.OriginRepository != "" {
+		o["domainEntryPoint"] = map[string]any{"repositoryName": pv.OriginRepository}
+	}
+
+	return o
 }
 
 // packageVersionSummaryToMap builds the types.PackageVersionSummary shape
@@ -32,14 +42,13 @@ func packageVersionToMap(pv *PackageVersion) map[string]any {
 // all of which are Get-only (types.PackageVersionDescription, not
 // types.PackageVersionSummary; confirmed against
 // awsRestjson1_deserializeDocumentPackageVersionSummary, which recognises
-// only origin/revision/status/version). origin is a real Summary member
-// but the backend's PackageVersion model has no source for it, so it stays
-// absent rather than fabricated.
+// only origin/revision/status/version).
 func packageVersionSummaryToMap(pv *PackageVersion) map[string]any {
 	return map[string]any{
 		keyVersion:     pv.Version,
 		keyStatusField: pv.Status,
 		keyRevision:    pv.Revision,
+		"origin":       packageVersionOriginToMap(pv),
 	}
 }
 
@@ -483,16 +492,15 @@ func (h *Handler) handleListPackageVersions(
 	q := c.Request().URL.Query()
 	maxResults := parseMaxResults(q.Get("max-results"))
 	nextToken := q.Get("next-token")
-	// status/sortBy are real ListPackageVersionsInput filter/ordering members
-	// (serializers.go's SetQuery("status")/SetQuery("sortBy")) that were
-	// silently discarded -- every call returned every version in
-	// Version-ascending order regardless of what was requested. originType
-	// is also real but has no backend field to source from -- see PARITY.md.
 	status := q.Get("status")
 	sortBy := q.Get("sortBy")
+	originType := q.Get("originType")
+	if originType != "" && !validOriginType(originType) {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid originType"))
+	}
 
 	all, err := h.Backend.ListPackageVersions(
-		c.Request().Context(), domainName, repoName, format, namespace, name, status, sortBy,
+		c.Request().Context(), domainName, repoName, format, namespace, name, status, sortBy, originType,
 	)
 	if err != nil {
 		return h.handleError(c, err)

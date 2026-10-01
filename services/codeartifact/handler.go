@@ -172,8 +172,9 @@ const (
 )
 
 const (
-	// stubTokenExpireHours is the expiry duration for stub authorization tokens.
-	stubTokenExpireHours = 12
+	defaultTokenExpireHours = 12
+	minTokenDurationSeconds = 900
+	maxTokenDurationSeconds = 43200
 )
 
 var errInvalidRequest = errors.New("invalid request")

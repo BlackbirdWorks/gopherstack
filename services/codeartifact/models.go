@@ -108,8 +108,12 @@ type PackageVersion struct {
 	Version     string    `json:"version"`
 	Status      string    `json:"status"`
 	Revision    string    `json:"revision"`
-	region      string
-	Assets      []AssetInfo `json:"assets,omitempty"`
+	// OriginType is INTERNAL for published versions; empty reads as UNKNOWN.
+	OriginType string `json:"originType,omitempty"`
+	// OriginRepository is the repository a version was first published to.
+	OriginRepository string `json:"originRepository,omitempty"`
+	region           string
+	Assets           []AssetInfo `json:"assets,omitempty"`
 }
 
 // AssetInfo represents an asset (file) uploaded to a package version via
