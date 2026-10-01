@@ -20,9 +20,9 @@
 - StackSets DeploymentTargets.AccountsUrl is accepted but not fetched: no S3 client is wired for it, same gap as TemplateURL elsewhere (gopherstack-g7b5).
 - ImportStacksToStackSet cannot tag imported instances with an OU: ImportStacksToStackSetInput carries no DeploymentTargets to source one from.
 - StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): the service has no clock- or janitor-driven lifecycle (gopherstack-b3pm).
-- Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model), treats Replacement Conditionally as Update:Replace, and ignores StackPolicyBody/URL at Create/UpdateStack and parameter-only updates (gopherstack-cqy3).
+- Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model) and treats Replacement Conditionally as Update:Replace; StackPolicyURL is not fetched (no S3 client) (gopherstack-cqy3).
 - No nested-stack, update-rollback or multi-version type machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks, UpdateStack RetainExceptOnCreate, RollbackStack (status-only; drops RoleARN/RetainExceptOnCreate), ActivateType MajorVersion/VersionBump/TypeNameAlias (gopherstack-xhu2t).
-- ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan.
+- ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan, so MaxResults/Resources have nothing to page or seed from.
 
 ## More
 

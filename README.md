@@ -488,7 +488,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 6 gaps |
-| [S3](services/s3/README.md) | A | 26 | 7 gaps |
+| [S3](services/s3/README.md) | A | 26 | 4 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
@@ -499,7 +499,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 gap; 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 6 gaps; 1 deferred |
-| [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 6 gaps; 2 deferred |
+| [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 2 gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 3 gaps; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 5 gaps; 3 deferred |

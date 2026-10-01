@@ -9,19 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 26 (25 ok, 1 gap) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 7 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- GetBucketMetadataConfiguration returns the wrong response shape entirely for any real typed client (gopherstack-6flj, 2026-08-15) -- the real GET deserializer requires a MetadataConfigurationResult child with a server-computed DestinationResult (table-bucket ARN/namespace/status), and this backend echoes the raw CREATE request body instead. Fixing this needs modeling S3 Tables table-bucket provisioning (ARN/namespace/status), which this backend has no concept of anywhere; fabricating plausible ARNs/status would be invented data, not a shape fix. Kept as a genuinely unmodeled subsystem.
-- Object Annotations (gopherstack-zi7k) is implemented and persisted, but two things are deliberately not enforced because they're absent from every relevant op's error switch in the pinned SDK (inventing a rejection would violate this sweep's own no-fabrication rule): the documented 1-byte-to-1-MiB payload size window, and DeleteObjectAnnotation/PutObjectAnnotation's ObjectIfMatch conditional header (read into the request struct but never compared).
-- RenameObject is applied uniformly to any bucket (general-purpose or directory), but real S3 restricts it to directory buckets only -- a permissive superset rather than a wire-shape bug reachable by a real client. This emulator now DOES distinguish directory buckets (StoredBucket.IsDirectoryBucket, gopherstack-z2w1a) but RenameObject was not scoped to it this pass. (DestinationIfMatch/DestinationIfNoneMatch/DestinationIfModifiedSince/DestinationIfUnmodifiedSince precondition enforcement, previously logged as a second gap here, was already fixed and is proven by TestRenameObjectDestinationPreconditions -- stale sub-claim removed this sweep.)
-- CreateSession (S3 Express One Zone) does not check IsDirectoryBucket -- a general-purpose bucket can also successfully call CreateSession, a permissive superset never reachable from an unmodified SDK client (which only ever issues CreateSession for a directory-bucket-shaped name). SessionMode (ReadOnly vs ReadWrite) is accepted and stored nowhere -- real S3 restricts a ReadOnly session's Zonal endpoint calls to GetObject/HeadObject/ListObjectsV2/GetObjectAttributes/ListParts/ListMultipartUploads, which this emulator does not enforce.
-- Directory buckets accept operations real S3 rejects for them beyond the two enforced here (ListObjects V1 rejected; ListObjectsV2 requires Delimiter "/") -- e.g. ACLs, tagging, versioning, lifecycle, website, and CORS configuration are all still accepted on a directory bucket though real S3 does not support most of them there. Each such rejection needs its own real S3 error code/message to add honestly rather than guessed; not attempted this pass beyond the two operations the task specifically called out as cheap to model.
-- ListBucketIntelligentTieringConfigurations is not paginated (the SDK documents no page size for it); analytics/inventory/metrics paginate at 100.
-- object_lambda: GetObject only recognizes a Lambda wired in by bucket name (via SetObjectLambdaConfig), not via genuine access-point-ARN routing (Bucket=<object-lambda-access-point-ARN>). Wiring that needs access-point-ARN parsing on every object route plus a live cross-service lookup into s3control's backend -- and regular (non-Lambda) S3 Access Points have zero ARN-as-bucket routing support anywhere in this service either, so this would be building ARN routing on a foundation that doesn't exist yet. Real, larger cross-service feature.
+- GetBucketMetadataConfiguration echoes the CREATE body instead of a MetadataConfigurationResult with a server-computed DestinationResult; needs S3 Tables table-bucket ARN/namespace/status modeling (gopherstack-6flj).
+- Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
+- ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).
+- object_lambda: GetObject only resolves a Lambda wired by bucket name, not access-point-ARN routing; needs ARN-as-bucket routing on every route plus an s3control lookup.
 
 ## More
 
