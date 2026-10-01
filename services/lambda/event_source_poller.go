@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -126,6 +127,15 @@ type EventSourcePoller struct {
 	// cancelSignal is an optional channel that is closed when the poller's context is cancelled.
 	// Used only in tests to detect lifecycle shutdown.
 	cancelSignal chan struct{}
+	// kafkaInvoker overrides the Kafka batch invocation in unit tests.
+	kafkaInvoker func(ctx context.Context, fnName string, payload []byte) error
+	// kafkaFactory overrides the Kafka consumer constructor in unit tests.
+	kafkaFactory     kafkaConsumerFactory
+	kafkaWorkers     map[string]*kafkaWorker
+	kafkaUnsupported map[string]struct{}
+	// stopped is closed when run exits; nil until Start.
+	stopped chan struct{}
+	kafkaWG sync.WaitGroup
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
@@ -134,12 +144,14 @@ func NewEventSourcePoller(
 	kinesisReader KinesisReader,
 ) *EventSourcePoller {
 	return &EventSourcePoller{
-		lambdaBackend:   lambdaBackend,
-		kinesisReader:   kinesisReader,
-		shardIterators:  make(map[string]string),
-		sqsBatchBuffers: make(map[string]*sqsBatchBuffer),
-		mu:              lockmetrics.New("lambda.esm"),
-		notifyC:         make(chan struct{}, 1),
+		lambdaBackend:    lambdaBackend,
+		kinesisReader:    kinesisReader,
+		shardIterators:   make(map[string]string),
+		sqsBatchBuffers:  make(map[string]*sqsBatchBuffer),
+		kafkaWorkers:     make(map[string]*kafkaWorker),
+		kafkaUnsupported: make(map[string]struct{}),
+		mu:               lockmetrics.New("lambda.esm"),
+		notifyC:          make(chan struct{}, 1),
 	}
 }
 
@@ -187,13 +199,21 @@ const (
 // Start runs the event source poller as a background goroutine.
 // It returns immediately; the goroutine stops when ctx is cancelled.
 func (p *EventSourcePoller) Start(ctx context.Context) {
-	go p.run(ctx)
+	stopped := make(chan struct{})
+
+	p.mu.Lock("Start")
+	p.stopped = stopped
+	p.mu.Unlock()
+
+	go p.run(ctx, stopped)
 }
 
-func (p *EventSourcePoller) run(ctx context.Context) {
+func (p *EventSourcePoller) run(ctx context.Context, stopped chan struct{}) {
 	interval := defaultPollInterval
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	defer close(stopped)
+	defer p.stopAllKafka()
 	defer func() {
 		if p.cancelSignal != nil {
 			close(p.cancelSignal)
@@ -265,12 +285,17 @@ func (p *EventSourcePoller) poll(ctx context.Context) int {
 	}
 
 	p.sweepStaleIterators(activeUUIDs)
+	p.reconcileKafka(ctx, mappings)
 
 	return enabledCount
 }
 
 // processOneMapping dispatches a single enabled event source mapping to the appropriate handler.
 func (p *EventSourcePoller) processOneMapping(ctx context.Context, m *EventSourceMapping) {
+	if m.EventSourceARN == "" || isUnsupportedBrokerARN(m.EventSourceARN) {
+		return
+	}
+
 	if isSQSARN(m.EventSourceARN) {
 		var sqsR SQSReader
 
@@ -370,6 +395,23 @@ func (p *EventSourcePoller) RemoveMapping(uuid string) {
 	}
 
 	delete(p.sqsBatchBuffers, uuid)
+	p.stopKafkaWorker(uuid)
+}
+
+// WaitStopped blocks until the poller goroutine and its Kafka workers have exited.
+func (p *EventSourcePoller) WaitStopped(ctx context.Context) {
+	p.mu.RLock("WaitStopped")
+	stopped := p.stopped
+	p.mu.RUnlock()
+
+	if stopped == nil {
+		return
+	}
+
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+	}
 }
 
 // processMapping reads new records from all shards and invokes Lambda.

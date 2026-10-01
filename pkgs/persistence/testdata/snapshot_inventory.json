@@ -16533,6 +16533,7 @@
       "EventSourceMapping.SelfManagedKafkaEventSourceConfig *SelfManagedKafkaEventSourceConfig `json:\"selfManagedKafkaConfig,omitempty\"`",
       "EventSourceMapping.SourceAccessConfigurations []SourceAccessConfiguration `json:\"sourceAccessConfigurations,omitempty\"`",
       "EventSourceMapping.StartingPosition string `json:\"startingPosition\"`",
+      "EventSourceMapping.StartingPositionTimestamp float64 `json:\"startingPositionTimestamp,omitempty\"`",
       "EventSourceMapping.State EventSourceMappingState `json:\"state\"`",
       "EventSourceMapping.Topics []string `json:\"topics,omitempty\"`",
       "EventSourceMapping.TumblingWindowInSeconds int `json:\"tumblingWindowInSeconds,omitempty\"`",

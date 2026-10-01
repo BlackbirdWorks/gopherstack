@@ -276,6 +276,7 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		urlServers []*functionURLServer
 		rts        []*functionRuntime
 		cancel     context.CancelFunc
+		poller     *EventSourcePoller
 	)
 
 	func() {
@@ -293,12 +294,17 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		}
 
 		cancel = b.pollerCancel
+		poller = b.kinesisPoller
 		b.pollerCancel = nil
 	}()
 
 	// Stop the event-source poller goroutine if it was started.
 	if cancel != nil {
 		cancel()
+
+		if poller != nil {
+			poller.WaitStopped(ctx)
+		}
 	}
 
 	var wg sync.WaitGroup
