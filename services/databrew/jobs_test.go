@@ -999,10 +999,12 @@ func TestCreateJob_ProfileExtras(t *testing.T) {
 	)
 	require.NoError(t, err)
 	extra := databrew.JobExtras{
-		ProfileConfiguration: map[string]any{"DatasetStatisticsConfiguration": map[string]any{}},
-		JobSample:            &databrew.JobSample{Mode: "FULL_DATASET"},
-		ValidationConfigurations: []map[string]any{
-			{"RulesetArn": "arn:aws:databrew:us-east-1:123456789012:ruleset/r1"},
+		ProfileConfiguration: &databrew.ProfileConfiguration{
+			DatasetStatisticsConfiguration: &databrew.StatisticsConfiguration{},
+		},
+		JobSample: &databrew.JobSample{Mode: "FULL_DATASET"},
+		ValidationConfigurations: []databrew.ValidationConfiguration{
+			{RulesetArn: "arn:aws:databrew:us-east-1:123456789012:ruleset/r1"},
 		},
 	}
 	j, err := b.CreateJob(

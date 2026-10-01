@@ -24,19 +24,68 @@ func (b *InMemoryBackend) CreateRuleset(
 	if name == "" {
 		return nil, ErrValidation
 	}
+	if err := validateRules(rules); err != nil {
+		return nil, err
+	}
 	t := b.rulesetsTable(region)
 	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 	rs := &Ruleset{
 		Name: name, Arn: b.rulesetARN(region, name), Description: description,
-		TargetArn: targetArn, Rules: append([]Rule(nil), rules...), RuleCount: len(rules),
+		TargetArn: targetArn, Rules: cloneRules(rules), RuleCount: len(rules),
 		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()), AccountID: b.accountID,
 	}
 	t.Put(rs)
 
-	return rs, nil
+	return b.rulesetCopy(rs), nil
+}
+
+func (b *InMemoryBackend) rulesetCopy(rs *Ruleset) *Ruleset {
+	cp := *rs
+	cp.Tags = maps.Clone(rs.Tags)
+	cp.Rules = cloneRules(rs.Rules)
+
+	return &cp
+}
+
+// cloneRules deep-copies rules so stored state never aliases caller slices.
+func cloneRules(in []Rule) []Rule {
+	out := make([]Rule, len(in))
+	for i, r := range in {
+		out[i] = r
+		out[i].SubstitutionMap = maps.Clone(r.SubstitutionMap)
+		out[i].ColumnSelectors = append([]ColumnSelector(nil), r.ColumnSelectors...)
+		if r.Threshold != nil {
+			th := *r.Threshold
+			out[i].Threshold = &th
+		}
+	}
+
+	return out
+}
+
+// validateRules checks Threshold enums (types.ThresholdType/ThresholdUnit, databrew@v1.42.4 enums.go).
+func validateRules(rules []Rule) error {
+	for _, r := range rules {
+		th := r.Threshold
+		if th == nil {
+			continue
+		}
+		switch th.Type {
+		case "", "GREATER_THAN_OR_EQUAL", "LESS_THAN_OR_EQUAL", "GREATER_THAN", "LESS_THAN":
+		default:
+			return ErrValidation
+		}
+		switch th.Unit {
+		case "", "COUNT", "PERCENTAGE":
+		default:
+			return ErrValidation
+		}
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) DescribeRuleset(ctx context.Context, name string) (*Ruleset, error) {
@@ -47,11 +96,8 @@ func (b *InMemoryBackend) DescribeRuleset(ctx context.Context, name string) (*Ru
 	if !ok {
 		return nil, ErrNotFound
 	}
-	cp := *rs
-	cp.Tags = maps.Clone(rs.Tags)
-	cp.Rules = append([]Rule(nil), rs.Rules...)
 
-	return &cp, nil
+	return b.rulesetCopy(rs), nil
 }
 
 func (b *InMemoryBackend) ListRulesets(
@@ -79,10 +125,7 @@ func (b *InMemoryBackend) ListRulesets(
 	out := make([]*Ruleset, 0, len(pageKeys))
 	for _, k := range pageKeys {
 		v, _ := t.Get(k)
-		cp := *v
-		cp.Tags = maps.Clone(v.Tags)
-		cp.Rules = append([]Rule(nil), v.Rules...)
-		out = append(out, &cp)
+		out = append(out, b.rulesetCopy(v))
 	}
 
 	return out, next
@@ -104,10 +147,13 @@ func (b *InMemoryBackend) UpdateRuleset(
 	if !ok {
 		return ErrNotFound
 	}
+	if err := validateRules(rules); err != nil {
+		return err
+	}
 	if description != "" {
 		rs.Description = description
 	}
-	rs.Rules = rules
+	rs.Rules = cloneRules(rules)
 	rs.RuleCount = len(rules)
 	rs.LastModifiedDate = float64(time.Now().Unix())
 
