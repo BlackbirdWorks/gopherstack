@@ -16084,6 +16084,38 @@ GET	localhost:4566	/_aws/sqs/messages	dynamodb					-	-
 GET	localhost:4566	/_aws/sqs/messages	execute-api					-	-
 GET	localhost:4566	/_aws/sqs/messages	es					-	-
 GET	localhost:4566	/_aws/sqs/messages	foo					-	-
+DELETE	localhost:4566	/_aws/ses						-	-
+DELETE	localhost:4566	/_aws/ses	s3					-	-
+DELETE	localhost:4566	/_aws/ses	sts					-	-
+DELETE	localhost:4566	/_aws/ses	iam					-	-
+DELETE	localhost:4566	/_aws/ses	dynamodb					-	-
+DELETE	localhost:4566	/_aws/ses	execute-api					-	-
+DELETE	localhost:4566	/_aws/ses	es					-	-
+DELETE	localhost:4566	/_aws/ses	foo					-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw						-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw	s3					-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw	sts					-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw	iam					-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw	dynamodb					-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw	execute-api					-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw	es					-	-
+GET	localhost:4566	/_aws/cloudwatch/metrics/raw	foo					-	-
+POST	localhost:4566	/_localstack/state/reset						-	-
+POST	localhost:4566	/_localstack/state/reset	s3					-	-
+POST	localhost:4566	/_localstack/state/reset	sts					-	-
+POST	localhost:4566	/_localstack/state/reset	iam					-	-
+POST	localhost:4566	/_localstack/state/reset	dynamodb					-	-
+POST	localhost:4566	/_localstack/state/reset	execute-api					-	-
+POST	localhost:4566	/_localstack/state/reset	es					-	-
+POST	localhost:4566	/_localstack/state/reset	foo					-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q						-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q	s3					-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q	sts					-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q	iam					-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q	dynamodb					-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q	execute-api					-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q	es					-	-
+GET	localhost:4566	/_aws/sqs/messages/us-east-1/000000000000/q	foo					-	-
 GET	localhost:4566	/swagger						S3	S3
 GET	localhost:4566	/swagger	s3					S3	S3
 GET	localhost:4566	/swagger	sts					S3	S3

@@ -277,3 +277,27 @@ func (b *InMemoryBackend) resolveBulkTemplate(
 
 	return content.Subject, content.HTML, content.Text, vars, nil
 }
+
+// DeleteEmail removes the captured email with the given MessageID and reports whether it existed.
+func (b *InMemoryBackend) DeleteEmail(messageID string) bool {
+	b.mu.Lock("DeleteEmail")
+	defer b.mu.Unlock()
+
+	for i := range b.emails {
+		if b.emails[i].MessageID == messageID {
+			b.emails = append(b.emails[:i], b.emails[i+1:]...)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// ClearEmails drops every captured email.
+func (b *InMemoryBackend) ClearEmails() {
+	b.mu.Lock("ClearEmails")
+	defer b.mu.Unlock()
+
+	b.emails = nil
+}

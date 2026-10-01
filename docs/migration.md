@@ -137,7 +137,7 @@ const client = new S3Client({ endpoint: "http://localhost:8000" });
 | SQS | ✅ Full | ✅ Full (FIFO, batch, visibility) |
 | SNS | ✅ Full | ✅ Full (fan-out; HTTP/HTTPS, Lambda, and Firehose subscription delivery with DLQ) |
 | DynamoDB | ✅ Full | ✅ Full (GSI, LSI, transactions, streams) |
-| Lambda | ✅ Zip + Image | ✅ Zip + Image (zip archives run on matching AWS runtime base images via the Lambda Runtime API in Docker/Podman; no S3 code deployment) |
+| Lambda | ✅ Zip + Image | ✅ Zip + Image (zip archives run on matching AWS runtime base images via the Lambda Runtime API in Docker/Podman; code can be deployed from S3 via `Code.S3Bucket`/`S3Key`) |
 | IAM | ✅ Partial | ✅ CRUD, with optional enforcement (`--enforce-iam` / `GOPHERSTACK_ENFORCE_IAM` evaluates attached policies on every request) |
 | KMS | ✅ Partial | ✅ Symmetric and asymmetric (RSA/ECC sign/verify, ECDH, GenerateDataKeyPair) |
 | Secrets Manager | ✅ Full | ✅ Full |
@@ -160,13 +160,13 @@ const client = new S3Client({ endpoint: "http://localhost:8000" });
 | Transcribe | ❌ Pro only | ⚠️ Job lifecycle is real; transcript text is synthetically generated (no real speech-to-text) |
 | Redshift | ❌ Pro only | ⚠️ Metadata only (cluster/serverless management plane; RedshiftData `ExecuteStatement` returns canned demo rows, no real query engine) |
 | STS | ✅ Full | ✅ AssumeRole, GetCallerIdentity |
-| Aurora DSQL | ❌ Pro only | ❌ Not implemented (planned) |
+| Aurora DSQL | ❌ Pro only | ⚠️ Control plane only (clusters CRUD/tags; no SQL data plane) |
 
 **Legend:** ✅ Full / equivalent — ⚠️ Partial or stub — ❌ Not available
 
 Gopherstack emulates 162 AWS services (excluding its separate Azure storage/queue
-emulators) — a superset of LocalStack's documented service list except for Aurora
-DSQL, which LocalStack offers only on its Pro tier. Roughly 65 of those 162 services
+emulators) — a superset of LocalStack's documented service list, including Aurora
+DSQL (control plane only), which LocalStack offers only on its Pro tier. Roughly 65 of those 162 services
 don't appear in LocalStack's documentation at all.
 
 ## Key differences
@@ -184,6 +184,18 @@ don't appear in LocalStack's documentation at all.
 | Extensions / plugins | ✅ (LocalStack extensions) | ❌ None |
 | Endpoint injection | ✅ Transparent (per-service DNS/proxy) | ❌ Single port only |
 | Cloud Pods | ✅ (state sharing/snapshots) | ❌ None (local `--persist` snapshots only) |
+
+## LocalStack internal endpoints
+
+These LocalStack developer endpoints are served on the edge port:
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /_aws/ses[?id=&email=]`, `DELETE /_aws/ses[?id=]` | Sent SES and SESv2 messages as `{"messages":[...]}`; DELETE clears all (or one by `id`) |
+| `GET /_aws/sqs/messages?QueueUrl=...` and `/_aws/sqs/messages/<region>/<account>/<queue>` | Peek at queue messages without changing visibility or receive counts; XML by default, JSON with `Accept: application/json`; `ShowInvisible`/`ShowDelayed` supported |
+| `GET /_aws/cloudwatch/metrics/raw` | `{"metrics":[{"ns","n","v","t","d","account","region"}]}` for single-value datapoints |
+| `POST /_localstack/state/reset` | Alias for `POST /_gopherstack/reset` |
+| `GET /_localstack/health`, `/_aws/health`, `/_localstack/info`, `/_localstack/init` | Already supported |
 
 ## Terraform / OpenTofu provider
 

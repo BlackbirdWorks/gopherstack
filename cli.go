@@ -2390,6 +2390,7 @@ func buildEchoServer(
 	e.GET("/_localstack/init/ready", buildLocalstackInitHandler())
 	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
+	registerLocalstackDevEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 
