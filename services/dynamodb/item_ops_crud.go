@@ -184,7 +184,7 @@ func conditionalCheckFailed(
 	if rv == types.ReturnValuesOnConditionCheckFailureAllOld && oldItem != nil {
 		// oldItem is already in DynamoDB wire form (e.g. {"pk":{"S":"a"}}), which is
 		// exactly the shape AWS returns in the ConditionalCheckFailedException body.
-		return NewConditionalCheckFailedExceptionWithItem("The conditional request failed", oldItem)
+		return NewConditionalCheckFailedExceptionWithItem("The conditional request failed", deepCopyItem(oldItem))
 	}
 
 	return NewConditionalCheckFailedException("The conditional request failed")

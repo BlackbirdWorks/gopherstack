@@ -1032,7 +1032,7 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 			// item is already in DynamoDB wire form ({"attr":{"S":...}}), which is the
 			// shape AWS returns in CancellationReasons[].Item. Marshalling the smithy SDK
 			// union types instead would emit {"Value":...} and break SDK parsing.
-			reason.Item = item
+			reason.Item = deepCopyItem(item)
 		}
 		reasons[idx] = reason
 
