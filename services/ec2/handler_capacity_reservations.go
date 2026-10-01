@@ -286,7 +286,9 @@ type describeCapacityReservationTopologyResponse struct {
 func (h *Handler) handleDescribeCapacityReservationTopology(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "CapacityReservationId")
 
-	entries := h.Backend.DescribeCapacityReservationTopology(ids)
+	entries := applyCapacityReservationTopologyFilters(
+		h.Backend.DescribeCapacityReservationTopology(ids), parseEC2Filters(vals),
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

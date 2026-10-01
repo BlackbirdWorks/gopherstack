@@ -1162,7 +1162,7 @@ func compileInstanceFilters(filters map[string][]string) func(*Instance, map[str
 // instanceMatchesFilter returns true if the instance matches any value in the filter.
 func instanceMatchesFilter(inst *Instance, filterName string, values []string, tags map[string]string) bool {
 	switch filterName {
-	case "instance-state-name":
+	case filterKeyInstStateName:
 		return anyEqual(inst.State.Name, values)
 	case filterKeyImageID:
 		return anyEqual(inst.ImageID, values)
@@ -1753,7 +1753,7 @@ func instanceStatusMatchesFilter(
 		return anyEqual(inst.Placement.AvailabilityZone, values)
 	case "instance-state-code":
 		return anyEqual(itoa(inst.State.Code), values)
-	case "instance-state-name":
+	case filterKeyInstStateName:
 		return anyEqual(inst.State.Name, values)
 	case "instance-status.status", "system-status.status":
 		return anyEqual(health.Status, values)

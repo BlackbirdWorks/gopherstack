@@ -575,22 +575,30 @@ families:
 gaps: []
 items_still_open:
   - "CreateKeyPair KeyFormat=ppk is not modeled (needs a real PuTTY PPK encoder); pem works for RSA and ED25519."
-  - "Filter.N/Filters ignored on ~50 of 181 filterable Describe*/Get* ops (2026-09-24
-    gopherstack-rwwvt sweep; 2026-10-01 fixed 10, then 11 more). Needing the
+  - "Filter.N/Filters ignored on ~39 of 181 filterable Describe*/Get* ops (2026-09-24
+    gopherstack-rwwvt sweep; 2026-10-01 fixed 10, 11, then 11 more). Needing the
     same treatment as the ops already fixed (read the op's SDK doc comment for its
     documented filter names, cross-check against what this backend's struct actually
     stores, add an applyXxxFilters/xxxMatchesFilter pair, wire it in after any existing
     requireAllIDsPresent check): the rest of the transit gateway family
     (DescribeTransitGatewayMeteringPolicies/PolicyTables/RouteTableAnnouncements and their
-    GetTransitGatewayMeteringPolicyEntries/PolicyTableAssociations/PolicyTableEntries
-    sub-ops); a long tail of lower-priority families -- DescribeCapacityBlock*,
-    DescribeInstance*/Fleet* sub-ops, DescribeVpcEncryptionControls,
-    DescribeElasticGpus (documented, but always empty: Elastic Graphics retired),
-    DescribeInstanceImageMetadata/Topology,
-    DescribeRegions opt-in-status, DescribeReservedInstancesModifications client-token/
+    GetTransitGatewayMeteringPolicyEntries/PolicyTableAssociations sub-ops, whose SDK
+    docs list no names); partial leftovers on ops fixed 2026-10-01: DescribeCapacityBlocks
+    ultraserver-type/tags, DescribeCapacityBlockExtensionHistory instance-type/
+    availability-zone-id, DescribeInstanceEventWindows instance-tag (value syntax
+    undocumented), DescribeInstanceImageMetadata image-allowed/owner-alias,
+    DescribeVpcPeeringConnections cidr-block/requester-vpc-info.owner-id/expiration-time/
+    status-message, SearchTransitGatewayMulticastGroups subnet-id/transit-gateway-attachment-id,
+    SearchLocalGatewayRoutes route-search.*; GetCoipPoolUsage (no per-address usage data
+    modeled), ExportTransitGatewayRoutes (filters shape an S3 file this backend does not
+    render); DescribeVpcEncryptionControls, DescribeElasticGpus (documented, but always
+    empty: Elastic Graphics retired), DescribeInstanceStatus event.*/operator.*/
+    attached-ebs-status/application-status, DescribeSecondaryInterfaces
+    attachment.instance-owner-id, DescribeRegions opt-in-status,
+    DescribeReservedInstancesModifications client-token/
     create-date/effective-date/update-date/modification-result.reserved-instances-id,
     DescribeOutpostLags' service-link-VIF family (unmodeled), DescribeImageUsageReports
-    creation-time (wildcard), DescribeSecondaryInterfaces (tag-key only). Confirmed PERMANENT non-gaps (the pinned SDK's own
+    creation-time (wildcard). Confirmed PERMANENT non-gaps (the pinned SDK's own
     doc comment enumerates zero filter names, e.g. 'One or more filters to apply.', so named
     matching would be fabricated semantics): the bulk of the IPAM Describe*/Get* surface;
     DescribeRouteServers/RouteServerEndpoints/RouteServerPeers;
@@ -734,6 +742,12 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 DescribeInstances/RunInstances now render the instance-level sourceDestCheck from the primary ENI (one batched
 read lock per page); Filter.N now works on the 10 ops listed in the Filter item above; StoreImageTask state is
 "Completed" per the SDK doc. See realclient_filters_describe_tail_test.go.
+
+Third Filter.N pass: DescribeVpcPeeringConnections (previously applied no filters at all), GetSecurityGroupsForVpc,
+GetTransitGatewayPolicyTableEntries, SearchTransitGatewayMulticastGroups, DescribeInstanceTopology,
+DescribeInstanceImageMetadata, DescribeCapacityReservationTopology, SearchLocalGatewayRoutes (type, prefix-list-id),
+DescribeCapacityBlocks dates, DescribeCapacityBlockExtensionHistory offering-id and DescribeInstanceEventWindows
+instance-tag-key/value. See handler_filters_describe_more.go and realclient_filters_describe_more_test.go.
 
 ### 2026-09-24: tombstone maps now expire (unbounded-growth fix)
 

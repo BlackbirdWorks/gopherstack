@@ -265,7 +265,7 @@ func (h *Handler) handleModifyInstanceCreditSpecification(
 
 func (h *Handler) handleDescribeInstanceTopology(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
-	items := h.Backend.DescribeInstanceTopology(ids)
+	items := applyInstanceTopologyFilters(h.Backend.DescribeInstanceTopology(ids), parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageDefaultInstanceTopology,
@@ -660,6 +660,7 @@ func (h *Handler) handleDescribeInstanceEventWindows(vals url.Values, reqID stri
 	ids := parseMemberList(vals, "InstanceEventWindowId")
 	ews := h.Backend.DescribeInstanceEventWindows(ids)
 	ews = applyInstanceEventWindowFilters(ews, parseEC2Filters(vals), h.Backend)
+	ews = applyEventWindowInstanceTagFilters(ews, parseEC2Filters(vals), h.Backend)
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinEventWindows, ec2PageMaxEventWindows, ec2PageMaxEventWindows,

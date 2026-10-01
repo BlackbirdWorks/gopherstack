@@ -279,7 +279,9 @@ func (h *Handler) handleResetImageAttribute(vals url.Values, reqID string) (any,
 
 func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
-	items := h.Backend.DescribeInstanceImageMetadata(ids)
+	items := applyInstanceImageMetadataFilters(
+		h.Backend.DescribeInstanceImageMetadata(ids), parseEC2Filters(vals), h.Backend,
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

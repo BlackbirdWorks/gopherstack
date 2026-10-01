@@ -670,7 +670,9 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 		ids = append(ids, id)
 	}
 
-	connections := h.Backend.DescribeVpcPeeringConnections(ids)
+	connections := applyVpcPeeringConnectionFilters(
+		h.Backend.DescribeVpcPeeringConnections(ids), parseEC2Filters(vals), h.Backend,
+	)
 
 	resp := &describeVpcPeeringConnectionsResponse{
 		Xmlns:     ec2XMLNS,

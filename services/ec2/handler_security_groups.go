@@ -224,6 +224,8 @@ func (h *Handler) handleGetSecurityGroupsForVpc(vals url.Values, reqID string) (
 		return nil, err
 	}
 
+	sgs = applySecurityGroupForVpcFilters(sgs, parseEC2Filters(vals), h.AccountID)
+
 	maxResults, offset, err := parseEC2Pagination(
 		vals,
 		ec2PageMinDefault,
