@@ -86,7 +86,7 @@ func TestDescribeType_Registered(t *testing.T) {
 			name: "activated type IsActivated is true",
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("MyOrg::Act::Type", "s3://pkg.zip")
-				_, _ = b.ActivateType("MyOrg::Act::Type", "")
+				_, _ = b.ActivateType("MyOrg::Act::Type", "", cloudformation.ActivateTypeOptions{})
 			},
 			typeName: "MyOrg::Act::Type",
 			check: func(t *testing.T, d *cloudformation.TypeDetails) {

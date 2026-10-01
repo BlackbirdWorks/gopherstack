@@ -55,25 +55,35 @@ func splitTypeVersionARN(typeARN string) (string, string, bool) {
 	return typeARN[:idx], candidate, true
 }
 
-func (b *InMemoryBackend) ActivateType(typeName, typeArn string) (string, error) {
+func (b *InMemoryBackend) ActivateType(typeName, typeArn string, opts ActivateTypeOptions) (string, error) {
 	b.mu.Lock("ActivateType")
 	defer b.mu.Unlock()
 	key := typeArn
 	if key == "" {
 		key = b.buildTypeARN(typeName)
 	}
-	if t, ok := b.typeRegistry.Get(key); ok {
-		t.IsActivated = true
-	} else {
-		b.typeRegistry.Put(&RegisteredType{
-			TypeArn:     key,
-			TypeName:    typeName,
-			Type:        typeKindResource,
-			VersionID:   "00000001",
-			Status:      statusComplete,
-			IsActivated: true,
-		})
+	autoUpdate := true
+	if opts.AutoUpdate != nil {
+		autoUpdate = *opts.AutoUpdate
 	}
+
+	t, ok := b.typeRegistry.Get(key)
+	if !ok {
+		t = &RegisteredType{
+			TypeArn:   key,
+			TypeName:  typeName,
+			Type:      typeKindResource,
+			VersionID: "00000001",
+			Status:    statusComplete,
+		}
+		b.typeRegistry.Put(t)
+	}
+
+	t.IsActivated = true
+	t.AutoUpdate = &autoUpdate
+	t.ExecutionRoleArn = opts.ExecutionRoleArn
+	t.LogGroupName = opts.LogGroupName
+	t.LogRoleArn = opts.LogRoleArn
 
 	return key, nil
 }
@@ -640,5 +650,19 @@ func (b *InMemoryBackend) DescribeType(typeName, arn, versionID string) (*TypeDe
 		IsActivated:      reg.IsActivated,
 		IsDefaultVersion: isDefaultVersion,
 		DeprecatedStatus: deprecatedStatus,
+		AutoUpdate:       copyBoolPtr(reg.AutoUpdate),
+		ExecutionRoleArn: reg.ExecutionRoleArn,
+		LogGroupName:     reg.LogGroupName,
+		LogRoleArn:       reg.LogRoleArn,
 	}, nil
+}
+
+func copyBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+
+	v := *p
+
+	return &v
 }

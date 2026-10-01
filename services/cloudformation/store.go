@@ -117,7 +117,7 @@ type StorageBackend interface {
 	ListResourceScanResources(scanID, nextToken string, maxResults int) (page.Page[ScannedResource], error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management
-	ActivateType(typeName, typeArn string) (string, error)
+	ActivateType(typeName, typeArn string, opts ActivateTypeOptions) (string, error)
 	DeactivateType(typeName, typeArn string) error
 	RegisterType(typeName, schemaHandlerPackage string) (string, error)
 	DeregisterType(typeName, typeArn, versionID string) error

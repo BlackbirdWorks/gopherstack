@@ -233,6 +233,7 @@ func TestTypeManagement_ActivateDeactivate(t *testing.T) {
 	_, err := b.ActivateType(
 		"AWS::S3::Bucket",
 		"arn:aws:cloudformation:us-east-1::type/resource/AWS-S3-Bucket",
+		cloudformation.ActivateTypeOptions{},
 	)
 	require.NoError(t, err)
 
