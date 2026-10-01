@@ -161,6 +161,7 @@ func (b *InMemoryBackend) CreateDocument(
 		HashType:               documentHashTypeSha256,
 		Sha1:                   sha1Hex,
 		AttachmentsInformation: attachmentsInformation(input.Attachments),
+		VersionName:            input.VersionName,
 	}
 
 	documentsTable.Put(&doc)
@@ -178,6 +179,7 @@ func (b *InMemoryBackend) CreateDocument(
 			DocumentFormat:   format,
 			Status:           statusActive,
 			Content:          input.Content,
+			VersionName:      input.VersionName,
 		},
 	}
 
@@ -222,10 +224,14 @@ func (d Document) asDocumentDescription(docTags []Tag) DocumentDescription {
 		PlatformTypes:          d.PlatformTypes,
 		AttachmentsInformation: d.AttachmentsInformation,
 		Requires:               d.Requires,
+		VersionName:            d.VersionName,
 		Tags:                   docTags,
 		CreatedDate:            d.CreatedDate,
 	}
 }
+
+// selectorLatest is the "$LATEST" version selector shared by documents and associations.
+const selectorLatest = "$LATEST"
 
 // resolveDocumentVersionSelector resolves the "$LATEST"/"$DEFAULT" selectors
 // to a concrete version string. An explicit "$DEFAULT" always resolves to
@@ -241,11 +247,37 @@ func resolveDocumentVersionSelector(doc Document, requested string) string {
 		return doc.LatestVersion
 	case "$DEFAULT":
 		return doc.DefaultVersion
-	case "$LATEST":
+	case selectorLatest:
 		return doc.LatestVersion
 	default:
 		return requested
 	}
+}
+
+// resolveDocumentVersionTarget resolves a DocumentVersion selector and an optional VersionName to one concrete version.
+func resolveDocumentVersionTarget(
+	doc Document,
+	versions []DocumentVersion,
+	selector, versionName string,
+) (string, error) {
+	target := resolveDocumentVersionSelector(doc, selector)
+	if versionName == "" {
+		return target, nil
+	}
+
+	for _, v := range versions {
+		if v.VersionName != versionName {
+			continue
+		}
+
+		if selector != "" && target != v.DocumentVersion {
+			return "", ErrInvalidDocumentVersion
+		}
+
+		return v.DocumentVersion, nil
+	}
+
+	return "", ErrInvalidDocumentVersion
 }
 
 // evictOldestDocumentVersions trims vers (oldest-first, insertion order) down
@@ -322,9 +354,13 @@ func (b *InMemoryBackend) GetDocument(
 
 	doc := *docPtr
 
-	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
-
 	versions := b.documentVersionsStore(region)[input.Name]
+
+	target, err := resolveDocumentVersionTarget(doc, versions, input.DocumentVersion, input.VersionName)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, v := range versions {
 		if v.DocumentVersion != target {
 			continue
@@ -340,6 +376,7 @@ func (b *InMemoryBackend) GetDocument(
 			Status:            v.Status,
 			StatusInformation: doc.StatusInformation,
 			Requires:          doc.Requires,
+			VersionName:       v.VersionName,
 			CreatedDate:       v.CreatedDate,
 		}, nil
 	}
@@ -414,7 +451,13 @@ func (b *InMemoryBackend) DescribeDocument(
 	// Honor a specific/$LATEST/$DEFAULT DocumentVersion selector: the
 	// per-version fields (DocumentVersion, DocumentFormat, Status) must
 	// reflect the resolved version, not always the latest.
-	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
+	target, err := resolveDocumentVersionTarget(
+		doc, b.documentVersionsStore(region)[input.Name], input.DocumentVersion, input.VersionName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	if target != doc.DocumentVersion {
 		found := false
 
@@ -424,6 +467,7 @@ func (b *InMemoryBackend) DescribeDocument(
 				description.DocumentFormat = v.DocumentFormat
 				description.Status = v.Status
 				description.DisplayName = v.DisplayName
+				description.VersionName = v.VersionName
 				description.Hash, description.Sha1 = documentHashes(v.Content)
 				description.HashType = documentHashTypeSha256
 				found = true
@@ -526,10 +570,18 @@ func (b *InMemoryBackend) UpdateDocument(
 	// Validate DocumentVersion if provided.
 	if input.DocumentVersion != nil {
 		switch *input.DocumentVersion {
-		case "$LATEST", "$DEFAULT", doc.LatestVersion:
+		case selectorLatest, "$DEFAULT", doc.LatestVersion:
 			// accepted versions
 		default:
 			return nil, ErrInvalidDocumentVersion
+		}
+	}
+
+	if input.VersionName != "" {
+		for _, v := range b.documentVersionsStore(region)[input.Name] {
+			if v.VersionName == input.VersionName {
+				return nil, ErrDuplicateDocumentVersionName
+			}
 		}
 	}
 
@@ -550,6 +602,7 @@ func (b *InMemoryBackend) UpdateDocument(
 	doc.Hash = hash
 	doc.HashType = documentHashTypeSha256
 	doc.Sha1 = sha1Hex
+	doc.VersionName = input.VersionName
 
 	if input.DisplayName != nil {
 		doc.DisplayName = *input.DisplayName
@@ -575,6 +628,7 @@ func (b *InMemoryBackend) UpdateDocument(
 		DocumentFormat:   format,
 		Status:           statusActive,
 		Content:          input.Content,
+		VersionName:      input.VersionName,
 	})
 
 	if len(versionStore[input.Name]) > maxDocumentVersionCap {
@@ -607,6 +661,7 @@ func (b *InMemoryBackend) deleteDocumentVersionScoped(
 		doc.Content = newLatest.Content
 		doc.DocumentFormat = newLatest.DocumentFormat
 		doc.Status = newLatest.Status
+		doc.VersionName = newLatest.VersionName
 		doc.Hash, doc.Sha1 = documentHashes(newLatest.Content)
 
 		if newLatest.DisplayName != "" {
@@ -631,16 +686,15 @@ func (b *InMemoryBackend) deleteDocumentVersionScoped(
 
 // resolveDeleteDocumentVersionIdx finds the index in versions matching
 // input's DocumentVersion/VersionName selector, or -1 if unresolvable.
-// VersionName never resolves: no Go field on DocumentVersion tracks it (see
-// models_documents.go), a disclosed gap -- routing it through
-// resolveDocumentVersionSelector would risk colliding with the numeric
-// DocumentVersion namespace instead of honestly reporting "not found".
 func resolveDeleteDocumentVersionIdx(doc Document, versions []DocumentVersion, input *DeleteDocumentInput) int {
-	if input.DocumentVersion == "" {
+	if input.DocumentVersion == "" && input.VersionName == "" {
 		return -1
 	}
 
-	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
+	target, err := resolveDocumentVersionTarget(doc, versions, input.DocumentVersion, input.VersionName)
+	if err != nil {
+		return -1
+	}
 
 	return slices.IndexFunc(versions, func(v DocumentVersion) bool { return v.DocumentVersion == target })
 }
@@ -857,6 +911,7 @@ func (b *InMemoryBackend) ListDocumentVersions(
 			DocumentVersion:  v.DocumentVersion,
 			DocumentFormat:   v.DocumentFormat,
 			Status:           v.Status,
+			VersionName:      v.VersionName,
 			CreatedDate:      v.CreatedDate,
 			IsDefaultVersion: v.IsDefaultVersion,
 		})
@@ -923,10 +978,19 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 
 	docVersions[input.Name] = versions
 
+	var defaultName string
+
+	for _, v := range versions {
+		if v.DocumentVersion == input.DocumentVersion {
+			defaultName = v.VersionName
+		}
+	}
+
 	return &UpdateDocumentDefaultVersionOutput{
 		Description: &DocumentDefaultVersionDescription{
-			Name:           input.Name,
-			DefaultVersion: input.DocumentVersion,
+			Name:               input.Name,
+			DefaultVersion:     input.DocumentVersion,
+			DefaultVersionName: defaultName,
 		},
 	}, nil
 }

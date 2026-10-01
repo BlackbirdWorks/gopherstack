@@ -299,6 +299,8 @@ func classifySSMError(reqErr error) (string, int) {
 		return "DocumentAlreadyExists", statusCode
 	case errors.Is(reqErr, ErrDocumentNotFound):
 		return "InvalidDocument", statusCode
+	case errors.Is(reqErr, ErrDuplicateDocumentVersionName):
+		return "DuplicateDocumentVersionName", statusCode
 	case errors.Is(reqErr, ErrInvalidDocumentVersion):
 		return "InvalidDocumentVersion", statusCode
 	case errors.Is(reqErr, ErrCommandNotFound):
@@ -468,6 +470,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):
 		return "AssociationDoesNotExist", statusCode
+	case errors.Is(reqErr, ErrInvalidAssociationVersion):
+		return "InvalidAssociationVersion", statusCode
 	case errors.Is(reqErr, ErrAutomationExecutionNotFound):
 		return "AutomationExecutionNotFoundException", statusCode
 	case errors.Is(reqErr, ErrUnknownOperation):

@@ -15,9 +15,10 @@ type DeleteAssociationInput struct {
 
 // DescribeAssociationInput is the request for DescribeAssociation.
 type DescribeAssociationInput struct {
-	AssociationID string `json:"AssociationId,omitempty"`
-	Name          string `json:"Name,omitempty"`
-	InstanceID    string `json:"InstanceId,omitempty"`
+	AssociationVersion string `json:"AssociationVersion,omitempty"`
+	AssociationID      string `json:"AssociationId,omitempty"`
+	Name               string `json:"Name,omitempty"`
+	InstanceID         string `json:"InstanceId,omitempty"`
 }
 
 // DescribeAssociationOutput is the response for DescribeAssociation.
@@ -48,7 +49,9 @@ type DescribeAssociationExecutionsOutput struct{}
 
 // ListAssociationVersionsInput is the request payload.
 type ListAssociationVersionsInput struct {
+	MaxResults    *int64 `json:"MaxResults,omitempty"`
 	AssociationID string `json:"AssociationId"`
+	NextToken     string `json:"NextToken,omitempty"`
 }
 
 // ListAssociationVersionsOutput is the response payload.

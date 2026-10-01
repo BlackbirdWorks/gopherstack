@@ -77,6 +77,7 @@ type InMemoryBackend struct {
 	cloudConnectors             map[string]*store.Table[CloudConnector]
 	inventory                   map[string]map[string][]InventoryItem
 	associationExecutions       map[string]map[string][]AssociationExecution
+	associationVersions         map[string]map[string][]Association
 	automationExecutions        map[string]*store.Table[AutomationExecution]
 	serviceSettings             map[string]*store.Table[ServiceSetting]
 	resourcePolicies            map[string]map[string][]*ResourcePolicy
@@ -147,6 +148,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		miscResourceTags:            make(map[string]map[string]map[string]string),
 		opsItemEvents:               make(map[string][]OpsItemEventSummary),
 		associationExecutions:       make(map[string]map[string][]AssociationExecution),
+		associationVersions:         make(map[string]map[string][]Association),
 		associationExecTargets:      make(map[string]map[string][]AssociationExecutionTarget),
 		inventoryDeletions:          make(map[string][]InventoryDeletion),
 		notifiedParameterPolicies:   make(map[string]map[string]map[string]struct{}),
@@ -348,6 +350,7 @@ func (b *InMemoryBackend) Reset() {
 	b.inventory = make(map[string]map[string][]InventoryItem)
 	b.compliance = make(map[string]map[string][]ComplianceItem)
 	b.associationExecutions = make(map[string]map[string][]AssociationExecution)
+	b.associationVersions = make(map[string]map[string][]Association)
 	b.associationExecTargets = make(map[string]map[string][]AssociationExecutionTarget)
 	b.inventoryDeletions = make(map[string][]InventoryDeletion)
 	b.notifiedParameterPolicies = make(map[string]map[string]map[string]struct{})

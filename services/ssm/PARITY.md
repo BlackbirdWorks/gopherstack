@@ -392,11 +392,7 @@ items_still_open:
     remains round-trip-only, same class."
   - "ServiceSetting.LastModifiedUser (the ARN of the last-writing caller) can't be populated
     -- this emulator has no caller-identity/SigV4-principal tracking."
-  - "GetInventory's Aggregators/Filters/ResultAttributes and ListInventoryEntries/
-    ListComplianceItems/ListComplianceSummaries/ListResourceComplianceSummaries' Filters
-    (InventoryFilter/ComplianceStringFilter's Equal/NotEqual/BeginWith/GreaterThan/
-    LessThan/Exists operators) are unmodeled -- needs a generic filter-operator evaluator
-    shared across 5 ops, a real feature not yet built."
+  - "GetInventory's Aggregators/ResultAttributes are unmodeled (aggregation engine); Filters on it, ListInventoryEntries, ListComplianceItems, ListComplianceSummaries and ListResourceComplianceSummaries are real (2026-09-30)."
   - "GetInventorySchema's real per-type Attributes ([]InventoryItemAttribute) aren't
     modeled -- AWS hasn't published the exact attribute list for the 13 built-in types
     outside web docs, so fabricating names would invent wire content rather than verify it."
@@ -440,10 +436,6 @@ items_still_open:
     source resolution) and GetParameterHistory/DescribeParameters' LastModifiedUser (no
     caller-identity infra) remain unmodeled; the deprecated ParametersFilter (superseded by
     ParameterFilters, already modeled) is also unmodeled."
-  - "DocumentVersionInfo.VersionName is modeled but never populated -- resolving it needs a
-    resolveDocumentVersionSelector-style lookup-by-name path threaded through
-    Create/Update/GetDocument/DescribeDocument and ListDocumentMetadataHistory, a feature
-    of its own."
   - "DocumentDescription's review-approval workflow (ApprovedVersion/PendingReviewVersion/
     ReviewInformation/ReviewStatus) and Category/CategoryEnum remain entirely unmodeled --
     no review state machine exists in this backend. Author/Owner need the same
@@ -454,8 +446,6 @@ items_still_open:
     multi-account/key-value targeting schemes this backend's Targets-only model doesn't
     support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real
     scheduler (associations run synchronously on demand, not on a cron loop)."
-  - "DescribeAssociationInput.AssociationVersion is accepted-and-ignored -- this backend
-    keeps only the current version of an association (no version-history store)."
   - "ListAssociations marshals the same internal Association record every other op in this
     family uses, over-projecting fields real AWS's narrower types.Association response
     never carries -- not a wire break (a real client discards unknown keys), disclosed
@@ -523,6 +513,19 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-09-30: items_still_open burn-down (query filters, association versions, VersionName)
+
+Fixed, each proven with a typed aws-sdk-go-v2 client: (1) Filters on GetInventory/
+ListInventoryEntries (InventoryFilter, Equal/NotEqual/BeginWith/LessThan/GreaterThan/Exists)
+and ListComplianceItems/ListComplianceSummaries/ListResourceComplianceSummaries
+(ComplianceStringFilter), query_filters_test.go; (2) UpdateAssociation now bumps
+AssociationVersion, ListAssociationVersions returns the real history (paginated, capped at
+1000 per association, oldest dropped) and DescribeAssociation honours AssociationVersion/
+$LATEST with InvalidAssociationVersion, association_versions_test.go; (3) document
+VersionName on Create/Update/Get/Describe/List/DeleteDocument with
+DuplicateDocumentVersionName, document_version_name_test.go. Remaining items are unmodeled
+subsystems (caller identity, scheduler, CloudWatch alarms, per-plugin command execution).
 
 ### 2026-09-26: items_still_open burn-down (merge-vs-replace + command history retention)
 
