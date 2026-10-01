@@ -19,9 +19,9 @@ func TestPackageVersionOrigin_RealClient(t *testing.T) {
 		originType types.PackageVersionOriginType
 		wantCount  int
 	}{
-		{name: "no_filter", wantCount: 2},
+		{name: "no_filter", wantCount: 1},
 		{name: "internal", originType: types.PackageVersionOriginTypeInternal, wantCount: 1},
-		{name: "unknown", originType: types.PackageVersionOriginTypeUnknown, wantCount: 1},
+		{name: "unknown", originType: types.PackageVersionOriginTypeUnknown, wantCount: 0},
 		{name: "external", originType: types.PackageVersionOriginTypeExternal, wantCount: 0},
 	}
 
@@ -45,14 +45,6 @@ func TestPackageVersionOrigin_RealClient(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// A version seeded through Describe has no recorded origin.
-			_, err = client.DescribePackageVersion(ctx, &casdk.DescribePackageVersionInput{
-				Domain: aws.String("o-domain"), Repository: aws.String("o-repo"),
-				Format: types.PackageFormatGeneric, Package: aws.String("lib"),
-				PackageVersion: aws.String("2.0.0"),
-			})
-			require.NoError(t, err)
-
 			out, err := client.ListPackageVersions(ctx, &casdk.ListPackageVersionsInput{
 				Domain: aws.String("o-domain"), Repository: aws.String("o-repo"),
 				Format: types.PackageFormatGeneric, Package: aws.String("lib"),
@@ -62,10 +54,9 @@ func TestPackageVersionOrigin_RealClient(t *testing.T) {
 			assert.Len(t, out.Versions, tc.wantCount)
 
 			if tc.originType == "" {
-				require.Len(t, out.Versions, 2)
+				require.Len(t, out.Versions, 1)
 				assert.Equal(t, types.PackageVersionOriginTypeInternal, out.Versions[0].Origin.OriginType)
 				assert.Equal(t, "o-repo", aws.ToString(out.Versions[0].Origin.DomainEntryPoint.RepositoryName))
-				assert.Equal(t, types.PackageVersionOriginTypeUnknown, out.Versions[1].Origin.OriginType)
 			}
 		})
 	}

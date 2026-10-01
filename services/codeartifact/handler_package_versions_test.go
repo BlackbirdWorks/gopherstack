@@ -26,9 +26,20 @@ func TestHandler_DescribePackageVersion(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pv-domain", nil)
 				doRequest(t, h, http.MethodPost, "/v1/repository?domain=pv-domain&repository=pv-repo", nil)
+				seedVersion(t, h, "pv-domain", "pv-repo", "npm", "", "my-pkg", "1.0.0")
 			},
 			path:       "/v1/package/version?domain=pv-domain&repository=pv-repo&format=npm&package=my-pkg&version=1.0.0",
 			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pv-domain", nil)
+				doRequest(t, h, http.MethodPost, "/v1/repository?domain=pv-domain&repository=pv-repo", nil)
+				seedVersion(t, h, "pv-domain", "pv-repo", "npm", "", "my-pkg", "1.0.0")
+			},
+			path:       "/v1/package/version?domain=pv-domain&repository=pv-repo&format=npm&package=my-pkg&version=9.9.9",
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "missing_version",
@@ -78,20 +89,8 @@ func TestHandler_DeletePackageVersions(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=dpv-domain&repository=dpv-repo", nil)
 
 	// Seed two versions via DescribePackageVersion.
-	doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version?domain=dpv-domain&repository=dpv-repo&format=npm&package=react&version=17.0.0",
-		nil,
-	)
-	doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version?domain=dpv-domain&repository=dpv-repo&format=npm&package=react&version=18.0.0",
-		nil,
-	)
+	seedVersion(t, h, "dpv-domain", "dpv-repo", "npm", "", "react", "17.0.0")
+	seedVersion(t, h, "dpv-domain", "dpv-repo", "npm", "", "react", "18.0.0")
 
 	// Delete one existing and one nonexistent version.
 	rec := doRequest(
@@ -151,11 +150,7 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=copy-domain&repository=dst-repo", nil)
 
 	// Seed a version in src-repo.
-	doRequest(
-		t, h, http.MethodGet,
-		"/v1/package/version?domain=copy-domain&repository=src-repo&format=pypi&package=boto3&version=1.26.0",
-		nil,
-	)
+	seedVersion(t, h, "copy-domain", "src-repo", "pypi", "", "boto3", "1.26.0")
 
 	copyURL := "/v1/package/versions/copy" +
 		"?domain=copy-domain&source-repository=src-repo&destination-repository=dst-repo&format=pypi&package=boto3"
@@ -210,6 +205,7 @@ func TestHandler_PackageVersionRevision(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=rev-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=rev-domain&repository=rev-repo", nil)
+	seedVersion(t, h, "rev-domain", "rev-repo", "npm", "", "mypkg", "1.0.0")
 
 	rec := doRequest(
 		t, h, http.MethodGet,
@@ -234,11 +230,7 @@ func TestHandler_SuccessfulVersions(t *testing.T) {
 		doRequest(t, h, http.MethodPost, "/v1/domain?domain=sv-domain", nil)
 		doRequest(t, h, http.MethodPost, "/v1/repository?domain=sv-domain&repository=sv-repo", nil)
 		// Create version 1.0.0 via describe.
-		doRequest(
-			t, h, http.MethodGet,
-			"/v1/package/version?domain=sv-domain&repository=sv-repo&format=npm&package=mypkg&version=1.0.0",
-			nil,
-		)
+		seedVersion(t, h, "sv-domain", "sv-repo", "npm", "", "mypkg", "1.0.0")
 
 		rec := doRequest(
 			t, h, http.MethodPost,
@@ -272,11 +264,7 @@ func TestHandler_SuccessfulVersions(t *testing.T) {
 		doRequest(t, h, http.MethodPost, "/v1/domain?domain=cv-domain", nil)
 		doRequest(t, h, http.MethodPost, "/v1/repository?domain=cv-domain&repository=src-repo", nil)
 		doRequest(t, h, http.MethodPost, "/v1/repository?domain=cv-domain&repository=dst-repo", nil)
-		doRequest(
-			t, h, http.MethodGet,
-			"/v1/package/version?domain=cv-domain&repository=src-repo&format=npm&package=mypkg&version=1.0.0",
-			nil,
-		)
+		seedVersion(t, h, "cv-domain", "src-repo", "npm", "", "mypkg", "1.0.0")
 
 		copyPath := "/v1/package/versions/copy" +
 			"?domain=cv-domain&source-repository=src-repo&destination-repository=dst-repo" +
@@ -311,6 +299,7 @@ func TestHandler_PackageVersionMap(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pvmap-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pvmap-domain&repository=pvmap-repo", nil)
+	seedVersion(t, h, "pvmap-domain", "pvmap-repo", "npm", "", "mypkg", "2.0.0")
 
 	rec := doRequest(
 		t, h, http.MethodGet,
@@ -335,11 +324,7 @@ func TestHandler_DisposePackageVersions_StatusChange(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=disp-st-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=disp-st-domain&repository=disp-st-repo", nil)
-	doRequest(
-		t, h, http.MethodGet,
-		"/v1/package/version?domain=disp-st-domain&repository=disp-st-repo&format=npm&package=pkg&version=1.0.0",
-		nil,
-	)
+	seedVersion(t, h, "disp-st-domain", "disp-st-repo", "npm", "", "pkg", "1.0.0")
 
 	rec := doRequest(
 		t, h, http.MethodPost,
@@ -384,11 +369,7 @@ func TestHandler_UpdatePackageVersionsStatus_StatusChange(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=uvs-st-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=uvs-st-domain&repository=uvs-st-repo", nil)
-	doRequest(
-		t, h, http.MethodGet,
-		"/v1/package/version?domain=uvs-st-domain&repository=uvs-st-repo&format=npm&package=react&version=18.0.0",
-		nil,
-	)
+	seedVersion(t, h, "uvs-st-domain", "uvs-st-repo", "npm", "", "react", "18.0.0")
 
 	rec := doRequest(
 		t, h, http.MethodPost,
@@ -515,11 +496,7 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 	setupRepo(t, h, "self-copy-domain", "dst")
 
 	// Seed version in src.
-	doRequest(
-		t, h, http.MethodGet,
-		"/v1/package/version?domain=self-copy-domain&repository=src&format=npm&package=react&version=18.0.0",
-		nil,
-	)
+	seedVersion(t, h, "self-copy-domain", "src", "npm", "", "react", "18.0.0")
 
 	// Copy to dst.
 	copyRec := doRequest(
@@ -649,13 +626,7 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "upvs-domain")
 				setupRepo(t, h, "upvs-domain", "upvs-repo")
-				doRequest(
-					t,
-					h,
-					http.MethodGet,
-					"/v1/package/version?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash&version=1.0.0",
-					nil,
-				)
+				seedVersion(t, h, "upvs-domain", "upvs-repo", "npm", "", "lodash", "1.0.0")
 			},
 			path: "/v1/package/versions/update_status" +
 				"?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
@@ -736,11 +707,7 @@ func TestListPackageVersions_Pagination(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pvpag-domain&repository=pvpag-repo", nil)
 
 	for i := range 5 {
-		path := fmt.Sprintf(
-			"/v1/package/version?domain=pvpag-domain&repository=pvpag-repo&format=npm&package=mypkg&version=1.%d.0",
-			i,
-		)
-		doRequest(t, h, http.MethodGet, path, nil)
+		seedVersion(t, h, "pvpag-domain", "pvpag-repo", "npm", "", "mypkg", fmt.Sprintf("1.%d.0", i))
 	}
 
 	rec1 := doRequest(t, h, http.MethodGet,
@@ -786,6 +753,7 @@ func TestPackageVersion_HasPackageName(t *testing.T) {
 			h := newTestHandler(t)
 			doRequest(t, h, http.MethodPost, "/v1/domain?domain=pn-domain", nil)
 			doRequest(t, h, http.MethodPost, "/v1/repository?domain=pn-domain&repository=pn-repo", nil)
+			seedVersion(t, h, "pn-domain", "pn-repo", "npm", "", tt.pkgName, "1.0.0")
 
 			path := fmt.Sprintf(
 				"/v1/package/version?domain=pn-domain&repository=pn-repo&format=npm&package=%s&version=1.0.0",

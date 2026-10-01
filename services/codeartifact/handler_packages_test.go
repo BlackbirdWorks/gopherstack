@@ -26,9 +26,19 @@ func TestHandler_DescribePackage(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pkg-domain", nil)
 				doRequest(t, h, http.MethodPost, "/v1/repository?domain=pkg-domain&repository=pkg-repo", nil)
+				seedVersion(t, h, "pkg-domain", "pkg-repo", "npm", "", "my-pkg", "1.0.0")
 			},
 			path:       "/v1/package?domain=pkg-domain&repository=pkg-repo&format=npm&package=my-pkg",
 			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pkg-domain", nil)
+				doRequest(t, h, http.MethodPost, "/v1/repository?domain=pkg-domain&repository=pkg-repo", nil)
+			},
+			path:       "/v1/package?domain=pkg-domain&repository=pkg-repo&format=npm&package=never-published",
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "missing_domain",
@@ -87,15 +97,7 @@ func TestHandler_DeletePackage(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=del-pkg-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=del-pkg-domain&repository=del-pkg-repo", nil)
 
-	// Seed the package via DescribePackage (auto-creates stub).
-	seedRec := doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package?domain=del-pkg-domain&repository=del-pkg-repo&format=npm&package=lodash",
-		nil,
-	)
-	assert.Equal(t, http.StatusOK, seedRec.Code)
+	seedVersion(t, h, "del-pkg-domain", "del-pkg-repo", "npm", "", "lodash", "1.0.0")
 
 	// Delete it.
 	delRec := doRequest(
@@ -128,6 +130,7 @@ func TestHandler_PackageMap(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pkgmap-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pkgmap-domain&repository=pkgmap-repo", nil)
+	seedVersion(t, h, "pkgmap-domain", "pkgmap-repo", "npm", "", "mypkg", "1.0.0")
 
 	rec := doRequest(
 		t, h, http.MethodGet,
@@ -399,11 +402,7 @@ func TestListPackages_Pagination(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pkgpag-domain&repository=pkgpag-repo", nil)
 
 	for i := range 5 {
-		path := fmt.Sprintf(
-			"/v1/package/version?domain=pkgpag-domain&repository=pkgpag-repo&format=npm&package=pkg-%02d&version=1.0.0",
-			i,
-		)
-		doRequest(t, h, http.MethodGet, path, nil)
+		seedVersion(t, h, "pkgpag-domain", "pkgpag-repo", "npm", "", fmt.Sprintf("pkg-%02d", i), "1.0.0")
 	}
 
 	rec1 := doRequest(t, h, http.MethodGet,
