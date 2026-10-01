@@ -94,7 +94,6 @@ items_still_open:
   - "ManagedActionHistoryItem.FailureDescription/FailureType are not modeled: every managed action succeeds synchronously, so no failure state exists."
   - "Platform metadata is not modeled: DescribePlatformVersion's Frameworks/Maintainer/OperatingSystem*/ProgrammingLanguages etc., PlatformBranchSummary.BranchOrder/SupportedTierList and SolutionStackDetails.PermittedFileTypes have no verified data source."
   - "EventDescription.RequestId is not modeled: no handler generates per-call request IDs (every ResponseMetadata.RequestID is a fixed literal)."
-  - "DescribeEnvironments IncludeDeleted/IncludedDeletedBackTo are not modeled: TerminateEnvironment removes the record, and tombstones would touch environment identity across the service."
   - "ComposeEnvironmentsInput.VersionLabels is not read: env.yaml manifest parsing and new-environment creation are unmodeled."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; store.Table/Index-backed maps, coarse lockmetrics.RWMutex per backend -- consistent with pkgs-catalog.md guidance. createDefaultConfigurationTemplate is a private, non-locking helper always called with b.mu already held by its caller (CreateApplication/CreateApplicationVersionWithParams) -- verified no double-lock/deadlock. No new leak surface introduced this pass."}
@@ -266,9 +265,8 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
 - `TerminateEnvironment` deletes the environment from the store immediately after
   capturing a `Status: Terminated` snapshot for the response. This matches AWS's default
   `DescribeEnvironments` behavior (default `IncludeDeleted=false` excludes terminated
-  environments), but `IncludeDeleted=true`/`IncludedDeletedBackTo` are not implemented --
-  a client explicitly asking to see recently-terminated environments will get nothing.
-  Not fixed this pass (low traffic); flagged here so it isn't rediscovered from scratch.
+  environments); `IncludeDeleted=true`/`IncludedDeletedBackTo` are served from a bounded
+  (100 per region) terminated-environment history since 2026-10-01.
 
 **2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
 masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
@@ -447,3 +445,11 @@ Gates: `go build ./...` clean (whole module). `go vet ./services/elasticbeanstal
 clean. `go test -race -count=1 ./services/elasticbeanstalk/... ./pkgs/persistence/...`
 clean. `golangci-lint run --new-from-rev=HEAD ./services/elasticbeanstalk/...` 0 issues.
 No persisted struct fields added -- no `snapshot_inventory.json` change, no version bump.
+
+## 2026-10-01 (items_still_open burn-down)
+
+`DescribeEnvironments` `IncludeDeleted`/`IncludedDeletedBackTo` now work: terminated environments are kept
+as a persisted per-region history capped at 100 (`DeletedEnvironments` in the snapshot, additive, no version
+bump) with `DateUpdated` set to the termination time. Proof: `TestDescribeEnvironments_IncludeDeleted` and
+`TestDeletedEnvironments_BoundedAndPersisted`. The remaining 7 items are unmodeled subsystems or
+unverifiable AWS behavior; `EventDescription.RequestId` would need per-call request IDs the SDK never sends.

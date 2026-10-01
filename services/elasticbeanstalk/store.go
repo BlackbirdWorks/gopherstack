@@ -53,6 +53,7 @@ type InMemoryBackend struct {
 	registry                 *store.Registry
 	managedActionHistory     map[string]map[string][]*ManagedActionHistory // region → envName → history items
 	events                   map[string][]*EventRecord                     // region → events
+	deletedEnvironments      map[string][]*Environment                     // region → terminated envs
 	envCounters              map[string]int                                // region → counter
 	mu                       *lockmetrics.RWMutex
 	accountID                string
@@ -64,6 +65,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		managedActionHistory: make(map[string]map[string][]*ManagedActionHistory),
 		events:               make(map[string][]*EventRecord),
+		deletedEnvironments:  make(map[string][]*Environment),
 		envCounters:          make(map[string]int),
 		accountID:            accountID,
 		region:               region,
@@ -102,6 +104,7 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.managedActionHistory = make(map[string]map[string][]*ManagedActionHistory)
 	b.events = make(map[string][]*EventRecord)
+	b.deletedEnvironments = make(map[string][]*Environment)
 	b.envCounters = make(map[string]int)
 	b.initRegion(b.region)
 }
