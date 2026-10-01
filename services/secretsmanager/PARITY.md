@@ -285,7 +285,7 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
   reflects a live-docs check from the 2026-07-11 pass. Left as-is per the existing tradeoff — dozens
   of tests depend on the lenient behavior and gopherstack does not model AWS managed rotation.
   Spot-checked `FilterNameStringType` (7 values, all handled in `secretMatchesFilter`), `SortByType`
-  (4 values, all handled in `sortSecretListEntries`), and `RotationRulesType`
+  (4 values, all handled in `sortSecrets`), and `RotationRulesType`
   (`AutomaticallyAfterDays`/`Duration`/`ScheduleExpression`) against `types/enums.go`/`types/types.go`
   — all match exactly, no further drift found. Gates
   (`build`/`vet`/`test -race`/`gofmt`/`golangci-lint`/banned-nolint grep) all pass clean.

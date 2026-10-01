@@ -448,7 +448,7 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 	defer b.mu.RUnlock()
 
 	secretsInRegion := b.secretsInRegion(region)
-	entries := make([]SecretListEntry, 0, len(secretsInRegion))
+	entries := make([]*Secret, 0, len(secretsInRegion))
 
 	for _, s := range secretsInRegion {
 		if s.DeletedDate != nil && !input.IncludePlannedDeletion {
@@ -459,10 +459,10 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 			continue
 		}
 
-		entries = append(entries, secretToListEntry(s))
+		entries = append(entries, s)
 	}
 
-	sortSecretListEntries(entries, input.SortBy, input.SortOrder)
+	sortSecrets(entries, input.SortBy, input.SortOrder)
 
 	startIdx := parseToken(input.NextToken)
 	maxResults := int64(defaultMaxResults)
@@ -485,48 +485,50 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 		end = len(entries)
 	}
 
+	page := make([]SecretListEntry, 0, end-startIdx)
+	for _, s := range entries[startIdx:end] {
+		page = append(page, secretToListEntry(s))
+	}
+
 	return &ListSecretsOutput{
-		SecretList: entries[startIdx:end],
+		SecretList: page,
 		NextToken:  nextToken,
 	}, nil
 }
 
-// sortSecretListEntries orders entries by the requested SortBy key ("name" (default),
+// sortSecrets orders secrets by the requested SortBy key ("name" (default),
 // "created-date", "last-changed-date", "last-accessed-date"), honouring SortOrder
 // ("asc" default, or "desc"). Unset date fields sort as the earliest possible value.
 // Matches the AWS SortByType enum (ListSecrets request field "SortBy").
-func sortSecretListEntries(entries []SecretListEntry, sortBy, sortOrder string) {
+func sortSecrets(secrets []*Secret, sortBy, sortOrder string) {
 	desc := strings.EqualFold(sortOrder, "desc")
 
-	var less func(i, j int) bool
+	var less func(a, b *Secret) bool
 
 	switch strings.ToLower(strings.TrimSpace(sortBy)) {
 	case "created-date":
-		less = func(i, j int) bool {
-			return float64PtrLess(entries[i].CreatedDate, entries[j].CreatedDate, entries[i].Name, entries[j].Name)
-		}
+		less = func(a, b *Secret) bool { return float64PtrLess(a.CreatedDate, b.CreatedDate, a.Name, b.Name) }
 	case "last-changed-date":
-		less = func(i, j int) bool {
-			return float64PtrLess(
-				entries[i].LastChangedDate, entries[j].LastChangedDate, entries[i].Name, entries[j].Name,
-			)
-		}
+		less = func(a, b *Secret) bool { return float64PtrLess(a.LastChangedDate, b.LastChangedDate, a.Name, b.Name) }
 	case "last-accessed-date":
-		less = func(i, j int) bool {
-			return float64PtrLess(
-				entries[i].LastAccessedDate, entries[j].LastAccessedDate, entries[i].Name, entries[j].Name,
-			)
-		}
+		less = func(a, b *Secret) bool { return float64PtrLess(a.LastAccessedDate, b.LastAccessedDate, a.Name, b.Name) }
 	default:
-		less = func(i, j int) bool { return entries[i].Name < entries[j].Name }
+		less = func(a, b *Secret) bool { return a.Name < b.Name }
 	}
 
-	sort.Slice(entries, func(i, j int) bool {
+	slices.SortFunc(secrets, func(a, b *Secret) int {
 		if desc {
-			return less(j, i)
+			a, b = b, a
 		}
 
-		return less(i, j)
+		switch {
+		case less(a, b):
+			return -1
+		case less(b, a):
+			return 1
+		default:
+			return 0
+		}
 	})
 }
 
