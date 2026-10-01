@@ -705,6 +705,11 @@ func resolveResponseParamSource(src string) string {
 		return src[len(integRespPrefix):]
 	}
 
+	// Static values in mapping expressions are single-quoted.
+	if len(src) >= 2 && src[0] == '\'' && src[len(src)-1] == '\'' {
+		return src[1 : len(src)-1]
+	}
+
 	return src
 }
 
@@ -714,12 +719,16 @@ func mockIntegrationResponse(integration *Integration) *IntegrationResponse {
 		return nil
 	}
 
-	ir, ok := integration.IntegrationResponses["200"]
-	if !ok || ir == nil {
-		return nil
+	if ir, ok := integration.IntegrationResponses["200"]; ok && ir != nil {
+		return ir
 	}
 
-	return ir
+	// Imported OpenAPI documents key the catch-all response "default".
+	if ir, ok := integration.IntegrationResponses["default"]; ok && ir != nil {
+		return ir
+	}
+
+	return nil
 }
 
 // parseStatusCode converts a status-code string to an int; returns 0 on error.
