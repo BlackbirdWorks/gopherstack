@@ -79,6 +79,7 @@ func TestCreateFileSystem_LustreTypeVersion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		lustre  *types.CreateFileSystemLustreConfiguration
 		name    string
 		version string
 		want    string
@@ -86,7 +87,20 @@ func TestCreateFileSystem_LustreTypeVersion(t *testing.T) {
 	}{
 		{name: "explicit 2.15", version: "2.15", want: "2.15"},
 		{name: "explicit 2.12", version: "2.12", want: "2.12"},
-		{name: "omitted", version: "", want: ""},
+		{name: "omitted", version: "", want: "2.10"},
+		{
+			name: "persistent2 default", want: "2.12",
+			lustre: &types.CreateFileSystemLustreConfiguration{DeploymentType: types.LustreDeploymentTypePersistent2},
+		},
+		{
+			name: "persistent2 metadata mode", want: "2.15",
+			lustre: &types.CreateFileSystemLustreConfiguration{
+				DeploymentType: types.LustreDeploymentTypePersistent2,
+				MetadataConfiguration: &types.CreateFileSystemLustreMetadataConfiguration{
+					Mode: types.MetadataConfigurationModeAutomatic,
+				},
+			},
+		},
 		{name: "unsupported", version: "9.9", wantErr: true},
 	}
 
@@ -100,6 +114,8 @@ func TestCreateFileSystem_LustreTypeVersion(t *testing.T) {
 				FileSystemType:  types.FileSystemTypeLustre,
 				StorageCapacity: aws.Int32(1200),
 				SubnetIds:       []string{"subnet-0123abcd"},
+
+				LustreConfiguration: tt.lustre,
 			}
 			if tt.version != "" {
 				in.FileSystemTypeVersion = aws.String(tt.version)

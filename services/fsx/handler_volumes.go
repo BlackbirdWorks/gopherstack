@@ -40,21 +40,24 @@ func (h *Handler) handleCreateVolumeFromBackup(
 
 // --- DeleteVolume ---
 
+type deleteVolumeOntapConfig struct {
+	SkipFinalBackup *bool `json:"SkipFinalBackup,omitempty"`
+	FinalBackupTags []Tag `json:"FinalBackupTags,omitempty"`
+}
+
 type deleteVolumeInput struct {
-	VolumeID string `json:"VolumeId"`
+	OntapConfiguration *deleteVolumeOntapConfig `json:"OntapConfiguration,omitempty"`
+	VolumeID           string                   `json:"VolumeId"`
 }
 
 type deleteVolumeOutput struct {
-	VolumeID  string `json:"VolumeId"`
-	Lifecycle string `json:"Lifecycle"`
+	OntapResponse *deleteFinalBackup `json:"OntapResponse,omitempty"`
+	VolumeID      string             `json:"VolumeId"`
+	Lifecycle     string             `json:"Lifecycle"`
 }
 
 func (h *Handler) handleDeleteVolume(_ context.Context, in *deleteVolumeInput) (*deleteVolumeOutput, error) {
-	if err := h.Backend.DeleteVolume(in.VolumeID); err != nil {
-		return nil, err
-	}
-
-	return &deleteVolumeOutput{VolumeID: in.VolumeID, Lifecycle: lifecycleDeleting}, nil
+	return h.Backend.DeleteVolume(in)
 }
 
 // --- DescribeVolumes ---

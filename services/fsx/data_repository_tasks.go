@@ -191,13 +191,8 @@ func (b *InMemoryBackend) CancelDataRepositoryTask(taskID string) error {
 	return nil
 }
 
-// DescribeDataRepositoryTasks returns tasks, optionally filtered by ID or
-// Filters. Real DataRepositoryTaskFilterName (aws-sdk-go-v2/service/fsx@v1.68.4
-// types/enums.go) has 4 values: file-system-id, task-lifecycle,
-// data-repository-association-id, file-cache-id. Only the first two are
-// recognized here -- CreateDataRepositoryTask never accepts an association or
-// file-cache reference to track, so those two have no honest value; matches
-// everything for them, same as an unset filter.
+// DescribeDataRepositoryTasks returns tasks filtered by ID or Filters. Tasks never
+// target a file cache, so file-cache-id matches none; data-repository-association-id is ignored.
 func (b *InMemoryBackend) DescribeDataRepositoryTasks(
 	ids []string,
 	filters []wireFilter,
@@ -232,6 +227,8 @@ func (b *InMemoryBackend) DescribeDataRepositoryTasks(
 					return t.FileSystemID, true
 				case "task-lifecycle":
 					return t.Lifecycle, true
+				case "file-cache-id":
+					return "", true
 				default:
 					return "", false
 				}

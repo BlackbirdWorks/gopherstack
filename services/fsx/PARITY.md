@@ -62,14 +62,12 @@ families:
   Tags: {wire: ok, errors: ok, state: ok, persist: ok, note: "TagResource/UntagResource/ListTagsForResource error code fixed in a prior pass: unrecognized ARNs return the generic ResourceNotFound exception. ListTagsForResource already returned [] not null for empty tag sets."}
 gaps: []
 items_still_open:
-  - "DescribeDataRepositoryTasks' data-repository-association-id/file-cache-id filters match everything: CreateDataRepositoryTask tracks only FileSystemId, and retargeting tasks at associations or caches is a larger feature."
+  - "DescribeDataRepositoryTasks' data-repository-association-id filter is ignored: tasks record no association reference, and CreateDataRepositoryTask accepts none."
   - "DescribeSnapshots.IncludeShared is not modeled: this backend is single-account, so no cross-account snapshot exists to differ on."
-  - "DeleteFileSystem/DeleteVolume outputs omit the finalizer sub-objects (e.g. FinalBackupTags) real AWS returns when a final backup is requested."
   - "CreateFileSystem does not require SubnetIds and models no AZ topology (exactly two subnets for MULTI_AZ_1); requiring it would migrate every test fixture."
   - "ActiveDirectoryError and AD-join state (CreateFileSystem ActiveDirectoryId, Create/UpdateStorageVirtualMachine ActiveDirectoryConfiguration) are not modeled: they need cross-service Directory Service validation."
-  - "CreateFileSystem leaves FileSystemTypeVersion empty when omitted; real AWS defaults it by DeploymentType and metadata configuration mode, which this backend does not model."
   - "OpenZFSVolumeConfiguration NfsExports, quotas, OriginSnapshot, ParentVolumeId and CopyStrategy/DeleteClonedVolumes remain unmodeled; only unconfigured-volume defaults are emitted."
-  - "CreateDataRepositoryAssociation.BatchImportMetaDataOnCreate and DeleteDataRepositoryAssociation.DeleteDataInFileSystem are not declared: honouring them needs auto-created tasks and S3 data deletion."
+  - "CreateDataRepositoryAssociation.BatchImportMetaDataOnCreate and DeleteDataRepositoryAssociation.DeleteDataInFileSystem are not declared: honouring them needs auto-created tasks and S3 data deletion (unmodeled data-repository subsystem)."
 deferred: []              # consciously not audited this pass (scope) — next pass targets
 leaks: {status: clean, note: "Single InMemoryBackend with no goroutines, timers, or janitors; Reset()/Snapshot()/Restore() all go through the coarse lockmetrics.RWMutex and store.Registry -- no ephemeral state outside the registered tables/maps. FIXED THIS PASS (previously leaky): DeleteFileSystem only removed the file system + its own tags, leaving ghost StorageVirtualMachine/Volume/Snapshot/DataRepositoryAssociation rows (and a stale aliases[fileSystemID] map entry) referencing a FileSystemId that no longer existed. DeleteVolume and DeleteStorageVirtualMachine had the same gap one level down (a deleted volume's snapshots, and a deleted SVM's volumes, were never cleaned up). All four Delete ops now cascade correctly (deleteVolumeLocked / deleteStorageVirtualMachineLocked / cascadeDeleteFileSystemChildrenLocked in file_systems.go, volumes.go, storage_virtual_machines.go), while intentionally leaving Backups and DataRepositoryTasks alone (real AWS retains both independently of the file system they reference). Regression tests added in cascade_delete_test.go."}
 ---
@@ -86,6 +84,15 @@ and now always DEFAULT (`TestCreateStorageVirtualMachine_SubtypeServerDerived`).
 CreateFileSystemFromBackup SubnetIds entry was already fixed and is proven by
 `TestCreateFileSystemFromBackup_SubnetIdsRoundTrip`. `storedBackup.Volume` is additive and
 bounded by the backup count (no version bump).
+
+## 2026-10-01 items_still_open burn-down
+
+Fixed 4 (typed-client proven): DeleteFileSystem now takes the documented final backup (Lustre skips unless
+SkipFinalBackup=false; Windows/OpenZFS take unless true) and returns Lustre/Windows/OpenZFSResponse
+{FinalBackupId, FinalBackupTags} (delete_file_system_final_backup_test.go); DeleteVolume does the same for ONTAP
+(delete_volume_final_backup_test.go); Lustre FileSystemTypeVersion defaults per CreateFileSystem docs
+(TestCreateFileSystem_LustreTypeVersion); file-cache-id task filter matches none. No persisted fields added.
+Left 5 (unmodeled subsystems / single-account scope).
 
 ## 2026-09-18 reqfielddiff tier-1 sweep (gopherstack-xhu2t)
 

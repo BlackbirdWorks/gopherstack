@@ -56,14 +56,12 @@ families:
   error_codes: {status: ok, note: "FIXED (this pass): independently field-diffed every operation's modeled error set against aws-sdk-go-v2/service/xray@v1.36.20's deserializers.go per-op error switch (awsRestjson1_deserializeOpError<Op>), not just handleError's own type switch. Found and fixed: UpdateIndexingRule not-found was InvalidRequestException (real: ResourceNotFoundException); PutResourcePolicy's policy-count-limit violation was InvalidRequestException (real: PolicyCountLimitExceededException, and InvalidRequestException isn't even in that op's modeled error set); TagResource/UntagResource/ListTagsForResource/CancelTraceRetrieval/ListRetrievedTraces/GetRetrievedTracesGraph never returned ResourceNotFoundException at all despite it being modeled for all six. Added ErrResourceNotFound/ErrTraceRetrievalNotFound/ErrPolicySizeLimitExceeded/ErrRuleLimitExceeded/ErrTooManyTags sentinels and corresponding handleError overrides. Confirmed unchanged/correct: GetGroup/DeleteGroup/UpdateGroup/GetSamplingRules/CreateSamplingRule/UpdateSamplingRule/DeleteSamplingRule/GetInsight*/DeleteResourcePolicy all declare ONLY InvalidRequestException (+ThrottledException, +RuleLimitExceededException for CreateSamplingRule) for not-found -- X-Ray's Smithy model does NOT give these ops ResourceNotFoundException, so gopherstack's existing InvalidRequestException mapping for Group/SamplingRule/Insight/ResourcePolicy not-found was already correct and is unchanged"}
 gaps: []
 items_still_open:
-  - "GetInsightSummaries' group filter matches only the implicit \"default\" group: detectInsights labels every insight \"default\" and does not evaluate Group FilterExpressions; per-group detection is a detector redesign."
-  - "Insight RootCauseServiceId/RootCauseServiceRequestImpactStatistics/TopAnomalousServices, GetInsightImpactGraph Services, and TraceSummary Error/Fault/ResponseTimeRootCauses need cross-service causality analysis the per-service detector does not do; MatchedEventTime belongs to the unmodeled defined-events feature."
-  - "GetTraceSummaries Sampling/SamplingStrategy and GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics are accepted with no effect: AWS documents no semantics for SamplingStrategy Value (API_SamplingStrategy.html) and no selector or forecast engine exists; results are an unsampled superset."
-  - "SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm, and a fabricated rate is worse than none; boost statistics documents are accepted and unknown rules reported as unprocessed."
-  - "PutResourcePolicy BypassPolicyLockoutCheck is parsed but LockoutPreventionException is never raised: the check targets the calling principal, which the request pipeline does not carry."
-  - "ThrottledException is declared per operation but never emitted: no rate limiting is modeled, consistent with the other services."
-  - "Default trace TTL is 30 minutes (XRAY_TRACE_TTL) while AWS retains traces for 30 days; the short default bounds memory and is configurable."
-  - "PutTelemetryRecords entries are kept in a 100-entry ring that is neither persisted nor readable; X-Ray has no read-back operation for them."
+  - "GetInsightSummaries' group filter matches only the implicit \"default\" group: detectInsights does not evaluate Group FilterExpressions (per-group detection is a detector redesign)."
+  - "Insight root-cause/TopAnomalousServices fields, GetInsightImpactGraph Services and TraceSummary Error/Fault/ResponseTimeRootCauses need cross-service causality analysis; MatchedEventTime belongs to the unmodeled defined-events feature."
+  - "GetTraceSummaries Sampling/SamplingStrategy and GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics are accepted with no effect: AWS documents no SamplingStrategy semantics (API_SamplingStrategy.html) and no selector or forecast engine exists."
+  - "SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm; boost statistics are accepted and unknown rules reported as unprocessed."
+  - "PutResourcePolicy LockoutPreventionException and ThrottledException are never raised: the request pipeline carries no calling principal and no rate limiting is modeled."
+  - "Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation)."
 deferred:
   - none; all routed ops covered by ops/families above
 leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + Stop() on ctx.Done(); sweepExpiredTraces holds b.mu.Lock only around map mutation, releases before telemetry/logging calls. Re-verified this pass: no new goroutines/tickers introduced; all new lock paths (resourceExists, resolveSamplingRule, DeleteResourcePolicy's revision check) execute entirely within their caller's existing Lock/RLock and use defer Unlock/RUnlock."}
@@ -499,6 +497,11 @@ Fixed 2 (typed-client proven by TestGetTraceSummaries_UsersAndProcessedCount): T
 emitted as plain strings, which the SDK's TraceUser deserializer rejects; it is now {UserName, ServiceIds}.
 TracesProcessedCount now counts every in-window trace, not only filter matches. Added the trace-TTL
 disclosure; merged 9 entries into 8.
+
+## 2026-10-01 items_still_open burn-down
+
+Re-read all 8 entries at HEAD: none fixable in-process (each needs causality/sampling/selector engines, a caller
+principal, or AWS-unpublished algorithms). Consolidated 8 into 6; no code change.
 
 ## 2026-09-18 ledger burn-down (gopherstack-yjn2 re-verified)
 
