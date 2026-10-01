@@ -335,7 +335,7 @@ func (b *InMemoryBackend) ListAccountsWithInvalidEffectivePolicy(
 		return nil, ErrOrgNotFound
 	}
 
-	if !slices.Contains(validPolicyTypes(), policyType) {
+	if !slices.Contains(validEffectivePolicyTypes(), policyType) {
 		return nil, ErrInvalidInput
 	}
 
