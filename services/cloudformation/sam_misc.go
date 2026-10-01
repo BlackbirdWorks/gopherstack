@@ -117,7 +117,7 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 	if props["Role"] != nil {
 		sm["RoleArn"] = props["Role"]
 	} else {
-		sm["RoleArn"] = samGetAtt(id+"Role", "Arn")
+		sm["RoleArn"] = samGetAtt(id+"Role", attrNameArn)
 		if err := t.putSMRole(id, props); err != nil {
 			return err
 		}
@@ -156,8 +156,8 @@ func (t *samTranslator) putSMRole(id string, props map[string]any) error {
 		return err
 	}
 	role := map[string]any{
-		"AssumeRolePolicyDocument": servicePrincipalTrust("states.amazonaws.com"),
-		"ManagedPolicyArns":        toSubs(managed),
+		samKeyAssumeRole:    servicePrincipalTrust("states.amazonaws.com"),
+		"ManagedPolicyArns": toSubs(managed),
 	}
 	if len(inline) > 0 {
 		role["Policies"] = inline

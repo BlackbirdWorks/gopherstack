@@ -14,7 +14,6 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
-	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -1135,61 +1134,6 @@ func (rc *ResourceCreator) deleteS3BucketPolicy(ctx context.Context, bucket stri
 }
 
 // ---- Scheduler ----
-
-func (rc *ResourceCreator) createSchedulerSchedule(
-	ctx context.Context,
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.Scheduler == nil {
-		return logicalID + "-stub", nil
-	}
-
-	name := strProp(props, "Name", params, physicalIDs)
-	if name == "" {
-		name = logicalID
-	}
-
-	scheduleExpression := strProp(props, "ScheduleExpression", params, physicalIDs)
-	state := strProp(props, "State", params, physicalIDs)
-	if state == "" {
-		state = "ENABLED"
-	}
-
-	var target schedulerbackend.Target
-	if rawTarget, ok := props["Target"].(map[string]any); ok {
-		target.ARN = resolve(rawTarget["Arn"], params, physicalIDs)
-		target.RoleARN = resolve(rawTarget["RoleArn"], params, physicalIDs)
-	}
-
-	sched, err := rc.backends.Scheduler.Backend.CreateSchedule(
-		ctx,
-		name,
-		"",
-		scheduleExpression,
-		"",
-		"",
-		target,
-		state,
-		schedulerbackend.FlexibleTimeWindow{Mode: "OFF"},
-	)
-	if err != nil {
-		return "", fmt.Errorf("create Scheduler schedule %s: %w", name, err)
-	}
-
-	return sched.ARN, nil
-}
-
-func (rc *ResourceCreator) deleteSchedulerSchedule(ctx context.Context, arn string) error {
-	if rc.backends.Scheduler == nil {
-		return nil
-	}
-
-	name := resourceNameFromARN(arn)
-
-	return rc.backends.Scheduler.Backend.DeleteSchedule(ctx, name, "")
-}
 
 // ---- helpers ----
 

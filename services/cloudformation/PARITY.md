@@ -277,11 +277,22 @@ items_still_open:
   - "Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model) and treats Replacement Conditionally as Update:Replace; StackPolicyURL is not fetched (no S3 client) (gopherstack-cqy3)."
   - "No nested-stack, update-rollback or multi-version type machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks, UpdateStack RetainExceptOnCreate, RollbackStack (status-only; drops RoleARN/RetainExceptOnCreate), ActivateType MajorVersion/VersionBump/TypeNameAlias (gopherstack-xhu2t)."
   - "ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan, so MaxResults/Resources have nothing to page or seed from."
-  - "SAM transform (AWS::Serverless-2016-10-31) not yet expanded: AWS::Serverless::HttpApi and HttpApi events, S3 and ScheduleV2 events, Api event Auth/Cors/RequestParameters, SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, FunctionUrlConfig, EventInvokeConfig, StateMachine Events, Api Domain/UsagePlan. All fail the stack/change set with an explicit reason, never silently dropped."
+  - "SAM transform (AWS::Serverless-2016-10-31) still unexpanded: HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, FunctionUrlConfig, EventInvokeConfig, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped."
+  - "SAM HttpApi emits separate AWS::ApiGatewayV2::Integration/Route resources (<Fn><Event>Integration/Route) instead of the OpenAPI Body real SAM generates, and SAM S3 events omit the Bucket DependsOn Permission edge (it would be circular here); logical IDs for those extras differ from real SAM."
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
 ## Notes
+
+### 2026-10-01 SAM HttpApi, S3, ScheduleV2, Api Cors/Auth
+
+SAM guide pages: sam-resource-httpapi, sam-property-function-httpapi, sam-property-function-s3, sam-property-function-schedulev2,
+sam-property-function-api, sam-property-api-corsconfiguration, sam-property-api-apiauth (+ Cognito/LambdaToken/LambdaRequest
+authorizer and identity pages), sam-property-function-apifunctionauth, sam-specification-generated-resources-{httpapi,function,api}.
+Added HttpApi (explicit and implicit ServerlessHttpApi, `$default`/named stage logical IDs), HttpApi/S3/ScheduleV2 events, Api Cors
+(OPTIONS mock integration) and Auth (Cognito, Lambda TOKEN/REQUEST, DefaultAuthorizer, per-event Authorizer incl. NONE). The
+ApiGatewayV2 Api/Stage/Integration/Route/Authorizer, Scheduler Schedule and S3 Bucket NotificationConfiguration creators now apply
+the full property set. Proven by SDK-driven change-set tests (sam_events_test.go).
 
 ### 2026-10-01: Create/UpdateStack StackPolicyBody
 

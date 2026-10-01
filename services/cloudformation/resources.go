@@ -2532,6 +2532,11 @@ func (rc *ResourceCreator) createS3Bucket(
 	if err != nil {
 		return "", fmt.Errorf("failed to create S3 bucket %s: %w", bucketName, err)
 	}
+	if err = rc.applyBucketNotifications(ctx, bucketName, props, params, physicalIDs); err != nil {
+		_, _ = rc.backends.S3.Backend.DeleteBucket(ctx, &awss3.DeleteBucketInput{Bucket: aws.String(bucketName)})
+
+		return "", err
+	}
 
 	return bucketName, nil
 }

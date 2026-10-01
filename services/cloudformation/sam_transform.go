@@ -39,6 +39,22 @@ const (
 	samStateEnabled  = "ENABLED"
 	samStateDisabled = "DISABLED"
 	samTypeString    = "String"
+	samKeyStageName  = "StageName"
+	samKeyResponses  = "responses"
+	samKeyTypeLower  = "type"
+	samTokenType     = "TOKEN"
+	samKeyAction     = "Action"
+	samKeyPrincipal  = "Principal"
+	samKeyState      = "State"
+	samKeyAssumeRole = "AssumeRolePolicyDocument"
+	samPolicyVersion = "2012-10-17"
+	samKeyStatement  = "Statement"
+	samKeyPolicyName = "PolicyName"
+	samKeyFunction   = "Function"
+	samJSONMime      = "application/json"
+	samAuthHeader    = "Authorization"
+	samKeyVersion    = "Version"
+	samKeyEffect     = "Effect"
 )
 
 // ErrSAMTransform is returned when a SAM template cannot be expanded.
@@ -48,10 +64,12 @@ var ErrSAMTransform = errors.New("transform " + samTransformName + " failed with
 // samTranslator expands AWS::Serverless::* into plain CloudFormation; logical IDs follow
 // the SAM developer guide page "sam-specification-generated-resources".
 type samTranslator struct {
-	out     map[string]any
-	globals map[string]map[string]any
-	apis    map[string]*samAPI
-	refs    map[string]string
+	out       map[string]any
+	globals   map[string]map[string]any
+	apis      map[string]*samAPI
+	httpAPIs  map[string]*samHTTPAPI
+	s3Configs map[string][]any
+	refs      map[string]string
 }
 
 func samErr(id, format string, args ...any) error {
@@ -96,10 +114,12 @@ func isSAMTransform(doc map[string]any) bool {
 // drops Globals; Transform is left for the caller to keep or strip.
 func expandSAMDocument(doc map[string]any) error {
 	t := &samTranslator{
-		out:     map[string]any{},
-		globals: map[string]map[string]any{},
-		apis:    map[string]*samAPI{},
-		refs:    map[string]string{},
+		out:       map[string]any{},
+		globals:   map[string]map[string]any{},
+		apis:      map[string]*samAPI{},
+		httpAPIs:  map[string]*samHTTPAPI{},
+		s3Configs: map[string][]any{},
+		refs:      map[string]string{},
 	}
 	if err := t.readGlobals(asMap(doc["Globals"])); err != nil {
 		return err
@@ -118,7 +138,7 @@ func expandSAMDocument(doc map[string]any) error {
 func (t *samTranslator) readGlobals(g map[string]any) error {
 	for section, v := range g {
 		switch section {
-		case "Function", "Api", "SimpleTable":
+		case samKeyFunction, "Api", "HttpApi", "SimpleTable":
 			t.globals[section] = asMap(v)
 		default:
 			return fmt.Errorf("%w. Globals section [%s] is not supported", ErrSAMTransform, section)
@@ -132,10 +152,8 @@ func (t *samTranslator) translate(res map[string]any) error {
 	ids := slices.Sorted(maps.Keys(res))
 	for _, id := range ids {
 		r := asMap(res[id])
-		if r[samKeyType] == samResPrefix+"Api" {
-			if err := t.registerAPI(id, r); err != nil {
-				return err
-			}
+		if err := t.registerAPIs(id, r); err != nil {
+			return err
 		}
 	}
 	for _, id := range ids {
@@ -144,13 +162,32 @@ func (t *samTranslator) translate(res map[string]any) error {
 		}
 	}
 
-	return t.finalizeAPIs()
+	if err := t.finalizeAPIs(); err != nil {
+		return err
+	}
+
+	if err := t.finalizeHTTPAPIs(); err != nil {
+		return err
+	}
+
+	return t.finalizeS3Events()
+}
+
+func (t *samTranslator) registerAPIs(id string, r map[string]any) error {
+	switch r[samKeyType] {
+	case samResPrefix + "Api":
+		return t.registerAPI(id, r)
+	case samResPrefix + "HttpApi":
+		return t.registerHTTPAPI(id, r)
+	}
+
+	return nil
 }
 
 func (t *samTranslator) translateOne(id string, r map[string]any) error {
 	typ, _ := r[samKeyType].(string)
 	switch typ {
-	case samResPrefix + "Function":
+	case samResPrefix + samKeyFunction:
 		return t.translateFunction(id, r)
 	case samResPrefix + "SimpleTable":
 		return t.translateSimpleTable(id, r)
@@ -158,7 +195,7 @@ func (t *samTranslator) translateOne(id string, r map[string]any) error {
 		return t.translateLayer(id, r)
 	case samResPrefix + "StateMachine":
 		return t.translateStateMachine(id, r)
-	case samResPrefix + "Api":
+	case samResPrefix + "Api", samResPrefix + "HttpApi":
 		return nil
 	}
 	if strings.HasPrefix(typ, samResPrefix) {

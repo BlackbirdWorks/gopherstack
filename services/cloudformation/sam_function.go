@@ -21,11 +21,11 @@ func samFnPassthrough() map[string]bool {
 func samFnHandled() map[string]bool {
 	return keySet("CodeUri", "InlineCode", "ImageUri", "Environment", "Tags", "Role", "Policies",
 		"Events", "AutoPublishAlias", "Tracing", "DeadLetterQueue", "PermissionsBoundary",
-		"VersionDescription", "AssumeRolePolicyDocument")
+		"VersionDescription", samKeyAssumeRole)
 }
 
 func (t *samTranslator) translateFunction(id string, r map[string]any) error {
-	props := t.resProps("Function", r)
+	props := t.resProps(samKeyFunction, r)
 	if err := rejectUnknown(id, props, samFnPassthrough(), samFnHandled()); err != nil {
 		return err
 	}
@@ -38,7 +38,7 @@ func (t *samTranslator) translateFunction(id string, r map[string]any) error {
 
 	managed := []any{samLambdaBasicExec}
 	if props["Role"] == nil {
-		fn["Role"] = samGetAtt(id+"Role", "Arn")
+		fn["Role"] = samGetAtt(id+"Role", attrNameArn)
 	} else {
 		fn["Role"] = props["Role"]
 	}
@@ -124,8 +124,8 @@ func s3Location(id, prop string, v any, bucketKey, keyKey, verKey string) (map[s
 		return map[string]any{bucketKey: bucket, keyKey: key}, nil
 	case map[string]any:
 		out := map[string]any{bucketKey: u["Bucket"], keyKey: u["Key"]}
-		if u["Version"] != nil {
-			out[verKey] = u["Version"]
+		if u[samKeyVersion] != nil {
+			out[verKey] = u[samKeyVersion]
 		}
 
 		return out, nil
@@ -142,9 +142,9 @@ func (t *samTranslator) putFunctionRole(id string, props map[string]any, managed
 		return err
 	}
 	role := map[string]any{
-		"AssumeRolePolicyDocument": servicePrincipalTrust("lambda.amazonaws.com"),
-		"ManagedPolicyArns":        toSubs(managed),
-		"Tags":                     samTags(nil),
+		samKeyAssumeRole:    servicePrincipalTrust("lambda.amazonaws.com"),
+		"ManagedPolicyArns": toSubs(managed),
+		"Tags":              samTags(nil),
 	}
 	if len(inline) > 0 {
 		role["Policies"] = inline
@@ -171,11 +171,11 @@ func toSubs(arns []any) []any {
 
 func servicePrincipalTrust(principal string) map[string]any {
 	return map[string]any{
-		"Version": "2012-10-17",
-		"Statement": []any{map[string]any{
-			"Effect":    "Allow",
-			"Principal": map[string]any{"Service": []any{principal}},
-			"Action":    []any{"sts:AssumeRole"},
+		samKeyVersion: samPolicyVersion,
+		samKeyStatement: []any{map[string]any{
+			samKeyEffect:    stackPolicyEffectAllow,
+			samKeyPrincipal: map[string]any{"Service": []any{principal}},
+			samKeyAction:    []any{"sts:AssumeRole"},
 		}},
 	}
 }
@@ -189,12 +189,12 @@ func splitPolicies(id string, v any, roleID string, managed *[]any) ([]any, erro
 		case string:
 			*managed = append(*managed, pt)
 		case map[string]any:
-			if pt["Statement"] == nil {
+			if pt[samKeyStatement] == nil {
 				return nil, samErr(id, "Policy template or intrinsic in Policies is not supported by "+
 					"this emulator's SAM transform; use a managed policy ARN or a policy document.")
 			}
 			inline = append(inline, map[string]any{
-				"PolicyName":     fmt.Sprintf("%sPolicy%d", roleID, i),
+				samKeyPolicyName: fmt.Sprintf("%sPolicy%d", roleID, i),
 				"PolicyDocument": pt,
 			})
 		default:
@@ -211,7 +211,7 @@ func (t *samTranslator) putAlias(id string, props map[string]any) error {
 		return nil
 	}
 	fnProps := asMap(asMap(t.out[id])[samKeyProps])
-	verID := id + "Version" + samHash(fnProps)
+	verID := id + samKeyVersion + samHash(fnProps)
 	verProps := map[string]any{samKeyFnName: samRef(id)}
 	if d := props["VersionDescription"]; d != nil {
 		verProps[samKeyDesc] = d
@@ -225,7 +225,7 @@ func (t *samTranslator) putAlias(id string, props map[string]any) error {
 
 	return t.put(aliasID, map[string]any{samKeyType: samTypeAlias, samKeyProps: map[string]any{
 		samKeyFnName:      samRef(id),
-		"FunctionVersion": samGetAtt(verID, "Version"),
+		"FunctionVersion": samGetAtt(verID, samKeyVersion),
 		attrNameName:      alias,
 	}})
 }

@@ -8,18 +8,20 @@ import (
 )
 
 const (
-	samSQSExecRole    = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
-	samKinesisExec    = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole"
-	samDynamoDBExec   = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaDynamoDBExecutionRole"
-	samEventSQS       = "SQS"
-	samEventKinesis   = "Kinesis"
-	samEventDynamoDB  = "DynamoDB"
-	samEventAPI       = "Api"
-	samEventSchedule  = "Schedule"
-	samEventSNS       = "SNS"
-	samEventRule      = "EventBridgeRule"
-	samEventCWEvent   = "CloudWatchEvent"
-	samEventsPrincipl = "events.amazonaws.com"
+	samSQSExecRole     = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
+	samKinesisExec     = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole"
+	samDynamoDBExec    = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaDynamoDBExecutionRole"
+	samEventSQS        = "SQS"
+	samEventKinesis    = "Kinesis"
+	samEventDynamoDB   = "DynamoDB"
+	samEventAPI        = "Api"
+	samEventSchedule   = "Schedule"
+	samEventScheduleV2 = "ScheduleV2"
+	samEventS3         = "S3"
+	samEventSNS        = "SNS"
+	samEventRule       = "EventBridgeRule"
+	samEventCWEvent    = "CloudWatchEvent"
+	samEventsPrincipl  = "events.amazonaws.com"
 )
 
 func samESMCommon() []string {
@@ -47,6 +49,12 @@ func (t *samTranslator) translateEvents(ev *samEventCtx, events map[string]any) 
 		switch typ {
 		case samEventAPI:
 			err = t.apiEvent(ev, name, props)
+		case samEventHTTPAPI:
+			err = t.httpAPIEvent(ev, name, props)
+		case samEventS3:
+			err = t.s3Event(ev, name, props)
+		case samEventScheduleV2:
+			err = t.scheduleV2Event(ev, name, props)
 		case samEventSQS:
 			err = t.mappingEvent(ev, name, props, "Queue", samSQSExecRole, nil)
 		case samEventKinesis:
@@ -73,9 +81,9 @@ func (t *samTranslator) translateEvents(ev *samEventCtx, events map[string]any) 
 
 func lambdaPermission(fnID, principal string, sourceArn any) map[string]any {
 	p := map[string]any{
-		"Action":     "lambda:InvokeFunction",
-		samKeyFnName: samRef(fnID),
-		"Principal":  principal,
+		samKeyAction:    "lambda:InvokeFunction",
+		samKeyFnName:    samRef(fnID),
+		samKeyPrincipal: principal,
 	}
 	if sourceArn != nil {
 		p["SourceArn"] = sourceArn
@@ -109,7 +117,11 @@ func (t *samTranslator) snsEvent(ev *samEventCtx, name string, props map[string]
 	if err := rejectUnknown(ev.id+name, props, keySet("Topic", "FilterPolicy", "Region")); err != nil {
 		return err
 	}
-	sub := map[string]any{"Protocol": "lambda", samKeyTopicArn: props["Topic"], "Endpoint": samGetAtt(ev.id, "Arn")}
+	sub := map[string]any{
+		"Protocol":     "lambda",
+		samKeyTopicArn: props["Topic"],
+		"Endpoint":     samGetAtt(ev.id, attrNameArn),
+	}
 	if props["FilterPolicy"] != nil {
 		sub["FilterPolicy"] = props["FilterPolicy"]
 	}
@@ -124,11 +136,11 @@ func (t *samTranslator) snsEvent(ev *samEventCtx, name string, props map[string]
 }
 
 func (t *samTranslator) scheduleEvent(ev *samEventCtx, name string, props map[string]any) error {
-	if err := rejectUnknown(ev.id+name, props, keySet("Schedule", "Input", "Enabled", "State", "Name",
+	if err := rejectUnknown(ev.id+name, props, keySet("Schedule", "Input", "Enabled", samKeyState, "Name",
 		samKeyDesc)); err != nil {
 		return err
 	}
-	rule := map[string]any{"ScheduleExpression": props["Schedule"], "State": ruleState(props)}
+	rule := map[string]any{"ScheduleExpression": props["Schedule"], samKeyState: ruleState(props)}
 	for _, k := range []string{attrNameName, samKeyDesc} {
 		if props[k] != nil {
 			rule[k] = props[k]
@@ -140,10 +152,10 @@ func (t *samTranslator) scheduleEvent(ev *samEventCtx, name string, props map[st
 
 func (t *samTranslator) ruleEvent(ev *samEventCtx, name string, props map[string]any) error {
 	if err := rejectUnknown(ev.id+name, props, keySet("Pattern", "Input", "InputPath", "EventBusName",
-		"Enabled", "State")); err != nil {
+		"Enabled", samKeyState)); err != nil {
 		return err
 	}
-	rule := map[string]any{"EventPattern": props["Pattern"], "State": ruleState(props)}
+	rule := map[string]any{"EventPattern": props["Pattern"], samKeyState: ruleState(props)}
 	if props["EventBusName"] != nil {
 		rule["EventBusName"] = props["EventBusName"]
 	}
@@ -152,7 +164,7 @@ func (t *samTranslator) ruleEvent(ev *samEventCtx, name string, props map[string
 }
 
 func ruleState(props map[string]any) any {
-	if s, ok := props["State"]; ok {
+	if s, ok := props[samKeyState]; ok {
 		return s
 	}
 	if en, ok := props["Enabled"].(bool); ok && !en {
@@ -163,7 +175,7 @@ func ruleState(props map[string]any) any {
 }
 
 func (t *samTranslator) putRule(ev *samEventCtx, name string, rule map[string]any, input, inputPath any) error {
-	target := map[string]any{"Arn": samGetAtt(ev.id, "Arn"), "Id": name + "LambdaTarget"}
+	target := map[string]any{attrNameArn: samGetAtt(ev.id, attrNameArn), "Id": name + "LambdaTarget"}
 	if input != nil {
 		target["Input"] = input
 	}
@@ -176,11 +188,11 @@ func (t *samTranslator) putRule(ev *samEventCtx, name string, rule map[string]an
 		return err
 	}
 
-	return t.put(ruleID+"Permission", lambdaPermission(ev.id, samEventsPrincipl, samGetAtt(ruleID, "Arn")))
+	return t.put(ruleID+"Permission", lambdaPermission(ev.id, samEventsPrincipl, samGetAtt(ruleID, attrNameArn)))
 }
 
 func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]any) error {
-	if err := rejectUnknown(ev.id+name, props, keySet("Path", "Method", "RestApiId")); err != nil {
+	if err := rejectUnknown(ev.id+name, props, keySet("Path", "Method", "RestApiId", samAuthKey)); err != nil {
 		return err
 	}
 	path, _ := props["Path"].(string)
@@ -192,7 +204,11 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	if err != nil {
 		return err
 	}
-	api.addRoute(path, method, ev.id)
+	authorizer, err := eventAuthorizer(ev.id, name, props)
+	if err != nil {
+		return err
+	}
+	api.addRoute(samRoute{fnID: ev.id, path: path, method: method, authorizer: authorizer})
 	for _, stage := range []string{api.stageName, "Test"} {
 		src := map[string]any{samKeyFnSub: "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${" +
 			api.id + "}/" + stageSegment(stage) + "/" + permissionMethod(method) + permissionPath(path)}
@@ -225,4 +241,15 @@ var samPathParam = regexp.MustCompile(`\{[^}]+\}`)
 
 func permissionPath(p string) string {
 	return samPathParam.ReplaceAllString(p, "*")
+}
+
+// eventAuthorizer reads Auth.Authorizer; any other Auth key is rejected.
+func eventAuthorizer(fnID, name string, props map[string]any) (string, error) {
+	auth := asMap(props[samAuthKey])
+	if err := rejectUnknown(fnID+name, auth, keySet("Authorizer")); err != nil {
+		return "", err
+	}
+	a, _ := auth["Authorizer"].(string)
+
+	return a, nil
 }

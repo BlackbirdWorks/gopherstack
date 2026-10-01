@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -62,21 +63,19 @@ func (rc *ResourceCreator) createAPIGatewayV2Authorizer(
 	}
 
 	apiID := strProp(props, "ApiId", params, physicalIDs)
-	name := strProp(props, "Name", params, physicalIDs)
-	if name == "" {
-		name = logicalID
+	var in apigatewayv2backend.CreateAuthorizerInput
+	if err := decodeProps(props, params, physicalIDs, &in); err != nil {
+		return "", err
 	}
-
-	authType := strProp(props, "AuthorizerType", params, physicalIDs)
-	if authType == "" {
-		authType = "REQUEST"
+	if in.Name == "" {
+		in.Name = logicalID
 	}
+	if in.AuthorizerType == "" {
+		in.AuthorizerType = "REQUEST"
+	}
+	name := in.Name
 
-	auth, err := rc.backends.APIGatewayV2.Backend.CreateAuthorizer(apiID, apigatewayv2backend.CreateAuthorizerInput{
-		Name:           name,
-		AuthorizerType: authType,
-		AuthorizerURI:  strProp(props, "AuthorizerUri", params, physicalIDs),
-	})
+	auth, err := rc.backends.APIGatewayV2.Backend.CreateAuthorizer(apiID, in)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 authorizer %s: %w", name, err)
 	}
@@ -95,6 +94,31 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Authorizer(physicalID string) error
 	}
 
 	return rc.backends.APIGatewayV2.Backend.DeleteAuthorizer(apiID, authID)
+}
+
+// decodeProps resolves intrinsics in props and decodes them into out; the
+// backend inputs' JSON tags match CloudFormation's property names case-insensitively.
+func decodeProps(props map[string]any, params, physicalIDs map[string]string, out any) error {
+	raw, err := json.Marshal(resolveDeep(props, params, physicalIDs))
+	if err != nil {
+		return fmt.Errorf("encode properties: %w", err)
+	}
+	if err = json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("decode properties: %w", err)
+	}
+
+	return nil
+}
+
+// bareIntegrationTarget turns "integrations/<apiID>/<id>" (Ref of an Integration
+// resolves to its composite physical ID) into "integrations/<id>".
+func bareIntegrationTarget(target string) string {
+	rest, ok := strings.CutPrefix(target, "integrations/")
+	if !ok {
+		return target
+	}
+
+	return "integrations/" + rest[strings.LastIndex(rest, "/")+1:]
 }
 
 func splitAPIGatewayV2PhysID(physicalID string) (string, string, bool) {
@@ -119,24 +143,19 @@ func (rc *ResourceCreator) createAPIGatewayV2API(
 		return logicalID + "-stub", nil
 	}
 
-	name := strProp(props, "Name", params, physicalIDs)
-	if name == "" {
-		name = logicalID
+	var in apigatewayv2backend.CreateAPIInput
+	if err := decodeProps(props, params, physicalIDs, &in); err != nil {
+		return "", err
 	}
-
-	protocolType := strProp(props, "ProtocolType", params, physicalIDs)
-	if protocolType == "" {
-		protocolType = "HTTP"
+	if in.Name == "" {
+		in.Name = logicalID
 	}
+	if in.ProtocolType == "" {
+		in.ProtocolType = "HTTP"
+	}
+	name := in.Name
 
-	api, err := rc.backends.APIGatewayV2.Backend.CreateAPI(
-		ctx,
-		apigatewayv2backend.CreateAPIInput{
-			Name:         name,
-			ProtocolType: protocolType,
-			Description:  strProp(props, "Description", params, physicalIDs),
-		},
-	)
+	api, err := rc.backends.APIGatewayV2.Backend.CreateAPI(ctx, in)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 API %s: %w", name, err)
 	}
@@ -162,20 +181,16 @@ func (rc *ResourceCreator) createAPIGatewayV2Stage(
 	}
 
 	apiID := strProp(props, "ApiId", params, physicalIDs)
-	stageName := strProp(props, "StageName", params, physicalIDs)
-	if stageName == "" {
-		stageName = logicalID
+	var in apigatewayv2backend.CreateStageInput
+	if err := decodeProps(props, params, physicalIDs, &in); err != nil {
+		return "", err
 	}
+	if in.StageName == "" {
+		in.StageName = logicalID
+	}
+	stageName := in.StageName
 
-	autoDeploy, _ := props["AutoDeploy"].(bool)
-
-	_, err := rc.backends.APIGatewayV2.Backend.CreateStage(
-		apiID,
-		apigatewayv2backend.CreateStageInput{
-			StageName:  stageName,
-			AutoDeploy: autoDeploy,
-		},
-	)
+	_, err := rc.backends.APIGatewayV2.Backend.CreateStage(apiID, in)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 stage %s: %w", stageName, err)
 	}
@@ -210,19 +225,15 @@ func (rc *ResourceCreator) createAPIGatewayV2Integration(
 	}
 
 	apiID := strProp(props, "ApiId", params, physicalIDs)
-	integrationType := strProp(props, "IntegrationType", params, physicalIDs)
-	if integrationType == "" {
-		integrationType = "AWS_PROXY"
+	var in apigatewayv2backend.CreateIntegrationInput
+	if err := decodeProps(props, params, physicalIDs, &in); err != nil {
+		return "", err
+	}
+	if in.IntegrationType == "" {
+		in.IntegrationType = "AWS_PROXY"
 	}
 
-	integration, err := rc.backends.APIGatewayV2.Backend.CreateIntegration(
-		apiID,
-		apigatewayv2backend.CreateIntegrationInput{
-			IntegrationType:      integrationType,
-			IntegrationURI:       strProp(props, "IntegrationUri", params, physicalIDs),
-			PayloadFormatVersion: strProp(props, "PayloadFormatVersion", params, physicalIDs),
-		},
-	)
+	integration, err := rc.backends.APIGatewayV2.Backend.CreateIntegration(apiID, in)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 integration: %w", err)
 	}
@@ -256,16 +267,13 @@ func (rc *ResourceCreator) createAPIGatewayV2Route(
 	}
 
 	apiID := strProp(props, "ApiId", params, physicalIDs)
-	routeKey := strProp(props, "RouteKey", params, physicalIDs)
-	target := strProp(props, "Target", params, physicalIDs)
+	var in apigatewayv2backend.CreateRouteInput
+	if err := decodeProps(props, params, physicalIDs, &in); err != nil {
+		return "", err
+	}
+	in.Target = bareIntegrationTarget(in.Target)
 
-	route, err := rc.backends.APIGatewayV2.Backend.CreateRoute(
-		apiID,
-		apigatewayv2backend.CreateRouteInput{
-			RouteKey: routeKey,
-			Target:   target,
-		},
-	)
+	route, err := rc.backends.APIGatewayV2.Backend.CreateRoute(apiID, in)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 route: %w", err)
 	}

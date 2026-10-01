@@ -136,9 +136,10 @@ func newSAMBackends(t *testing.T) (*cloudformation.ServiceBackends, *cfnsdk.Clie
 	return backends, newTestClientForBackend(t, b)
 }
 
-func deploySAM(t *testing.T, client *cfnsdk.Client, name, body string) {
+func deploySAM(t *testing.T, client *cfnsdk.Client, body string) {
 	t.Helper()
 	ctx := t.Context()
+	name := "sam-stack"
 
 	_, err := client.CreateChangeSet(ctx, &cfnsdk.CreateChangeSetInput{
 		StackName:     aws.String(name),
@@ -237,7 +238,7 @@ func TestSAMTransform_Deploy(t *testing.T) {
 			t.Parallel()
 
 			backends, client := newSAMBackends(t)
-			deploySAM(t, client, "sam-stack", tc.template)
+			deploySAM(t, client, tc.template)
 			tc.verify(t, backends, client)
 			assertDeleteClean(t, client)
 		})
@@ -472,7 +473,7 @@ func TestSAMTransform_UpdateChangeSet(t *testing.T) {
 	t.Parallel()
 
 	_, client := newSAMBackends(t)
-	deploySAM(t, client, "sam-stack", samScheduleAliasTemplate)
+	deploySAM(t, client, samScheduleAliasTemplate)
 
 	_, err := client.CreateChangeSet(t.Context(), &cfnsdk.CreateChangeSetInput{
 		StackName:     aws.String("sam-stack"),
