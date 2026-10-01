@@ -189,6 +189,15 @@ func (b *InMemoryBackend) CreateImportTask(
 	ctx context.Context,
 	importRoleArn, importSourceArn string,
 ) (*ImportTask, error) {
+	return b.CreateImportTaskWithFilter(ctx, importRoleArn, importSourceArn, nil)
+}
+
+// CreateImportTaskWithFilter is CreateImportTask plus an optional event-time filter.
+func (b *InMemoryBackend) CreateImportTaskWithFilter(
+	ctx context.Context,
+	importRoleArn, importSourceArn string,
+	filter *ImportFilter,
+) (*ImportTask, error) {
 	if importRoleArn == "" {
 		return nil, fmt.Errorf("%w: importRoleArn is required", ErrValidation)
 	}
@@ -210,6 +219,7 @@ func (b *InMemoryBackend) CreateImportTask(
 		Status:               importStatusInProgress,
 		CreationTime:         now,
 		LastUpdatedTime:      now,
+		ImportFilter:         filter.clone(),
 	}
 
 	b.mu.Lock("CreateImportTask")
@@ -222,8 +232,26 @@ func (b *InMemoryBackend) CreateImportTask(
 	b.importTasks.Put(task)
 
 	cp := *task
+	cp.ImportFilter = task.ImportFilter.clone()
 
 	return &cp, nil
+}
+
+func (f *ImportFilter) clone() *ImportFilter {
+	if f == nil {
+		return nil
+	}
+
+	return &ImportFilter{StartEventTime: cloneInt64Ptr(f.StartEventTime), EndEventTime: cloneInt64Ptr(f.EndEventTime)}
+}
+
+func cloneInt64Ptr(p *int64) *int64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+
+	return &v
 }
 
 // advanceExportTaskStatesLocked lazily advances every export task's state
@@ -306,7 +334,9 @@ func (b *InMemoryBackend) DescribeImportTasks(
 		if taskID != "" && t.ImportID != taskID {
 			continue
 		}
-		all = append(all, *t)
+		cp := *t
+		cp.ImportFilter = t.ImportFilter.clone()
+		all = append(all, cp)
 	}
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].CreationTime != all[j].CreationTime {

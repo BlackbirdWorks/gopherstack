@@ -3,6 +3,7 @@ package cloudwatchlogs
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -121,6 +122,19 @@ func (b *InMemoryBackend) PutMetricFilter(
 	logGroupName, filterName, filterPattern string,
 	transformations []MetricTransformation,
 ) error {
+	return b.PutMetricFilterWithOptions(ctx, logGroupName, filterName, filterPattern, transformations, FilterOptions{})
+}
+
+// PutMetricFilterWithOptions is PutMetricFilter plus the system-field options.
+func (b *InMemoryBackend) PutMetricFilterWithOptions(
+	ctx context.Context,
+	logGroupName, filterName, filterPattern string,
+	transformations []MetricTransformation,
+	opts FilterOptions,
+) error {
+	if err := validateFilterOptions(opts, metricEmitSystemFieldDimensions()); err != nil {
+		return err
+	}
 	if logGroupName == "" {
 		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -153,6 +167,10 @@ func (b *InMemoryBackend) PutMetricFilter(
 		MetricTransformations: append([]MetricTransformation(nil), transformations...),
 		CreationTime:          creationTime,
 		region:                region,
+
+		FieldSelectionCriteria:    cloneStrPtr(opts.FieldSelectionCriteria),
+		EmitSystemFieldDimensions: append([]string(nil), opts.EmitSystemFields...),
+		ApplyOnTransformedLogs:    opts.ApplyOnTransformedLogs,
 	}
 	b.metricFilters.Put(mf)
 	count := len(b.metricFiltersInGroup(region, logGroupName))
@@ -200,6 +218,8 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 		cp.MetricTransformations = append(
 			[]MetricTransformation(nil),
 			mf.MetricTransformations...)
+		cp.FieldSelectionCriteria = cloneStrPtr(mf.FieldSelectionCriteria)
+		cp.EmitSystemFieldDimensions = append([]string(nil), mf.EmitSystemFieldDimensions...)
 		all = append(all, cp)
 	}
 	sort.Slice(all, func(i, j int) bool {
@@ -319,4 +339,40 @@ func (b *InMemoryBackend) TestMetricFilter(
 	}
 
 	return matches, nil
+}
+
+const maxFieldSelectionCriteriaLen = 2000
+
+func metricEmitSystemFieldDimensions() []string { return []string{"@aws.account", "@aws.region"} }
+
+func subscriptionEmitSystemFields() []string {
+	return []string{"@aws.account", "@aws.region", "@source.log"}
+}
+
+func cloneStrPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	v := *p
+
+	return &v
+}
+
+// validateFilterOptions checks the PutMetricFilter/PutSubscriptionFilter field docs: valid emit
+// values per op, fieldSelectionCriteria at most 2000 characters.
+func validateFilterOptions(opts FilterOptions, allowed []string) error {
+	for _, f := range opts.EmitSystemFields {
+		if !slices.Contains(allowed, f) {
+			return fmt.Errorf("%w: invalid system field %q, must be one of %v", ErrValidation, f, allowed)
+		}
+	}
+	if opts.FieldSelectionCriteria != nil && len(*opts.FieldSelectionCriteria) > maxFieldSelectionCriteriaLen {
+		return fmt.Errorf(
+			"%w: fieldSelectionCriteria exceeds %d characters",
+			ErrValidation,
+			maxFieldSelectionCriteriaLen,
+		)
+	}
+
+	return nil
 }

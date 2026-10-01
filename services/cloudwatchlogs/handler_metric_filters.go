@@ -7,10 +7,13 @@ import (
 
 // --- PutMetricFilter ---.
 type putMetricFilterInput struct {
-	FilterPattern         string                 `json:"filterPattern"`
-	FilterName            string                 `json:"filterName"`
-	LogGroupName          string                 `json:"logGroupName"`
-	MetricTransformations []MetricTransformation `json:"metricTransformations"`
+	FilterPattern             string                 `json:"filterPattern"`
+	FilterName                string                 `json:"filterName"`
+	LogGroupName              string                 `json:"logGroupName"`
+	MetricTransformations     []MetricTransformation `json:"metricTransformations"`
+	FieldSelectionCriteria    *string                `json:"fieldSelectionCriteria"`
+	EmitSystemFieldDimensions []string               `json:"emitSystemFieldDimensions"`
+	ApplyOnTransformedLogs    bool                   `json:"applyOnTransformedLogs"`
 }
 
 type putMetricFilterOutput struct{}
@@ -53,12 +56,17 @@ func (h *Handler) handlePutMetricFilter(ctx context.Context, b []byte) (any, err
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	if err := h.Backend.PutMetricFilter(
+	if err := h.Backend.PutMetricFilterWithOptions(
 		ctx,
 		input.LogGroupName,
 		input.FilterName,
 		input.FilterPattern,
 		input.MetricTransformations,
+		FilterOptions{
+			FieldSelectionCriteria: input.FieldSelectionCriteria,
+			EmitSystemFields:       input.EmitSystemFieldDimensions,
+			ApplyOnTransformedLogs: input.ApplyOnTransformedLogs,
+		},
 	); err != nil {
 		return nil, err
 	}

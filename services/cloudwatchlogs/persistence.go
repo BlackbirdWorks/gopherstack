@@ -250,13 +250,14 @@ func fromCWLIntegrationSnapshot(v *cwlIntegrationSnapshot) *CWLIntegration {
 }
 
 type importTaskSnapshot struct {
-	ImportID             string `json:"importId"`
-	ImportSourceArn      string `json:"importSourceArn"`
-	ImportRoleArn        string `json:"importRoleArn"`
-	ImportDestinationArn string `json:"importDestinationArn"`
-	Status               string `json:"importStatus"`
-	CreationTime         int64  `json:"creationTime"`
-	LastUpdatedTime      int64  `json:"lastUpdatedTime"`
+	ImportFilter         *ImportFilter `json:"importFilter,omitempty"`
+	ImportID             string        `json:"importId"`
+	ImportSourceArn      string        `json:"importSourceArn"`
+	ImportRoleArn        string        `json:"importRoleArn"`
+	ImportDestinationArn string        `json:"importDestinationArn"`
+	Status               string        `json:"importStatus"`
+	CreationTime         int64         `json:"creationTime"`
+	LastUpdatedTime      int64         `json:"lastUpdatedTime"`
 }
 
 func importTaskSnapshotKey(v *importTaskSnapshot) string { return v.ImportID }
@@ -270,6 +271,7 @@ func toImportTaskSnapshot(t *ImportTask) *importTaskSnapshot {
 		Status:               t.Status,
 		CreationTime:         t.CreationTime,
 		LastUpdatedTime:      t.LastUpdatedTime,
+		ImportFilter:         t.ImportFilter.clone(),
 	}
 }
 
@@ -282,6 +284,7 @@ func fromImportTaskSnapshot(v *importTaskSnapshot) *ImportTask {
 		Status:               v.Status,
 		CreationTime:         v.CreationTime,
 		LastUpdatedTime:      v.LastUpdatedTime,
+		ImportFilter:         v.ImportFilter.clone(),
 	}
 }
 
