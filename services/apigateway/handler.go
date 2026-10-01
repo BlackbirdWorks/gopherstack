@@ -934,4 +934,10 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	h.clearTrieCache()
+}
+
+func (h *Handler) clearTrieCache() {
+	h.trieCache.Clear()
 }

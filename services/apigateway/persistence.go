@@ -668,6 +668,8 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	type restorer interface {
 		Restore(context.Context, []byte) error
 	}
+	h.clearTrieCache()
+
 	if r, ok := h.Backend.(restorer); ok {
 		return r.Restore(ctx, data)
 	}

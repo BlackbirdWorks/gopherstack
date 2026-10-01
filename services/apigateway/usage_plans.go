@@ -136,6 +136,7 @@ func (b *InMemoryBackend) DeleteUsagePlan(id string) error {
 		b.usagePlanKeys.Delete(usagePlanKeyKeyFn(k))
 	}
 	delete(b.usageOverrides, id)
+	b.usage.clearPlan(id)
 
 	return nil
 }
@@ -184,6 +185,7 @@ func (b *InMemoryBackend) DeleteUsagePlanKey(usagePlanID, keyID string) error {
 		return fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
 	}
 	delete(b.usageOverrides[usagePlanID], keyID)
+	b.usage.clearKey(usageKey(usagePlanID, keyID))
 
 	return nil
 }
