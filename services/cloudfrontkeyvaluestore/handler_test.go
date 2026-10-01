@@ -49,6 +49,7 @@ func newTestHandler(t *testing.T) (*cloudfrontkeyvaluestore.Handler, *cloudfront
 	t.Helper()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 
 	return cloudfrontkeyvaluestore.NewHandler(backend), backend
 }
