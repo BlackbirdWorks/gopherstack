@@ -96,6 +96,10 @@ work out of `RecordEvent`'s critical section (still one coarse `b.mu`, just a
 shorter hold); same one-file-per-event delivery, same tests. See
 `BenchmarkLogFileBody`/`BenchmarkRecordManagementEvent_Concurrent`.
 
+### 2026-10-01: items_still_open re-audit
+
+Re-checked all 7 open items against the pinned SDK: each needs an unmodeled subsystem (Insights, org admin, import execution, AWS-computed channel state) or a flush-timer rewrite. No change.
+
 ### 2026-09-30: items_still_open burn-down
 
 Fixed 2 (typed-client proven): StartImport StartEventTime/EndEventTime are stored and echoed by

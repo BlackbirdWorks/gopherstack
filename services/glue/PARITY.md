@@ -171,15 +171,10 @@ gaps: []
   # notes above for each. Kept here (marked FIXED) rather than deleted so the
   # bd issue IDs remain traceable; close the corresponding bd issues separately.
 items_still_open:
-  - "Lake Formation cell/row-level filtering (GetUnfilteredTableMetadata/GetUnfilteredPartitionMetadata/GetUnfilteredPartitionsMetadata) and catalog federation (CreateCatalog/UpdateCatalog federation members) have no backing state: this backend models no Lake Formation permissions/cell-filter engine or federated-catalog subsystem for any resource kind. Unmodeled subsystem, not attempted."
-  - "GetDataQualityResult's AggregatedMetrics/AnalyzerResults/Observations/RuleResults etc. (api_op_GetDataQualityResult.go) have no backing state: this backend never runs a real data-quality evaluation. Same class as ML transforms' EvaluationMetrics gap below."
-  - "MLTaskRun has no LastModifiedOn field and Properties is map[string]string vs the real *types.TaskRunProperties; inert (never populated by any code path, never observed by a real client), not an active bug -- left as a type-fidelity gap rather than a functional one."
-  - "ListConnectionTypes' ConnectionTypeBrief.DisplayName/LogoUrl/Vendor/ConnectionTypeVariants have no backing state: no per-connector display-name/logo/vendor/variant catalog exists in this backend."
-  - "DataCatalogExportConfiguration.S3TableBucketArn has no corresponding input field anywhere in the real API to derive it from, so it stays empty; its ENABLING/DISABLING transient states are not modeled since this backend has no async export pipeline (Status settles synchronously, honestly, not eventually-consistent)."
-  - "quota/idempotency exceptions: IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException remain unenforced -- ConcurrentModificationException is structurally unreachable (coarse b.mu.Lock serializes every op, so no real race exists to detect); OperationTimeoutException would need a fabricated timeout threshold with nothing real behind it; IdempotentParameterMismatchException's real trigger condition isn't derivable from the SDK alone for the ops that declare it (none have a ClientToken/RequestToken input field). ResourceNumberLimitExceededException is real for 15 ops (limits.go, 2026-09-11 section below)."
-  - "CustomEntityType has no ARN or Tags concept modeled at all (no ARN-building helper, no Tags field, CreateCustomEntityType's wire input doesn't accept tags) -- Blueprint/DevEndpoint/MLTransform/UserDefinedFunction all dispatch tags correctly; extending CustomEntityType is a larger lift (adding the concept from scratch, not just wiring existing-but-undispatched support)."
-  - "StartDataQualityRulesetEvaluationRun accepts DataSource but never evaluates a ruleset against real data (unmodeled engine). ClientToken replay is real as of 2026-09-30 (dq_evaluation_run_client_token_test.go), not persisted across restore."
-  - "GetTable's AttributesToGet (DEFAULT/LATEST_ICEBERG_METADATA) is declared on the wire but inert -- this backend has no Iceberg table metadata state to return."
+  - "Unmodeled subsystems (no backing state): Lake Formation cell/row filtering (GetUnfiltered*Metadata) and catalog federation; GetDataQualityResult metrics/rule results and StartDataQualityRulesetEvaluationRun evaluation (no engine runs); ListConnectionTypes DisplayName/LogoUrl/Vendor/variants (no connector catalog); GetTable AttributesToGet Iceberg metadata."
+  - "Type-fidelity only, inert: MLTaskRun lacks LastModifiedOn and has Properties as map[string]string; DataCatalogExportConfiguration.S3TableBucketArn has no input to derive from and ENABLING/DISABLING are not modeled (no async export)."
+  - "IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException unenforced: the coarse b.mu serializes ops, there is no real timeout source, and no declaring op has a token input. ResourceNumberLimitExceededException is real for 15 ops (limits.go)."
+  - "CustomEntityType has no ARN or Tags: the Glue ARN format for it is not verifiable offline (the SDK exposes none), so TagResource cannot be wired honestly."
 deferred:
   # Every family below was field-diffed against the pinned SDK this pass (none
   # left un-audited). Families now fully closed (status: ok in the table above)
@@ -189,12 +184,16 @@ deferred:
   - "schema registry: Compatibility enum validation and DISABLED-mode enforcement are real (gopherstack-j1b7). BACKWARD/FORWARD/FULL/*_ALL diffing for AVRO/JSON/PROTOBUF remains deferred: 2026-09-18 re-check via WebFetch against docs.aws.amazon.com returned no usable page content in this sandbox (network reaches example.com fine, but AWS doc pages render empty), so the precise per-format comparison rules can't be verified here -- a wrong compatibility verdict is worse than the current honest absence (a caller trusts a compatibility pass to reject real incompatibilities). Needs external AWS evidence; not a code-complexity problem alone."
   - "data quality rulesets: DQDL syntax/rule-type validation needs a real lexer+parser for a dozen-plus rule types (comparable in scope to pkgs/dynamodb/expr) -- re-confirmed package-sized 2026-09-18, no slice of it is independently useful since every rule type needs the same scaffolding; not started"
   - "ML transforms: EvaluationMetrics (FindMatchesMetrics) — no real ML evaluation is ever run, so there is no real metric to report"
-  - "quota/idempotency exceptions: see items_still_open above (same section, 2026-09-11 dated notes)"
+  - "quota/idempotency exceptions: see items_still_open above"
   - "tag ARN dispatch: CustomEntityType still has no ARN/Tags concept at all, out of scope -- see items_still_open above"
 leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartReconciler/StopReconciler/reconcileLoop) already exits deterministically on ctx.Done() or the stop channel with a WaitGroup — no unmanaged 'go b.runReconciler()' leak. Verified with go test -race this pass too; no new goroutines/timers/tickers introduced (all new run-tracking state — DevEndpoint/Blueprint/MLTransform fields, StartJobRunOptions, CrawlerOptions additions — is plain struct state guarded by the existing coarse b.mu, not new concurrency). No new ghost-map-row risk: no new child/FK resource maps were introduced this pass (all additions are fields on existing resource structs or new sub-structs embedded inline), so no new cascade-delete paths were needed. VERIFIED, NOT A LEAK (gopherstack-8907, 2026-09-06): DeleteJob clears b.jobRuns[name] but not jobRunReadyAt/DoneAt/TimeoutAt/StopAt directly -- pruneOrphanJobRunTimersLocked (called at the end of every reconcileLocked, and reconcileLocked is triggered lazily by any read plus at the top of every StartJobRun) is the mechanism that actually drops the now-orphaned timer entries once their deadline has passed. This was previously untested for the delete-then-prune path specifically; added TestReconciler_DeleteJob_PrunesOrphanedTimers (neuter-verified against reconcileLocked's pruneOrphanJobRunTimersLocked call) rather than adding a new exported seam for the timer maps."}
 ---
 
 ## Notes
+
+### 2026-10-01: items_still_open re-audit
+
+Re-checked every open item against the pinned SDK: none fixable in-process (all need an unmodeled engine/catalog or unverifiable AWS evidence). Merged 9 entries into 4.
 
 ### 2026-09-30: items_still_open burn-down
 
