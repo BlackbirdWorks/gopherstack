@@ -92,7 +92,7 @@ func (h *Handler) deleteParallelData(input map[string]any) (map[string]any, erro
 
 	return map[string]any{
 		keyName:   pd.Name,
-		keyStatus: pd.Status,
+		keyStatus: parallelDataStatusDeleting,
 	}, nil
 }
 
