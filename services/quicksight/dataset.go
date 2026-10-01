@@ -31,9 +31,13 @@ func (b *InMemoryBackend) CreateDataSet(
 	tags map[string]string,
 	physicalTableMap map[string]PhysicalTable,
 	logicalTableMap map[string]LogicalTable,
+	security DataSetSecurity,
 ) (*DataSet, *Ingestion, error) {
 	if dataSetID == "" || name == "" || len(physicalTableMap) == 0 {
 		return nil, nil, ErrValidation
+	}
+	if err := validateDataSetSecurity(security, true); err != nil {
+		return nil, nil, err
 	}
 
 	b.mu.Lock("CreateDataSet")
@@ -60,6 +64,7 @@ func (b *InMemoryBackend) CreateDataSet(
 		Permissions:      clonePermissions(permissions),
 		PhysicalTableMap: clonePhysicalTableMap(physicalTableMap),
 		LogicalTableMap:  cloneLogicalTableMap(logicalTableMap),
+		Security:         cloneDataSetSecurity(security),
 	}
 	b.dataSets.Put(ds)
 
@@ -112,9 +117,13 @@ func (b *InMemoryBackend) UpdateDataSet(
 	accountID, dataSetID, name, importMode string,
 	physicalTableMap map[string]PhysicalTable,
 	logicalTableMap map[string]LogicalTable,
+	security DataSetSecurity,
 ) (*DataSet, *Ingestion, error) {
 	if len(physicalTableMap) == 0 {
 		return nil, nil, ErrValidation
+	}
+	if err := validateDataSetSecurity(security, false); err != nil {
+		return nil, nil, err
 	}
 
 	b.mu.Lock("UpdateDataSet")
@@ -134,6 +143,8 @@ func (b *InMemoryBackend) UpdateDataSet(
 	}
 	ds.PhysicalTableMap = clonePhysicalTableMap(physicalTableMap)
 	ds.LogicalTableMap = cloneLogicalTableMap(logicalTableMap)
+	security.UseAs = ds.Security.UseAs
+	ds.Security = cloneDataSetSecurity(security)
 	ds.LastUpdatedTime = time.Now().UTC()
 
 	var ingestion *Ingestion

@@ -1,8 +1,10 @@
 package quicksight
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -16,6 +18,7 @@ func (b *InMemoryBackend) CreateDashboard(
 	definition, publishOptions map[string]any,
 	permissions []ResourcePermission,
 	tags map[string]string,
+	sourceEntityArn string,
 ) (*Dashboard, error) {
 	if dashboardID == "" || name == "" {
 		return nil, ErrValidation
@@ -46,6 +49,7 @@ func (b *InMemoryBackend) CreateDashboard(
 		PublishOptions:         publishOptions,
 		Permissions:            clonePermissions(permissions),
 	}
+	d.recordVersion(now, versionDescription, sourceEntityArn)
 	b.dashboards.Put(d)
 
 	if len(tags) > 0 {
@@ -70,6 +74,7 @@ func (b *InMemoryBackend) DescribeDashboard(accountID, dashboardID string) (*Das
 func (b *InMemoryBackend) UpdateDashboard(
 	accountID, dashboardID, name, themeArn, versionDescription string,
 	definition, publishOptions map[string]any,
+	sourceEntityArn string,
 ) (*Dashboard, error) {
 	b.mu.Lock("UpdateDashboard")
 	defer b.mu.Unlock()
@@ -92,11 +97,10 @@ func (b *InMemoryBackend) UpdateDashboard(
 	if themeArn != "" {
 		d.ThemeArn = themeArn
 	}
-	if versionDescription != "" {
-		d.VersionDescription = versionDescription
-	}
+	d.VersionDescription = versionDescription
 	d.LastUpdatedTime = time.Now().UTC()
 	d.VersionNumber++
+	d.recordVersion(d.LastUpdatedTime, versionDescription, sourceEntityArn)
 	// UpdateDashboardOutput's field is named CreationStatus: it reports the
 	// creation status of the new dashboard version this update just created.
 	d.Status = statusCreationSuccessful
@@ -239,12 +243,18 @@ func (b *InMemoryBackend) ListDashboardVersions(
 			continue
 		}
 
-		versions = append(versions, &DashboardVersion{
+		v := &DashboardVersion{
 			CreatedTime:   d.CreatedTime,
 			Arn:           fmt.Sprintf("%s/version/%d", d.Arn, i),
 			Status:        statusCreationSuccessful,
 			VersionNumber: int64(i),
-		})
+		}
+		if rec, found := d.versionRecord(int64(i)); found {
+			v.CreatedTime = rec.CreatedTime
+			v.Description = rec.Description
+			v.SourceEntityArn = rec.SourceEntityArn
+		}
+		versions = append(versions, v)
 	}
 
 	return versions, next, nil
@@ -385,4 +395,31 @@ func (b *InMemoryBackend) UpdateDashboardPermissions(
 	d.LastUpdatedTime = time.Now().UTC()
 
 	return d.toDashboard(), clonePermissions(d.Permissions), nil
+}
+
+// maxDashboardVersionRecords bounds per-dashboard version metadata; the oldest
+// records are dropped first.
+const maxDashboardVersionRecords = 1000
+
+func (d *storedDashboard) recordVersion(at time.Time, description, sourceEntityArn string) {
+	d.Versions = append(d.Versions, storedDashboardVersion{
+		Number:          d.VersionNumber,
+		CreatedTime:     at,
+		Description:     description,
+		SourceEntityArn: sourceEntityArn,
+	})
+	if over := len(d.Versions) - maxDashboardVersionRecords; over > 0 {
+		d.Versions = append([]storedDashboardVersion(nil), d.Versions[over:]...)
+	}
+}
+
+func (d *storedDashboard) versionRecord(n int64) (storedDashboardVersion, bool) {
+	i, ok := slices.BinarySearchFunc(d.Versions, n, func(v storedDashboardVersion, n int64) int {
+		return cmp.Compare(v.Number, n)
+	})
+	if !ok {
+		return storedDashboardVersion{}, false
+	}
+
+	return d.Versions[i], true
 }

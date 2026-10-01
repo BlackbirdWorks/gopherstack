@@ -77,6 +77,7 @@ type StorageBackend interface {
 		tags map[string]string,
 		physicalTableMap map[string]PhysicalTable,
 		logicalTableMap map[string]LogicalTable,
+		security DataSetSecurity,
 	) (*DataSet, *Ingestion, error)
 	DescribeDataSet(accountID, dataSetID string) (*DataSet, error)
 	// UpdateDataSet returns the updated dataset plus the *Ingestion triggered
@@ -88,6 +89,7 @@ type StorageBackend interface {
 		accountID, dataSetID, name, importMode string,
 		physicalTableMap map[string]PhysicalTable,
 		logicalTableMap map[string]LogicalTable,
+		security DataSetSecurity,
 	) (*DataSet, *Ingestion, error)
 	DeleteDataSet(accountID, dataSetID string) error
 	ListDataSets(accountID string, maxResults int32, nextToken string) ([]*DataSet, string, error)
@@ -116,11 +118,13 @@ type StorageBackend interface {
 		definition, publishOptions map[string]any,
 		permissions []ResourcePermission,
 		tags map[string]string,
+		sourceEntityArn string,
 	) (*Dashboard, error)
 	DescribeDashboard(accountID, dashboardID string) (*Dashboard, error)
 	UpdateDashboard(
 		accountID, dashboardID, name, themeArn, versionDescription string,
 		definition, publishOptions map[string]any,
+		sourceEntityArn string,
 	) (*Dashboard, error)
 	DeleteDashboard(accountID, dashboardID string, versionNumber int64) error
 	ListDashboards(accountID string, maxResults int32, nextToken string) ([]*Dashboard, string, error)

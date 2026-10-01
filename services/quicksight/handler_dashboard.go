@@ -93,6 +93,7 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 		mapField(body, "DashboardPublishOptions"),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
+		sourceEntityArnFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -143,6 +144,7 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 		strField(body, keyVersionDescription),
 		mapField(body, keyDefinition),
 		mapField(body, "DashboardPublishOptions"),
+		sourceEntityArnFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -216,12 +218,19 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(versions))
 	for _, v := range versions {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			keyArn:          v.Arn,
 			keyCreatedTime:  v.CreatedTime.Unix(),
 			keyStatus:       v.Status,
 			"VersionNumber": v.VersionNumber,
-		})
+		}
+		if v.Description != "" {
+			item[keyDescription] = v.Description
+		}
+		if v.SourceEntityArn != "" {
+			item["SourceEntityArn"] = v.SourceEntityArn
+		}
+		items = append(items, item)
 	}
 
 	resp := map[string]any{
