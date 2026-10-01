@@ -162,6 +162,8 @@ const (
 	ReceiptActionTypeAddHeader = "AddHeader"
 	ReceiptActionTypeBounce    = "Bounce"
 	ReceiptActionTypeStop      = "Stop"
+	ReceiptActionTypeWorkmail  = "Workmail"
+	ReceiptActionTypeConnect   = "Connect"
 )
 
 // ReceiptAction is a single action within a receipt rule.
@@ -189,6 +191,15 @@ type ReceiptAction struct {
 	Message        string `json:"message,omitempty"`
 	Sender         string `json:"sender,omitempty"`
 	BounceTopicARN string `json:"bounceTopicARN,omitempty"`
+
+	S3IAMRoleARN            string `json:"s3IamRoleARN,omitempty"`
+	S3KMSKeyARN             string `json:"s3KmsKeyARN,omitempty"`
+	LambdaInvocationType    string `json:"lambdaInvocationType,omitempty"`
+	SNSEncoding             string `json:"snsEncoding,omitempty"`
+	WorkmailOrganizationARN string `json:"workmailOrganizationARN,omitempty"`
+	WorkmailTopicARN        string `json:"workmailTopicARN,omitempty"`
+	ConnectIAMRoleARN       string `json:"connectIamRoleARN,omitempty"`
+	ConnectInstanceARN      string `json:"connectInstanceARN,omitempty"`
 }
 
 // ReceiptRule represents a single receipt rule within a rule set.

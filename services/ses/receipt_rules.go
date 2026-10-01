@@ -37,6 +37,8 @@ func validateReceiptAction(a ReceiptAction) error {
 		if strings.TrimSpace(a.Sender) == "" {
 			return fmt.Errorf("%w: BounceAction.Sender is required", ErrInvalidParameter)
 		}
+	case ReceiptActionTypeWorkmail, ReceiptActionTypeConnect:
+		return validateIntegrationAction(a)
 	case ReceiptActionTypeAddHeader:
 		if strings.TrimSpace(a.HeaderName) == "" {
 			return fmt.Errorf("%w: AddHeaderAction.HeaderName is required", ErrInvalidParameter)
@@ -44,6 +46,19 @@ func validateReceiptAction(a ReceiptAction) error {
 		if strings.TrimSpace(a.HeaderValue) == "" {
 			return fmt.Errorf("%w: AddHeaderAction.HeaderValue is required", ErrInvalidParameter)
 		}
+	}
+
+	return nil
+}
+
+func validateIntegrationAction(a ReceiptAction) error {
+	if a.Type == ReceiptActionTypeWorkmail && strings.TrimSpace(a.WorkmailOrganizationARN) == "" {
+		return fmt.Errorf("%w: WorkmailAction.OrganizationArn is required", ErrInvalidParameter)
+	}
+
+	if a.Type == ReceiptActionTypeConnect &&
+		(strings.TrimSpace(a.ConnectIAMRoleARN) == "" || strings.TrimSpace(a.ConnectInstanceARN) == "") {
+		return fmt.Errorf("%w: ConnectAction.IAMRoleARN and InstanceARN are required", ErrInvalidParameter)
 	}
 
 	return nil
