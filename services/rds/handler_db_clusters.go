@@ -360,6 +360,9 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	sourceClusterID := vals.Get("SourceDBClusterIdentifier")
+	if err := rejectRestoreTimeConflict(vals, "RestoreToTime"); err != nil {
+		return nil, err
+	}
 
 	piRetention := 0
 	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {

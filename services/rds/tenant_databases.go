@@ -53,10 +53,28 @@ func (b *InMemoryBackend) CreateTenantDatabase(
 	return &cp, nil
 }
 
-// DeleteTenantDatabase deletes a tenant database.
+// DeleteTenantDatabaseOptions carries the final-snapshot inputs of DeleteTenantDatabase.
+type DeleteTenantDatabaseOptions struct {
+	FinalDBSnapshotIdentifier string
+	SkipFinalSnapshot         bool
+}
+
+// DeleteTenantDatabase deletes a tenant database, first snapshotting it unless skipped.
 func (b *InMemoryBackend) DeleteTenantDatabase(
 	instanceID, tenantDBName string,
+	opts DeleteTenantDatabaseOptions,
 ) (*TenantDatabase, error) {
+	switch {
+	case opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "":
+		return nil, fmt.Errorf(
+			"%w: FinalDBSnapshotIdentifier cannot be combined with SkipFinalSnapshot", ErrInvalidParameter,
+		)
+	case !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier == "":
+		return nil, fmt.Errorf(
+			"%w: FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is set", ErrInvalidParameter,
+		)
+	}
+
 	b.mu.Lock("DeleteTenantDatabase")
 	defer b.mu.Unlock()
 
@@ -66,11 +84,32 @@ func (b *InMemoryBackend) DeleteTenantDatabase(
 		return nil, fmt.Errorf("%w: %s/%s", ErrTenantDatabaseNotFound, instanceID, tenantDBName)
 	}
 
+	if !opts.SkipFinalSnapshot {
+		if err := b.finalTenantSnapshotLocked(opts.FinalDBSnapshotIdentifier, instanceID, tenantDBName); err != nil {
+			return nil, err
+		}
+	}
+
 	cp := *tdb
 	cp.Status = tenantStatusDeletingInternal
 	b.tenantDatabases.Delete(key)
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) finalTenantSnapshotLocked(snapshotID, instanceID, tenantDBName string) error {
+	if _, dup := b.snapshots.Get(normalizeID(snapshotID)); dup {
+		return fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, snapshotID)
+	}
+	inst, ok := b.instances.Get(normalizeID(instanceID))
+	if !ok {
+		return fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+	}
+	snap := b.newManualSnapshotLocked(snapshotID, inst)
+	b.snapshots.Put(snap)
+	b.addDBSnapshotTenantDatabaseLocked(snap.DBSnapshotIdentifier, inst.DBInstanceIdentifier, tenantDBName, inst.Engine)
+
+	return nil
 }
 
 // DescribeTenantDatabases returns tenant databases, optionally filtered by instance and name.

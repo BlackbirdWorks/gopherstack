@@ -330,7 +330,7 @@ type StorageBackend interface {
 
 	// Tenant Database operations
 	CreateTenantDatabase(instanceID, tenantDBName, masterUsername string) (*TenantDatabase, error)
-	DeleteTenantDatabase(instanceID, tenantDBName string) (*TenantDatabase, error)
+	DeleteTenantDatabase(instanceID, tenantDBName string, opts DeleteTenantDatabaseOptions) (*TenantDatabase, error)
 	DescribeTenantDatabases(instanceID, tenantDBName string) ([]TenantDatabase, error)
 	ModifyTenantDatabase(instanceID, tenantDBName, newTenantDBName string) (*TenantDatabase, error)
 

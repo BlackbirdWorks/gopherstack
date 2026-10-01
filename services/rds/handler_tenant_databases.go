@@ -87,7 +87,10 @@ func (h *Handler) handleDeleteTenantDatabase(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
 	tenantDBName := vals.Get("TenantDBName")
 
-	tdb, err := h.Backend.DeleteTenantDatabase(instanceID, tenantDBName)
+	tdb, err := h.Backend.DeleteTenantDatabase(instanceID, tenantDBName, DeleteTenantDatabaseOptions{
+		FinalDBSnapshotIdentifier: vals.Get("FinalDBSnapshotIdentifier"),
+		SkipFinalSnapshot:         vals.Get("SkipFinalSnapshot") == formTrue,
+	})
 	if err != nil {
 		return nil, err
 	}

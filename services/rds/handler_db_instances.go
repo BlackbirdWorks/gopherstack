@@ -821,6 +821,9 @@ func parseRestoreDBInstanceOptions(vals url.Values) DBInstanceOptions {
 func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, error) {
 	id := vals.Get("TargetDBInstanceIdentifier")
 	sourceID := vals.Get("SourceDBInstanceIdentifier")
+	if err := rejectRestoreTimeConflict(vals, "RestoreTime"); err != nil {
+		return nil, err
+	}
 	opts := parseRestoreDBInstanceOptions(vals)
 
 	inst, err := h.Backend.RestoreDBInstanceToPointInTime(id, sourceID, opts)
@@ -923,4 +926,16 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 		Xmlns:      rdsXMLNS,
 		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
+}
+
+// rejectRestoreTimeConflict enforces the SDK-documented exclusivity of the
+// restore-time member and UseLatestRestorableTime.
+func rejectRestoreTimeConflict(vals url.Values, timeKey string) error {
+	if vals.Get(timeKey) != "" && vals.Get("UseLatestRestorableTime") == formTrue {
+		return fmt.Errorf(
+			"%w: %s can't be specified if UseLatestRestorableTime is enabled", ErrInvalidParameter, timeKey,
+		)
+	}
+
+	return nil
 }

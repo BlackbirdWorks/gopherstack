@@ -245,21 +245,17 @@ items_still_open:
     are accepted-but-dropped: this backend has no Secrets Manager integration (no
     ManageMasterUserPassword/RotateMasterUserPassword/master-secret ARN anywhere).
     Building that is a subsystem, not a wire fix; declined."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): two
-    fields dropped for lack of a modeled sub-entity or cross-account data --
-    DeleteTenantDatabase.SkipFinalSnapshot (no TenantDatabase-scoped snapshot entity
-    exists to gate on) and DescribeDBClusterSnapshots/DescribeDBSnapshots
-    .IncludePublic/.IncludeShared (single-account backend, no cross-account
-    snapshot-sharing data to additionally reveal)."
+  - "OPEN: DescribeDBClusterSnapshots/DescribeDBSnapshots .IncludePublic/.IncludeShared
+    are dropped; single-account backend has no cross-account snapshot data to reveal."
   - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): five
     fields describe transient/async state this backend never produces because the
     matching operation applies synchronously -- ModifyDBInstance
     .CertificateRotationRestart (no CA-rotation concept beyond the account-level
     default CA), ModifyDBInstance.ResumeFullAutomationModeMinutes (RDS Custom
     automation-mode pause/resume unmodeled), RestoreDBClusterToPointInTime/
-    RestoreDBInstanceToPointInTime.UseLatestRestorableTime (point-in-time restore
-    itself isn't modeled; both ops always restore from the source's current live
-    state), SwitchoverBlueGreenDeployment.SwitchoverTimeout (switchover completes
+    RestoreDBInstanceToPointInTime.UseLatestRestorableTime (restore always uses the
+    source's current live state; only the SDK-documented conflict with
+    RestoreTime/RestoreToTime is validated), SwitchoverBlueGreenDeployment.SwitchoverTimeout (switchover completes
     synchronously, nothing to time out), and DBInstance/DBInstanceAutomatedBackup's
     StorageOperationPercentProgress/StorageOperationStatus (storage modifications
     apply synchronously, so there's never an in-progress op to report)."
@@ -291,6 +287,13 @@ deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 
 ## Notes
+
+- **2026-10-01 (items_still_open burn-down)**: DeleteTenantDatabase now honors
+  SkipFinalSnapshot/FinalDBSnapshotIdentifier per the SDK doc (required unless skipped,
+  rejected together; the final snapshot is a manual DBSnapshot carrying that tenant, see
+  `TestRealClient_DeleteTenantDatabaseFinalSnapshot`). RestoreDB{Instance,Cluster}ToPointInTime
+  reject RestoreTime/RestoreToTime combined with UseLatestRestorableTime as InvalidParameterValue
+  (`TestRealClient_RestoreToPointInTimeTimeConflict`; the SDK error switch names no dedicated code).
 
 - **2026-09-26 (items_still_open burn-down)**: re-verified every open item against
   HEAD. Four were already fixed with existing regression coverage and are removed:

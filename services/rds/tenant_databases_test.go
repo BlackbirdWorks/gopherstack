@@ -75,6 +75,9 @@ func TestCreateTenantDatabase(t *testing.T) {
 	}
 }
 
+const deleteTenantForm = "Action=DeleteTenantDatabase&Version=2014-10-31&DBInstanceIdentifier=db-1" +
+	"&TenantDBName=mytenantdb&SkipFinalSnapshot=true"
+
 func TestDeleteTenantDatabase(t *testing.T) {
 	t.Parallel()
 
@@ -84,7 +87,7 @@ func TestDeleteTenantDatabase(t *testing.T) {
 		_, err := b.CreateTenantDatabase("db-1", "tdb-del", "admin")
 		require.NoError(t, err)
 
-		tdb, err := b.DeleteTenantDatabase("db-1", "tdb-del")
+		tdb, err := b.DeleteTenantDatabase("db-1", "tdb-del", rds.DeleteTenantDatabaseOptions{SkipFinalSnapshot: true})
 		require.NoError(t, err)
 		assert.Equal(t, "deleting", tdb.Status)
 
@@ -96,7 +99,7 @@ func TestDeleteTenantDatabase(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
-		_, err := b.DeleteTenantDatabase("db-1", "missing")
+		_, err := b.DeleteTenantDatabase("db-1", "missing", rds.DeleteTenantDatabaseOptions{SkipFinalSnapshot: true})
 		require.Error(t, err)
 		require.ErrorIs(t, err, rds.ErrTenantDatabaseNotFound)
 	})
@@ -242,7 +245,7 @@ func TestHandler_TenantDatabaseCRUD(t *testing.T) {
 	rec = postRDSForm(
 		t,
 		h,
-		"Action=DeleteTenantDatabase&Version=2014-10-31&DBInstanceIdentifier=db-1&TenantDBName=mytenantdb",
+		deleteTenantForm,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -250,7 +253,7 @@ func TestHandler_TenantDatabaseCRUD(t *testing.T) {
 	rec = postRDSForm(
 		t,
 		h,
-		"Action=DeleteTenantDatabase&Version=2014-10-31&DBInstanceIdentifier=db-1&TenantDBName=mytenantdb",
+		deleteTenantForm,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

@@ -12,11 +12,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
-// waitForInstanceStatus forces the pending reconciler transition immediately
+// waitForInstanceAvailable forces the pending reconciler transition immediately
 // instead of polling wall-clock time (gopherstack-jwr13: Eventually flaked
 // under CI load because it depended on the background reconciler goroutine's
 // own ticker getting scheduled in time).
-func waitForInstanceStatus(t *testing.T, backend *rds.InMemoryBackend, id, wantStatus string) {
+func waitForInstanceAvailable(t *testing.T, backend *rds.InMemoryBackend, id string) {
 	t.Helper()
 
 	rds.FlushInstanceLifecycle(backend)
@@ -24,10 +24,10 @@ func waitForInstanceStatus(t *testing.T, backend *rds.InMemoryBackend, id, wantS
 	insts, err := backend.DescribeDBInstances(id)
 	require.NoError(t, err)
 	require.Len(t, insts, 1)
-	require.Equal(t, wantStatus, insts[0].DBInstanceStatus)
+	require.Equal(t, "available", insts[0].DBInstanceStatus)
 }
 
-// waitForClusterStatus is waitForInstanceStatus's DB cluster counterpart.
+// waitForClusterStatus is waitForInstanceAvailable's DB cluster counterpart.
 func waitForClusterStatus(t *testing.T, backend *rds.InMemoryBackend, id, wantStatus string) {
 	t.Helper()
 
@@ -99,7 +99,7 @@ func testInstanceLifecycleRealClient(t *testing.T) {
 		"slice8-inst", "mysql", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{},
 	)
 	require.NoError(t, err)
-	waitForInstanceStatus(t, backend, "slice8-inst", "available")
+	waitForInstanceAvailable(t, backend, "slice8-inst")
 
 	_, err = client.StopDBInstance(
 		ctx,
@@ -627,6 +627,7 @@ func testShardGroupTenantIntegrationRealClient(t *testing.T) {
 	_, err = client.DeleteTenantDatabase(ctx, &rdssdk.DeleteTenantDatabaseInput{
 		DBInstanceIdentifier: aws.String("slice8-cdb-inst"),
 		TenantDBName:         aws.String("slice8tenant2"),
+		SkipFinalSnapshot:    aws.Bool(true),
 	})
 	require.NoError(t, err)
 
