@@ -545,7 +545,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 2 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 3 gaps; 4 deferred |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
-| [Step Functions](services/stepfunctions/README.md) | A | 37 | 5 gaps |
+| [Step Functions](services/stepfunctions/README.md) | A | 37 | 6 gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 5 gaps |
 
 ### Analytics
@@ -592,7 +592,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 2 gaps |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 3 gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 5 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 5 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 6 gaps; 1 deferred |

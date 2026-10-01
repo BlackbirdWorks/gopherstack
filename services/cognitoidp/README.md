@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 68 (68 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -16,6 +16,7 @@
 
 - domains: Routing and Version (DomainDescriptionType) remain unpopulated -- no multi-region-domain-routing model or app-version tracking exists in this backend; left absent rather than fabricated.
 - MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents.
+- OAuth2/OIDC endpoints (gopherstack-1ryp5): no managed-login session cookie (prompt=none always returns login_required, /logout clears nothing), no federated IdP redirect, no nonce claim in ID tokens, no pre-token-generation trigger on client_credentials, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, hosted login cannot answer MFA or NEW_PASSWORD_REQUIRED challenges.
 
 ## More
 

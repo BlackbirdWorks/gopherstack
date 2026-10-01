@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 37 (37 ok) |
 | Feature families | 10 (10 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -20,6 +20,7 @@
 - No TaskSubmitted/TaskStarted history events are emitted for .sync/.waitForTaskToken Task states; this emulator models neither event kind (bd: gopherstack-996).
 - TestState InspectionLevel/RevealSecrets are accepted but have no effect: asl.Executor keeps no per-stage InspectionData snapshots and makes no real HTTP Task calls (gopherstack-xhu2t).
 - Non-standard intrinsics (StringConcat, ArraySlice, MathSubtract, etc.) are accepted here but do not exist in AWS; informational, a definition using them would fail on real AWS.
+- JSONata (gopherstack-iisrz) gaps: Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ToleratedFailureCount/Percentage and ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS); TestState does not take StateConfiguration.Variables.
 
 ## More
 
