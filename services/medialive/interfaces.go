@@ -117,9 +117,9 @@ type StorageBackend interface {
 	ListClusters(maxResults int, nextToken string) ([]*ClusterSummary, string, error)
 
 	// Nodes
-	CreateNode(clusterID, name, role string, tags map[string]string) (*Node, error)
+	CreateNode(clusterID, name, role string, mappings []NodeInterfaceMapping, tags map[string]string) (*Node, error)
 	DescribeNode(clusterID, nodeID string) (*Node, error)
-	UpdateNode(clusterID, nodeID, name, role string) (*Node, error)
+	UpdateNode(clusterID, nodeID, name, role string, sdi []SdiSourceMapping) (*Node, error)
 	UpdateNodeState(clusterID, nodeID, state string) (*Node, error)
 	DeleteNode(clusterID, nodeID string) (*Node, error)
 	ListNodes(clusterID string, maxResults int, nextToken string) ([]*NodeSummary, string, error)
@@ -236,7 +236,7 @@ type StorageBackend interface {
 	DeleteEventBridgeRuleTemplate(identifier string) error
 
 	// Offerings (read-only catalog)
-	ListOfferings(maxResults int, nextToken string) ([]*Offering, string, error)
+	ListOfferings(maxResults int, nextToken string, filter OfferingFilter) ([]*Offering, string, error)
 	DescribeOffering(offeringID string) (*Offering, error)
 
 	// Reservations
@@ -2781,10 +2781,30 @@ type Node struct {
 	State                  string
 	ConnectionState        string
 	ChannelPlacementGroups []string
+	NodeInterfaceMappings  []NodeInterfaceMapping
+	SdiSourceMappings      []SdiSourceMapping
+}
+
+// SdiSourceMapping mirrors types.SdiSourceMapping.
+type SdiSourceMapping struct {
+	SdiSource     string `json:"sdiSource,omitempty"`
+	CardNumber    int32  `json:"cardNumber,omitempty"`
+	ChannelNumber int32  `json:"channelNumber,omitempty"`
+}
+
+// NodeInterfaceMapping mirrors types.NodeInterfaceMapping; the create request
+// omits PhysicalInterfaceIPAddresses.
+type NodeInterfaceMapping struct {
+	LogicalInterfaceName         string   `json:"logicalInterfaceName,omitempty"`
+	NetworkInterfaceMode         string   `json:"networkInterfaceMode,omitempty"`
+	PhysicalInterfaceName        string   `json:"physicalInterfaceName,omitempty"`
+	PhysicalInterfaceIPAddresses []string `json:"physicalInterfaceIpAddresses,omitempty"`
 }
 
 // NodeSummary is a Node in a list response.
 type NodeSummary struct {
+	SdiSourceMappings      []SdiSourceMapping
+	NodeInterfaceMappings  []NodeInterfaceMapping
 	ARN                    string
 	ID                     string
 	Name                   string

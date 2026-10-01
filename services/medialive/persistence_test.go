@@ -142,7 +142,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	offerings, _, err := original.ListOfferings(0, "")
+	offerings, _, err := original.ListOfferings(0, "", medialive.OfferingFilter{})
 	require.NoError(t, err)
 	require.NotEmpty(t, offerings)
 
