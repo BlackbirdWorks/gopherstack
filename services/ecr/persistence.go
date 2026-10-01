@@ -117,6 +117,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", ecrSnapshotVersion)
 
 		b.registry.ResetAll()
+		b.layerRefs.rebuild(b.images)
 
 		return nil
 	}
@@ -125,6 +126,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("ecr: restore snapshot tables: %w", err)
 	}
 
+	b.layerRefs.rebuild(b.images)
 	b.repoTags = copyNestedMap(snap.RepoTags)
 	b.uploadedLayers = copyNestedMap(snap.UploadedLayers)
 	b.registryPolicy = snap.RegistryPolicy

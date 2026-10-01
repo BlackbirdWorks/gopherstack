@@ -177,15 +177,21 @@ func verifiedUploadDigestLocked(upload *layerUploadState, layerDigests []string)
 	return provided, nil
 }
 
-// recordLayerPullLocked stamps LastRecordedPullTime on every image in
-// repositoryName whose manifest references layerDigest. The backend does not
-// otherwise model a per-image layer list, so this uses a substring match
-// against the raw manifest JSON text: layer digests appear literally in a
-// manifest's "layers[].digest" (and, for the config blob, "config.digest")
-// fields, so this reliably identifies which image(s) a layer pull belongs to
-// without needing full manifest parsing. Caller must hold the write lock.
+// recordLayerPullLocked stamps LastRecordedPullTime on images whose manifest
+// text contains layerDigest, via layerRefs for full digests. Caller holds the write lock.
 func (b *InMemoryBackend) recordLayerPullLocked(repositoryName, layerDigest string) {
 	now := time.Now()
+
+	if isFullSHA256Digest(layerDigest) {
+		for imageDigest := range b.layerRefs.refs[repositoryName][layerDigest] {
+			if img, ok := b.images.Get(imageTableKey(repositoryName, imageDigest)); ok {
+				img.LastRecordedPullTime = now
+			}
+		}
+
+		return
+	}
+
 	for _, img := range b.imagesByRepo.Get(repositoryName) {
 		if strings.Contains(img.ImageManifest, layerDigest) {
 			img.LastRecordedPullTime = now
