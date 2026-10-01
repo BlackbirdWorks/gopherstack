@@ -958,6 +958,8 @@ type ListTaskDefinitionsInput struct {
 // ContainerInstance represents a registered ECS container instance.
 type ContainerInstance struct {
 	RegisteredAt time.Time `json:"registeredAt"`
+	// InactiveAt is when DeregisterContainerInstance moved the instance to INACTIVE.
+	InactiveAt time.Time `json:"inactiveAt,omitzero"`
 	// AllocatedPorts tracks host ports currently reserved on this instance by
 	// bridge/host-mode EC2-launch-type tasks, keyed by "<protocol>/<hostPort>"
 	// (e.g. "tcp/51000") -- see host_ports.go. Not part of any real ECS wire

@@ -46,6 +46,10 @@ const (
 	// is documented, so this reuses services/ec2's terminated-instance TTL of
 	// one hour as a stand-in.
 	inactiveServiceTTL = time.Hour
+
+	// inactiveContainerInstanceTTL is how long a deregistered instance stays
+	// describable as INACTIVE; no duration is documented, so reuse one hour.
+	inactiveContainerInstanceTTL = time.Hour
 )
 
 // compile-time assertion.

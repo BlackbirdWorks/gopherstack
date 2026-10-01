@@ -807,7 +807,8 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 		failures = make([]Failure, 0, len(input.ContainerInstances))
 
 		for _, ciArn := range input.ContainerInstances {
-			if _, found := b.containerInstances.Get(scopedKey(clusterName, ciArn)); !found {
+			if ci, found := b.containerInstances.Get(scopedKey(clusterName, ciArn)); !found ||
+				ci.Status == statusInactive {
 				failures = append(failures, Failure{
 					Arn:    ciArn,
 					Reason: statusMissing,

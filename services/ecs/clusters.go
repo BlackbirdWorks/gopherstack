@@ -150,7 +150,7 @@ func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 	}
 
 	cp.ActiveServicesCount = activeServices
-	cp.RegisteredContainerInstancesCount = len(b.containerInstancesByCluster.Get(c.ClusterName))
+	cp.RegisteredContainerInstancesCount = b.activeContainerInstanceCountLocked(c.ClusterName)
 
 	// RunningTasksCount and PendingTasksCount are maintained as cached counters
 	// on the Cluster struct. No task iteration needed here.
@@ -179,7 +179,7 @@ func (b *InMemoryBackend) clusterDependencyViolationLocked(clusterName string) e
 		}
 	}
 
-	if ci := b.containerInstancesInClusterLocked(clusterName); len(ci) > 0 {
+	if b.activeContainerInstanceCountLocked(clusterName) > 0 {
 		return fmt.Errorf(
 			"%w: cluster %s still has registered container instances",
 			ErrClusterContainsContainerInstances, clusterName,
