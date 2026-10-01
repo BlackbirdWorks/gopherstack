@@ -28158,7 +28158,6 @@
       "Policy.CreatedDate time.Time `json:\"createdDate\"`",
       "Policy.Description string `json:\"description,omitempty\"`",
       "Policy.LastUpdated time.Time `json:\"lastUpdated\"`",
-      "Policy.Name string `json:\"name,omitempty\"`",
       "Policy.PolicyID string `json:\"policyID\"`",
       "Policy.PolicyStoreID string `json:\"policyStoreID\"`",
       "Policy.PolicyTemplateID string `json:\"policyTemplateID,omitempty\"`",
