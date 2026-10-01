@@ -469,7 +469,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps |
 | [Batch](services/batch/README.md) | A | 45 | 8 gaps |
 | [EC2](services/ec2/README.md) | A | — | 22 families; 13 gaps; 2 structural gaps; 8 deferred |
-| [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 13 gaps |
+| [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 8 gaps |
 | [Lambda](services/lambda/README.md) | A | — | 10 families |
 
 ### Containers
@@ -478,7 +478,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 4 gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 9 gaps; 1 deferred |
-| [EKS](services/eks/README.md) | A | 70 | 11 gaps; 1 deferred |
+| [EKS](services/eks/README.md) | A | 70 | 3 gaps; 1 deferred |
 
 ### Storage
 
@@ -487,7 +487,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Backup](services/backup/README.md) | A | 66 | 7 gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
-| [FSx](services/fsx/README.md) | A | — | 13 families; 12 gaps |
+| [FSx](services/fsx/README.md) | A | — | 13 families; 8 gaps |
 | [S3](services/s3/README.md) | A | 26 | 8 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
@@ -634,7 +634,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 8 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 5 gaps; 2 deferred |
-| [CodePipeline](services/codepipeline/README.md) | A | 22 | 11 gaps; 4 deferred |
+| [CodePipeline](services/codepipeline/README.md) | A | 22 | 5 gaps; 1 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 2 gaps; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
 | [X-Ray](services/xray/README.md) | A | 38 | 9 gaps; 1 deferred |
