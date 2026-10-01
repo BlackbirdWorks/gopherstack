@@ -6,9 +6,18 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"sync"
 )
 
 type GzipCompressor struct{}
+
+// gzipScratchMaxCap bounds the scratch buffer retained between calls.
+const gzipScratchMaxCap = 16 * 1024 * 1024
+
+var (
+	gzipWriterPool  sync.Pool //nolint:gochecknoglobals // sync.Pool requires package-level allocation
+	gzipScratchPool sync.Pool //nolint:gochecknoglobals // sync.Pool requires package-level allocation
+)
 
 // Compress gzips data at BestSpeed. Compression is an internal storage-format
 // choice (GetObject always decompresses back to the exact original bytes), so
@@ -16,19 +25,49 @@ type GzipCompressor struct{}
 // CPU cost dominated the object-write hot path under profiling.
 // The buffer is not pre-sized to len(data): output is usually much smaller.
 func (c *GzipCompressor) Compress(data []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
-	if err != nil {
-		return nil, err
+	return c.CompressParts([][]byte{data})
+}
+
+// CompressParts gzips the concatenation of parts without materialising it.
+func (c *GzipCompressor) CompressParts(parts [][]byte) ([]byte, error) {
+	w, ok := gzipWriterPool.Get().(*gzip.Writer)
+	buf, _ := gzipScratchPool.Get().(*bytes.Buffer)
+	if buf == nil {
+		buf = new(bytes.Buffer)
 	}
-	if _, err = w.Write(data); err != nil {
-		return nil, err
+
+	buf.Reset()
+
+	if ok {
+		w.Reset(buf)
+	} else {
+		var err error
+		if w, err = gzip.NewWriterLevel(buf, gzip.BestSpeed); err != nil {
+			return nil, err
+		}
 	}
-	if err = w.Close(); err != nil {
+
+	defer gzipWriterPool.Put(w)
+
+	for _, p := range parts {
+		if _, err := w.Write(p); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := w.Close(); err != nil {
 		return nil, err
 	}
 
-	return buf.Bytes(), nil
+	out := buf.Bytes()
+	if buf.Cap() <= gzipScratchMaxCap {
+		out = bytes.Clone(out)
+		gzipScratchPool.Put(buf)
+	}
+
+	w.Reset(io.Discard)
+
+	return out, nil
 }
 
 // gzipTrailerMinLen is the smallest a valid gzip stream can be: a 10-byte

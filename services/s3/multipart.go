@@ -324,50 +324,40 @@ func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) erro
 // multipartAssemblyResult holds the results of assembleMultipartData.
 type multipartAssemblyResult struct {
 	etag           string
-	data           []byte
 	compressedData []byte
 	parts          []StoredObjectPart
+	size           int64
 	isCompressed   bool
 }
 
-// collectPartsData gathers raw data and part MD5 bytes under upload.mu.RLock.
-// Returns the combined buffer and MD5-concatenation used for multipart ETag.
-// Must be called without upload.mu held; acquires and releases it internally.
+// partsCompressor compresses a part sequence without concatenating it first.
+type partsCompressor interface {
+	CompressParts(parts [][]byte) ([]byte, error)
+}
+
+// collectPartsData gathers part data slices and part MD5 bytes under upload.mu.RLock.
+// Part data is immutable once stored, so the returned slices stay valid after unlock.
 func (b *InMemoryBackend) collectPartsData(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
-) ([]byte, []byte, []StoredObjectPart, error) {
+) ([][]byte, []byte, []StoredObjectPart, error) {
 	upload.mu.RLock(opCompleteMultipartUpload)
 	defer upload.mu.RUnlock()
 
 	return b.collectPartsDataLocked(upload, parts)
 }
 
-// collectPartsDataLocked does the actual work of collectPartsData under
-// upload.mu.RLock. Extracted so the locked region is a plain method body
-// rather than a function literal, and so per-part validation can be delegated
-// to validateAndAppendPart to keep cognitive complexity down.
 func (b *InMemoryBackend) collectPartsDataLocked(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
-) ([]byte, []byte, []StoredObjectPart, error) {
-	// Validate ascending order.
+) ([][]byte, []byte, []StoredObjectPart, error) {
 	for i := 1; i < len(parts); i++ {
 		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
 			return nil, nil, nil, ErrInvalidPartOrder
 		}
 	}
 
-	// Pre-calculate total size.
-	totalSize := 0
-	for _, part := range parts {
-		if sp, ok := upload.Parts[*part.PartNumber]; ok {
-			totalSize += len(sp.Data)
-		}
-	}
-
-	data := make([]byte, totalSize)
-	offset := 0
+	chunks := make([][]byte, 0, len(parts))
 	md5s := make([]byte, 0, len(parts)*md5.Size)
 	partsMeta := make([]StoredObjectPart, 0, len(parts))
 
@@ -377,13 +367,12 @@ func (b *InMemoryBackend) collectPartsDataLocked(
 			return nil, nil, nil, err
 		}
 
-		copy(data[offset:], partBytes)
-		offset += len(partBytes)
+		chunks = append(chunks, partBytes)
 		md5s = append(md5s, rawBytes...)
 		partsMeta = append(partsMeta, spMeta)
 	}
 
-	return data, md5s, partsMeta, nil
+	return chunks, md5s, partsMeta, nil
 }
 
 // validateAndExtractPart validates a single completed part against its stored
@@ -444,23 +433,19 @@ func (b *InMemoryBackend) assembleMultipartData(
 
 	parts := input.MultipartUpload.Parts
 
-	data, partMD5s, partsMeta, err := b.collectPartsData(upload, parts)
+	chunks, partMD5s, partsMeta, err := b.collectPartsData(upload, parts)
 	if err != nil {
 		return multipartAssemblyResult{}, err
 	}
 
-	var compressedData []byte
-	var isCompressed bool
+	total := 0
+	for _, c := range chunks {
+		total += len(c)
+	}
 
-	if b.compressor != nil && (b.compressionMinBytes == 0 || len(data) >= b.compressionMinBytes) {
-		var compErr error
-		compressedData, compErr = b.compressor.Compress(data)
-		if compErr != nil {
-			return multipartAssemblyResult{}, compErr
-		}
-		isCompressed = true
-	} else {
-		compressedData = data
+	storedData, isCompressed, err := b.encodeMultipartBody(chunks, total)
+	if err != nil {
+		return multipartAssemblyResult{}, err
 	}
 
 	// Compute the AWS multipart ETag: MD5 of the concatenated raw part MD5 bytes,
@@ -469,12 +454,33 @@ func (b *InMemoryBackend) assembleMultipartData(
 	etag := fmt.Sprintf("\"%s-%d\"", hex.EncodeToString(combinedHash[:]), len(parts))
 
 	return multipartAssemblyResult{
-		data:           data,
-		compressedData: compressedData,
+		compressedData: storedData,
+		size:           int64(total),
 		etag:           etag,
 		parts:          partsMeta,
 		isCompressed:   isCompressed,
 	}, nil
+}
+
+// encodeMultipartBody returns the stored body for the part chunks, gzip-compressed
+// when the compressor applies. Compressors without CompressParts get one concatenated copy.
+func (b *InMemoryBackend) encodeMultipartBody(chunks [][]byte, total int) ([]byte, bool, error) {
+	if b.compressor != nil && (b.compressionMinBytes == 0 || total >= b.compressionMinBytes) {
+		var (
+			out []byte
+			err error
+		)
+
+		if pc, ok := b.compressor.(partsCompressor); ok {
+			out, err = pc.CompressParts(chunks)
+		} else {
+			out, err = b.compressor.Compress(slices.Concat(chunks...))
+		}
+
+		return out, err == nil, err
+	}
+
+	return slices.Concat(chunks...), false, nil
 }
 
 // commitMultipartObject stores the assembled multipart data as an object version,
@@ -544,7 +550,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			Key:             key,
 			Data:            storedBody,
 			IsCompressed:    assembled.isCompressed,
-			Size:            int64(len(assembled.data)),
+			Size:            assembled.size,
 			ETag:            assembled.etag,
 			Parts:           assembled.parts,
 			LastModified:    time.Now(),
