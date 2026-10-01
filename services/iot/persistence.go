@@ -390,12 +390,14 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 // carries it through Snapshot/Restore so a pending HTTP destination
 // confirmation survives a restart instead of being silently dropped.
 type topicRuleDestSnap struct {
-	CreatedAt         time.Time                     `json:"createdAt,omitzero"`
-	LastUpdatedAt     time.Time                     `json:"lastUpdatedAt,omitzero"`
-	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
-	ARN               string                        `json:"arn"`
-	Status            string                        `json:"status"`
-	ConfirmationToken string                        `json:"confirmationToken,omitempty"`
+	CreatedAt          time.Time                      `json:"createdAt,omitzero"`
+	LastUpdatedAt      time.Time                      `json:"lastUpdatedAt,omitzero"`
+	HTTPURLProperties  *HTTPURLDestinationProperties  `json:"httpUrlProperties,omitempty"`
+	VPCProperties      *VPCDestinationProperties      `json:"vpcProperties,omitempty"`
+	InfluxDBProperties *InfluxDBDestinationProperties `json:"influxDBProperties,omitempty"`
+	ARN                string                         `json:"arn"`
+	Status             string                         `json:"status"`
+	ConfirmationToken  string                         `json:"confirmationToken,omitempty"`
 }
 
 // topicRuleDestSnapKey is the store.Table key function used for the
@@ -403,37 +405,31 @@ type topicRuleDestSnap struct {
 func topicRuleDestSnapKey(s *topicRuleDestSnap) string { return s.ARN }
 
 func toTopicRuleDestSnap(d *TopicRuleDestination) *topicRuleDestSnap {
-	var props *HTTPURLDestinationProperties
-	if d.HTTPURLProperties != nil {
-		cp := *d.HTTPURLProperties
-		props = &cp
-	}
+	cp := cloneTopicRuleDestination(d)
 
 	return &topicRuleDestSnap{
-		HTTPURLProperties: props,
-		ARN:               d.ARN,
-		Status:            d.Status,
-		ConfirmationToken: d.ConfirmationToken,
-		CreatedAt:         d.CreatedAt,
-		LastUpdatedAt:     d.LastUpdatedAt,
+		HTTPURLProperties:  cp.HTTPURLProperties,
+		VPCProperties:      cp.VPCProperties,
+		InfluxDBProperties: cp.InfluxDBProperties,
+		ARN:                cp.ARN,
+		Status:             cp.Status,
+		ConfirmationToken:  cp.ConfirmationToken,
+		CreatedAt:          cp.CreatedAt,
+		LastUpdatedAt:      cp.LastUpdatedAt,
 	}
 }
 
 func fromTopicRuleDestSnap(s *topicRuleDestSnap) *TopicRuleDestination {
-	var props *HTTPURLDestinationProperties
-	if s.HTTPURLProperties != nil {
-		cp := *s.HTTPURLProperties
-		props = &cp
-	}
-
-	return &TopicRuleDestination{
-		HTTPURLProperties: props,
-		ARN:               s.ARN,
-		Status:            s.Status,
-		ConfirmationToken: s.ConfirmationToken,
-		CreatedAt:         s.CreatedAt,
-		LastUpdatedAt:     s.LastUpdatedAt,
-	}
+	return cloneTopicRuleDestination(&TopicRuleDestination{
+		HTTPURLProperties:  s.HTTPURLProperties,
+		VPCProperties:      s.VPCProperties,
+		InfluxDBProperties: s.InfluxDBProperties,
+		ARN:                s.ARN,
+		Status:             s.Status,
+		ConfirmationToken:  s.ConfirmationToken,
+		CreatedAt:          s.CreatedAt,
+		LastUpdatedAt:      s.LastUpdatedAt,
+	})
 }
 
 // snapshotTopicRuleDestinationsTable builds the "dirty" topicRuleDestinations

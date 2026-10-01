@@ -2,7 +2,11 @@
 // IoT SQL rules engine, and action dispatch to SQS and Lambda.
 package iot
 
-import "time"
+import (
+	"encoding/json"
+	"maps"
+	"time"
+)
 
 // Thing represents an AWS IoT Thing.
 //
@@ -39,6 +43,7 @@ type TopicRule struct {
 	SQL              string       `json:"sql"`
 	AWSIoTSQLVersion string       `json:"awsIotSqlVersion,omitempty"`
 	Description      string       `json:"description,omitempty"`
+	ErrorAction      *RuleAction  `json:"errorAction,omitempty"`
 	Actions          []RuleAction `json:"actions"`
 	Enabled          bool         `json:"enabled"`
 }
@@ -48,6 +53,69 @@ type RuleAction struct {
 	SQS    *SQSAction    `json:"sqs,omitempty"`
 	Lambda *LambdaAction `json:"lambda,omitempty"`
 	SNS    *SNSAction    `json:"sns,omitempty"`
+	// Other holds action types with no typed model (s3, dynamoDB, ...), kept verbatim.
+	Other map[string]json.RawMessage `json:"-"`
+}
+
+const typedRuleActionKeys = 3
+
+// UnmarshalJSON decodes the typed actions and keeps every other key verbatim.
+func (a *RuleAction) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*a = RuleAction{}
+	for k, v := range raw {
+		if string(v) == "null" {
+			continue
+		}
+		var err error
+		switch k {
+		case "sqs":
+			err = json.Unmarshal(v, &a.SQS)
+		case "lambda":
+			err = json.Unmarshal(v, &a.Lambda)
+		case "sns":
+			err = json.Unmarshal(v, &a.SNS)
+		default:
+			if a.Other == nil {
+				a.Other = map[string]json.RawMessage{}
+			}
+			a.Other[k] = v
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MarshalJSON emits the typed actions plus the verbatim other keys.
+func (a RuleAction) MarshalJSON() ([]byte, error) {
+	out := make(map[string]any, len(a.Other)+typedRuleActionKeys)
+	maps.Copy(out, castRaw(a.Other))
+	if a.SQS != nil {
+		out["sqs"] = a.SQS
+	}
+	if a.Lambda != nil {
+		out["lambda"] = a.Lambda
+	}
+	if a.SNS != nil {
+		out["sns"] = a.SNS
+	}
+
+	return json.Marshal(out)
+}
+
+func castRaw(in map[string]json.RawMessage) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+
+	return out
 }
 
 // SNSAction publishes the matched message to an SNS topic
@@ -104,6 +172,7 @@ type TopicRulePayload struct {
 	SQL              string       `json:"sql"`
 	Description      string       `json:"description"`
 	AWSIoTSQLVersion string       `json:"awsIotSqlVersion,omitempty"`
+	ErrorAction      *RuleAction  `json:"errorAction,omitempty"`
 	Actions          []RuleAction `json:"actions"`
 	RuleDisabled     bool         `json:"ruleDisabled"`
 }
@@ -330,12 +399,13 @@ type PolicyVersion struct {
 
 // TopicRuleDestination represents an AWS IoT Topic Rule Destination.
 type TopicRuleDestination struct {
-	CreatedAt         time.Time                     `json:"-"`
-	LastUpdatedAt     time.Time                     `json:"-"`
-	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
-	VPCProperties     *VPCDestinationProperties     `json:"vpcProperties,omitempty"`
-	ARN               string                        `json:"arn"`
-	Status            string                        `json:"status"`
+	CreatedAt          time.Time                      `json:"-"`
+	LastUpdatedAt      time.Time                      `json:"-"`
+	HTTPURLProperties  *HTTPURLDestinationProperties  `json:"httpUrlProperties,omitempty"`
+	VPCProperties      *VPCDestinationProperties      `json:"vpcProperties,omitempty"`
+	InfluxDBProperties *InfluxDBDestinationProperties `json:"influxDBProperties,omitempty"`
+	ARN                string                         `json:"arn"`
+	Status             string                         `json:"status"`
 	// ConfirmationToken is the token that must be presented to
 	// ConfirmTopicRuleDestination to transition an HTTP destination from
 	// IN_PROGRESS to ENABLED. AWS delivers this out-of-band (via a
@@ -347,6 +417,16 @@ type TopicRuleDestination struct {
 // HTTPURLDestinationProperties holds properties for an HTTP URL destination.
 type HTTPURLDestinationProperties struct {
 	ConfirmationURL string `json:"confirmationUrl"`
+}
+
+// InfluxDBDestinationProperties holds an InfluxDB destination's properties
+// (types.InfluxDBDestinationProperties, aws-sdk-go-v2/service/iot@v1.83.0).
+type InfluxDBDestinationProperties struct {
+	Endpoint        string `json:"endpoint,omitempty"`
+	InfluxDBVersion string `json:"influxDBVersion,omitempty"`
+	SecretID        string `json:"secretId,omitempty"`
+	SecretKey       string `json:"secretKey,omitempty"`
+	SecretType      string `json:"secretType,omitempty"`
 }
 
 // VPCDestinationProperties holds properties for a VPC destination
@@ -450,8 +530,9 @@ type CreateTopicRuleDestinationInput struct {
 
 // TopicRuleDestinationConfiguration is the configuration for a topic rule destination.
 type TopicRuleDestinationConfiguration struct {
-	HTTPURLConfiguration *HTTPURLDestinationConfiguration `json:"httpUrlConfiguration,omitempty"`
-	VPCConfiguration     *VPCDestinationConfiguration     `json:"vpcConfiguration,omitempty"`
+	HTTPURLConfiguration  *HTTPURLDestinationConfiguration `json:"httpUrlConfiguration,omitempty"`
+	VPCConfiguration      *VPCDestinationConfiguration     `json:"vpcConfiguration,omitempty"`
+	InfluxDBConfiguration *InfluxDBDestinationProperties   `json:"influxDBConfiguration,omitempty"`
 }
 
 // HTTPURLDestinationConfiguration holds configuration for an HTTP URL destination.
