@@ -1,8 +1,10 @@
 package cloudtrail
 
 import (
+	"cmp"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -22,8 +24,10 @@ import (
 //	SELECT <* | item[, item...]> FROM <event-data-store> [AS alias]
 //	  [WHERE <bool-expr>]
 //	  [GROUP BY col[, col...]]
+//	  [ORDER BY col|alias [ASC|DESC][, ...]]
 //	  [LIMIT <n>]
 //
+//	SELECT may start with DISTINCT (non-aggregate queries only).
 //	item      := col [AS alias] | COUNT(* | col) [AS alias]
 //	bool-expr := bool-expr OR bool-expr
 //	           | bool-expr AND bool-expr
@@ -36,7 +40,7 @@ import (
 // Anything outside that subset -- joins/set operations across event data
 // stores (real CloudTrail Lake feature, genuinely large: see
 // query_parse.go's parseFromTarget), SUM/AVG/MIN/MAX, subqueries, HAVING,
-// ORDER BY, DISTINCT, and any other syntactically-valid-but-unhandled SQL --
+// and any other syntactically-valid-but-unhandled SQL --
 // is a genuine query failure: the query reaches QueryStatus FAILED with a
 // populated ErrorMessage (DescribeQueryOutput.ErrorMessage /
 // GetQueryResultsOutput.ErrorMessage; QueryStatus has a documented FAILED
@@ -187,22 +191,109 @@ func effectiveQueryLimit(limit int) int {
 	return limit
 }
 
+// resultRow is one output row plus the source row it came from, which ORDER BY
+// may consult for a column the SELECT list does not project.
+type resultRow struct {
+	src   map[string]string
+	cells []map[string]string
+}
+
 func projectRows(matched []map[string]string, pq parsedLakeQuery, limit int) [][]map[string]string {
+	var all []resultRow
+
 	if pq.hasAgg {
-		return aggregateRows(matched, pq, limit)
+		all = aggregateRows(matched, pq)
+	} else {
+		all = make([]resultRow, 0, len(matched))
+		for _, row := range matched {
+			all = append(all, resultRow{src: row, cells: projectRow(row, pq.items)})
+		}
 	}
 
-	rows := make([][]map[string]string, 0, min(len(matched), limit))
+	if pq.distinct {
+		all = distinctRows(all)
+	}
 
-	for _, row := range matched {
+	if len(pq.orderBy) > 0 {
+		sortResultRows(all, pq)
+	}
+
+	rows := make([][]map[string]string, 0, min(len(all), limit))
+	for _, r := range all {
 		if len(rows) >= limit {
 			break
 		}
 
-		rows = append(rows, projectRow(row, pq.items))
+		rows = append(rows, r.cells)
 	}
 
 	return rows
+}
+
+func distinctRows(all []resultRow) []resultRow {
+	seen := make(map[string]struct{}, len(all))
+	out := make([]resultRow, 0, len(all))
+
+	for _, r := range all {
+		parts := make([]string, 0, len(r.cells))
+		for _, cell := range r.cells {
+			for k, v := range cell {
+				parts = append(parts, k+"="+v)
+			}
+		}
+
+		key := strings.Join(parts, groupKeyFieldSep)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		out = append(out, r)
+	}
+
+	return out
+}
+
+func sortResultRows(all []resultRow, pq parsedLakeQuery) {
+	sort.SliceStable(all, func(i, j int) bool {
+		for _, term := range pq.orderBy {
+			c := compareOrderValues(orderValue(all[i], pq.items, term.name), orderValue(all[j], pq.items, term.name))
+			if c == 0 {
+				continue
+			}
+
+			if term.desc {
+				return c > 0
+			}
+
+			return c < 0
+		}
+
+		return false
+	})
+}
+
+func orderValue(r resultRow, items []selectItem, name string) string {
+	for idx, it := range items {
+		if itemMatchesOrder(it, name) {
+			return r.cells[idx][it.outName]
+		}
+	}
+
+	return r.src[strings.ToLower(name)]
+}
+
+// compareOrderValues compares numerically when both sides are numbers (COUNT
+// results), else lexically.
+func compareOrderValues(a, b string) int {
+	fa, errA := strconv.ParseFloat(a, 64)
+	fb, errB := strconv.ParseFloat(b, 64)
+
+	if errA == nil && errB == nil {
+		return cmp.Compare(fa, fb)
+	}
+
+	return strings.Compare(a, b)
 }
 
 // projectRow renders row as the AWS QueryResultRows shape: a slice of
@@ -245,7 +336,7 @@ type aggState struct {
 // GROUP BY means a single implicit group over every matched row). Output
 // order is sorted by group key so it's deterministic across Go's randomized
 // map iteration.
-func aggregateRows(matched []map[string]string, pq parsedLakeQuery, limit int) [][]map[string]string {
+func aggregateRows(matched []map[string]string, pq parsedLakeQuery) []resultRow {
 	groups := map[string]*aggState{}
 
 	for _, row := range matched {
@@ -267,14 +358,10 @@ func aggregateRows(matched []map[string]string, pq parsedLakeQuery, limit int) [
 
 	sortStrings(keys)
 
-	rows := make([][]map[string]string, 0, min(len(keys), limit))
+	rows := make([]resultRow, 0, len(keys))
 
 	for _, k := range keys {
-		if len(rows) >= limit {
-			break
-		}
-
-		rows = append(rows, renderAggRow(pq.items, groups[k]))
+		rows = append(rows, resultRow{src: groups[k].values, cells: renderAggRow(pq.items, groups[k])})
 	}
 
 	return rows
