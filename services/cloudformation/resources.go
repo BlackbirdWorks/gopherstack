@@ -2890,16 +2890,14 @@ func (rc *ResourceCreator) createLambdaFunction(
 		name = logicalID + "-" + uuid.New().String()[:8]
 	}
 
-	runtime := strProp(props, "Runtime", params, physicalIDs)
-	handler := strProp(props, "Handler", params, physicalIDs)
-	role := strProp(props, "Role", params, physicalIDs)
-
 	fn := &lambdabackend.FunctionConfiguration{
 		FunctionName: name,
-		Runtime:      runtime,
-		Handler:      handler,
-		Role:         role,
+		Runtime:      strProp(props, "Runtime", params, physicalIDs),
+		Handler:      strProp(props, "Handler", params, physicalIDs),
+		Role:         strProp(props, "Role", params, physicalIDs),
+		Description:  strProp(props, "Description", params, physicalIDs),
 	}
+	applyLambdaTuning(fn, props, params, physicalIDs)
 
 	if err := rc.backends.Lambda.Backend.CreateFunction(fn); err != nil {
 		return "", fmt.Errorf("create Lambda function: %w", err)
@@ -2955,6 +2953,10 @@ func (rc *ResourceCreator) createEventBridgeRule(
 	rule, err := rc.backends.EventBridge.Backend.PutRule(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge rule: %w", err)
+	}
+
+	if err = rc.putRuleTargets(ctx, name, eventBusName, props, params, physicalIDs); err != nil {
+		return "", err
 	}
 
 	return rule.Arn, nil
@@ -3065,10 +3067,14 @@ func (rc *ResourceCreator) createAPIGatewayRestAPI(
 
 	name := strProp(props, "Name", params, physicalIDs)
 	if name == "" {
+		name = bodyTitle(props, params, physicalIDs)
+	}
+	if name == "" {
 		name = logicalID
 	}
 
 	description := strProp(props, "Description", params, physicalIDs)
+	body := resolvedJSONProp(props, "Body", params, physicalIDs)
 
 	api, err := rc.backends.APIGateway.Backend.CreateRestAPI(apigwbackend.CreateRestAPIInput{
 		Name:        name,
@@ -3076,6 +3082,18 @@ func (rc *ResourceCreator) createAPIGatewayRestAPI(
 	})
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway REST API: %w", err)
+	}
+
+	if body != "" {
+		if _, err = rc.backends.APIGateway.Backend.PutRestAPI(apigwbackend.PutRestAPIInput{
+			RestAPIID: api.ID,
+			Mode:      "overwrite",
+			Body:      []byte(body),
+		}); err != nil {
+			_ = rc.backends.APIGateway.Backend.DeleteRestAPI(api.ID)
+
+			return "", fmt.Errorf("import API Gateway REST API body: %w", err)
+		}
 	}
 
 	return api.ID, nil

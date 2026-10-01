@@ -401,6 +401,13 @@ func TestResourceCreator_LambdaPermission_RealBackend(t *testing.T) {
 			backends := newLambdaServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
+			if tt.wantErr == nil {
+				_, fnErr := rc.Create(t.Context(), "PermFn", "AWS::Lambda::Function", map[string]any{
+					"FunctionName": "cfn-perm-fn", "Runtime": "python3.12", "Handler": "h",
+				}, nil, nil)
+				require.NoError(t, fnErr)
+			}
+
 			physID, err := rc.Create(
 				t.Context(),
 				tt.logicalID,

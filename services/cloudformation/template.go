@@ -266,6 +266,11 @@ func ParseTemplate(body string) (*Template, error) {
 		body = expanded
 	}
 
+	body, samErr := expandSAMBody(body)
+	if samErr != nil {
+		return nil, samErr
+	}
+
 	if !strings.HasPrefix(body, "{") {
 		converted, err := yamlToJSON(body)
 		if err != nil {

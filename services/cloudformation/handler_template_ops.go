@@ -35,6 +35,12 @@ func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
+	if form.Get("TemplateStage") == "Processed" {
+		if body, err = processedTemplateBody(body); err != nil {
+			return h.xmlError(c, "ValidationError", err.Error())
+		}
+	}
+
 	type result struct {
 		TemplateBody string `xml:"TemplateBody"`
 	}
