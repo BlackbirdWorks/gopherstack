@@ -117,6 +117,10 @@ func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]b
 		"InputDataConfig":           inputDataConfig,
 	}
 
+	if j.EndTime != nil {
+		resp["EndTime"] = epochSeconds(*j.EndTime)
+	}
+
 	if j.OutputDataConfig != nil {
 		resp["OutputDataConfig"] = j.OutputDataConfig
 	}
@@ -191,14 +195,20 @@ func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, j := range items {
-		summaries = append(summaries, map[string]any{
+		summary := map[string]any{
 			keyAutoMLJobName:            j.AutoMLJobName,
 			keyAutoMLJobArn:             j.AutoMLJobArn,
 			keyAutoMLJobStatus:          j.AutoMLJobStatus,
 			keyAutoMLJobSecondaryStatus: j.AutoMLJobSecondaryStatus,
 			keyCreationTime:             epochSeconds(j.CreationTime),
 			keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
-		})
+		}
+
+		if j.EndTime != nil {
+			summary["EndTime"] = epochSeconds(*j.EndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	return json.Marshal(map[string]any{

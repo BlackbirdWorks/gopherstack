@@ -689,10 +689,19 @@ func deleteInstanceGroupsLocked(c *Cluster, toDeleteNames []string) {
 	c.InstanceGroups = kept
 }
 
-// UpdateClusterSoftware validates the cluster exists and returns its ARN.
-// Real AWS asynchronously patches node AMIs; this emulator applies the
-// request immediately with no observable software-version state to update.
-func (b *InMemoryBackend) UpdateClusterSoftware(ctx context.Context, nameOrArn string) (string, error) {
+// ClusterSoftwareUpdate targets one instance group of an UpdateClusterSoftware call.
+type ClusterSoftwareUpdate struct {
+	InstanceGroupName   string
+	ImageReleaseVersion string
+}
+
+// UpdateClusterSoftware stamps LastSoftwareUpdateTime (and the requested
+// ImageReleaseVersion) on the nodes of the named groups, or of every group.
+func (b *InMemoryBackend) UpdateClusterSoftware(
+	ctx context.Context,
+	nameOrArn string,
+	updates []ClusterSoftwareUpdate,
+) (string, error) {
 	b.mu.Lock("UpdateClusterSoftware")
 	defer b.mu.Unlock()
 
@@ -701,6 +710,26 @@ func (b *InMemoryBackend) UpdateClusterSoftware(ctx context.Context, nameOrArn s
 	c, err := b.resolveClusterLocked(region, nameOrArn)
 	if err != nil {
 		return "", err
+	}
+
+	versions := make(map[string]string, len(updates))
+	for _, u := range updates {
+		versions[u.InstanceGroupName] = u.ImageReleaseVersion
+	}
+
+	now := time.Now()
+
+	for _, n := range c.Nodes {
+		version, targeted := versions[n.InstanceGroupName]
+		if len(updates) > 0 && !targeted {
+			continue
+		}
+
+		n.LastSoftwareUpdateTime = now
+
+		if version != "" {
+			n.CurrentImageReleaseVersion = version
+		}
 	}
 
 	return c.ClusterArn, nil

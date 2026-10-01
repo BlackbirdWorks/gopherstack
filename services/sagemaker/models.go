@@ -524,12 +524,14 @@ type ClusterNodeVolume struct {
 
 // ClusterNode represents a node in a SageMaker cluster.
 type ClusterNode struct {
-	CreationTime      time.Time           `json:"CreationTime"`
-	NodeID            string              `json:"NodeId"`
-	InstanceType      string              `json:"InstanceType,omitempty"`
-	NodeStatus        string              `json:"NodeStatus"`
-	InstanceGroupName string              `json:"InstanceGroupName,omitempty"`
-	Volumes           []ClusterNodeVolume `json:"Volumes,omitempty"`
+	CreationTime               time.Time           `json:"CreationTime"`
+	LastSoftwareUpdateTime     time.Time           `json:"LastSoftwareUpdateTime"`
+	CurrentImageReleaseVersion string              `json:"CurrentImageReleaseVersion,omitempty"`
+	NodeID                     string              `json:"NodeId"`
+	InstanceType               string              `json:"InstanceType,omitempty"`
+	NodeStatus                 string              `json:"NodeStatus"`
+	InstanceGroupName          string              `json:"InstanceGroupName,omitempty"`
+	Volumes                    []ClusterNodeVolume `json:"Volumes,omitempty"`
 }
 
 // ClusterInstanceGroup represents an instance group specification/details for a
