@@ -232,6 +232,9 @@ func (t *samTranslator) resProps(section string, r map[string]any) map[string]an
 	return mergeSAMGlobals(t.globals[section], asMap(r[samKeyProps]))
 }
 
+// samMaxMergeLen bounds template-supplied list lengths before concatenation.
+const samMaxMergeLen = 1 << 16
+
 // mergeSAMGlobals merges Globals under local props: maps recurse, lists
 // concatenate (globals first), scalars take the local value.
 func mergeSAMGlobals(global, local map[string]any) map[string]any {
@@ -252,7 +255,7 @@ func mergeSAMGlobals(global, local map[string]any) map[string]any {
 				continue
 			}
 		case []any:
-			if g, isList := gv.([]any); isList {
+			if g, isList := gv.([]any); isList && len(g) <= samMaxMergeLen && len(l) <= samMaxMergeLen {
 				out[k] = append(slices.Clone(g), l...)
 
 				continue

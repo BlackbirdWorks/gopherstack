@@ -7,6 +7,7 @@ import (
 	"errors"
 	"html/template"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -100,14 +101,31 @@ func redirectWith(base string, query, fragment url.Values) (string, error) {
 	return u.String(), nil
 }
 
-func redirectURIRegistered(client *UserPoolClient, uri string) bool {
-	if uri == "" || strings.Contains(uri, "#") || !slices.Contains(client.CallbackURLs, uri) {
-		return false
+// registeredURL returns the entry of list equal to uri, so callers redirect to the stored value.
+func registeredURL(list []string, uri string) (string, bool) {
+	for _, registered := range list {
+		if registered == uri {
+			return registered, true
+		}
 	}
 
-	u, err := url.Parse(uri)
+	return "", false
+}
 
-	return err == nil && u.Scheme != ""
+// registeredRedirectURI returns the client's registered callback URL matching uri.
+func registeredRedirectURI(client *UserPoolClient, uri string) (string, bool) {
+	if uri == "" || strings.Contains(uri, "#") {
+		return "", false
+	}
+
+	registered, ok := registeredURL(client.CallbackURLs, uri)
+	if !ok {
+		return "", false
+	}
+
+	u, err := url.Parse(registered)
+
+	return registered, err == nil && u.Scheme != ""
 }
 
 func (f *authorizeFailure) respond(c *echo.Context) error {
@@ -140,8 +158,8 @@ func (h *Handler) validateAuthorize(q url.Values, hostPool string) (*authorizeRe
 		return nil, &authorizeFailure{code: errInvalidRequest, desc: "client_id not found"}
 	}
 
-	redirect := q.Get("redirect_uri")
-	if !redirectURIRegistered(client, redirect) {
+	redirect, registered := registeredRedirectURI(client, q.Get("redirect_uri"))
+	if !registered {
 		return nil, &authorizeFailure{code: "redirect_mismatch", desc: "redirect_uri is not registered for this client"}
 	}
 
@@ -290,6 +308,20 @@ func csrfValid(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(r.PostForm.Get("_csrf"))) == 1
 }
 
+// cookieSecure is true over TLS and on loopback hosts (a secure context); other plain-http hosts would drop it.
+func cookieSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+}
+
 func renderLogin(c *echo.Context, q url.Values, status int, msg string) error {
 	raw := make([]byte, csrfBytes)
 	if _, err := rand.Read(raw); err != nil {
@@ -297,9 +329,11 @@ func renderLogin(c *echo.Context, q url.Values, status int, msg string) error {
 	}
 
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	http.SetCookie(c.Response(), &http.Cookie{ //nolint:gosec // plain-http emulator: Secure would drop the cookie
-		Name: csrfCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
-	})
+	cookie := &http.Cookie{
+		Name: csrfCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: true,
+	}
+	cookie.Secure = cookieSecure(c.Request())
+	http.SetCookie(c.Response(), cookie)
 
 	setHTMLHeaders(c)
 	c.Response().Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -368,11 +402,12 @@ func (h *Handler) handleHostedLogout(c *echo.Context) error {
 	}
 
 	if logout := q.Get("logout_uri"); logout != "" {
-		if !slices.Contains(client.LogoutURLs, logout) {
+		registered, found := registeredURL(client.LogoutURLs, logout)
+		if !found {
 			return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "logout_uri is not registered")
 		}
 
-		return c.Redirect(http.StatusFound, logout)
+		return c.Redirect(http.StatusFound, registered)
 	}
 
 	if q.Get("redirect_uri") == "" {

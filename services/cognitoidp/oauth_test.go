@@ -989,3 +989,73 @@ func TestHostedLoginFlowNotSelectableViaAPI(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestOAuthLoginRedirectUsesRegisteredURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state string
+	}{
+		{name: "plain state", state: "st8"},
+		{name: "state needing encoding", state: "a b&c=d"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newOAuthEnv(t)
+			q := authorizeQuery(env.webID, "")
+			q.Set("state", tt.state)
+
+			resp := env.login(t, q)
+			require.Equal(t, http.StatusFound, resp.StatusCode)
+
+			loc := resp.Header.Get("Location")
+			code := between(loc, "code=", "&")
+			require.NotEmpty(t, code)
+
+			want := oauthRedirect + "?" + url.Values{"code": {code}, "state": {tt.state}}.Encode()
+			assert.Equal(t, want, loc)
+		})
+	}
+}
+
+func TestOAuthLoginCookieAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		host       string
+		wantSecure bool
+	}{
+		{name: "loopback ip", host: "127.0.0.1:4566", wantSecure: true},
+		{name: "localhost", host: "localhost:4566", wantSecure: true},
+		{name: "other plain http host", host: "gopherstack.internal:4566", wantSecure: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newOAuthEnv(t)
+			req, err := http.NewRequest(
+				http.MethodGet, env.srv.URL+"/login?"+authorizeQuery(env.webID, "").Encode(), nil,
+			)
+			require.NoError(t, err)
+
+			req.Host = tt.host
+
+			resp, _ := env.do(t, req)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			cookies := resp.Cookies()
+			require.Len(t, cookies, 1)
+			assert.Equal(t, "XSRF-TOKEN", cookies[0].Name)
+			assert.True(t, cookies[0].HttpOnly)
+			assert.Equal(t, http.SameSiteLaxMode, cookies[0].SameSite)
+			assert.Equal(t, tt.wantSecure, cookies[0].Secure)
+		})
+	}
+}

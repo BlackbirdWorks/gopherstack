@@ -59,7 +59,7 @@ func (t *samTranslator) finalizeS3Events() error {
 		if nc == nil {
 			nc = map[string]any{}
 		}
-		nc[samKeyLambdaCfg] = append(slices.Clone(asList(nc[samKeyLambdaCfg])), t.s3Configs[id]...)
+		nc[samKeyLambdaCfg] = slices.Concat(asList(nc[samKeyLambdaCfg]), t.s3Configs[id])
 		props[samKeyNotifCfg] = nc
 		nb := maps.Clone(b)
 		nb[samKeyProps] = props

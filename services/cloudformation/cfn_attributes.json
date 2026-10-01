@@ -17,6 +17,18 @@
     "Arn",
     "BranchName"
   ],
+  "AWS::ApiGateway::Deployment": [
+    "DeploymentId"
+  ],
+  "AWS::ApiGateway::RestApi": [
+    "RestApiId",
+    "RootResourceId"
+  ],
+  "AWS::ApiGatewayV2::Api": [
+    "ApiEndpoint",
+    "ApiId",
+    "ExecuteApiArn"
+  ],
   "AWS::ApiGatewayV2::Integration": [
     "IntegrationId"
   ],
@@ -542,6 +554,10 @@
     "State",
     "StateReason"
   ],
+  "AWS::Events::Rule": [
+    "Arn",
+    "RuleName"
+  ],
   "AWS::Glue::Blueprint": [
     "Arn",
     "CreatedOn",
@@ -685,15 +701,32 @@
   "AWS::KinesisVideo::Stream": [
     "Arn"
   ],
+  "AWS::Lambda::Alias": [
+    "AliasArn"
+  ],
   "AWS::Lambda::CodeSigningConfig": [
     "CodeSigningConfigArn",
     "CodeSigningConfigId"
+  ],
+  "AWS::Lambda::EventSourceMapping": [
+    "EventSourceMappingArn",
+    "Id"
   ],
   "AWS::Lambda::Function": [
     "Arn",
     "SnapStartResponse",
     "SnapStartResponse.ApplyOn",
     "SnapStartResponse.OptimizationStatus"
+  ],
+  "AWS::Lambda::LayerVersion": [
+    "LayerVersionArn"
+  ],
+  "AWS::Lambda::Permission": [
+    "Id"
+  ],
+  "AWS::Lambda::Version": [
+    "FunctionArn",
+    "Version"
   ],
   "AWS::Logs::Delivery": [
     "Arn",
@@ -915,6 +948,9 @@
     "RegionalDomainName",
     "WebsiteURL"
   ],
+  "AWS::SNS::Subscription": [
+    "Arn"
+  ],
   "AWS::SNS::Topic": [
     "TopicArn",
     "TopicName"
@@ -992,6 +1028,9 @@
   ],
   "AWS::SageMaker::Workteam": [
     "WorkteamName"
+  ],
+  "AWS::Scheduler::Schedule": [
+    "Arn"
   ],
   "AWS::Scheduler::ScheduleGroup": [
     "Arn",

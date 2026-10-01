@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,19 +63,17 @@ func (b *InMemoryBackend) isHotReloadFunction(fn *FunctionConfiguration) bool {
 	return fn.PackageType == PackageTypeZip && len(fn.ZipData) == 0 && b.IsHotReloadBucket(fn.S3BucketCode)
 }
 
-// ResolveHotReloadPath expands env placeholders in key and validates it as an
-// absolute, traversal-free path to an existing directory.
-func ResolveHotReloadPath(key string) (string, error) {
+// sanitizeHotReloadPath returns key's env-expanded, cleaned, symlink-resolved absolute path,
+// rejecting relative, traversing and forbidden-root paths. Only the returned value may reach file ops.
+func sanitizeHotReloadPath(key string) (string, error) {
 	expanded := os.ExpandEnv(key)
 
 	if !filepath.IsAbs(expanded) {
 		return "", fmt.Errorf("%w: S3Key must be an absolute path, got %q", ErrInvalidHotReloadPath, key)
 	}
 
-	for seg := range strings.SplitSeq(filepath.ToSlash(expanded), "/") {
-		if seg == ".." {
-			return "", fmt.Errorf("%w: path traversal is not allowed in %q", ErrInvalidHotReloadPath, key)
-		}
+	if slices.Contains(strings.Split(filepath.ToSlash(expanded), "/"), "..") {
+		return "", fmt.Errorf("%w: path traversal is not allowed in %q", ErrInvalidHotReloadPath, key)
 	}
 
 	clean := filepath.Clean(expanded)
@@ -88,18 +87,27 @@ func ResolveHotReloadPath(key string) (string, error) {
 		return "", fmt.Errorf("%w: mounting %q is not allowed", ErrInvalidHotReloadPath, clean)
 	}
 
-	clean = resolved
+	return filepath.Clean(resolved), nil
+}
 
-	info, err := os.Stat(clean)
+// ResolveHotReloadPath expands env placeholders in key and validates it as an
+// absolute, traversal-free path to an existing directory.
+func ResolveHotReloadPath(key string) (string, error) {
+	safe, err := sanitizeHotReloadPath(key)
 	if err != nil {
-		return "", fmt.Errorf("%w: %q is not accessible: %w", ErrInvalidHotReloadPath, clean, err)
+		return "", err
+	}
+
+	info, err := os.Stat(safe)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q is not accessible: %w", ErrInvalidHotReloadPath, safe, err)
 	}
 
 	if !info.IsDir() {
-		return "", fmt.Errorf("%w: %q is not a directory", ErrInvalidHotReloadPath, clean)
+		return "", fmt.Errorf("%w: %q is not a directory", ErrInvalidHotReloadPath, safe)
 	}
 
-	return clean, nil
+	return safe, nil
 }
 
 // ValidateHotReloadCode validates a hot-reload S3Key when bucket is the magic bucket.
