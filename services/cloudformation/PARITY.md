@@ -274,13 +274,17 @@ items_still_open:
   - "StackSets DeploymentTargets.AccountsUrl is accepted but not fetched: no S3 client is wired for it, same gap as TemplateURL elsewhere (gopherstack-g7b5)."
   - "ImportStacksToStackSet cannot tag imported instances with an OU: ImportStacksToStackSetInput carries no DeploymentTargets to source one from."
   - "StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): the service has no clock- or janitor-driven lifecycle (gopherstack-b3pm)."
-  - "Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model), treats Replacement Conditionally as Update:Replace, and ignores StackPolicyBody/URL at Create/UpdateStack and parameter-only updates (gopherstack-cqy3)."
+  - "Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model) and treats Replacement Conditionally as Update:Replace; StackPolicyURL is not fetched (no S3 client) (gopherstack-cqy3)."
   - "No nested-stack, update-rollback or multi-version type machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks, UpdateStack RetainExceptOnCreate, RollbackStack (status-only; drops RoleARN/RetainExceptOnCreate), ActivateType MajorVersion/VersionBump/TypeNameAlias (gopherstack-xhu2t)."
   - "ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan."
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
 ## Notes
+
+### 2026-10-01: Create/UpdateStack StackPolicyBody
+
+Both ops now validate and store StackPolicyBody (previously ignored); malformed JSON is a ValidationError before any mutation. Proven by `stack_policy_body_test.go`.
 
 ### 2026-09-26: StackSets DeploymentTargets.AccountFilterType (NONE/INTERSECTION/DIFFERENCE/UNION)
 
