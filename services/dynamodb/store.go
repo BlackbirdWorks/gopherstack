@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -314,6 +315,7 @@ type Table struct {
 	itemsByOffset        map[int]map[string]any
 	mu                   *lockmetrics.RWMutex
 	activateTimer        *time.Timer
+	scanOrder            atomic.Pointer[scanOrderCache]
 	Tags                 *tags.Tags           `json:"Tags,omitempty"`
 	AutoScaling          *autoScalingSettings `json:"AutoScaling,omitempty"`
 	// ReplicaAutoScaling holds per-replica read-capacity autoscaling settings,
@@ -343,6 +345,7 @@ type Table struct {
 	LocalSecondaryIndexes   []models.LocalSecondaryIndex           `json:"LocalSecondaryIndexes,omitempty"`
 	KeySchema               []models.KeySchemaElement              `json:"KeySchema"`
 	KinesisDestinations     []KinesisDestinationEntry              `json:"KinesisDestinations,omitempty"`
+	StreamRecords           []models.StreamRecord                  `json:"StreamRecords,omitempty"`
 	Items                   []map[string]any                       `json:"Items"`
 	itemSizes               []int
 	// PITRSnapshots is the per-table PITR ring buffer (see pitrSnapshot). It must be
@@ -353,14 +356,14 @@ type Table struct {
 	// adding this field did not require bumping the snapshot version.
 	PITRSnapshots              []pitrSnapshot                          `json:"PITRSnapshots,omitempty"`
 	StreamShards               []StreamShard                           `json:"StreamShards,omitempty"`
-	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	itemsVersion               uint64
 	totalItemSizeBytes         int64
 	streamSeq                  int64
 	StreamHead                 int `json:"StreamHead,omitempty"`
 	streamTrimSeq              int64
-	PITREnabled                bool  `json:"PITREnabled,omitempty"`
 	RecoveryPeriodInDays       int32 `json:"RecoveryPeriodInDays,omitempty"`
+	PITREnabled                bool  `json:"PITREnabled,omitempty"`
 	SSEEnabled                 bool  `json:"SSEEnabled,omitempty"`
 	StreamsEnabled             bool  `json:"StreamsEnabled"`
 	DeletionProtectionEnabled  bool  `json:"DeletionProtectionEnabled"`
@@ -674,6 +677,7 @@ func (t *Table) initializeIndexes() {
 
 // rebuildIndexes rebuilds all indexes from existing items (used after table creation or batch updates).
 func (t *Table) rebuildIndexes() {
+	t.itemsChanged()
 	t.initializeIndexes()
 
 	// Rebuild the item-size accounting alongside the key indexes. itemSizes has

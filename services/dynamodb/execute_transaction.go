@@ -285,6 +285,7 @@ func restoreTxnTableStateLocked(t *Table, snap tableStateSnapshot) {
 	t.mu.Lock("ExecuteTransaction.restore")
 	defer t.mu.Unlock()
 
+	t.itemsChanged()
 	t.Items = snap.items
 	t.itemSizes = snap.itemSizes
 	t.totalItemSizeBytes = snap.totalItemSizeBytes

@@ -901,6 +901,7 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 		// Capture stream record (REMOVE)
 		table.appendStreamRecord(streamEventRemove, table.Items[idx], nil, "", "")
 
+		table.itemsChanged()
 		// Delete by swapping with last and truncating. table.itemSizes must be
 		// kept in lockstep with table.Items (same swap, same truncation) so its
 		// length never drifts from Items and totalItemSizeBytes stays accurate
@@ -1006,6 +1007,7 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 	// this, DescribeTable's TableSizeBytes silently excludes anything written
 	// via BatchWriteItem, and itemSizes/Items can drift out of length-sync.
 	itemSize, _ := CalculateItemSize(item)
+	table.itemsChanged()
 	oldItem, matchIndex := db.findMatchForPut(table, item)
 	if matchIndex != -1 {
 		// Capture stream event (MODIFY) before overwriting in place.

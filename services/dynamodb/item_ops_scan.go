@@ -68,7 +68,7 @@ func (db *InMemoryDB) ScanWithContext(
 	// Snapshot items and metadata under lock, release immediately.
 	// A shallow slice copy is safe: writes always replace items[i] with a new map;
 	// they never mutate an existing map in place, so our pointers remain valid.
-	itemsCopy, ttlAttr, keySchema, gsiList, lsiList, attrDefs, billingMode := snapshotTableForScan(table)
+	itemsCopy, ttlAttr, keySchema, gsiList, lsiList, attrDefs, billingMode, version := snapshotTableForScan(table)
 
 	// Get key schema definitions (reconstruct the table temporarily for getScanKeySchema)
 	snapshotTable := &Table{
@@ -90,6 +90,11 @@ func (db *InMemoryDB) ScanWithContext(
 		return nil, verr
 	}
 
+	presorted := aws.ToString(input.IndexName) == ""
+	if presorted {
+		itemsCopy = table.sortedScanItems(itemsCopy, version, pkDef, skDef, attrDefs)
+	}
+
 	// Process scan outside the lock; pass the table's own key schema separately
 	// so that GSI/LSI scans can include the base-table PK in LastEvaluatedKey.
 	items, lastKey, scannedCount, err := db.doScan(
@@ -102,6 +107,7 @@ func (db *InMemoryDB) ScanWithContext(
 		skDef,
 		keySchema,
 		projection,
+		presorted,
 	)
 	if err != nil {
 		return nil, err
@@ -121,6 +127,7 @@ func snapshotTableForScan(table *Table) (
 	[]models.LocalSecondaryIndex,
 	[]models.AttributeDefinition,
 	string,
+	uint64,
 ) {
 	table.mu.RLock("Scan")
 	defer table.mu.RUnlock()
@@ -134,7 +141,39 @@ func snapshotTableForScan(table *Table) (
 		table.GlobalSecondaryIndexes,
 		table.LocalSecondaryIndexes,
 		table.AttributeDefinitions,
-		table.BillingMode
+		table.BillingMode,
+		table.itemsVersion
+}
+
+// scanOrderCache is the key-sorted item order of a table at one itemsVersion.
+type scanOrderCache struct {
+	items   []map[string]any
+	version uint64
+}
+
+// itemsChanged invalidates the cached scan order; call it under table.mu.Lock
+// before any mutation of t.Items.
+func (t *Table) itemsChanged() {
+	t.itemsVersion++
+}
+
+// sortedScanItems returns items in base-table key order, reusing the cached
+// order while version is unchanged. The result is shared: callers must not modify it.
+func (t *Table) sortedScanItems(
+	items []map[string]any,
+	version uint64,
+	pkDef, skDef models.KeySchemaElement,
+	attrDefs []models.AttributeDefinition,
+) []map[string]any {
+	if c := t.scanOrder.Load(); c != nil && c.version == version {
+		return c.items
+	}
+
+	sorted := slices.Clone(items)
+	sortScanResults(sorted, pkDef, skDef, &Table{AttributeDefinitions: attrDefs})
+	t.scanOrder.Store(&scanOrderCache{items: sorted, version: version})
+
+	return sorted
 }
 
 // buildScanOutput enforces read throughput and assembles the ScanOutput.
@@ -240,6 +279,7 @@ func (db *InMemoryDB) doScan(
 	pkDef, skDef models.KeySchemaElement,
 	tableKeySchema []models.KeySchemaElement,
 	projection *models.Projection,
+	presorted bool,
 ) ([]map[string]any, map[string]any, int32, error) {
 	_ = ctx // ctx reserved for future use (e.g., metrics, cancellation)
 
@@ -260,7 +300,9 @@ func (db *InMemoryDB) doScan(
 	}
 
 	// Sort candidate set by PK then SK (deterministic ordering for pagination).
-	sortScanResults(candidate, pkDef, skDef, table)
+	if !presorted {
+		sortScanResults(candidate, pkDef, skDef, table)
+	}
 
 	// Apply parallel-scan segment filter (Segment / TotalSegments).
 	candidate = applySegmentFilter(candidate, input, pkDef)
