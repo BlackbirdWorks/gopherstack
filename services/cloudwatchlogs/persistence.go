@@ -181,38 +181,41 @@ func fromDeliveryDestinationSnapshot(v *deliveryDestinationSnapshot) *DeliveryDe
 }
 
 type deliverySourceSnapshot struct {
-	CreatedAt    time.Time         `json:"createdAt,omitzero"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	Name         string            `json:"name"`
-	Arn          string            `json:"arn"`
-	LogType      string            `json:"logType,omitempty"`
-	Service      string            `json:"service,omitempty"`
-	ResourceArns []string          `json:"resourceArns,omitempty"`
+	CreatedAt                   time.Time         `json:"createdAt,omitzero"`
+	Tags                        map[string]string `json:"tags,omitempty"`
+	DeliverySourceConfiguration map[string]string `json:"deliverySourceConfiguration,omitempty"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	LogType                     string            `json:"logType,omitempty"`
+	Service                     string            `json:"service,omitempty"`
+	ResourceArns                []string          `json:"resourceArns,omitempty"`
 }
 
 func deliverySourceSnapshotKey(v *deliverySourceSnapshot) string { return v.Name }
 
 func toDeliverySourceSnapshot(s *DeliverySource) *deliverySourceSnapshot {
 	return &deliverySourceSnapshot{
-		CreatedAt:    s.CreatedAt,
-		Tags:         s.Tags,
-		Name:         s.Name,
-		Arn:          s.Arn,
-		LogType:      s.LogType,
-		Service:      s.Service,
-		ResourceArns: s.ResourceArns,
+		CreatedAt:                   s.CreatedAt,
+		Tags:                        s.Tags,
+		DeliverySourceConfiguration: s.DeliverySourceConfiguration,
+		Name:                        s.Name,
+		Arn:                         s.Arn,
+		LogType:                     s.LogType,
+		Service:                     s.Service,
+		ResourceArns:                s.ResourceArns,
 	}
 }
 
 func fromDeliverySourceSnapshot(v *deliverySourceSnapshot) *DeliverySource {
 	return &DeliverySource{
-		CreatedAt:    v.CreatedAt,
-		Tags:         v.Tags,
-		Name:         v.Name,
-		Arn:          v.Arn,
-		LogType:      v.LogType,
-		Service:      v.Service,
-		ResourceArns: v.ResourceArns,
+		CreatedAt:                   v.CreatedAt,
+		Tags:                        v.Tags,
+		DeliverySourceConfiguration: v.DeliverySourceConfiguration,
+		Name:                        v.Name,
+		Arn:                         v.Arn,
+		LogType:                     v.LogType,
+		Service:                     v.Service,
+		ResourceArns:                v.ResourceArns,
 	}
 }
 

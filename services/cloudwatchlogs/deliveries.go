@@ -358,6 +358,7 @@ func (b *InMemoryBackend) PutDeliverySource(
 	name, logType string,
 	resourceArns []string,
 	tags map[string]string,
+	deliverySourceConfiguration map[string]string,
 ) (*DeliverySource, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidationException)
@@ -381,19 +382,23 @@ func (b *InMemoryBackend) PutDeliverySource(
 		if tags != nil {
 			existing.Tags = tags
 		}
+		if deliverySourceConfiguration != nil {
+			existing.DeliverySourceConfiguration = deliverySourceConfiguration
+		}
 		cp := *existing
 
 		return &cp, nil
 	}
 
 	src := DeliverySource{
-		Name:         name,
-		Arn:          "arn:aws:logs:" + b.region + ":" + b.accountID + ":delivery-source:" + name,
-		LogType:      logType,
-		ResourceArns: resourceArns,
-		Service:      service,
-		Tags:         tags,
-		CreatedAt:    time.Now().UTC(),
+		Name:                        name,
+		Arn:                         "arn:aws:logs:" + b.region + ":" + b.accountID + ":delivery-source:" + name,
+		LogType:                     logType,
+		ResourceArns:                resourceArns,
+		Service:                     service,
+		Tags:                        tags,
+		DeliverySourceConfiguration: deliverySourceConfiguration,
+		CreatedAt:                   time.Now().UTC(),
 	}
 	stored := src
 	b.deliverySources.Put(&stored)

@@ -587,13 +587,14 @@ type DeliverySource struct {
 	// needs a real tag for persistence (gopherstack-gqxy0): deliverySources
 	// was a "clean" table (store_setup.go) whose own json.Marshal round trip
 	// honored this tag too, silently dropping CreatedAt from every snapshot.
-	CreatedAt    time.Time         `json:"-"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	Name         string            `json:"name"`
-	Arn          string            `json:"arn"`
-	LogType      string            `json:"logType,omitempty"`
-	Service      string            `json:"service,omitempty"`
-	ResourceArns []string          `json:"resourceArns,omitempty"`
+	CreatedAt                   time.Time         `json:"-"`
+	Tags                        map[string]string `json:"tags,omitempty"`
+	DeliverySourceConfiguration map[string]string `json:"deliverySourceConfiguration,omitempty"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	LogType                     string            `json:"logType,omitempty"`
+	Service                     string            `json:"service,omitempty"`
+	ResourceArns                []string          `json:"resourceArns,omitempty"`
 }
 
 // CWLDestination represents a CloudWatch Logs log routing destination.
