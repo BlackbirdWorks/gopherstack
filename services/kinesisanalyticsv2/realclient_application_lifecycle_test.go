@@ -478,6 +478,13 @@ func TestRealClient_ApplicationLifecycle(t *testing.T) {
 						maint.ApplicationMaintenanceConfigurationDescription.ApplicationMaintenanceWindowStartTime,
 					),
 				)
+				assert.Equal(
+					t,
+					"14:00",
+					aws.ToString(
+						maint.ApplicationMaintenanceConfigurationDescription.ApplicationMaintenanceWindowEndTime,
+					),
+				)
 
 				discovered, err := client.DiscoverInputSchema(
 					ctx,

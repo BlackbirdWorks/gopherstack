@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
+
+const maintenanceWindowDuration = 8 * time.Hour
 
 // sqlApplicationConfigInput mirrors real AWS's SqlApplicationConfiguration
 // request shape: the SQL-based inputs/outputs/reference-data-sources a
@@ -666,6 +669,16 @@ func (h *Handler) handleStopApplication(ctx context.Context, c *echo.Context, bo
 	return c.JSON(http.StatusOK, startStopApplicationOutput{OperationID: opID})
 }
 
+// maintenanceWindowEnd returns start plus the documented 8-hour window as HH:MM, or "" if start is not HH:MM.
+func maintenanceWindowEnd(start string) string {
+	t, err := time.Parse("15:04", start)
+	if err != nil {
+		return ""
+	}
+
+	return t.Add(maintenanceWindowDuration).Format("15:04")
+}
+
 func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(
 	ctx context.Context, c *echo.Context, body []byte,
 ) error {
@@ -684,6 +697,7 @@ func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(
 		ApplicationARN: app.ApplicationARN,
 		ApplicationMaintenanceConfigurationDescription: maintenanceConfigDescription{
 			ApplicationMaintenanceWindowStartTime: app.MaintenanceWindowStartTime,
+			ApplicationMaintenanceWindowEndTime:   maintenanceWindowEnd(app.MaintenanceWindowStartTime),
 		},
 	})
 }
@@ -741,6 +755,7 @@ func toDetailOutput(app *Application) applicationDetailOutput {
 	if app.MaintenanceWindowStartTime != "" {
 		out.ApplicationMaintenanceConfigurationDescription = &maintenanceConfigDescription{
 			ApplicationMaintenanceWindowStartTime: app.MaintenanceWindowStartTime,
+			ApplicationMaintenanceWindowEndTime:   maintenanceWindowEnd(app.MaintenanceWindowStartTime),
 		}
 	}
 
