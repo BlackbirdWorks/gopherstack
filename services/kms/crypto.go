@@ -309,19 +309,17 @@ func encryptSymmetric(plaintext []byte, keyID string, encCtx map[string]string, 
 		return nil, err
 	}
 
-	nonce := make([]byte, gcm.NonceSize())
+	nonceSize := gcm.NonceSize()
+	hdr := keyIDPrefixLen + nonceSize
+	result := make([]byte, hdr, hdr+len(plaintext)+gcm.Overhead())
+	copy(result, keyID)
+
+	nonce := result[keyIDPrefixLen:hdr]
 	if _, readErr := io.ReadFull(rand.Reader, nonce); readErr != nil {
 		return nil, fmt.Errorf("generating nonce: %w", readErr)
 	}
 
-	aad := buildEncryptionContextAAD(keyID, encCtx)
-	encrypted := gcm.Seal(nonce, nonce, plaintext, aad)
-
-	result := make([]byte, keyIDPrefixLen+len(encrypted))
-	copy(result[:keyIDPrefixLen], padKeyID(keyID))
-	copy(result[keyIDPrefixLen:], encrypted)
-
-	return result, nil
+	return gcm.Seal(result, nonce, plaintext, buildEncryptionContextAAD(keyID, encCtx)), nil
 }
 
 // decryptSymmetric decrypts a ciphertext blob produced by encryptSymmetric.
