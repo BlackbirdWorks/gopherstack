@@ -115,17 +115,6 @@ func (p Parameter) toParameterOutput() ParameterOutput {
 	}
 }
 
-// toParameterOutputs projects a slice of Parameter the same way -- see
-// toParameterOutput.
-func toParameterOutputs(params []Parameter) []ParameterOutput {
-	out := make([]ParameterOutput, 0, len(params))
-	for _, p := range params {
-		out = append(out, p.toParameterOutput())
-	}
-
-	return out
-}
-
 // GetParameterOutput represents the response payload for GetParameter.
 type GetParameterOutput struct {
 	Parameter ParameterOutput `json:"Parameter"`

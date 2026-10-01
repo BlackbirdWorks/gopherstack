@@ -775,7 +775,7 @@ func (b *InMemoryBackend) ListAll(ctx context.Context) []Parameter {
 
 // paramByPathMatchesFilters converts a Parameter to ParameterMetadata and
 // delegates to paramMatchesFilters, keeping GetParametersByPath's complexity low.
-func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool {
+func paramByPathMatchesFilters(param *Parameter, filters []ParameterFilter) bool {
 	meta := ParameterMetadata{
 		Name:     param.Name,
 		Type:     param.Type,
@@ -797,26 +797,25 @@ func collectPathParams(
 	path string,
 	recursive bool,
 	filters []ParameterFilter,
-) []Parameter {
-	var matched []Parameter
-	for _, p := range paramsTable.All() {
-		name, param := p.Name, *p
+) []*Parameter {
+	var matched []*Parameter
+	paramsTable.Range(func(param *Parameter) bool {
+		name := param.Name
 		if !strings.HasPrefix(name, path) {
-			continue
+			return true
 		}
-		if !recursive {
-			suffix := name[len(path):]
-			if strings.Contains(suffix, "/") {
-				continue
-			}
+		if !recursive && strings.Contains(name[len(path):], "/") {
+			return true
 		}
 		if len(filters) > 0 && !paramByPathMatchesFilters(param, filters) {
-			continue
+			return true
 		}
 		matched = append(matched, param)
-	}
 
-	sort.Slice(matched, func(i, j int) bool { return matched[i].Name < matched[j].Name })
+		return true
+	})
+
+	slices.SortFunc(matched, func(a, b *Parameter) int { return strings.Compare(a.Name, b.Name) })
 
 	return matched
 }
@@ -837,22 +836,21 @@ func (b *InMemoryBackend) cleanupEmptyParamRegion(region string) {
 	cleanupEmptyInnerMap(b.tags, region)
 }
 
-// decryptParamsSlice returns a copy of params with SecureString values decrypted
-// when requested, and the ARN populated on each parameter.
+// decryptParamsSlice converts params to wire outputs, decrypting SecureString
+// values when requested and populating the ARN on each.
 func (b *InMemoryBackend) decryptParamsSlice(
-	params []Parameter, withDecryption bool, region, account string,
-) []Parameter {
-	// No capacity hint — user-derived values in the capacity slot trigger CodeQL.
-	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
-	result := make([]Parameter, 0)
-	for _, p := range params {
+	params []*Parameter, withDecryption bool, region, account string,
+) []ParameterOutput {
+	result := make([]ParameterOutput, 0, len(params))
+	for _, src := range params {
+		p := *src
 		if withDecryption && p.Type == SecureStringType {
 			if decrypted, err := b.decryptSSMValue(p.KeyID, p.Value); err == nil {
 				p.Value = decrypted
 			}
 		}
 		p.ARN = parameterARN(region, account, p.Name)
-		result = append(result, p)
+		result = append(result, p.toParameterOutput())
 	}
 
 	return result
@@ -911,13 +909,8 @@ func (b *InMemoryBackend) GetParametersByPath(
 	}
 
 	return &GetParametersByPathOutput{
-		Parameters: toParameterOutputs(b.decryptParamsSlice(
-			matched[startIdx:end],
-			input.WithDecryption,
-			region,
-			account,
-		)),
-		NextToken: nextToken,
+		Parameters: b.decryptParamsSlice(matched[startIdx:end], input.WithDecryption, region, account),
+		NextToken:  nextToken,
 	}, nil
 }
 
