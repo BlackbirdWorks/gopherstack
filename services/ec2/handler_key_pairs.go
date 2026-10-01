@@ -57,8 +57,9 @@ type deleteKeyPairResponse struct {
 func (h *Handler) handleCreateKeyPair(vals url.Values, reqID string) (any, error) {
 	name := vals.Get("KeyName")
 	tags := parseTagSpecification(vals, "key-pair")
+	keyType := vals.Get("KeyType")
 
-	kp, err := h.Backend.CreateKeyPair(name, tags)
+	kp, err := h.Backend.CreateKeyPairWithType(name, keyType, tags)
 	if err != nil {
 		return nil, err
 	}

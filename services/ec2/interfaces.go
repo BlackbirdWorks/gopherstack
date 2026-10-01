@@ -137,6 +137,9 @@ type Backend interface {
 	// CreateKeyPair generates an RSA key pair and stores it.
 	CreateKeyPair(name string, tags map[string]string) (*KeyPair, error)
 
+	// CreateKeyPairWithType generates a key pair of keyType (rsa or ed25519) and stores it.
+	CreateKeyPairWithType(name, keyType string, tags map[string]string) (*KeyPair, error)
+
 	// ImportKeyPair stores a pre-existing key pair by name without key material.
 	ImportKeyPair(name, publicKeyMaterial string, tags map[string]string) (*KeyPair, error)
 
@@ -916,8 +919,11 @@ type Backend interface {
 
 	// ---- VPN Connections ----
 
-	// CreateVpnConnection creates a VPN connection between a customer gateway and VPN gateway.
-	CreateVpnConnection(connType, customerGatewayID, vpnGatewayID string) (*VpnConnection, error)
+	// CreateVpnConnection creates a VPN connection terminating on a VPN
+	// gateway or a transit gateway (transitGatewayID is variadic).
+	CreateVpnConnection(
+		connType, customerGatewayID, vpnGatewayID string, transitGatewayID ...string,
+	) (*VpnConnection, error)
 
 	// DescribeVpnConnections returns VPN connections, optionally filtered by IDs.
 	DescribeVpnConnections(ids []string) []*VpnConnection
@@ -1529,7 +1535,7 @@ type Backend interface {
 	RestoreVolumeFromRecycleBin(volumeID string) error
 	RestoreAddressToClassic(publicIP string) error
 	ReportInstanceStatus(instanceIDs, reasonCodes []string, status, description string) error
-	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
+	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string, transitGatewayID ...string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
 	ModifyTransitGateway(

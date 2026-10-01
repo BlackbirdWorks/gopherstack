@@ -333,3 +333,46 @@ func TestRealClient_DescribeVpcEndpointServicesFilters(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateVpnConnection_TransitGateway proves a transit-gateway-only VPN
+// connection now succeeds (VpnGatewayId was wrongly hard-required).
+func TestCreateVpnConnection_TransitGateway(t *testing.T) {
+	t.Parallel()
+
+	backend := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ec2.NewHandler(backend)
+	client := newTestEC2Client(t, h)
+
+	tgw, err := backend.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "vpn-tgw"})
+	require.NoError(t, err)
+
+	cgwOut, err := client.CreateCustomerGateway(t.Context(), &ec2sdk.CreateCustomerGatewayInput{
+		Type: types.GatewayTypeIpsec1, BgpAsn: aws.Int32(65000), PublicIp: aws.String("203.0.113.9"),
+	})
+	require.NoError(t, err)
+
+	connOut, err := client.CreateVpnConnection(t.Context(), &ec2sdk.CreateVpnConnectionInput{
+		Type:              aws.String("ipsec.1"),
+		CustomerGatewayId: cgwOut.CustomerGateway.CustomerGatewayId,
+		TransitGatewayId:  aws.String(tgw.ID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, connOut.VpnConnection)
+	assert.Equal(t, tgw.ID, aws.ToString(connOut.VpnConnection.TransitGatewayId))
+	assert.Empty(t, aws.ToString(connOut.VpnConnection.VpnGatewayId))
+
+	connID := aws.ToString(connOut.VpnConnection.VpnConnectionId)
+
+	filtered, err := client.DescribeVpnConnections(t.Context(), &ec2sdk.DescribeVpnConnectionsInput{
+		Filters: []types.Filter{{Name: aws.String("transit-gateway-id"), Values: []string{tgw.ID}}},
+	})
+	require.NoError(t, err)
+	require.Len(t, filtered.VpnConnections, 1)
+	assert.Equal(t, connID, aws.ToString(filtered.VpnConnections[0].VpnConnectionId))
+
+	_, err = client.CreateVpnConnection(t.Context(), &ec2sdk.CreateVpnConnectionInput{
+		Type:              aws.String("ipsec.1"),
+		CustomerGatewayId: cgwOut.CustomerGateway.CustomerGatewayId,
+	})
+	require.Error(t, err, "one of VpnGatewayId/TransitGatewayId must be required")
+}
