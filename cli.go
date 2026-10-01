@@ -431,6 +431,7 @@ type CLI struct {
 	portAlloc                     *portalloc.Allocator
 	shutdownDeadline              time.Time
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
+	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"            default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                     //nolint:lll // config struct tags are intentionally verbose
 	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`             //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                               //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`             //nolint:lll // config struct tags are intentionally verbose
@@ -1186,6 +1187,9 @@ func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticach
 
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
+
+// GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
+func (c *CLI) GetKafkaEngine() string { return c.KafkaEngine }
 
 // GetRoute53Handler returns the Route 53 handler (dashboard.AWSSDKProvider).
 //
@@ -3095,6 +3099,7 @@ func wireEventSourcePollers(byName map[string]service.Registerable) {
 
 	// Wire SQS → Lambda event source mapping poller.
 	wireSQSLambda(byName["SQS"], byName["Lambda"])
+	wireMSKLambda(byName["Kafka"], byName["Lambda"])
 
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
@@ -5533,6 +5538,25 @@ func wireSQSLambda(sqsReg, lambdaReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			lambdaBk.SetSQSReader(&sqsReaderAdapter{backend: sqsBk})
+		}
+	}
+}
+
+// wireMSKLambda lets Lambda MSK event source mappings resolve the real brokers of docker-backed MSK clusters.
+func wireMSKLambda(kafkaReg, lambdaReg service.Registerable) {
+	kafkaH, ok := kafkaReg.(*kafkabackend.Handler)
+	if !ok {
+		return
+	}
+
+	kafkaBk, bkOk := kafkaH.Backend.(*kafkabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			lambdaBk.SetMSKBrokerResolver(kafkaBk)
 		}
 	}
 }

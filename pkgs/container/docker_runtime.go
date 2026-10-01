@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
+	"strings"
 	"time"
 
 	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -208,6 +211,10 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		Binds: spec.Mounts,
 	}
 
+	if err := applyPorts(cfg, hostCfg, spec.Ports); err != nil {
+		return "", err
+	}
+
 	// Ensure the image is present before creating the container. Real AWS (and
 	// LocalStack) pull the runtime/base image on demand; without this a clean
 	// host fails container creation with "No such image".
@@ -227,6 +234,33 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 
 	return resp.ID, nil
+}
+
+// applyPorts publishes each HOST:CONTAINER TCP pair on all host interfaces.
+func applyPorts(cfg *dockercontainer.Config, hostCfg *dockercontainer.HostConfig, ports []string) error {
+	if len(ports) == 0 {
+		return nil
+	}
+
+	cfg.ExposedPorts = network.PortSet{}
+	hostCfg.PortBindings = network.PortMap{}
+
+	for _, spec := range ports {
+		host, ctr, ok := strings.Cut(spec, ":")
+		if !ok {
+			return fmt.Errorf("%w %q: want HOST:CONTAINER", ErrInvalidPort, spec)
+		}
+
+		port, err := network.ParsePort(ctr + "/tcp")
+		if err != nil {
+			return fmt.Errorf("%w %q: %w", ErrInvalidPort, spec, err)
+		}
+
+		cfg.ExposedPorts[port] = struct{}{}
+		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: netip.IPv4Unspecified(), HostPort: host}}
+	}
+
+	return nil
 }
 
 // StopAndRemove stops and removes a container.

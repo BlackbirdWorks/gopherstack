@@ -107,6 +107,7 @@ type EventSourcePoller struct {
 	kinesisReader    KinesisReader
 	sqsReader        SQSReader
 	ddbStreamsReader DynamoDBStreamsReader
+	mskResolver      MSKBrokerResolver
 	lambdaBackend    *InMemoryBackend
 	shardIterators   map[string]string
 	// sqsBatchBuffers holds partial SQS batches per mapping UUID while the
@@ -170,6 +171,32 @@ func (p *EventSourcePoller) SetSQSReader(r SQSReader) {
 	defer p.mu.Unlock()
 
 	p.sqsReader = r
+}
+
+// MSKBrokerResolver resolves an MSK cluster ARN to its reachable bootstrap brokers.
+// It returns nothing for metadata-only clusters and for brokers that are not up yet.
+type MSKBrokerResolver interface {
+	BootstrapServers(clusterARN string) []string
+}
+
+// SetMSKBrokerResolver sets the resolver used to poll MSK event sources.
+func (p *EventSourcePoller) SetMSKBrokerResolver(r MSKBrokerResolver) {
+	p.mu.Lock("SetMSKBrokerResolver")
+	defer p.mu.Unlock()
+
+	p.mskResolver = r
+}
+
+func (p *EventSourcePoller) mskBrokers(clusterARN string) []string {
+	p.mu.RLock("mskBrokers")
+	r := p.mskResolver
+	p.mu.RUnlock()
+
+	if r == nil {
+		return nil
+	}
+
+	return r.BootstrapServers(clusterARN)
 }
 
 // SetDynamoDBStreamsReader sets the DynamoDB Streams reader used to poll DynamoDB

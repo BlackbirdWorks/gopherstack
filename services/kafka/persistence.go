@@ -78,12 +78,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
+	var stale []*liveBroker
+
+	defer func() { b.reapDetached(stale...) }()
+
 	if err := persistence.UnmarshalSnapshot(ctx, "kafka", data, &snap); err != nil {
 		return err
 	}
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
+
+	stale = b.detachAllBrokersLocked()
 
 	if snap.Version != kafkaSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
@@ -112,6 +118,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	fixNilTags(b)
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.relaunchBrokersLocked()
 
 	return nil
 }

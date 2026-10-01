@@ -73,6 +73,7 @@ type InMemoryBackend struct {
 	channelsByCluster          *store.Index[Channel]
 	scramSecrets               map[string][]string // clusterArn → []secretArn (raw: slice-valued, not *T)
 	clusterPolicies            map[string]string   // clusterArn → policy document (raw: string-valued, not *T)
+	engine                     *brokerEngine
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -101,9 +102,14 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // Reset clears all state, returning the backend to a clean empty state.
 func (b *InMemoryBackend) Reset() {
+	var lbs []*liveBroker
+
+	defer func() { b.reapDetached(lbs...) }()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	lbs = b.detachAllBrokersLocked()
 	b.registry.ResetAll()
 	b.scramSecrets = make(map[string][]string)
 	b.clusterPolicies = make(map[string]string)

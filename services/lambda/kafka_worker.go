@@ -56,7 +56,19 @@ func kafkaConsumerGroup(m *EventSourceMapping) string {
 
 // kafkaSpecFor returns the worker spec for a self-managed Kafka mapping.
 func kafkaSpecFor(m *EventSourceMapping) (kafkaWorkerSpec, bool) {
-	brokers := kafkaSourceBootstrap(m.SelfManagedEventSource)
+	return buildKafkaSpec(m, kafkaEventSourceSelfManaged, "", kafkaSourceBootstrap(m.SelfManagedEventSource))
+}
+
+// mskSpecFor returns the worker spec for an MSK mapping whose cluster has a reachable real broker.
+func (p *EventSourcePoller) mskSpecFor(m *EventSourceMapping) (kafkaWorkerSpec, bool) {
+	if !strings.HasPrefix(m.EventSourceARN, kafkaMSKARNPrefix) {
+		return kafkaWorkerSpec{}, false
+	}
+
+	return buildKafkaSpec(m, kafkaEventSourceMSK, m.EventSourceARN, p.mskBrokers(m.EventSourceARN))
+}
+
+func buildKafkaSpec(m *EventSourceMapping, source, sourceARN string, brokers []string) (kafkaWorkerSpec, bool) {
 	if len(brokers) == 0 || len(m.Topics) == 0 {
 		return kafkaWorkerSpec{}, false
 	}
@@ -77,7 +89,8 @@ func kafkaSpecFor(m *EventSourceMapping) (kafkaWorkerSpec, bool) {
 	return kafkaWorkerSpec{
 		UUID:             m.UUID,
 		FunctionARN:      m.FunctionARN,
-		EventSource:      kafkaEventSourceSelfManaged,
+		EventSource:      source,
+		EventSourceARN:   sourceARN,
 		BootstrapServers: strings.Join(brokers, ","),
 		Filter:           m.FilterCriteria,
 		BatchSize:        batch,
@@ -106,7 +119,7 @@ func (p *EventSourcePoller) reconcileKafka(ctx context.Context, mappings []*Even
 			continue
 		}
 
-		if spec, ok := kafkaSpecFor(m); ok {
+		if spec, ok := p.kafkaSpecForMapping(m); ok {
 			wanted[m.UUID] = spec
 		} else if isUnsupportedBrokerARN(m.EventSourceARN) {
 			p.noteUnsupportedBroker(ctx, m)
@@ -134,6 +147,14 @@ func (p *EventSourcePoller) reconcileKafka(ctx context.Context, mappings []*Even
 	for id, spec := range wanted {
 		p.startKafkaWorker(ctx, id, spec)
 	}
+}
+
+func (p *EventSourcePoller) kafkaSpecForMapping(m *EventSourceMapping) (kafkaWorkerSpec, bool) {
+	if spec, ok := p.mskSpecFor(m); ok {
+		return spec, true
+	}
+
+	return kafkaSpecFor(m)
 }
 
 func (p *EventSourcePoller) noteUnsupportedBroker(ctx context.Context, m *EventSourceMapping) {

@@ -465,7 +465,23 @@ func (h *Handler) handleGetBootstrapBrokers(
 		return h.writeBackendError(c, err)
 	}
 
+	if mb, ok := h.Backend.(managedBootstrapper); ok {
+		if servers, managed := mb.ManagedBootstrap(clusterArn); managed {
+			return c.JSON(http.StatusOK, managedBrokersFor(servers))
+		}
+	}
+
 	return c.JSON(http.StatusOK, bootstrapBrokersFor(cluster))
+}
+
+// managedBootstrapper is implemented by backends that run real brokers.
+type managedBootstrapper interface {
+	ManagedBootstrap(clusterArn string) ([]string, bool)
+}
+
+// managedBrokersFor reports a real broker's plaintext listener; empty until it is reachable.
+func managedBrokersFor(servers []string) getBootstrapBrokersOutput {
+	return getBootstrapBrokersOutput{BootstrapBrokerString: strings.Join(servers, ",")}
 }
 
 // bootstrapBrokersFor builds the bootstrap broker response based on cluster auth settings.

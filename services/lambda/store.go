@@ -432,6 +432,22 @@ func (b *InMemoryBackend) SetSQSReader(r SQSReader) {
 	}
 }
 
+// SetMSKBrokerResolver sets the resolver that maps MSK cluster ARNs to real broker addresses.
+func (b *InMemoryBackend) SetMSKBrokerResolver(r MSKBrokerResolver) {
+	var p *EventSourcePoller
+
+	func() {
+		b.mu.RLock("SetMSKBrokerResolver")
+		defer b.mu.RUnlock()
+
+		p = b.kinesisPoller
+	}()
+
+	if p != nil {
+		p.SetMSKBrokerResolver(r)
+	}
+}
+
 // SetDynamoDBStreamsReader sets the DynamoDB Streams reader on the event source poller so
 // that DynamoDB stream records can trigger Lambda functions via event source mappings.
 func (b *InMemoryBackend) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
