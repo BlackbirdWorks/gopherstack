@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -22,8 +21,14 @@ var (
 	errNoJWKSProvider          = errors.New("no JWKS provider configured")
 )
 
-// defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
-const defaultAuthorizerTTL = 300 * time.Second
+// defaultAuthorizerTTLSeconds is the AWS default authorizer result cache TTL.
+const defaultAuthorizerTTLSeconds = 300
+
+const (
+	msgUnauthorized  = "Unauthorized"
+	msgNotAuthorized = "User is not authorized to access this resource"
+	msgExplicitDeny  = "User is not authorized to access this resource with an explicit deny"
+)
 
 const defaultAuthorizerCacheMaxEntries = 1024
 

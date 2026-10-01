@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -141,4 +144,105 @@ func TestHandler_DeleteAPI_PurgesAuthorizerCache(t *testing.T) {
 
 	_, ok := h.authCache.get(cacheKey)
 	assert.False(t, ok, "cached decision must be purged when the owning API is deleted")
+}
+
+type arnPolicyInvoker struct {
+	allowARN string
+	calls    atomic.Int32
+}
+
+func (p *arnPolicyInvoker) InvokeFunction(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
+	p.calls.Add(1)
+
+	body := `{"principalId":"u","policyDocument":{"Statement":[` +
+		`{"Effect":"Allow","Action":"execute-api:Invoke","Resource":"` + p.allowARN + `"}]}}`
+
+	return []byte(body), 200, nil
+}
+
+func TestEnforceRequestAuthorizer_CacheKeyedByIdentityAndRoute(t *testing.T) {
+	t.Parallel()
+
+	const armA = "arn:aws:execute-api:us-east-1:000000000000:api1/prod/GET/a"
+
+	type call struct {
+		header  string
+		path    string
+		wantErr bool
+	}
+
+	tests := []struct {
+		name       string
+		calls      []call
+		wantInvoke int32
+	}{
+		{
+			name: "cached_allow_for_one_route_does_not_allow_another",
+			calls: []call{
+				{header: "alice", path: "/a"},
+				{header: "alice", path: "/b", wantErr: true},
+				{header: "alice", path: "/a"},
+			},
+			wantInvoke: 2,
+		},
+		{
+			name: "missing_identity_source_401_without_invoke",
+			calls: []call{
+				{header: "", path: "/a", wantErr: true},
+			},
+			wantInvoke: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv := &arnPolicyInvoker{allowARN: armA}
+			h := NewHandler(NewInMemoryBackend())
+			h.lambdaInvoker = inv
+			auth := &Authorizer{
+				AuthorizerID: "a1", AuthorizerType: authorizerTypeRequest,
+				IdentitySource:               []string{"$request.header.Auth"},
+				AuthorizerResultTTLInSeconds: 300,
+			}
+
+			for i, c := range tt.calls {
+				req := httptest.NewRequest(http.MethodGet, c.path, nil)
+				if c.header != "" {
+					req.Header.Set("Auth", c.header)
+				}
+
+				ctx := echo.New().NewContext(req, httptest.NewRecorder())
+				err := h.enforceRequestAuthorizer(ctx, "api1", "prod", &Route{RouteKey: "GET " + c.path}, auth, c.path)
+				assert.Equal(t, c.wantErr, err != nil, "call %d", i)
+			}
+
+			assert.Equal(t, tt.wantInvoke, inv.calls.Load())
+		})
+	}
+}
+
+func TestAuthorizerCache_Bounded(t *testing.T) {
+	t.Parallel()
+
+	c := newAuthorizerCache()
+	for i := range maxAuthorizerCacheEntries + 50 {
+		c.put(strconv.Itoa(i), true, time.Hour)
+	}
+
+	assert.LessOrEqual(t, len(c.m), maxAuthorizerCacheEntries)
+}
+
+func TestAuthorizerCache_TTLExpiry(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		c := newAuthorizerCache()
+		c.put("k", true, time.Minute)
+		time.Sleep(time.Minute + time.Second)
+
+		_, hit := c.get("k")
+		assert.False(t, hit)
+	})
 }

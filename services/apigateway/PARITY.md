@@ -1270,3 +1270,10 @@ Gates: `go build ./...`, `go vet ./services/apigateway/...`, `go test -race
 ./services/apigateway/...` -- all clean. `snapshot_inventory.json` updated
 (`-update`) for the additive `DomainName.DomainNameArnValue` field; no
 version bump.
+
+## 2026-10-01 (gopherstack-m46co, gopherstack-0w33t): Lambda authorizer cache and 401s
+
+- Bug: the REQUEST authorizer cache key was method+path, so a cached Allow for caller A authorized caller B; allow/deny was cached as a bool and ignored the method ARN, and `Resource` was never matched.
+- Fix (proxy_authorizer.go): key is authorizer + stage + identity-source values (`method.request.header.*`, `method.request.querystring.*`, `context.*`, `stageVariables.*`); the cached policy is re-evaluated per method ARN (explicit Deny wins).
+- TTL: `authorizerResultTtlInSeconds` defaults to 300 on create/import when omitted; an explicit 0 disables caching. Snapshots persisted with 0 now mean no caching. Cache is runtime-only, bounded (1024), expired entries evicted first.
+- 401 `{"message":"Unauthorized"}` without invoking: TOKEN with empty token or `identityValidationExpression` mismatch; REQUEST with caching on and a missing identity source (docs: apigateway-use-lambda-authorizer.html, "Choosing a type of Lambda authorizer"). Cognito authorizer results are no longer cached.

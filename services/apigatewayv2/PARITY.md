@@ -1124,3 +1124,8 @@ apigatewayv2_apprunner_and_macie_test.go) for api_mapping, authorizer, deploymen
 integration_response, model, route_response, vpc_link -- all 8 resources
 the census flagged as uncovered. Zero bugs found; confirms the existing
 `ops:` table verdicts.
+
+## 2026-10-01 (gopherstack-m46co): REQUEST authorizer cache
+
+- v2 already keyed on identity-source values; but IAM-policy decisions were cached without the route ARN (a cached Allow for GET /a allowed GET /b). The key now includes the route ARN unless simple responses are used.
+- Authorizers with no identity source are never cached (a shared key would span callers); the decision cache is bounded at 1024 entries with expired-first eviction.

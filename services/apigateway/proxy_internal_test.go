@@ -10,18 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testAllowPolicy() *PolicyDocument {
+	return &PolicyDocument{Statement: []PolicyStatement{{Effect: "Allow", Action: "execute-api:Invoke", Resource: "*"}}}
+}
+
 func TestAuthorizerCacheSet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		setup         func(*authorizerCache)
+		wantVal       *PolicyDocument
 		name          string
 		key           string
 		retainedKey   string
 		evictedKey    string
 		ttl           time.Duration
 		wantHit       bool
-		wantVal       bool
 		checkEviction bool
 	}{
 		{
@@ -29,19 +33,19 @@ func TestAuthorizerCacheSet(t *testing.T) {
 			key:     "k1",
 			ttl:     time.Minute,
 			wantHit: true,
-			wantVal: true,
+			wantVal: testAllowPolicy(),
 		},
 		{
 			name: "evicts_lru_when_max_entries_reached",
 			setup: func(cache *authorizerCache) {
-				cache.set("a", true, time.Minute)
-				cache.set("b", false, time.Minute)
+				cache.set("a", testAllowPolicy(), time.Minute)
+				cache.set("b", nil, time.Minute)
 				_, _ = cache.get("a")
 			},
 			key:           "c",
 			ttl:           time.Minute,
 			wantHit:       true,
-			wantVal:       true,
+			wantVal:       testAllowPolicy(),
 			checkEviction: true,
 			retainedKey:   "a",
 			evictedKey:    "b",
@@ -65,7 +69,7 @@ func TestAuthorizerCacheSet(t *testing.T) {
 			cache.set(tt.key, tt.wantVal, tt.ttl)
 			gotVal, gotHit := cache.get(tt.key)
 			assert.Equal(t, tt.wantHit, gotHit)
-			assert.Equal(t, tt.wantVal, gotVal)
+			assert.Equal(t, tt.wantVal != nil, gotVal != nil)
 
 			if tt.checkEviction {
 				_, retainedHit := cache.get(tt.retainedKey)

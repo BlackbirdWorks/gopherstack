@@ -433,6 +433,7 @@ type CreateAuthorizerInput struct {
 // supported) can be told apart from the field being absent from the PATCH.
 type UpdateAuthorizerInput struct {
 	IdentitySource               *string  `json:"identitySource,omitempty"`
+	AuthorizerResultTTLInSeconds *int     `json:"authorizerResultTtlInSeconds,omitempty"`
 	Name                         string   `json:"name,omitempty"`
 	Type                         string   `json:"type,omitempty"`
 	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
@@ -440,7 +441,6 @@ type UpdateAuthorizerInput struct {
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
 	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
-	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
 // RequestValidator represents an API Gateway request validator.

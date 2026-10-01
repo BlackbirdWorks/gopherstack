@@ -15,13 +15,13 @@ type openAPISecurityScheme struct {
 }
 
 type openAPIAuthorizer struct {
+	AuthorizerResultTTLInSeconds *int     `json:"authorizerResultTtlInSeconds"`
 	Type                         string   `json:"type"`
 	AuthorizerURI                string   `json:"authorizerUri"`
 	AuthorizerCredentials        string   `json:"authorizerCredentials"`
 	IdentitySource               string   `json:"identitySource"`
 	IdentityValidationExpression string   `json:"identityValidationExpression"`
 	ProviderARNs                 []string `json:"providerARNs"`
-	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds"`
 }
 
 func (d *openAPIDoc) securitySchemes() map[string]openAPISecurityScheme {
@@ -83,6 +83,11 @@ func newImportedAuthorizer(restAPIID, name string, s openAPISecurityScheme) *Aut
 		identity = "method.request.header." + header
 	}
 
+	ttl := defaultAuthorizerTTLSeconds
+	if x.AuthorizerResultTTLInSeconds != nil {
+		ttl = *x.AuthorizerResultTTLInSeconds
+	}
+
 	return &Authorizer{
 		ID:                           randomID(resourceIDLength),
 		RestAPIID:                    restAPIID,
@@ -93,7 +98,7 @@ func newImportedAuthorizer(restAPIID, name string, s openAPISecurityScheme) *Aut
 		IdentitySource:               identity,
 		IdentityValidationExpression: x.IdentityValidationExpression,
 		AuthType:                     s.AuthType,
-		AuthorizerResultTTLInSeconds: x.AuthorizerResultTTLInSeconds,
+		AuthorizerResultTTLInSeconds: ttl,
 		ProviderARNs:                 x.ProviderARNs,
 	}
 }
