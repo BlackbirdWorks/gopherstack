@@ -161,6 +161,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 		defer b.releaseConcurrencySlot(fn.FunctionName)
 	}
 
+	b.recycleStaleHotReloadRuntime(fn)
+
 	srv, srvErr := b.getOrCreateRuntime(ctx, fn)
 	if srvErr != nil {
 		// Release the slot on error regardless of invocation type.

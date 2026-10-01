@@ -1234,3 +1234,23 @@ already in the persistence snapshot -- see gate results below for the
 `services/quicksight` (`GetDashboardEmbedURL` arity mismatch) -- confirmed
 via `git status` as a concurrent sibling agent's uncommitted in-progress
 edit (16 modified quicksight files), not touched by this pass.
+
+## 2026-10-01: hot reloading from a local directory (gopherstack-ncos0)
+
+LocalStack-compatible (docs.localstack.cloud/aws/tooling/lambda-tools/hot-reloading/):
+`Code{S3Bucket: "hot-reload", S3Key: "<absolute dir>"}` on CreateFunction/UpdateFunctionCode
+bind-mounts that directory read-only at `/var/task`; `$VAR`/`${VAR}` placeholders in S3Key are
+expanded and the result must be absolute. Relative paths, `..` segments, missing paths and
+non-directories are rejected with InvalidParameterValueException.
+
+- Change detection: stat-only fingerprint (path/size/mtime/mode) checked on invoke, at most once per
+  `LAMBDA_HOT_RELOAD_INTERVAL_MS` (default 250); a change recycles the warm container (LocalStack
+  documents up to 700ms detection and a runtime restart per change).
+- Settings: `LAMBDA_HOT_RELOAD_BUCKET` (default `hot-reload`), `LAMBDA_DISABLE_HOT_RELOAD`
+  (LocalStack enables it by default, so this does too).
+- GetFunction reports `CodeSha256: "hot-reloading-hash-not-available"`, `CodeSize: 0` (recalled from
+  LocalStack's source, not stated in its docs); `Code.Location` stays `s3://hot-reload/<path>`.
+- Not modelled: the single-layer limit for hot-reloaded layers; tests prove recycling and the
+  read-only mount through a mock Docker API, not a real runtime executing edited code.
+
+Hot-reload hardening (2026-10-01): S3Key is symlink-resolved and rejected under `/`, `/proc`, `/sys`, `/dev`, `/run`, `/var/run`, `/boot`, `/etc`, `/root` and container-engine data dirs; trees containing sockets or device files are refused at create and at every invoke scan.

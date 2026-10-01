@@ -24,9 +24,12 @@ type Settings struct {
 	// When the limit is exceeded, the least-recently-used runtime is stopped and evicted.
 	// Defaults to defaultMaxRuntimes. Set to 0 to use the default.
 	MaxRuntimes int `json:"max_runtimes"      name:"max-runtimes"      env:"LAMBDA_MAX_RUNTIMES"    default:"50"         help:"Maximum number of simultaneous per-function Lambda runtimes."` //nolint:lll,golines // config struct tags are intentionally verbose
-	// KeepContainers determines if Lambda containers should be kept alive after execution.
-	// If true, the containers will not be stopped and removed. Useful for debugging.
+	// DisableHotReload turns the hot-reload magic bucket off (LocalStack enables it by default).
+	DisableHotReload bool `json:"disable_hot_reload" name:"disable-hot-reload" env:"LAMBDA_DISABLE_HOT_RELOAD" default:"false" help:"Disable Lambda hot reloading from local directories."` //nolint:lll // config struct tags are intentionally verbose
+	// KeepContainers keeps Lambda containers alive after execution (debugging).
 	KeepContainers bool `json:"keep_containers"   name:"keep-containers"   env:"LAMBDA_KEEP_CONTAINERS" default:"false"      help:"If true, keep Lambda containers alive for debugging."` //nolint:lll,golines // config struct tags are intentionally verbose
+	// HotReloadIntervalMS bounds how often the hot-reload directory is re-scanned (int32 keeps Settings compact).
+	HotReloadIntervalMS int32 `json:"hot_reload_interval_ms" name:"hot-reload-interval-ms" env:"LAMBDA_HOT_RELOAD_INTERVAL_MS" default:"250" help:"Minimum milliseconds between hot-reload change scans."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 const (
@@ -34,6 +37,8 @@ const (
 	defaultIdleTimeout      = 10 * time.Minute
 	defaultContainerRuntime = "docker"
 	defaultMaxRuntimes      = 50
+	defaultHotReloadBucket  = "hot-reload"
+	defaultHotReloadScanMS  = 250
 )
 
 // DefaultSettings returns Settings with sensible defaults for use without Kong.
@@ -80,7 +85,7 @@ func DefaultSettings() Settings {
 		}
 	}
 
-	return Settings{
+	st := Settings{
 		DockerHost:       dockerHost,
 		ContainerRuntime: containerRuntime,
 		PoolSize:         poolSize,
@@ -88,4 +93,23 @@ func DefaultSettings() Settings {
 		MaxRuntimes:      maxRuntimes,
 		KeepContainers:   keepContainers,
 	}
+
+	return st.withHotReloadEnv()
+}
+
+func (s Settings) withHotReloadEnv() Settings {
+	s.HotReloadIntervalMS = defaultHotReloadScanMS
+	if v := os.Getenv("LAMBDA_HOT_RELOAD_INTERVAL_MS"); v != "" {
+		if val, err := strconv.ParseInt(v, 10, 32); err == nil && val >= 0 {
+			s.HotReloadIntervalMS = int32(val)
+		}
+	}
+
+	if v := os.Getenv("LAMBDA_DISABLE_HOT_RELOAD"); v != "" {
+		if val, err := strconv.ParseBool(v); err == nil {
+			s.DisableHotReload = val
+		}
+	}
+
+	return s
 }

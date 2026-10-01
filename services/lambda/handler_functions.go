@@ -301,6 +301,19 @@ func applyZipDigest(fn *FunctionConfiguration) {
 	}
 }
 
+// validateCreateFunction runs the generic input checks, then the hot-reload code-path check.
+func (h *Handler) validateCreateFunction(c *echo.Context, input *CreateFunctionInput) bool {
+	if !h.validateCreateFunctionInput(c, input) {
+		return false
+	}
+
+	if input.PackageType != PackageTypeZip || input.Code.ZipFile != nil {
+		return true
+	}
+
+	return h.validateHotReloadCode(c, input.Code.S3Bucket, input.Code.S3Key)
+}
+
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -312,7 +325,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if !h.validateCreateFunctionInput(c, &input) {
+	if !h.validateCreateFunction(c, &input) {
 		return nil
 	}
 
@@ -359,6 +372,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	applyImageConfig(fn, &input)
 	applyZipDigest(fn)
+	h.applyHotReloadDigest(fn)
 	applySnapStart(fn, input.SnapStart)
 
 	if len(input.Architectures) > 0 {
@@ -662,6 +676,10 @@ func (h *Handler) applyZipCodeUpdate(c *echo.Context, fn *FunctionConfiguration,
 		return false
 	}
 
+	if input.ZipFile == nil && !h.validateHotReloadCode(c, input.S3Bucket, input.S3Key) {
+		return false
+	}
+
 	fn.ZipData = input.ZipFile
 	fn.S3BucketCode = input.S3Bucket
 	fn.S3KeyCode = input.S3Key
@@ -678,6 +696,8 @@ func (h *Handler) applyZipCodeUpdate(c *echo.Context, fn *FunctionConfiguration,
 		sum := sha256.Sum256(fn.ZipData)
 		fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
 	}
+
+	h.applyHotReloadDigest(fn)
 
 	return true
 }

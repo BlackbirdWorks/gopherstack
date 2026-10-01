@@ -255,6 +255,9 @@ configuration](#lambda-configuration) below. A few more exist:
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
 | `--lambda-max-runtimes` | `LAMBDA_MAX_RUNTIMES` | `50` | Maximum number of simultaneous per-function Lambda runtimes. |
+| *(none)* | `LAMBDA_HOT_RELOAD_BUCKET` | `hot-reload` | Magic S3 bucket name whose S3Key is a local directory mounted live (Lambda hot reloading). |
+| `--lambda-hot-reload-interval-ms` | `LAMBDA_HOT_RELOAD_INTERVAL_MS` | `250` | Minimum milliseconds between hot-reload change scans. |
+| `--lambda-disable-hot-reload` | `LAMBDA_DISABLE_HOT_RELOAD` | `false` | Disable Lambda hot reloading from local directories. |
 | `--lambda-keep-containers` | `LAMBDA_KEEP_CONTAINERS` | `false` | If true, keep Lambda containers alive for debugging. |
 | *(none)* | `CONTAINER_HOST` | *(empty)* | Generic container endpoint override (e.g. a Podman socket URL). Takes precedence over runtime auto-detection. |
 | *(none)* | `GOPHERSTACK_ECS_RUNTIME` | *(unset = no-op)* | Set to `docker` to run ECS tasks as real containers. Unset or any other value is a no-op runner. |
