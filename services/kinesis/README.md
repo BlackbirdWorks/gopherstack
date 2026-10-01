@@ -9,18 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 39 (39 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Channel S3Tables (Iceberg) delivery is unmodeled: gopherstack has no services/s3tables data-file/manifest write path, so a channel with only S3TablesDestinationConfiguration accepts records at PutRecord but deliverPutToChannels filters it out before buffering (never flushed, never written) -- correctly scoped (buffering with no delivery path would be worse than not buffering) but still an open gap for that destination type. Plain S3DestinationConfiguration delivery is real and tested. (gopherstack-s781r)
-- Several channel S3-delivery details are disclosed inferences, not verified against a real AWS object/response: the unique suffix's insertion point/format (buildChannelObjectKey mirrors Firehose's buildS3Key convention), the delivered object's byte layout (no delimiter between concatenated records, the literal reading of 'no transformation applied'), the dead-letter object's JSON schema and default prefix, and the channel ARN format (arn:.../channel/{name}, inferred from this service's existing stream/consumer ARN convention). OutputKeyTemplate's documented validation rules (length cap, no traversal, single extension placeholder) are also not enforced at Create/UpdateChannel time -- expansion is real, upfront rejection is not. (gopherstack-s781r)
-- Buffered-but-unflushed channel records are not persisted across Snapshot/Restore (channelBuffers is in-memory-only). Handler.Shutdown/DeleteChannel/DeleteStream best-effort flush first, covering graceful shutdown and explicit deletion; only an ungraceful crash between an accepted PutRecord and the next flush loses that channel's currently-buffered records. No snapshot_inventory.json field exists for this by design. (gopherstack-s781r)
-- CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel's documented 5 TPS-per-account throttle (LimitExceededException) is not modeled -- judged disproportionate to wire into this already-large file; not fabricated. ChannelDescription/ChannelSummary's S3TablesConfiguration.PartitionSpec round-trips but this backend performs no actual Iceberg partitioning to verify it against.
-- No IAM policy evaluation engine exists anywhere in gopherstack, so three real, modeled error types have no honest trigger path: KMSAccessDeniedException (StartStreamEncryption/StopStreamEncryption) and AccessDeniedException (UpdateMaxRecordSize/UpdateStreamWarmThroughput). All three are wire-mapped for shape completeness but never fabricated with a fake denial rule. (gopherstack-ud2, gopherstack-nbg8)
-- UpdateMaxRecordSize and UpdateStreamWarmThroughput apply synchronously (Current/Target always match on read) where real AWS is asynchronous (sets UPDATING, then ACTIVE) -- unlike CreateStream/UpdateShardCount/MergeShards/SplitShard/StartStreamEncryption/StopStreamEncryption/UpdateStreamMode/DeleteStream, which now model that transient window via a lazy ReadyAt deadline. Both ops do correctly reject a non-ACTIVE stream with ResourceInUseException. (gopherstack-nbg8)
+- Channel S3Tables (Iceberg) delivery is unmodeled (no services/s3tables data-file write path): such a channel accepts PutRecord but never buffers or flushes. Plain S3 delivery is real. (gopherstack-s781r)
+- Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format; OutputKeyTemplate's documented validation rules (length cap, no traversal) are unenforced at Create/UpdateChannel (rules live only in AWS docs, not the SDK). (gopherstack-s781r)
+- Buffered-but-unflushed channel records are not persisted (channelBuffers is in-memory by design); Shutdown/DeleteChannel/DeleteStream flush first, only a crash loses them. (gopherstack-s781r)
+- Channel control-plane 5 TPS throttle (LimitExceededException) and S3Tables PartitionSpec verification are not modeled (no Iceberg partitioning backend).
+- KMSAccessDeniedException (Start/StopStreamEncryption) and AccessDeniedException (UpdateMaxRecordSize/UpdateStreamWarmThroughput) are wire-mapped but have no trigger: no IAM policy engine exists. UpdateMaxRecordSize applies synchronously (SDK docs state no UPDATING transition for it). (gopherstack-ud2, gopherstack-nbg8)
 
 ## More
 
