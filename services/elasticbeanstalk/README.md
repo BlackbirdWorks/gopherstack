@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 47 (46 ok, 1 partial) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 8 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -21,7 +21,6 @@
 - ManagedActionHistoryItem.FailureDescription/FailureType are not modeled: every managed action succeeds synchronously, so no failure state exists.
 - Platform metadata is not modeled: DescribePlatformVersion's Frameworks/Maintainer/OperatingSystem*/ProgrammingLanguages etc., PlatformBranchSummary.BranchOrder/SupportedTierList and SolutionStackDetails.PermittedFileTypes have no verified data source.
 - EventDescription.RequestId is not modeled: no handler generates per-call request IDs (every ResponseMetadata.RequestID is a fixed literal).
-- DescribeEnvironments IncludeDeleted/IncludedDeletedBackTo are not modeled: TerminateEnvironment removes the record, and tombstones would touch environment identity across the service.
 - ComposeEnvironmentsInput.VersionLabels is not read: env.yaml manifest parsing and new-environment creation are unmodeled.
 
 ## More

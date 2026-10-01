@@ -8,20 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 28 (19 ok, 9 partial) |
-| Known gaps | 8 |
+| Known gaps | 4 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- "2026-09-26: lightsail is uniformly single-region by design (gopherstack-7v0p, confirmed again by the 2026-08-30 region-isolation sweep) -- no request anywhere in this package derives a storage key from region; NewInMemoryBackend fixes account+region once at construction. Not a bug; do not thread regions through it."
-- "2026-09-26: SetupInstanceHttpsInput.EmailAddress is decoded but not stored -- genuinely unobservable, not just undisclosed: EmailAddress appears nowhere in aws-sdk-go-v2/service/lightsail/types/types.go, so no real read API (including GetInstanceSetupHistory) could ever echo it back."
-- "2026-09-26: 5 of 8 wire exception shapes (AccessDenied/AccountSetupInProgress/ OperationFailure/RegionSetupInProgress/Unauthenticated) are declared in classifyLightsailError but never constructed by any call site -- each needs a permission or account/region provisioning-state model this backend has no other trace of (mgn's InitializeService is the closest analogue and lightsail has nothing like it); wiring one purely to exercise the constructor would be fabrication. Disclosed at errors.go. Real observable error surface for every op remains {InvalidInputException, NotFoundException, ServiceException}."
-- "2026-09-26: InstanceState and RelationalDatabaseState both have no typed SDK enum to verify against; this backend's numeric/string constants (consts.go) are EXPLICITLY commented UNCONFIRMED conventions, not presented as SDK-confirmed."
-- "2026-09-26: no AWS::Lightsail::* CloudFormation resource type exists in services/cloudformation/, and no ListTagsForResource op exists in the 161-op surface -- both confirmed unchanged, neither is a gap (TagResource/UntagResource resolve by ResourceName, matching the real wire spec)."
-- "2026-09-26: CreateRelationalDatabaseFromSnapshotInput's RestoreTime/UseLatestRestorableTime/ SourceRelationalDatabaseName (point-in-time restore from a live source database) and UpdateRelationalDatabaseInput.ApplyImmediately / RelationalDatabase's PendingMaintenanceActions/PendingModifiedValues all need an automated-backup-timeline or maintenance-window state machine this backend has never modeled -- restore is snapshot-name-only and every update applies synchronously. Not fabricated; would require a new subsystem, not a field-wiring fix."
-- "2026-09-26: GetBucketsInput.IncludeCors has no backing CORS model (Bucket has no CORS field at all); GetRelationalDatabaseLogEventsInput.StartFromHead is moot since GetRelationalDatabaseLogEvents always returns an empty page (no real MySQL server backs it). Neither is fabricable without inventing state this backend doesn't have."
-- "2026-09-26: Domain's response never carries RegisteredDomainDelegationInfo (no domain-registrar-transfer feature exists) and CertificateDetail is missing the ACM-style DNS-validation/renewal fields (DomainValidationRecords/RenewalSummary/SerialNumber/etc.) -- this backend's Certificate model has no real validation/renewal state machine to source them from."
+- 5 of 8 wire exceptions (AccessDenied/AccountSetupInProgress/OperationFailure/RegionSetupInProgress/Unauthenticated) are classified in errors.go but never raised: each needs a permission or account/region provisioning-state model this backend lacks.
+- InstanceState and RelationalDatabaseState have no typed SDK enum; the constants in consts.go are commented UNCONFIRMED conventions pending external evidence.
+- Point-in-time restore (RestoreTime/UseLatestRestorableTime/SourceRelationalDatabaseName), UpdateRelationalDatabase.ApplyImmediately and PendingMaintenanceActions/PendingModifiedValues need an automated-backup and maintenance-window state machine that is not modeled.
+- GetRelationalDatabaseLogEvents always returns an empty page (no real database engine backs it), so StartFromHead is moot; Domain.RegisteredDomainDelegationInfo and CertificateDetail validation/renewal fields have no registrar or ACM-style state machine to source them.
 
 ### Deferred
 

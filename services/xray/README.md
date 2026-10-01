@@ -9,20 +9,18 @@
 | --- | --- |
 | PARITY entries audited | 38 (34 ok, 2 partial, 2 deferred) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 8 |
+| Known gaps | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- GetInsightSummaries' group filter matches only the implicit "default" group: detectInsights labels every insight "default" and does not evaluate Group FilterExpressions; per-group detection is a detector redesign.
-- Insight RootCauseServiceId/RootCauseServiceRequestImpactStatistics/TopAnomalousServices, GetInsightImpactGraph Services, and TraceSummary Error/Fault/ResponseTimeRootCauses need cross-service causality analysis the per-service detector does not do; MatchedEventTime belongs to the unmodeled defined-events feature.
-- GetTraceSummaries Sampling/SamplingStrategy and GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics are accepted with no effect: AWS documents no semantics for SamplingStrategy Value (API_SamplingStrategy.html) and no selector or forecast engine exists; results are an unsampled superset.
-- SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm, and a fabricated rate is worse than none; boost statistics documents are accepted and unknown rules reported as unprocessed.
-- PutResourcePolicy BypassPolicyLockoutCheck is parsed but LockoutPreventionException is never raised: the check targets the calling principal, which the request pipeline does not carry.
-- ThrottledException is declared per operation but never emitted: no rate limiting is modeled, consistent with the other services.
-- Default trace TTL is 30 minutes (XRAY_TRACE_TTL) while AWS retains traces for 30 days; the short default bounds memory and is configurable.
-- PutTelemetryRecords entries are kept in a 100-entry ring that is neither persisted nor readable; X-Ray has no read-back operation for them.
+- GetInsightSummaries' group filter matches only the implicit "default" group: detectInsights does not evaluate Group FilterExpressions (per-group detection is a detector redesign).
+- Insight root-cause/TopAnomalousServices fields, GetInsightImpactGraph Services and TraceSummary Error/Fault/ResponseTimeRootCauses need cross-service causality analysis; MatchedEventTime belongs to the unmodeled defined-events feature.
+- GetTraceSummaries Sampling/SamplingStrategy and GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics are accepted with no effect: AWS documents no SamplingStrategy semantics (API_SamplingStrategy.html) and no selector or forecast engine exists.
+- SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm; boost statistics are accepted and unknown rules reported as unprocessed.
+- PutResourcePolicy LockoutPreventionException and ThrottledException are never raised: the request pipeline carries no calling principal and no rate limiting is modeled.
+- Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation).
 
 ### Deferred
 

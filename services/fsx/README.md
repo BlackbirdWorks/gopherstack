@@ -8,20 +8,18 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 8 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- DescribeDataRepositoryTasks' data-repository-association-id/file-cache-id filters match everything: CreateDataRepositoryTask tracks only FileSystemId, and retargeting tasks at associations or caches is a larger feature.
+- DescribeDataRepositoryTasks' data-repository-association-id filter is ignored: tasks record no association reference, and CreateDataRepositoryTask accepts none.
 - DescribeSnapshots.IncludeShared is not modeled: this backend is single-account, so no cross-account snapshot exists to differ on.
-- DeleteFileSystem/DeleteVolume outputs omit the finalizer sub-objects (e.g. FinalBackupTags) real AWS returns when a final backup is requested.
 - CreateFileSystem does not require SubnetIds and models no AZ topology (exactly two subnets for MULTI_AZ_1); requiring it would migrate every test fixture.
 - ActiveDirectoryError and AD-join state (CreateFileSystem ActiveDirectoryId, Create/UpdateStorageVirtualMachine ActiveDirectoryConfiguration) are not modeled: they need cross-service Directory Service validation.
-- CreateFileSystem leaves FileSystemTypeVersion empty when omitted; real AWS defaults it by DeploymentType and metadata configuration mode, which this backend does not model.
 - OpenZFSVolumeConfiguration NfsExports, quotas, OriginSnapshot, ParentVolumeId and CopyStrategy/DeleteClonedVolumes remain unmodeled; only unconfigured-volume defaults are emitted.
-- CreateDataRepositoryAssociation.BatchImportMetaDataOnCreate and DeleteDataRepositoryAssociation.DeleteDataInFileSystem are not declared: honouring them needs auto-created tasks and S3 data deletion.
+- CreateDataRepositoryAssociation.BatchImportMetaDataOnCreate and DeleteDataRepositoryAssociation.DeleteDataInFileSystem are not declared: honouring them needs auto-created tasks and S3 data deletion (unmodeled data-repository subsystem).
 
 ## More
 

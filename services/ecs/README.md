@@ -9,18 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 7 |
+| Known gaps | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ServiceRevisionOverrides.RuntimePlatform is output-only (set on Express architecture-mismatch detection) and never populated; optional, no client-visible regression.
-- ContinueServiceDeployment always returns ClientException: blue/green PAUSE-stage lifecycle hooks (hookId, pause state, Lambda hook invocation) are unmodeled.
-- ELBv2 registration is one-directional: ELB health does not feed ECS health, placement never retries another instance on host-port collision, and containerPortRange/hostPortRange are not allocated.
-- ASG capacity providers are config-only: AutoScalingGroupProvider is stored but never validated against or scaled via services/autoscaling (cross-service).
+- Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation): ContinueServiceDeployment always returns ClientException, and ServiceDeployment/ServiceRevisionOverrides lack LifecycleStage, SourceServiceRevisions, Rollback, Alarms, and output-only RuntimePlatform.
+- ELBv2 registration is one-directional (ELB health never feeds ECS health), placement never retries another instance on host-port collision, and containerPortRange/hostPortRange are not allocated.
+- ASG capacity providers are config-only: AutoScalingGroupProvider is never validated against or scaled via services/autoscaling (cross-service).
 - ListTasksInput.daemonName and ListServicesInput.resourceManagementType are not declared: no daemon-launched tasks or ECS-managed (Express) Service rows exist to filter on.
-- ListContainerInstances default INACTIVE exclusion has no effect: DeregisterContainerInstance deletes the row, so no INACTIVE instance can exist.
 - awslogs without awslogs-stream-prefix names the stream after the task ID, not the Docker container ID (unknown before container creation).
 
 ### Deferred
