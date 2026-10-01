@@ -115,6 +115,10 @@ func setHostedConfigurationVersionHeaders(c *echo.Context, v *HostedConfiguratio
 		h.Set("Versionlabel", v.VersionLabel)
 	}
 
+	if v.KmsKeyArn != "" {
+		h.Set("KmsKeyArn", v.KmsKeyArn)
+	}
+
 	h.Set("Version-Number", strconv.Itoa(int(v.VersionNumber)))
 }
 

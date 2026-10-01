@@ -79,6 +79,7 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 		ContentType:            contentType,
 		Description:            description,
 		VersionLabel:           versionLabel,
+		KmsKeyArn:              b.resolveKmsKeyArn(profile.KmsKeyIdentifier),
 		Content:                content,
 		VersionNumber:          versionNumber,
 		CreatedAt:              time.Now(),
@@ -154,6 +155,7 @@ func hostedConfigurationVersionToSummary(v HostedConfigurationVersion) HostedCon
 		ContentType:            v.ContentType,
 		Description:            v.Description,
 		VersionLabel:           v.VersionLabel,
+		KmsKeyArn:              v.KmsKeyArn,
 		VersionNumber:          v.VersionNumber,
 	}
 }
