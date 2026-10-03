@@ -109,6 +109,7 @@ func (b *InMemoryBackend) collectPublishTargets(
 			FilterPolicy:       sub.FilterPolicy,
 			RawMessageDelivery: sub.RawMessageDelivery,
 			RedrivePolicy:      sub.RedrivePolicy,
+			SubscriptionRole:   sub.SubscriptionRoleArn,
 		})
 	}
 

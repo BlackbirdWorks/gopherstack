@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -287,6 +288,15 @@ func (b *InMemoryBackend) SetFirehoseBackend(firehose FirehosePutter) {
 	defer b.mu.Unlock()
 
 	b.firehoseBackend = firehose
+}
+
+// SetRoleAuthorizer runs Firehose subscription delivery under SubscriptionRoleArn's policies
+// and Lambda delivery under the function's resource policy.
+func (b *InMemoryBackend) SetRoleAuthorizer(a roleauth.Authorizer) {
+	b.mu.Lock("SetRoleAuthorizer")
+	defer b.mu.Unlock()
+
+	b.roleAuth = a
 }
 
 // SetSQSSender wires the SQS sender used to deliver failed messages to a subscription DLQ.

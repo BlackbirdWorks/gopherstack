@@ -52,6 +52,7 @@ gaps: []
 items_still_open:
   - "gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): ListPhoneNumbersOptedOut's backend method (InMemoryBackend.ListPhoneNumbersOptedOut) accepts a maxResults int parameter, but the real ListPhoneNumbersOptedOutInput (api_op_ListPhoneNumbersOptedOut.go) has no MaxResults member at all -- only NextToken (itself serialized under the unusual lowercase 'nextToken' key for this one op, confirmed against awsAwsjson1_serializeOpDocumentListPhoneNumbersOptedOutInput -- verified NOT a bug, gopherstack's handler_sms.go already reads the matching lowercase form key). The extra backend parameter is inert (the handler always passes a form value that a real client never sends), not a wire defect -- noted here only because it looked suspicious at first read."
   - "2026-08-14 (gopherstack-3tpf): ConfirmSubscriptionInput.AuthenticateOnUnsubscribe (aws-sdk-go-v2/service/sns@v1.42.4 api_op_ConfirmSubscription.go:14 doc comment: 'This call requires an AWS signature only when the AuthenticateOnUnsubscribe flag is set to \"true\"') is accepted by the real SDK request shape but has no field on gopherstack's ConfirmSubscriptionInput and is silently dropped. Structurally undeliverable without the caller-identity/SigV4-principal infrastructure gopherstack does not have (see gopherstack-cu4g, open): Unsubscribe (subscriptions.go:217) takes no caller identity at all today, so there is nothing to condition an 'unauthenticated unsubscribe' rejection on. Same class as sts's disclosed JWTPayloadSizeExceededException gap and secretsmanager's disclosed PutSecretValueInput.RotationToken gap. DISCLOSED, not fixed."
+  - "SNS to HTTP/HTTPS, Application and SMS deliveries are not policy-checked (2026-10-03)."
 deferred:
   - "PutDataProtectionPolicy: the policy statement grammar (DataIdentifier ARNs, Operation/Audit/De-identify/Deny shapes, Principal formats) is not validated — only the top-level document shape (JSON object, <=30,720 chars, Name/Version/Statement present). Amazon SNS message data protection is also no longer available to new customers as of 2026-04-30 per docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-availability-change.html (existing customers may continue using it); implementing the full grammar is disproportionate feature work for a frozen/legacy feature and was explicitly out of scope this pass (bd gopherstack-4wtz)."
   - "Cross-service integration (test/integration/*_parity_test.go) was not run this pass — see parity-principles.md note that unit tests are not parity proof; recommend running the SDK-driven integration suite in a follow-up"
@@ -59,6 +60,11 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 ---
 
 ## Notes
+
+## 2026-10-03: Delivery authorization under --enforce-iam
+
+- Firehose subscriptions check SubscriptionRoleArn (sns.amazonaws.com, firehose:PutRecordBatch); Lambda subscriptions check the function's resource policy (sns.amazonaws.com, aws:SourceArn = topic ARN). Denial is a delivery FAILURE (delivery-status log and subscription DLQ via RedrivePolicy), without retries.
+- SNS to SQS is checked in the SQS backend against the queue policy (see sqs PARITY).
 
 ## 2026-09-19 PGO perf sweep (pgoload cpu.pprof)
 

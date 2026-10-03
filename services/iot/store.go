@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -25,6 +26,7 @@ type RuleDispatcher interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher                 RuleDispatcher
+	roleAuth                   roleauth.Authorizer
 	resourceTags               map[string]map[string]string
 	certificateTransfers       map[string]string
 	thingBillingGroups         map[string]string

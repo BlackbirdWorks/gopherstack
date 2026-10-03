@@ -70,6 +70,10 @@ func (b *InMemoryBackend) PutSubscriptionFilterWithOptions(
 
 	region := getRegion(ctx, b.region)
 
+	if b.groupExists(region, groupName) && b.authorizeSubscription(region, groupName, roleArn, destinationArn) != nil {
+		return subscriptionDeniedError(destinationArn)
+	}
+
 	b.mu.Lock("PutSubscriptionFilter")
 	defer b.mu.Unlock()
 
@@ -251,6 +255,13 @@ func (b *InMemoryBackend) deliverToFilters(
 	}
 
 	for _, f := range filters {
+		if b.authorizeSubscription(f.region, groupName, f.RoleArn, f.DestinationArn) != nil {
+			logger.Load(ctx).WarnContext(ctx, "cloudwatchlogs: subscription delivery denied",
+				"logGroup", groupName, "filterName", f.FilterName)
+
+			continue
+		}
+
 		deliverCtx := ctx
 		var cancel context.CancelFunc
 		if timeout > 0 {

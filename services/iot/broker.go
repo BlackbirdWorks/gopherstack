@@ -352,7 +352,7 @@ func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet,
 		}
 
 		log.Info("iot rule matched", "rule", rule.RuleName, "topic", pk.TopicName)
-		h.dispatchActions(rule, dispatcher, pk.Payload)
+		h.dispatchActions(rule, dispatcher, pk.TopicName, pk.Payload)
 	}
 
 	return pk, nil
@@ -369,26 +369,4 @@ func (h *ruleHook) allRules() []*TopicRule {
 	}
 
 	return rules
-}
-
-func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, payload []byte) {
-	if dispatcher == nil {
-		return
-	}
-
-	log := logger.Load(h.ctx)
-
-	for _, action := range rule.Actions {
-		if action.SQS != nil {
-			if err := dispatcher.SendToSQS(action.SQS.QueueURL, string(payload)); err != nil {
-				log.Error("iot sqs action failed", "rule", rule.RuleName, "error", err)
-			}
-		}
-
-		if action.Lambda != nil {
-			if err := dispatcher.InvokeLambda(h.ctx, action.Lambda.FunctionARN, payload); err != nil {
-				log.Error("iot lambda action failed", "rule", rule.RuleName, "error", err)
-			}
-		}
-	}
 }

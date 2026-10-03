@@ -75,6 +75,7 @@ items_still_open:
   - "Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to."
   - "Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed."
   - "DeleteDeliveryStream.AllowForceDelete is not read: it only bypasses a KMS-grant-retirement failure, a failure mode this backend does not model."
+  - "Role authorization covers S3 and S3-backup delivery only; Lambda processor and the OpenSearch/Redshift/HTTP/Splunk/Iceberg/Snowflake destination roles are not checked (2026-10-03)."
 deferred: []              # consolidated into items_still_open 2026-09-18: KinesisStreamAsSource
                            # wiring and CloudWatchLoggingOptions delivery were both already fully
                            # fixed (gopherstack-o4ny, gopherstack-pe7x) and are removed rather than
@@ -85,6 +86,11 @@ leaks: {status: "fixed this pass", note: "FIXED 2026-09-04 (gopherstack-rop): Ki
 ---
 
 ## Notes
+
+## 2026-10-03: S3 destination role under --enforce-iam
+
+- With enforcement on, S3 delivery and S3 backup check the destination RoleARN (trust for firehose.amazonaws.com, then s3:PutObject on bucket/*). Denial skips delivery and the error-output write (the same role would be denied), increments FailedRecords, and writes `S3.AccessDenied` (policy) or `S3.AssumeRoleAccessDenied` (trust) to the destination's CloudWatchLoggingOptions log stream. Codes are from the Firehose developer guide "Monitor with CloudWatch Logs" S3 error list; the guide is not SDK-pinned, so the exact text is recorded, not wire-verified. DescribeDeliveryStream.FailureDescription is create-time only and is not used.
+- Not authorized: Lambda processor (lambda:InvokeFunction), OpenSearch/Elasticsearch, Redshift staging, HTTP/Splunk/Iceberg/Snowflake destination calls.
 
 ### 2026-09-30: ledger re-adjudication
 

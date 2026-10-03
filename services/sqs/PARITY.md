@@ -60,6 +60,10 @@ leaks: {status: clean, note: "fixed this pass: restoreQueueFromSnapshot now seed
 
 ## Notes
 
+## 2026-10-03: SNS fan-out authorization under --enforce-iam
+
+- SNS subscription deliveries require the queue policy to allow sns.amazonaws.com with aws:SourceArn = topic ARN; a denied delivery goes to the subscription RedrivePolicy DLQ. The DLQ send itself is not policy-checked.
+
 ### 2026-09-26 FIFO throughput quota matrix
 
 Closed the last items_still_open entry for families.fifo_throughput_limit: the

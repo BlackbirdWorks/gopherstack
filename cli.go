@@ -4625,6 +4625,26 @@ func (a *sqsSenderAdapter) SendMessageToQueue(
 	return err
 }
 
+// SendMessageWithAttributes implements eventbridge.SQSAttributeSender for DLQ error attributes.
+func (a *sqsSenderAdapter) SendMessageWithAttributes(
+	_ context.Context,
+	queueARN, messageBody string,
+	attrs map[string]string,
+) error {
+	msgAttrs := make(map[string]sqsbackend.MessageAttributeValue, len(attrs))
+	for k, v := range attrs {
+		msgAttrs[k] = sqsbackend.MessageAttributeValue{DataType: "String", StringValue: v}
+	}
+
+	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
+		QueueURL:          arnToSQSQueueURL(queueARN),
+		MessageBody:       messageBody,
+		MessageAttributes: msgAttrs,
+	})
+
+	return err
+}
+
 // SendMessageToFIFOQueue adapts the SQS backend to the scheduler.SQSFIFOSender interface.
 func (a *sqsSenderAdapter) SendMessageToFIFOQueue(
 	_ context.Context,
@@ -12799,18 +12819,19 @@ func (a *lambdaPolicyAdapter) GetResourcePolicy(
 		return "", nil
 	}
 
-	parts := strings.Split(resourceARN, ":")
 	const arnMinParts = 6
+
+	parts := strings.SplitN(resourceARN, ":", arnMinParts)
 	if len(parts) < arnMinParts {
 		return "", nil
 	}
 
-	fnName := strings.TrimPrefix(parts[5], "function:")
+	fnName, qualifier, _ := strings.Cut(strings.TrimPrefix(parts[5], "function:"), ":")
 	if fnName == "" {
 		return "", nil
 	}
 
-	out, err := a.backend.GetPolicy(fnName, "")
+	out, err := a.backend.GetPolicy(fnName, qualifier)
 	if err != nil || out == nil || out.Policy == nil {
 		return "", err
 	}

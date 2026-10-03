@@ -20,6 +20,11 @@ func (h *S3Handler) putBucketNotificationConfiguration(
 
 		return
 	}
+	if !h.notificationDestinationsAllowed(bucket, body) {
+		writeUnableToValidate(ctx, w, r)
+
+		return
+	}
 	err = h.Backend.PutBucketNotificationConfiguration(ctx, bucket, string(body))
 	if err != nil {
 		WriteError(ctx, w, r, err)

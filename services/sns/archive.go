@@ -97,6 +97,7 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 			RawMessageDelivery: sub.RawMessageDelivery,
 			RedrivePolicy:      sub.RedrivePolicy,
 			DeliveryPolicy:     sub.DeliveryPolicy,
+			SubscriptionRole:   sub.SubscriptionRoleArn,
 		}
 
 		// Build one shared event for this replayed message and fan it out through

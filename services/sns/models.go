@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -630,6 +631,7 @@ type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
 	lambdaBackend        LambdaInvoker
 	firehoseBackend      FirehosePutter
+	roleAuth             roleauth.Authorizer
 	sqsSender            SQSSender
 	sqsChecker           SQSQueueChecker
 	svcCtx               context.Context

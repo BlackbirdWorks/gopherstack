@@ -290,6 +290,7 @@ func TestServiceRoleAuthzEventBridgeTargets(t *testing.T) {
 			dlqURL, dlqARN := authzQueue(t, fx, "eb-dlq")
 
 			destURL, destARN := authzQueue(t, fx, "eb-dest")
+			authzQueuePolicy(t, fx, destURL, destARN, "events.amazonaws.com", "arn:aws:events:*:*:rule/*")
 
 			ebc := eventbridge.NewFromConfig(fx.cfg)
 			bus, err := ebc.CreateEventBus(t.Context(), &eventbridge.CreateEventBusInput{Name: aws.String("dst")})

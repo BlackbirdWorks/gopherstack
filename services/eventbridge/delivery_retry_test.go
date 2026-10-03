@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,6 +159,7 @@ func TestDelivery_DefaultRetryAttempts(t *testing.T) {
 		b.PutEvents(context.Background(), []eventbridge.EventEntry{
 			{Source: "default-retry", DetailType: "T", Detail: `{}`},
 		})
+		time.Sleep(time.Second)
 		synctest.Wait()
 
 		// Default 2 retries = 1 initial + 2 retries = 3 total attempts.

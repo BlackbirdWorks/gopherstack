@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -113,6 +114,7 @@ const (
 // the hand-rolled maps this backend used before Phase 3.3 (see store_setup.go).
 type InMemoryBackend struct {
 	deliverer     SubscriptionDeliverer
+	roleAuth      roleauth.Authorizer
 	metricEmitter MetricEmitter
 	ctx           context.Context
 	workerSem     chan struct{}

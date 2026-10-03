@@ -48,11 +48,17 @@ items_still_open:
   - "Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS."
   - "ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size)."
   - "object_lambda: GetObject only resolves a Lambda wired by bucket name, not access-point-ARN routing; needs ARN-as-bucket routing on every route plus an s3control lookup."
+  - "Notification destinations are validated only at PutBucketNotificationConfiguration; per-configuration error details are not emitted (2026-10-03)."
 deferred: []
 leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replication goroutines WaitGroup-drained; Shutdown() cancels; object_lambda config now cleared on DeleteBucket (was previously leaking across bucket-name reuse — see 2026-07-24 section)}
 ---
 
 ## Notes
+
+## 2026-10-03: PutBucketNotificationConfiguration destination validation under --enforce-iam
+
+- Queue, topic and Lambda destinations are validated at PUT against the destination's resource policy (s3.amazonaws.com, aws:SourceArn = bucket ARN, SourceAccount = destination account); denial is 400 InvalidArgument "Unable to validate the following destination configurations" (message from AWS docs/CLI reports; AWS also lists each failing configuration in the error details, which is not emitted).
+- Event delivery is not re-authorized after PUT, and a nonexistent destination is not rejected.
 
 ### 2026-10-01 items_still_open burn-down
 

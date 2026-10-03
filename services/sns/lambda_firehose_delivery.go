@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // snsLambdaEnvelope is the JSON payload delivered to a Lambda function from SNS.
@@ -128,6 +129,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 	var (
 		lambda               LambdaInvoker
 		sqsSender            SQSSender
+		auth                 roleauth.Authorizer
 		topicEffectivePolicy string
 	)
 
@@ -135,6 +137,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 		b.mu.RLock("lambda-topic-policy")
 		defer b.mu.RUnlock()
 
+		auth = b.roleAuth
 		lambda = b.lambdaBackend
 		sqsSender = b.sqsSender
 
@@ -154,7 +157,11 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 
 		numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolLambda)
 		payload := buildLambdaPayload(ev, sub)
-		var err error
+		err := roleauth.AuthorizeResource(
+			auth, roleauth.PrincipalSNS, "lambda:InvokeFunction", sub.Endpoint, ev.TopicARN)
+		if err != nil {
+			numRetries = -1
+		}
 
 		for i := 0; i <= numRetries; i++ {
 			_, _, err = lambda.InvokeFunction(b.svcCtx, sub.Endpoint, snsLambdaInvocationType, payload)
@@ -183,6 +190,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 	var (
 		firehose             FirehosePutter
 		sqsSender            SQSSender
+		auth                 roleauth.Authorizer
 		topicEffectivePolicy string
 	)
 
@@ -190,6 +198,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 		b.mu.RLock("firehose-topic-policy")
 		defer b.mu.RUnlock()
 
+		auth = b.roleAuth
 		firehose = b.firehoseBackend
 		sqsSender = b.sqsSender
 
@@ -207,7 +216,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 			continue
 		}
 
-		b.deliverFirehoseSubscription(ev, sub, firehose, sqsSender, topicEffectivePolicy)
+		b.deliverFirehoseSubscription(ev, sub, firehose, sqsSender, auth, topicEffectivePolicy)
 	}
 }
 
@@ -220,6 +229,7 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 	sub events.SNSSubscriptionSnapshot,
 	firehose FirehosePutter,
 	sqsSender SQSSender,
+	auth roleauth.Authorizer,
 	topicEffectivePolicy string,
 ) {
 	streamName := firehoseStreamNameFromARN(sub.Endpoint)
@@ -234,7 +244,11 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 
 	numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolFirehose)
 
-	var err error
+	err := roleauth.Authorize(
+		auth, roleauth.PrincipalSNS, sub.SubscriptionRole, "firehose:PutRecordBatch", sub.Endpoint)
+	if err != nil {
+		numRetries = -1
+	}
 
 	for i := 0; i <= numRetries; i++ {
 		_, err = firehose.PutRecordBatch(streamName, [][]byte{record})

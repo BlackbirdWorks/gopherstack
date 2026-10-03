@@ -438,6 +438,12 @@ func (b *InMemoryBackend) deliverS3Backup(
 		return
 	}
 
+	if code := b.authorizeS3Write(backup.RoleARN, backup.BucketARN); code != "" {
+		b.failDenied(ctx, snap, backup.CloudWatchLoggingOptions, code, len(snap.backupRecords))
+
+		return
+	}
+
 	_, _ = b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
 		backup.Prefix, "", backup.CompressionFormat, streamName)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // snsMessageAttribute is a single message attribute in the SNS notification envelope.
@@ -76,6 +77,14 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 	}
 
 	body, msgAttrs := buildDeliveryBody(ev, sub, queueName)
+
+	if b.snsDeliveryDenied(ev.TopicARN, sub.Endpoint) {
+		if sub.RedrivePolicy != "" {
+			b.deliverToDLQ(sub.RedrivePolicy, body, msgAttrs)
+		}
+
+		return
+	}
 
 	input := &SendMessageInput{
 		QueueURL:    "internal/" + queueName,
@@ -241,4 +250,20 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 	}
 
 	return string(b)
+}
+
+// SetRoleAuthorizer makes SNS fan-out require the queue's policy to allow sns.amazonaws.com.
+func (b *InMemoryBackend) SetRoleAuthorizer(a roleauth.Authorizer) {
+	b.mu.Lock("SetRoleAuthorizer")
+	defer b.mu.Unlock()
+
+	b.roleAuth = a
+}
+
+func (b *InMemoryBackend) snsDeliveryDenied(topicARN, queueARN string) bool {
+	b.mu.RLock("snsDeliveryDenied")
+	auth := b.roleAuth
+	b.mu.RUnlock()
+
+	return roleauth.AuthorizeResource(auth, roleauth.PrincipalSNS, "sqs:SendMessage", queueARN, topicARN) != nil
 }

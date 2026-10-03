@@ -198,7 +198,7 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 	}
 
 	rule := map[string]any{
-		"ruleName":         r.RuleName,
+		keyRuleName:        r.RuleName,
 		"sql":              r.SQL,
 		"awsIotSqlVersion": r.AWSIoTSQLVersion,
 		keyDescription:     r.Description,
@@ -236,7 +236,7 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 		parsed, _ := ParseRuleSQL(r.SQL)
 
 		out = append(out, map[string]any{
-			"ruleName":     r.RuleName,
+			keyRuleName:    r.RuleName,
 			"ruleArn":      r.ARN,
 			"topicPattern": parsed.TopicPattern,
 			"ruleDisabled": !r.Enabled,

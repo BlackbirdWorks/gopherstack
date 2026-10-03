@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -55,6 +56,7 @@ const (
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
 	notifier        NotificationDispatcher
+	notifyAuth      roleauth.Authorizer
 	notificationCtx context.Context
 	Backend         StorageBackend
 	janitor         *Janitor

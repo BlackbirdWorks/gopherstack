@@ -137,10 +137,16 @@ items_still_open:
   - Transformers, Integrations (GetIntegration/PutIntegration field-diffed; ListIntegrations filters now real), and AccountPolicy top-level shapes remain spot-checked flat, not exhaustively re-audited field-by-field op-by-op. Resource Policies and Index Policies were field-diffed for real in a prior pass and are no longer deferred.
   - StartLiveTail streaming transport (intentionally out of scope; validation-only by design -- the real op is a Smithy event stream this unary-JSON-response handler cannot emulate).
   - Import tasks: ImportStatistics/ErrorMessage and DescribeImportTaskBatches execution state need a real external-source import engine (ImportFilter itself is now stored and echoed).
+  - "Subscription-filter denial messages are documented text, not SDK-verified; a delivery denied after PutSubscriptionFilter is dropped silently (2026-10-03)."
 leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDelivery for subscription filter delivery), bounded by a semaphore + backend WaitGroup + ctx cancellation; Close()/Drain() join in-flight work. Janitor ticker is ctx-cancel safe via pkgs/worker. No unbounded per-request goroutines found in the areas audited this pass."}
 ---
 
 ## Notes
+
+## 2026-10-03: Subscription filter role under --enforce-iam
+
+- PutSubscriptionFilter to Kinesis/Firehose checks RoleArn (trust for logs.amazonaws.com, kinesis:PutRecord / firehose:PutRecord on the destination); Lambda destinations check the function's resource policy (logs.amazonaws.com, aws:SourceArn = log-group ARN). Denial returns InvalidParameterException "Could not deliver test message to specified Kinesis stream. Check if the given kinesis stream is in ACTIVE state." (Firehose: "...Firehose stream...", Lambda: "Could not execute the lambda function. Make sure you have given CloudWatch Logs permission to execute your function."). Messages are from AWS documentation/CLI reports, not SDK-pinned.
+- Delivery re-checks per filter; a denied delivery is logged and dropped.
 
 **2026-10-01 (items_still_open burn-down):** fixed 3: Put{Metric,Subscription}Filter
 ApplyOnTransformedLogs/EmitSystemField(Dimension)s/FieldSelectionCriteria (validated per SDK docs,

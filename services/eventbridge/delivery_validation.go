@@ -1,10 +1,15 @@
 package eventbridge
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	// defaultMaxRetryAttempts matches AWS EventBridge default retry attempts.
 	defaultMaxRetryAttempts = 2
+	retryBackoffBase        = 200 * time.Millisecond
+	retryBackoffMaxShift    = 6
 	// defaultMaxEventAgeSeconds matches AWS EventBridge default maximum event age (3600s = 1h).
 	defaultMaxEventAgeSeconds = 3600
 )

@@ -36,8 +36,12 @@ func usesTargetRole(arn string) bool {
 
 // authorizeTarget returns the DLQ error code when the target's role may not be used, or "".
 func authorizeTarget(target *Target, dt DeliveryTargets) string {
-	if dt.RoleAuth == nil || !usesTargetRole(target.Arn) {
+	if dt.RoleAuth == nil {
 		return ""
+	}
+
+	if !usesTargetRole(target.Arn) {
+		return authorizeResourcePolicyTarget(target, dt)
 	}
 
 	action, ok := roleauth.TargetAction(target.Arn)
@@ -60,4 +64,19 @@ func authorizeTarget(target *Target, dt DeliveryTargets) string {
 	default:
 		return dlqReasonNoPermissions
 	}
+}
+
+// authorizeResourcePolicyTarget checks the destination's resource policy allows events.amazonaws.com
+// from the delivering rule.
+func authorizeResourcePolicyTarget(target *Target, dt DeliveryTargets) string {
+	action, ok := roleauth.ResourcePolicyAction(target.Arn)
+	if !ok {
+		return ""
+	}
+
+	if roleauth.AuthorizeResource(dt.RoleAuth, roleauth.PrincipalEvents, action, target.Arn, dt.ruleARN) != nil {
+		return dlqReasonNoPermissions
+	}
+
+	return ""
 }

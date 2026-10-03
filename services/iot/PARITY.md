@@ -293,6 +293,7 @@ items_still_open:
   - "DeleteOTAUpdate's ForceDeleteAWSJob/DeleteStream are not honored: CreateOTAUpdate fabricates the AWS job id and never creates a Job or an OTA-owned stream (needs a real OTA job/stream pipeline), and the SDK names no exception for the non-terminal-job case."
   - "Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path)."
   - "Rule actions other than sqs/lambda/sns (s3, dynamoDB, kinesis, ...) and errorAction are stored and returned verbatim but never executed by the embedded broker; sns is also not dispatched there."
+  - "Only SQS and Lambda rule actions execute; SNS and other action types are not dispatched; errorAction envelope omits cloudwatchTraceId and clientId (2026-10-03)."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -301,6 +302,11 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+## 2026-10-03: Rule action roles under --enforce-iam
+
+- SQS actions check roleArn (iot.amazonaws.com, sqs:SendMessage on the queue ARN derived from queueUrl); Lambda actions check the function's resource policy (iot.amazonaws.com, aws:SourceArn = rule ARN). A failed action (denied or dispatch error) runs the rule's errorAction with `ruleName`, `topic`, `base64OriginalPayload`, `failedAction`, `failedActionReason` (AWS IoT "Error handling (error action)" docs; cloudwatchTraceId and clientId are not populated).
+- Only SQS and Lambda actions are dispatched at all; SNS and the other action types are stored but never executed, so there is nothing to authorize.
 
 ### 2026-10-01 (items_still_open burn-down)
 

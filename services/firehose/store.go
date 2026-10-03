@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -17,6 +18,7 @@ type InMemoryBackend struct {
 	kinesisBackend KinesisReader
 	redshiftData   RedshiftDataExecutor
 	cwLogs         CWLogsBackend
+	roleAuth       roleauth.Authorizer
 	registry       *store.Registry
 	// streams is a single flat table of every delivery stream, composite-keyed by
 	// "region|name" (see regionKey/deliveryStreamKeyFn in store_setup.go) so that

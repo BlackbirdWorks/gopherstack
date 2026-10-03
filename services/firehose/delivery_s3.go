@@ -20,6 +20,12 @@ import (
 func (b *InMemoryBackend) deliverS3Destination(ctx context.Context, snap *flushSnapshot, streamName string) {
 	dest := snap.s3Dest
 
+	if code := b.authorizeS3Write(dest.RoleARN, dest.BucketARN); code != "" {
+		b.failDenied(ctx, snap, dest.CloudWatchLoggingOptions, code, len(snap.records))
+
+		return
+	}
+
 	ok, failed, err := b.applyTransform(ctx, snap.records, dest.ProcessingConfiguration, snap.streamARN, snap.region)
 	if err != nil {
 		b.logDeliveryIssue(ctx, dest.CloudWatchLoggingOptions, streamName,

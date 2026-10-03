@@ -3,6 +3,7 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"strings"
 	"sync"
@@ -29,6 +30,11 @@ type LambdaInvoker interface {
 // SQSSender can send a message to an SQS queue by URL or ARN.
 type SQSSender interface {
 	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error
+}
+
+// SQSAttributeSender is an optional SQSSender extension that sets string message attributes.
+type SQSAttributeSender interface {
+	SendMessageWithAttributes(ctx context.Context, queueARN, messageBody string, attrs map[string]string) error
 }
 
 // SNSPublisher can publish a message to an SNS topic by ARN.
@@ -84,6 +90,7 @@ type DeliveryTargets struct {
 	APIDestinations APIDestinationResolver
 	EventBusRouter  EventBusRouter
 	RoleAuth        roleauth.Authorizer
+	ruleARN         string
 }
 
 // EventBusRouter routes a matched event to another event bus, implementing
@@ -177,6 +184,7 @@ func (b *InMemoryBackend) deliverScheduledRule(
 		snapped = snapshotTargets(storedTargets)
 		accountID = b.accountID
 		dt = *b.deliveryTargets
+		dt.ruleARN = rule.Arn
 		timeout = b.deliveryTimeout
 		if bus, exists := b.busesTable(region).Get(ebBusKey(busName)); exists {
 			busDLQ = bus.DeadLetterConfig
@@ -237,11 +245,13 @@ func (b *InMemoryBackend) deliverEvents(
 	// the goroutine beyond the configured timeout.
 	for _, g := range groups {
 		var wg sync.WaitGroup
+		groupTargets := targets
+		groupTargets.ruleARN = g.ruleARN
 		for _, t := range g.targets {
 			target := t
 			envelope := g.envelope
 			wg.Go(func() {
-				deliverToTargetBounded(ctx, target, envelope, targets, timeout, g.busDLQ)
+				deliverToTargetBounded(ctx, target, envelope, groupTargets, timeout, g.busDLQ)
 			})
 		}
 		wg.Wait()
@@ -254,6 +264,7 @@ func (b *InMemoryBackend) deliverEvents(
 type deliveryGroup struct {
 	envelope map[string]any
 	busDLQ   *DeadLetterConfig
+	ruleARN  string
 	targets  []*Target
 }
 
@@ -341,6 +352,7 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 		groups = append(groups, deliveryGroup{
 			envelope: buildDeliveryEnvelopeWithDetail(entry, accountID, region, detail),
 			busDLQ:   busDLQ,
+			ruleARN:  rule.Arn,
 			targets:  snapshotTargets(storedTargets),
 		})
 	}
@@ -441,6 +453,19 @@ func deliverToTargetBounded(
 
 			return
 		}
+
+		waitRetryBackoff(ctx, attempt)
+	}
+}
+
+// waitRetryBackoff pauses before the next attempt; EventBridge retries with exponential backoff.
+func waitRetryBackoff(ctx context.Context, attempt int) {
+	timer := time.NewTimer(retryBackoffBase << min(attempt, retryBackoffMaxShift))
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
 	}
 }
 
@@ -491,7 +516,16 @@ func sendToDLQ(
 	payload, _ := json.Marshal(envelope)
 	dlqARN := dlq.Arn
 
-	if err := dt.SQS.SendMessageToQueue(ctx, dlqARN, string(payload)); err != nil {
+	var err error
+	if withAttrs, ok := dt.SQS.(SQSAttributeSender); ok {
+		err = withAttrs.SendMessageWithAttributes(ctx, dlqARN, string(payload), map[string]string{
+			"RULE_ARN": dt.ruleARN, "TARGET_ARN": target.Arn, "ERROR_CODE": reason,
+		})
+	} else {
+		err = dt.SQS.SendMessageToQueue(ctx, dlqARN, string(payload))
+	}
+
+	if err != nil {
 		log.WarnContext(ctx, "EventBridge: failed to send event to DLQ",
 			"dlq", dlqARN, "reason", reason, "error", err)
 	}
@@ -590,7 +624,7 @@ func deliverToTarget(
 	case isKinesisFirehoseARN(targetARN):
 		return deliverToKinesisFirehose(ctx, dt.KinesisFirehose, targetARN, payload)
 	case isKinesisStreamARN(targetARN):
-		return deliverToKinesisStream(ctx, dt.KinesisStream, targetARN, payload)
+		return deliverToKinesisStream(ctx, dt.KinesisStream, target, envelope, payload)
 	case isECSARN(targetARN):
 		return deliverToECS(ctx, dt.ECS, targetARN, payload, target.EcsParameters)
 	case isStateMachineARN(targetARN):
@@ -677,20 +711,45 @@ func deliverToKinesisFirehose(
 func deliverToKinesisStream(
 	ctx context.Context,
 	svc KinesisStreamPublisher,
-	arn, payload string,
+	target *Target,
+	envelope map[string]any,
+	payload string,
 ) bool {
 	if svc == nil {
 		return false
 	}
-	partitionKey := uuid.New().String()
-	if err := svc.PutRecord(ctx, arn, partitionKey, payload); err != nil {
+
+	if err := svc.PutRecord(ctx, target.Arn, kinesisPartitionKey(target, envelope), payload); err != nil {
 		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to put record to Kinesis Data Stream",
-			"arn", arn, "error", err)
+			"arn", target.Arn, "error", err)
 
 		return true
 	}
 
 	return false
+}
+
+// kinesisPartitionKey resolves KinesisParameters.PartitionKeyPath against the event, defaulting
+// to the event ID per the Target.KinesisParameters docs.
+func kinesisPartitionKey(target *Target, envelope map[string]any) string {
+	if target.KinesisParameters != nil {
+		switch v := jsonPathExtract(target.KinesisParameters.PartitionKeyPath, envelope).(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		case nil, map[string]any, []any:
+		default:
+			return fmt.Sprint(v)
+		}
+	}
+
+	id, _ := envelope["id"].(string)
+	if id == "" {
+		id = uuid.New().String()
+	}
+
+	return id
 }
 
 // deliverToECS runs the target's ECS task. When svc also implements

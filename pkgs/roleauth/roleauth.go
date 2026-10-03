@@ -12,6 +12,11 @@ const (
 	PrincipalEvents    = "events.amazonaws.com"
 	PrincipalScheduler = "scheduler.amazonaws.com"
 	PrincipalPipes     = "pipes.amazonaws.com"
+	PrincipalFirehose  = "firehose.amazonaws.com"
+	PrincipalLogs      = "logs.amazonaws.com"
+	PrincipalIoT       = "iot.amazonaws.com"
+	PrincipalSNS       = "sns.amazonaws.com"
+	PrincipalS3        = "s3.amazonaws.com"
 )
 
 const arnFields = 6
@@ -35,6 +40,45 @@ func Authorize(a Authorizer, servicePrincipal, roleArn, action, resource string)
 	}
 
 	return a.AuthorizeRole(servicePrincipal, roleArn, action, resource)
+}
+
+// ResourceAuthorizer answers whether a service principal may act on a resource under that
+// resource's own policy (Lambda, SQS, SNS, S3), given the source ARN and account conditions.
+type ResourceAuthorizer interface {
+	AuthorizeServiceResource(servicePrincipal, action, resource, sourceARN string) error
+}
+
+// AuthorizeResource is nil-safe; an Authorizer without resource-policy support allows everything.
+func AuthorizeResource(a Authorizer, servicePrincipal, action, resource, sourceARN string) error {
+	ra, ok := a.(ResourceAuthorizer)
+	if !ok {
+		return nil
+	}
+
+	return ra.AuthorizeServiceResource(servicePrincipal, action, resource, sourceARN)
+}
+
+// ResourcePolicyAction maps a destination ARN to the action a service principal needs on it.
+func ResourcePolicyAction(arn string) (string, bool) {
+	switch serviceOf(arn) {
+	case "lambda":
+		return "lambda:InvokeFunction", true
+	case "sqs":
+		return "sqs:SendMessage", true
+	case "sns":
+		return "sns:Publish", true
+	default:
+		return "", false
+	}
+}
+
+func serviceOf(arn string) string {
+	parts := strings.SplitN(arn, ":", arnFields)
+	if len(parts) < arnFields {
+		return ""
+	}
+
+	return parts[2]
 }
 
 // TargetAction maps a rule/schedule/pipe target ARN to the IAM action its execution role needs.

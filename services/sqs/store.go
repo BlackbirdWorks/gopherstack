@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -41,6 +42,7 @@ type InMemoryBackend struct {
 	queues         *store.Table[Queue]
 	moveTasks      *store.Table[moveTaskState]
 	snsUnsubscribe func()
+	roleAuth       roleauth.Authorizer
 	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
 	// nowFunc is the backend's time source for FIFO throughput rate limiting

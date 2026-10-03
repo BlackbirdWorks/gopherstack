@@ -301,6 +301,10 @@ ParallelizationFactor} — all pointer-ified, proven in
 `update_omitted_members_preserve_state_test.go`.
 
 ## Notes
+
+## 2026-10-03: resource-policy lookup by ARN under --enforce-iam
+
+- The cli.go resource-policy adapter split `arn:aws:lambda:...:function:<name>` on every colon and read `function` as the name, so a function's AddPermission policy was never found for an ARN resource. It now resolves `<name>[:<qualifier>]`; EventBridge, SNS, S3, CloudWatch Logs and IoT deliveries rely on it.
 - InvocationType is a type alias (type InvocationType = string) so lambda backend satisfies sns.LambdaInvoker directly.
 - ARN-parsing anti-pattern "take last colon segment" recurs — watch for it elsewhere.
 - Trap: RemovePermission wire = DELETE /2015-03-31/functions/{name}/policy/{StatementId} (path, not query).
