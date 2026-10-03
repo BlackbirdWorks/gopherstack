@@ -108,60 +108,63 @@ func resolveHotReloadRoots(roots []string) ([]string, []string) {
 
 // withinRoot returns p only when it is root or lies under it, else ("", false).
 func withinRoot(root, p string) (string, bool) {
-	prefix := strings.TrimSuffix(root, string(filepath.Separator)) + string(filepath.Separator)
-	if !strings.HasPrefix(p, prefix) && p != root {
-		return "", false
+	if p == root {
+		return p, true
 	}
 
-	return p, true
-}
-
-// withinHotReloadRoots returns p when it lies under one of roots; only the returned value may be used.
-func withinHotReloadRoots(p string, roots []string) (string, bool) {
-	for _, root := range roots {
-		if inside, ok := withinRoot(root, p); ok {
-			return inside, true
-		}
+	if strings.HasPrefix(p, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator)) {
+		return p, true
 	}
 
 	return "", false
 }
 
+// withinHotReloadRoots returns p and the root containing it, when p lies under one of roots.
+func withinHotReloadRoots(p string, roots []string) (string, string, bool) {
+	for _, root := range roots {
+		if inside, ok := withinRoot(root, p); ok {
+			return inside, root, true
+		}
+	}
+
+	return "", "", false
+}
+
 // sanitizeHotReloadPath returns key's env-expanded, cleaned, symlink-resolved absolute path,
 // rejecting relative, traversing, forbidden-root and out-of-roots paths. Only the returned value may reach file ops.
-func sanitizeHotReloadPath(key string, roots []string) (string, error) {
+func sanitizeHotReloadPath(key string, roots []string) (string, string, error) {
 	expanded := os.ExpandEnv(key)
 
 	if !filepath.IsAbs(expanded) {
-		return "", fmt.Errorf("%w: S3Key must be an absolute path, got %q", ErrInvalidHotReloadPath, key)
+		return "", "", fmt.Errorf("%w: S3Key must be an absolute path, got %q", ErrInvalidHotReloadPath, key)
 	}
 
 	if slices.Contains(strings.Split(filepath.ToSlash(expanded), "/"), "..") {
-		return "", fmt.Errorf("%w: path traversal is not allowed in %q", ErrInvalidHotReloadPath, key)
+		return "", "", fmt.Errorf("%w: path traversal is not allowed in %q", ErrInvalidHotReloadPath, key)
 	}
 
 	clean := filepath.Clean(expanded)
 
 	resolved, err := filepath.EvalSymlinks(clean)
 	if err != nil {
-		return "", fmt.Errorf("%w: %q is not accessible: %w", ErrInvalidHotReloadPath, clean, err)
+		return "", "", fmt.Errorf("%w: %q is not accessible: %w", ErrInvalidHotReloadPath, clean, err)
 	}
 
 	if isForbiddenHotReloadPath(clean) || isForbiddenHotReloadPath(resolved) {
-		return "", fmt.Errorf("%w: mounting %q is not allowed", ErrInvalidHotReloadPath, clean)
+		return "", "", fmt.Errorf("%w: mounting %q is not allowed", ErrInvalidHotReloadPath, clean)
 	}
 
 	candidate := filepath.Clean(resolved)
 
-	safe, ok := withinHotReloadRoots(candidate, roots)
+	safe, root, ok := withinHotReloadRoots(candidate, roots)
 	if !ok {
-		return "", fmt.Errorf(
+		return "", "", fmt.Errorf(
 			"%w: %q is outside the allowed roots; set %s to permit it",
 			ErrInvalidHotReloadPath, candidate, hotReloadRootsEnv,
 		)
 	}
 
-	return safe, nil
+	return safe, root, nil
 }
 
 // ResolveHotReloadPath expands env placeholders in key and validates it as an
@@ -174,9 +177,18 @@ func ResolveHotReloadPath(key string) (string, error) {
 func ResolveHotReloadPathIn(key string, roots []string) (string, error) {
 	allowed, _ := resolveHotReloadRoots(roots)
 
-	safe, err := sanitizeHotReloadPath(key, allowed)
+	cand, root, err := sanitizeHotReloadPath(key, allowed)
 	if err != nil {
 		return "", err
+	}
+
+	safe := root
+	if cand != root {
+		if !strings.HasPrefix(cand, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator)) {
+			return "", fmt.Errorf("%w: %q is outside the allowed roots", ErrInvalidHotReloadPath, cand)
+		}
+
+		safe = cand
 	}
 
 	info, err := os.Stat(safe)
