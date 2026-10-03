@@ -1790,7 +1790,7 @@ all clean. No persisted-struct fields changed; no version bump.
 
 ## 2026-10-03 -- optional Docker-backed databases (--rds-engine)
 
-`--rds-engine=docker` (`RDS_ENGINE`, default `stub`; `RDS_DB_HOST` overrides the advertised host) starts a
+`--rds-engine=docker` (`RDS_ENGINE`, default `stub`; `RDS_DB_HOST` overrides the advertised host; ports bind 127.0.0.1 unless it is non-loopback, then all interfaces) starts a
 pinned official image per DB instance: `postgres:<13-17>` (default 17), `mysql:<8.0|8.4>` (default 8.4),
 `mariadb:<10.6|10.11|11.4|11.8>` (default 11.4), chosen from EngineVersion. `aurora-postgresql`/`aurora-mysql`
 map to the matching base image. Modelled on LocalStack Pro, which runs real Postgres/MySQL/MariaDB with the

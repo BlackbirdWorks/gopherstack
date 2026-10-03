@@ -268,7 +268,9 @@ func TestDockerRuntime_CreateAndStart_Ports(t *testing.T) {
 	}{
 		{name: "mapped", ports: []string{"19092:9092"}, wantHost: "19092"},
 		{name: "none"},
+		{name: "with_ip", ports: []string{"127.0.0.1:19092:9092"}, wantHost: "19092"},
 		{name: "no_colon", ports: []string{"9092"}, wantErr: true},
+		{name: "bad_ip", ports: []string{"x:1:2"}, wantErr: true},
 		{name: "bad_container_port", ports: []string{"1:x"}, wantErr: true},
 	}
 

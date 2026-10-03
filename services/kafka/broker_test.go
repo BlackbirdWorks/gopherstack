@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -152,7 +151,7 @@ func TestBroker_StateMachineAndBootstrap(t *testing.T) {
 	spec := f.rt.startedSpecs()[0]
 	require.Len(t, spec.Ports, 1)
 
-	hostPort, containerPort, _ := strings.Cut(spec.Ports[0], ":")
+	_, hostPort, containerPort, _ := container.ParsePortSpec(spec.Ports[0])
 	assert.Equal(t, "9092", containerPort)
 	assert.Equal(t, kafka.BrokerImage, spec.Image)
 	assert.Contains(t, spec.Env, "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:"+hostPort)

@@ -126,7 +126,9 @@ Auth: a static cluster-admin bearer token (`EKS_CLUSTER_TOKEN`, default
 `gopherstack-eks-cluster-token`, same idea as LocalStack's `K3D_CLUSTER_TOKEN`) via
 the apiserver `token-auth-file`. `aws eks get-token` `k8s-aws-v1` IAM tokens are NOT
 accepted, so use `kubectl --token` or a static-token kubeconfig user. The default token
-is publicly known and the port binds all interfaces: set your own token on shared hosts.
+is publicly known, so the API port binds 127.0.0.1 only. Setting `EKS_CLUSTER_HOST` to a non-loopback
+host binds all interfaces and REQUIRES `EKS_CLUSTER_TOKEN`: with the default token the docker engine
+refuses to start and clusters stay metadata-only (warning logged).
 
 Nodegroups, Fargate profiles and addons stay metadata-only (the k3s server schedules
 pods itself). Container state is runtime-only: Restore relaunches EMPTY clusters;

@@ -68,6 +68,16 @@ func dockerContainerExists(t *testing.T, id string) bool {
 	return strings.TrimSpace(string(out)) != ""
 }
 
+func dockerPublishedHostIP(t *testing.T, id string) string {
+	t.Helper()
+
+	out, err := exec.CommandContext(t.Context(), "docker", "inspect", "-f",
+		"{{range $p, $b := .HostConfig.PortBindings}}{{(index $b 0).HostIp}}{{end}}", id).Output()
+	require.NoError(t, err)
+
+	return strings.TrimSpace(string(out))
+}
+
 func newDockerEngineBackend(t *testing.T) (*rds.InMemoryBackend, *recordingEngineRuntime) {
 	t.Helper()
 
@@ -186,6 +196,7 @@ func TestEngineDockerRealDatabases(t *testing.T) {
 			ids := rec.containerIDs()
 			require.Len(t, ids, 1)
 			require.True(t, dockerContainerExists(t, ids[0]))
+			assert.Equal(t, "127.0.0.1", dockerPublishedHostIP(t, ids[0]))
 
 			_, err = b.DeleteDBInstanceWithOptions("it1", true, "", true)
 			require.NoError(t, err)

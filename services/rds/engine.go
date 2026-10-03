@@ -235,7 +235,8 @@ func (e *dbEngine) spec(lb *liveDB) container.Spec {
 		Name:  "gopherstack-rds-" + uuid.NewString()[:12],
 		Image: engineImage(lb.kind, lb.version),
 		Env:   engineEnv(lb),
-		Ports: []string{strconv.Itoa(lb.port) + ":" + strconv.Itoa(engineContainerPort(lb.kind))},
+		Ports: []string{container.PortSpec(
+			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(engineContainerPort(lb.kind)))},
 	}
 }
 

@@ -20,7 +20,7 @@ var ErrUnavailable = errors.New("container runtime is not available")
 // ErrContainerNotFound is returned when a requested container does not exist in the pool.
 var ErrContainerNotFound = errors.New("container not found")
 
-// ErrInvalidPort is returned when a Spec.Ports entry is not a valid HOST:CONTAINER pair.
+// ErrInvalidPort is returned when a Spec.Ports entry is not a valid [IP:]HOST:CONTAINER mapping.
 var ErrInvalidPort = errors.New("invalid port mapping")
 
 // ErrPoolExhausted is returned when no warm container is available and the pool is full.
@@ -60,7 +60,7 @@ type Spec struct {
 	Cmd []string
 	// Entrypoint overrides the image's default ENTRYPOINT.
 	Entrypoint []string
-	// Ports publishes TCP ports as HOST:CONTAINER pairs (e.g. "19092:9092").
+	// Ports publishes TCP ports as [IP:]HOST:CONTAINER (e.g. "127.0.0.1:19092:9092"); no IP binds all interfaces.
 	Ports []string
 	// Tmpfs mounts an in-memory tmpfs at each listed container path.
 	Tmpfs []string

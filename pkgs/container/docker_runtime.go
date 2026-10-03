@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/netip"
-	"strings"
 	"time"
 
 	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
@@ -244,7 +242,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	return resp.ID, nil
 }
 
-// applyPorts publishes each HOST:CONTAINER TCP pair on all host interfaces.
+// applyPorts publishes each [IP:]HOST:CONTAINER TCP pair; without an IP it binds all interfaces.
 func applyPorts(cfg *dockercontainer.Config, hostCfg *dockercontainer.HostConfig, ports []string) error {
 	if len(ports) == 0 {
 		return nil
@@ -254,9 +252,9 @@ func applyPorts(cfg *dockercontainer.Config, hostCfg *dockercontainer.HostConfig
 	hostCfg.PortBindings = network.PortMap{}
 
 	for _, spec := range ports {
-		host, ctr, ok := strings.Cut(spec, ":")
-		if !ok {
-			return fmt.Errorf("%w %q: want HOST:CONTAINER", ErrInvalidPort, spec)
+		ip, host, ctr, err := ParsePortSpec(spec)
+		if err != nil {
+			return err
 		}
 
 		port, err := network.ParsePort(ctr + "/tcp")
@@ -265,7 +263,7 @@ func applyPorts(cfg *dockercontainer.Config, hostCfg *dockercontainer.HostConfig
 		}
 
 		cfg.ExposedPorts[port] = struct{}{}
-		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: netip.IPv4Unspecified(), HostPort: host}}
+		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: ip, HostPort: host}}
 	}
 
 	return nil

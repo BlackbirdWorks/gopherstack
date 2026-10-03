@@ -162,7 +162,7 @@ leaks: {status: clean, note: "no goroutines/timers introduced or found this pass
 
 ## 2026-10-01: optional real broker (docker engine)
 
-`--kafka-engine=docker` (`KAFKA_ENGINE`, default `stub`) starts a pinned `apache/kafka:3.9.1`
+`--kafka-engine=docker` (`KAFKA_ENGINE`, default `stub`; the port binds 127.0.0.1 unless `KAFKA_BROKER_HOST` is non-loopback, then all interfaces) starts a pinned `apache/kafka:3.9.1`
 KRaft container per provisioned cluster on a free host port (`broker.go`). The cluster is
 CREATING until a Kafka ping succeeds, then ACTIVE; a start failure or timeout is FAILED with
 `StateInfo` and the container is removed. GetBootstrapBrokers returns only the real

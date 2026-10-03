@@ -71,7 +71,7 @@ func (f *fakeClusterRuntime) CreateAndStart(_ context.Context, spec container.Sp
 	id := "ctr-" + spec.Name
 
 	if f.serve {
-		host, _, _ := strings.Cut(spec.Ports[0], ":")
+		_, host, _, _ := container.ParsePortSpec(spec.Ports[0])
 		stop := serveFakeK3s(host)
 
 		if f.started == nil {
@@ -197,10 +197,10 @@ func waitStatus(t *testing.T, b *eks.InMemoryBackend, want string) {
 	require.Eventually(t, func() bool { return clusterStatus(b, "c1") == want }, 30*time.Second, 10*time.Millisecond)
 }
 
-func waitSpecs(t *testing.T, rt *fakeClusterRuntime, n int) {
+func waitSpecs(t *testing.T, rt *fakeClusterRuntime) {
 	t.Helper()
 
-	require.Eventually(t, func() bool { return len(rt.createdSpecs()) >= n }, 30*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return len(rt.createdSpecs()) >= 1 }, 30*time.Second, 10*time.Millisecond)
 }
 
 func TestDockerCluster_Lifecycle(t *testing.T) {
@@ -228,7 +228,7 @@ func TestDockerCluster_Lifecycle(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "CREATING", c.Status)
 
-			waitSpecs(t, rt, 1)
+			waitSpecs(t, rt)
 
 			spec := rt.createdSpecs()[0]
 			assert.Equal(t, tt.wantImage, spec.Image)
@@ -243,10 +243,9 @@ func TestDockerCluster_Lifecycle(t *testing.T) {
 			d, err := b.DescribeCluster("c1")
 			require.NoError(t, err)
 
-			_, hostPort, _ := strings.Cut(spec.Ports[0], ":")
-			assert.Equal(t, "6443", hostPort)
+			_, port, ctrPort, _ := container.ParsePortSpec(spec.Ports[0])
+			assert.Equal(t, "6443", ctrPort)
 
-			port, _, _ := strings.Cut(spec.Ports[0], ":")
 			assert.Equal(t, "https://eks.test:"+port, d.Endpoint)
 			assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(testCA)), d.CertificateAuthority)
 
@@ -330,7 +329,7 @@ func TestDockerCluster_Teardown(t *testing.T) {
 
 			_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 			require.NoError(t, err)
-			waitSpecs(t, rt, 1)
+			waitSpecs(t, rt)
 
 			tt.act(b)
 			b.Close()
@@ -358,7 +357,7 @@ func TestDockerCluster_RestoreRelaunchesEmptyClusters(t *testing.T) {
 	dst := dockerClusterBackend(t, rt2, eks.ClusterEngineConfig{Probe: probe.probe})
 	require.NoError(t, dst.Restore(t.Context(), snap))
 
-	waitSpecs(t, rt2, 1)
+	waitSpecs(t, rt2)
 	assert.Equal(t, "rancher/k3s:v1.33.13-k3s1", rt2.createdSpecs()[0].Image)
 	waitStatus(t, dst, "ACTIVE")
 }

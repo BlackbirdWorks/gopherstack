@@ -65,6 +65,8 @@ func k3sTags() [8]string {
 var (
 	// ErrInvalidClusterEngineConfig is returned when the cluster engine host or token is unusable.
 	ErrInvalidClusterEngineConfig = errors.New("invalid EKS cluster engine configuration")
+	// ErrDefaultTokenExposed is returned when the public default token would be exposed off-host.
+	ErrDefaultTokenExposed = errors.New("EKS_CLUSTER_TOKEN must be set when EKS_CLUSTER_HOST is not loopback")
 
 	tokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9.:-]+$`)
@@ -144,13 +146,18 @@ func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
 		cfg.Host = clusterDefaultHost
 	}
 
-	if cfg.Token == "" {
+	defaulted := cfg.Token == ""
+	if defaulted {
 		cfg.Token = DefaultClusterToken
 	}
 
 	if !hostPattern.MatchString(cfg.Host) || !tokenPattern.MatchString(cfg.Token) || len(cfg.Token) < minTokenLen {
 		return fmt.Errorf("%w: host must match %s and token %s (min %d chars)",
 			ErrInvalidClusterEngineConfig, hostPattern, tokenPattern, minTokenLen)
+	}
+
+	if defaulted && container.BindHostFor(cfg.Host) != container.LoopbackHost {
+		return ErrDefaultTokenExposed
 	}
 
 	if cfg.StartTimeout <= 0 {
@@ -189,7 +196,9 @@ func (e *clusterEngine) spec(name, version string, port int) container.Spec {
 		Image:      e.image(version),
 		Entrypoint: []string{"/bin/sh", "-c", k3sScript},
 		Env:        []string{envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host},
-		Ports:      []string{strconv.Itoa(port) + ":" + strconv.Itoa(k3sAPIPort)},
+		Ports: []string{
+			container.PortSpec(container.BindHostFor(e.cfg.Host), strconv.Itoa(port), strconv.Itoa(k3sAPIPort)),
+		},
 		Tmpfs:      []string{"/run", "/var/run"},
 		Privileged: true,
 	}

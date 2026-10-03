@@ -289,9 +289,10 @@ func portMapsFor(engine string) []portMap {
 func (e *brokerEngine) spec(name string, lb *liveBroker) container.Spec {
 	maps := portMapsFor(lb.engine)
 	ports := make([]string, len(maps))
+	bind := container.BindHostFor(e.cfg.Host)
 
 	for i, pm := range maps {
-		ports[i] = strconv.Itoa(lb.ports[i]) + ":" + strconv.Itoa(pm.container)
+		ports[i] = container.PortSpec(bind, strconv.Itoa(lb.ports[i]), strconv.Itoa(pm.container))
 	}
 
 	spec := container.Spec{

@@ -197,7 +197,7 @@ client can send. See `TestCreateConfiguration_NoDescriptionMember`.
 
 ## 2026-10-03 -- optional Docker-backed brokers (--mq-engine)
 
-`--mq-engine=docker` (`MQ_ENGINE`, default `stub`; `MQ_BROKER_HOST` overrides the advertised host) starts
+`--mq-engine=docker` (`MQ_ENGINE`, default `stub`; `MQ_BROKER_HOST` overrides the advertised host; ports bind 127.0.0.1 unless it is non-loopback, then all interfaces) starts
 one container per broker that has a user: `rabbitmq:3.13.7-management` (RABBITMQ) or
 `apache/activemq-classic:5.18.7` (ACTIVEMQ), configured with `Users[0]`. The broker is
 CREATION_IN_PROGRESS until a real AMQP/STOMP login succeeds, then RUNNING (CREATION_FAILED on start error

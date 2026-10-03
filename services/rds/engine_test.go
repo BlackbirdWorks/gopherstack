@@ -3,7 +3,6 @@ package rds_test
 import (
 	"context"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -168,7 +167,7 @@ func hostPort(t *testing.T, spec container.Spec) int {
 	t.Helper()
 	require.Len(t, spec.Ports, 1)
 
-	host, _, _ := strings.Cut(spec.Ports[0], ":")
+	_, host, _, _ := container.ParsePortSpec(spec.Ports[0])
 	p, err := strconv.Atoi(host)
 	require.NoError(t, err)
 

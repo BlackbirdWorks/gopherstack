@@ -232,7 +232,7 @@ func (e *brokerEngine) spec(name string, port int) container.Spec {
 	return container.Spec{
 		Image: e.cfg.Image,
 		Name:  "gopherstack-msk-" + name + "-" + uuid.NewString()[:8],
-		Ports: []string{strconv.Itoa(port) + ":" + brokerListenPort},
+		Ports: []string{container.PortSpec(container.BindHostFor(e.cfg.Host), strconv.Itoa(port), brokerListenPort)},
 		Env: []string{
 			"KAFKA_NODE_ID=1",
 			"KAFKA_PROCESS_ROLES=broker,controller",
