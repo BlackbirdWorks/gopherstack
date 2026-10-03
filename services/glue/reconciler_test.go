@@ -223,3 +223,27 @@ func TestReconciler_ResetClearsPendingWork(t *testing.T) {
 	assert.False(t, glue.PendingDueForTest(b, time.Now().Add(time.Hour)),
 		"Reset must clear pending transition timers")
 }
+
+func TestReconciler_StartingRunKeepsTimersWhenAnotherRunIsDue(t *testing.T) {
+	t.Parallel()
+
+	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
+	startTestJobRun(t, b)
+
+	t1 := time.Now()
+
+	second, err := b.StartJobRun(testJobName, nil)
+	require.NoError(t, err)
+
+	glue.AdvanceStatesForTest(b, t1.Add(150*time.Millisecond))
+
+	run, err := b.GetJobRun(testJobName, second.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "STARTING", run.JobRunState)
+
+	glue.AdvanceStatesForTest(b, t1.Add(time.Hour))
+
+	run, err = b.GetJobRun(testJobName, second.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "SUCCEEDED", run.JobRunState)
+}
