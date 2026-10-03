@@ -39,12 +39,8 @@ func (d plainBodyDoer) Do(r *http.Request) (*http.Response, error) {
 // against an httptest server running this package's Handler, wired through
 // the same pkgs/service registry/router used in production.
 //
-// Keep-alives are disabled so a SubscribeToShard stream never shares a
-// connection with an earlier call. Request bodies are also stripped of
-// io.WriterTo: smithy's safeWriteToReadCloser.WriteTo returns io.EOF once the
-// SDK closes the body, and net/http's writeLoop treats that as a write error
-// and closes the connection under a live event stream when the server
-// answers before the loop finishes (gopherstack-i8q7).
+// Bodies hide io.WriterTo: smithy's WriteTo returns io.EOF after close, which net/http
+// treats as a write error and closes a live event stream (gopherstack-8wa8j).
 func newTestKinesisClient(t *testing.T, h *kinesis.Handler) *kinesissdk.Client {
 	t.Helper()
 
