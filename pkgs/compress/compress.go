@@ -238,7 +238,7 @@ func (c *Compressor) Begin(w http.ResponseWriter, r *http.Request) (http.Respons
 		return w, nil, true
 	}
 
-	rw := &responseWriter{ResponseWriter: w, c: c, enc: enc, key: key, buffered: key != ""}
+	rw := &responseWriter{ResponseWriter: w, dst: w, c: c, enc: enc, key: key, buffered: key != ""}
 
 	return rw, rw.finish, false
 }

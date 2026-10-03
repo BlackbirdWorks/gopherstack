@@ -2,6 +2,7 @@ package compress
 
 import (
 	"hash/crc32"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ const (
 
 type responseWriter struct {
 	http.ResponseWriter
+	// dst is the body sink; handler bytes are forwarded as-is, never inspected.
+	dst      io.Writer
 	c        *Compressor
 	w        encoder
 	key      string
@@ -52,8 +55,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 		return
 	}
 
-	ct := h.Get("Content-Type")
-	if ct != "" && !Compressible(ct) {
+	if ct := h.Get("Content-Type"); ct == "" || !Compressible(ct) {
 		rw.passthrough()
 
 		return
@@ -88,7 +90,7 @@ func (rw *responseWriter) Write(p []byte) (int, error) {
 
 	switch rw.state {
 	case statePassthrough:
-		return rw.ResponseWriter.Write(p) // #nosec G705 -- bytes produced by the wrapped handler
+		return rw.dst.Write(p)
 	case stateCompressing:
 		return rw.w.Write(p)
 	case stateUndecided:
@@ -112,39 +114,17 @@ func (rw *responseWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// decideStreaming runs only for handler-set compressible Content-Types; nothing is sniffed.
 func (rw *responseWriter) decideStreaming(data []byte) {
-	if !rw.sniffCompressible(data) {
-		rw.passthrough()
-		_, _ = rw.ResponseWriter.Write(data) // #nosec G705 -- bytes produced by the wrapped handler
-
-		return
-	}
-
 	rw.startCompressing()
 	_, _ = rw.w.Write(data)
-}
-
-func (rw *responseWriter) sniffCompressible(data []byte) bool {
-	h := rw.Header()
-	if h.Get("Content-Type") != "" {
-		return true
-	}
-
-	ct := http.DetectContentType(data)
-	if !Compressible(ct) {
-		return false
-	}
-
-	h.Set("Content-Type", ct)
-
-	return true
 }
 
 func (rw *responseWriter) flushIdentity() {
 	rw.passthrough()
 
 	if len(rw.buf) > 0 {
-		_, _ = rw.ResponseWriter.Write(rw.buf)
+		_, _ = rw.dst.Write(rw.buf)
 		rw.buf = nil
 	}
 }
@@ -165,7 +145,7 @@ func (rw *responseWriter) startCompressing() {
 	rw.setCompressedHeaders()
 	rw.state = stateCompressing
 	rw.ResponseWriter.WriteHeader(rw.status)
-	rw.w = rw.c.getEncoder(rw.enc, rw.ResponseWriter)
+	rw.w = rw.c.getEncoder(rw.enc, rw.dst)
 }
 
 // FlushError flushes pending data; an undecided stream is sent uncompressed.
@@ -211,7 +191,7 @@ func (rw *responseWriter) finish() {
 }
 
 func (rw *responseWriter) finishUndecided() {
-	if len(rw.buf) < rw.c.cfg.MinSize || !rw.sniffCompressible(rw.buf) {
+	if len(rw.buf) < rw.c.cfg.MinSize {
 		rw.flushIdentity()
 
 		return
@@ -239,6 +219,6 @@ func (rw *responseWriter) finishUndecided() {
 
 	rw.state = statePassthrough
 	rw.ResponseWriter.WriteHeader(rw.status)
-	_, _ = rw.ResponseWriter.Write(out)
+	_, _ = rw.dst.Write(out)
 	rw.buf = nil
 }

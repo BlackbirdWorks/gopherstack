@@ -283,9 +283,21 @@ func TestBehavior(t *testing.T) {
 			wantCode: 200,
 			wantETag: `W/"abc"`,
 		},
-		{name: "sniffed text", method: "GET", ae: "gzip", h: func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write(bytes.Repeat([]byte("hello world "), 500))
-		}, wantEnc: "gzip", wantVary: true, wantBody: bytes.Repeat([]byte("hello world "), 500), wantCode: 200},
+		{
+			name:   "no content type passthrough",
+			method: "GET",
+			ae:     "gzip",
+			h: func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write(bytes.Repeat([]byte("hello world "), 500))
+			},
+			wantBody: bytes.Repeat([]byte("hello world "), 500),
+			wantCode: 200,
+			raw:      true,
+		},
+		{name: "html compresses", method: "GET", ae: "gzip", h: func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(bytes.Repeat([]byte("<p>hello</p>"), 500))
+		}, wantEnc: "gzip", wantVary: true, wantBody: bytes.Repeat([]byte("<p>hello</p>"), 500), wantCode: 200},
 		{
 			name:     "vary merged",
 			method:   "GET",
@@ -612,6 +624,48 @@ func TestEncoderPoolReuse(t *testing.T) {
 
 			perOp := best
 			assert.Less(t, perOp, uint64(48<<10), "encoder should be pooled, not rebuilt per request")
+		})
+	}
+}
+
+func TestContentTypeUntouched(t *testing.T) {
+	t.Parallel()
+
+	html := bytes.Repeat([]byte("<p>hello</p>"), 500)
+
+	tests := []struct {
+		name   string
+		set    string
+		want   string
+		wantCT bool
+	}{
+		{name: "none not invented", set: "", want: ""},
+		{name: "html kept", set: "text/html; charset=utf-8", want: "text/html; charset=utf-8", wantCT: true},
+		{name: "json kept", set: "application/json", want: "application/json", wantCT: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := func(w http.ResponseWriter, _ *http.Request) {
+				if tt.set != "" {
+					w.Header().Set("Content-Type", tt.set)
+				}
+
+				_, _ = w.Write(html)
+			}
+
+			rec := serve(t, compress.New(compress.Config{}), h, "GET", "gzip", nil)
+
+			assert.Equal(t, tt.want, rec.Header().Get("Content-Type"))
+
+			if tt.wantCT {
+				assert.Equal(t, "gzip", rec.Header().Get("Content-Encoding"))
+			} else {
+				assert.Empty(t, rec.Header().Get("Content-Encoding"))
+				assert.Equal(t, html, rec.Body.Bytes())
+			}
 		})
 	}
 }
