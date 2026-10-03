@@ -39,22 +39,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-// Close stops the background reconciler goroutine and waits for any in-flight
-// delayed lifecycle transitions to finish. Close is safe to call more than once.
-func (b *InMemoryBackend) Close() {
-	b.mu.Lock("Close")
-	if b.closed {
-		b.mu.Unlock()
-
-		return
-	}
-	b.closed = true
-	close(b.stopCh)
-	b.mu.Unlock()
-
-	b.reconcilerWG.Wait()
-}
-
 func (b *InMemoryBackend) scheduleReconcilerLocked() {
 	if b.reconcilerRunning || b.closed {
 		return
@@ -100,6 +84,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.dropAllUnitsLocked()
 	b.registry.ResetAll()
 	b.instanceReadyAt = make(map[string]time.Time)
 	b.tags = make(map[string][]Tag)

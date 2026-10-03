@@ -208,7 +208,15 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 
 	hostCfg := &dockercontainer.HostConfig{
-		Binds: spec.Mounts,
+		Binds:      spec.Mounts,
+		Privileged: spec.Privileged,
+	}
+
+	if len(spec.Tmpfs) > 0 {
+		hostCfg.Tmpfs = make(map[string]string, len(spec.Tmpfs))
+		for _, path := range spec.Tmpfs {
+			hostCfg.Tmpfs[path] = ""
+		}
 	}
 
 	if err := applyPorts(cfg, hostCfg, spec.Ports); err != nil {
@@ -273,6 +281,26 @@ func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) e
 
 	if err := r.docker.ContainerRemove(ctx, containerID, dockercontainer.RemoveOptions{Force: true}); err != nil {
 		return fmt.Errorf("container remove %q: %w", containerID, err)
+	}
+
+	return nil
+}
+
+// StopContainer stops a container without removing it, keeping its published ports and data.
+func (r *DockerRuntime) StopContainer(ctx context.Context, containerID string) error {
+	timeout := stopTimeoutSecs
+
+	if err := r.docker.ContainerStop(ctx, containerID, dockercontainer.StopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("container stop %q: %w", containerID, err)
+	}
+
+	return nil
+}
+
+// StartContainer starts a previously stopped container.
+func (r *DockerRuntime) StartContainer(ctx context.Context, containerID string) error {
+	if err := r.docker.ContainerStart(ctx, containerID, dockercontainer.StartOptions{}); err != nil {
+		return fmt.Errorf("container start %q: %w", containerID, err)
 	}
 
 	return nil

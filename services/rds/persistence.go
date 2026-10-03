@@ -109,6 +109,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.dropAllUnitsLocked()
+
 	if snap.Version != rdsSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
 		// partially decoded as the current shape -- that risks silently
@@ -152,6 +154,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	} else {
 		b.defaultCACertificateID = defaultCACertificateID
 	}
+	b.relaunchUnitsLocked()
 	// FIS fault state is transient — clear it on restore so stale faults are not retained.
 	b.fisFailoverFaults = make(map[string]time.Time)
 

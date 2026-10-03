@@ -73,6 +73,7 @@ func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBCl
 	}
 
 	return DBClusterOptions{
+		MasterUserPassword:          vals.Get("MasterUserPassword"),
 		EngineVersion:               vals.Get("EngineVersion"),
 		KmsKeyID:                    vals.Get("KmsKeyId"),
 		PreferredBackupWindow:       vals.Get("PreferredBackupWindow"),

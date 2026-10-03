@@ -108,6 +108,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	}
 
 	opts := DBInstanceOptions{
+		MasterUserPassword:                 vals.Get("MasterUserPassword"),
 		EngineVersion:                      vals.Get("EngineVersion"),
 		StorageType:                        vals.Get("StorageType"),
 		AvailabilityZone:                   vals.Get("AvailabilityZone"),
@@ -278,6 +279,7 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	}
 
 	opts := DBInstanceOptions{
+		MasterUserPassword:                 vals.Get("MasterUserPassword"),
 		EngineVersion:                      vals.Get("EngineVersion"),
 		StorageType:                        vals.Get("StorageType"),
 		OptionGroupName:                    vals.Get("OptionGroupName"),

@@ -304,6 +304,34 @@ func TestDockerRuntime_CreateAndStart_Ports(t *testing.T) {
 	}
 }
 
+func TestDockerRuntime_CreateAndStart_PrivilegedTmpfs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		spec  container.Spec
+		priv  bool
+		tmpfs int
+	}{
+		{name: "plain", spec: container.Spec{Image: "alpine"}},
+		{name: "privileged", spec: container.Spec{Image: "alpine", Privileged: true}, priv: true},
+		{name: "tmpfs", spec: container.Spec{Image: "alpine", Tmpfs: []string{"/run", "/var/run"}}, tmpfs: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := &mockAPI{}
+			_, err := newRuntime(api).CreateAndStart(t.Context(), tt.spec)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.priv, api.lastHost.Privileged)
+			assert.Len(t, api.lastHost.Tmpfs, tt.tmpfs)
+		})
+	}
+}
+
 func TestDockerRuntime_StopAndRemove(t *testing.T) {
 	t.Parallel()
 

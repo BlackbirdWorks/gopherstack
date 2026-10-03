@@ -54,6 +54,15 @@ func (b *InMemoryBackend) dbSecurityGroupMembershipsLocked(names []string) ([]DB
 	return dbSGs, nil
 }
 
+func vpcSecurityGroupMemberships(ids []string) []VpcSecurityGroupMembership {
+	out := make([]VpcSecurityGroupMembership, 0, len(ids))
+	for _, sgID := range ids {
+		out = append(out, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
+	}
+
+	return out
+}
+
 // createDBInstanceLocked validates and inserts a new DB instance under b.mu,
 // returning a copy of the stored instance. Extracted from CreateDBInstance to
 // keep the locked region out of the parent's funlen count; the parent still
@@ -82,16 +91,14 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		engine, instanceClass, allocatedStorage, masterUser, b.region, &opts,
 	)
 
+	if err = b.validateEngineLogin(engine, masterUser); err != nil {
+		return nil, err
+	}
+
 	port := enginePort(engine)
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 
-	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
-	for _, sgID := range opts.VpcSecurityGroupIDs {
-		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{
-			VpcSecurityGroupID: sgID,
-			Status:             subscriptionStatusActive,
-		})
-	}
+	vpcSGs := vpcSecurityGroupMemberships(opts.VpcSecurityGroupIDs)
 
 	inst := &DBInstance{
 		InstanceCreateTime:                 time.Now().UTC(),
@@ -156,8 +163,10 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		}
 	}
 	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
-	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
-	b.scheduleReconcilerLocked()
+	if !b.provisionInstanceLocked(inst, opts.MasterUserPassword) {
+		b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
+	}
 	cp := *inst
 
 	return &cp, nil
@@ -191,7 +200,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		return nil, err
 	}
 
-	if b.dnsRegistrar != nil {
+	if b.dnsRegistrar != nil && !b.engineManaged(result.Engine) {
 		b.dnsRegistrar.Register(result.Endpoint)
 	}
 
@@ -321,6 +330,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 	}
 
 	b.instances.Delete(normalizeID(id))
+	b.dropUnitLocked(unitKeyForInstance(canonicalID))
 	delete(b.tags, b.rdsARN("db", canonicalID))
 	delete(b.instanceRoles, canonicalID)
 	delete(b.instanceReadyAt, canonicalID)
@@ -653,6 +663,18 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	allocatedStorage int,
 	opts DBInstanceOptions,
 ) (*DBInstance, error) {
+	if err := b.guardEngineModify(id, opts.MasterUserPassword); err != nil {
+		return nil, err
+	}
+
+	return b.modifyDBInstanceLocked(id, instanceClass, allocatedStorage, opts)
+}
+
+func (b *InMemoryBackend) modifyDBInstanceLocked(
+	id, instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
@@ -796,6 +818,16 @@ func (b *InMemoryBackend) StartDBInstance(id string) (*DBInstance, error) {
 		return nil, fmt.Errorf("%w: instance %s is not in stopped state", ErrInvalidDBInstanceState, id)
 	}
 
+	handled, err := b.beginInstanceOpLocked(inst, opStart, instanceStatusStarting)
+	if err != nil {
+		return nil, err
+	}
+	if handled {
+		cp := *inst
+
+		return &cp, nil
+	}
+
 	inst.DBInstanceStatus = instanceStatusAvailable
 	cp := *inst
 
@@ -818,6 +850,16 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 	}
 	if inst.DBInstanceStatus != instanceStatusAvailable {
 		return nil, fmt.Errorf("%w: instance %s is not in available state", ErrInvalidDBInstanceState, id)
+	}
+
+	handled, err := b.beginInstanceOpLocked(inst, opStop, instanceStatusStopping)
+	if err != nil {
+		return nil, err
+	}
+	if handled {
+		cp := *inst
+
+		return &cp, nil
 	}
 
 	inst.DBInstanceStatus = instanceStatusStopped
@@ -953,9 +995,15 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
-	inst.DBInstanceStatus = instanceStatusRebooting
-	b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)
-	b.scheduleReconcilerLocked()
+	handled, err := b.beginInstanceOpLocked(inst, opRestart, instanceStatusRebooting)
+	if err != nil {
+		return nil, err
+	}
+	if !handled {
+		inst.DBInstanceStatus = instanceStatusRebooting
+		b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
+	}
 	b.publishInstanceEventLocked(inst.DBInstanceIdentifier, "DB instance reboot initiated")
 	cp := *inst
 

@@ -62,6 +62,10 @@ type Spec struct {
 	Entrypoint []string
 	// Ports publishes TCP ports as HOST:CONTAINER pairs (e.g. "19092:9092").
 	Ports []string
+	// Tmpfs mounts an in-memory tmpfs at each listed container path.
+	Tmpfs []string
+	// Privileged runs the container with full host privileges (needed by k3s).
+	Privileged bool
 }
 
 // PooledContainer tracks a container managed by the warm pool.

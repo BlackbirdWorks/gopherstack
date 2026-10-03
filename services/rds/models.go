@@ -687,6 +687,7 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
+	MasterUserPassword                 string
 	EngineLifecycleSupport             string
 	ReplicaMode                        string
 	AvailabilityZone                   string
@@ -742,6 +743,7 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
+	MasterUserPassword                 string
 	EngineVersion                      string
 	KmsKeyID                           string
 	PreferredBackupWindow              string
@@ -781,6 +783,7 @@ type DBClusterOptions struct {
 
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
+	engine                    *dbEngine
 	dnsRegistrar              DNSRegistrar
 	registry                  *store.Registry
 	snapshotAttributes        *store.Table[DBSnapshotAttributesResult]

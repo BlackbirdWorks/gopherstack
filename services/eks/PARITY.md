@@ -100,6 +100,7 @@ ops:
   ListCertificateAuthorities: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. GET /clusters/{name}/certificate-authorities, maxResults/nextToken query-param pagination via pkgs/page, matching every other GET-based List op in this service. Returns types.CertificateAuthoritySummary entries (verified against deserializers.go's awsRestjson1_deserializeDocumentCertificateAuthoritySummary), sorted by ID for deterministic responses."}
 gaps: []
 items_still_open:
+  - "EKS docker engine: IAM (k8s-aws-v1) token authentication, managed nodegroup/Fargate/addon workloads and Insights computed from the live API server are not modeled (gopherstack-7neth follow-up)."
   - "Needs a live Kubernetes API server or hybrid-nodes model (bd gopherstack-7neth): Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks, Nodegroup.Health.Issues and FargateProfile.Health.Issues (always empty), and DeleteCertificateAuthority's only-successor protection (every CA here is CreatedBy=CUSTOMER)."
   - "No published derivation: ArgoCd IdcManagedApplicationArn/ServerUrl, CertificateAuthority.ScheduledEvents, the CA RollbackAvailable expiry window (no duration documented), and EksAnywhereSubscription.LicenseArns/Licenses (no per-license record) are left empty rather than fabricated."
   - "CreateCluster.BootstrapSelfManagedAddons has no effect: no default addons are auto-installed, and types.Cluster does not echo the flag, so a client cannot observe it."
@@ -109,6 +110,27 @@ leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/add
 ---
 
 ## Notes
+
+### 2026-10-03: optional real Kubernetes clusters (`--eks-engine docker`, gopherstack-7neth)
+
+Default `stub` is unchanged. In `docker` mode CreateCluster starts one privileged
+`rancher/k3s` container (tag mapped from `version`, 1.29-1.36; unmapped versions
+fall back to the 1.32 image; `EKS_K3S_IMAGE` overrides) with the API port published on a
+free host port, mirroring LocalStack's k3s-backed EKS
+(docs.localstack.cloud/aws/services/eks/). CREATING becomes ACTIVE only once
+`/cacerts` and an authenticated `/readyz` succeed, otherwise FAILED.
+DescribeCluster then returns the real `endpoint` (`https://EKS_CLUSTER_HOST:port`) and
+`certificateAuthority.data` (k3s server CA, base64 PEM).
+
+Auth: a static cluster-admin bearer token (`EKS_CLUSTER_TOKEN`, default
+`gopherstack-eks-cluster-token`, same idea as LocalStack's `K3D_CLUSTER_TOKEN`) via
+the apiserver `token-auth-file`. `aws eks get-token` `k8s-aws-v1` IAM tokens are NOT
+accepted, so use `kubectl --token` or a static-token kubeconfig user. The default token
+is publicly known and the port binds all interfaces: set your own token on shared hosts.
+
+Nodegroups, Fargate profiles and addons stay metadata-only (the k3s server schedules
+pods itself). Container state is runtime-only: Restore relaunches EMPTY clusters;
+DeleteCluster/Reset/Restore/Close remove containers. No persistence version change.
 
 ### 2026-09-30: items_still_open burn-down
 

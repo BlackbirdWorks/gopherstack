@@ -44,7 +44,12 @@ func (b *InMemoryBackend) CreateDBCluster(
 		}
 	}
 
+	if err := b.validateEngineLogin(engine, masterUser); err != nil {
+		return nil, err
+	}
+
 	cluster := b.newDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, opts)
+	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
 	b.clusters.Put(cluster)
 
 	if replicationSource != nil {
@@ -346,6 +351,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	}
 
 	b.clusters.Delete(normalizeID(id))
+	b.dropUnitLocked(unitKeyForCluster(canonicalID))
 	delete(b.tags, b.rdsARN("cluster", canonicalID))
 	delete(b.fisFailoverFaults, canonicalID)
 	delete(b.clusterRoles, canonicalID)
@@ -495,6 +501,10 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	id, paramGroupName string,
 	opts DBClusterOptions,
 ) (*DBCluster, error) {
+	if err := b.guardClusterModify(id, opts.MasterUserPassword); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("ModifyDBCluster")
 	defer b.mu.Unlock()
 	cluster, exists := b.clusters.Get(normalizeID(id))
@@ -536,7 +546,9 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
-	cluster.Status = instanceStatusAvailable
+	if !b.beginClusterOpLocked(cluster, opStart, instanceStatusStarting) {
+		cluster.Status = instanceStatusAvailable
+	}
 	cp := *cluster
 	cloneDBClusterMutableSlices(&cp)
 
@@ -554,7 +566,9 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
-	cluster.Status = "stopped"
+	if !b.beginClusterOpLocked(cluster, opStop, instanceStatusStopping) {
+		cluster.Status = instanceStatusStopped
+	}
 	cp := *cluster
 	cloneDBClusterMutableSlices(&cp)
 
@@ -931,9 +945,11 @@ func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) 
 
 			return
 		}
-		cluster.Status = "rebooting"
-		b.clusterReadyAt[cluster.DBClusterIdentifier] = time.Now().Add(instanceTransitionDelay)
-		b.scheduleReconcilerLocked()
+		if !b.beginClusterOpLocked(cluster, opRestart, instanceStatusRebooting) {
+			cluster.Status = instanceStatusRebooting
+			b.clusterReadyAt[cluster.DBClusterIdentifier] = time.Now().Add(instanceTransitionDelay)
+			b.scheduleReconcilerLocked()
+		}
 		cp := *cluster
 		cloneDBClusterMutableSlices(&cp)
 		result = &cp

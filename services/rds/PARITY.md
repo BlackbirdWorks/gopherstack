@@ -237,14 +237,19 @@ gaps: []
   # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
   # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 items_still_open:
-  - "OPEN 2026-09-13 (gopherstack-xhu2t tier-1 sweep): 11 request fields across
+  - "OPEN 2026-09-13 (gopherstack-xhu2t tier-1 sweep): 10 request fields across
     CreateDBCluster/CreateDBInstance/CreateTenantDatabase/ModifyDBCluster/
-    ModifyDBInstance(x2: MasterUserSecretKmsKeyId + MasterUserPassword)/
+    ModifyDBInstance/
     ModifyTenantDatabase/RestoreDBClusterFromS3/RestoreDBInstanceFromDBSnapshot/
     RestoreDBInstanceFromS3/RestoreDBInstanceToPointInTime's .MasterUserSecretKmsKeyId
     are accepted-but-dropped: this backend has no Secrets Manager integration (no
     ManageMasterUserPassword/RotateMasterUserPassword/master-secret ARN anywhere).
-    Building that is a subsystem, not a wire fix; declined."
+    Building that is a subsystem, not a wire fix; declined. (ModifyDBInstance
+    .MasterUserPassword is no longer dropped: --rds-engine=docker applies it in the engine.)"
+  - "OPEN 2026-10-03 (gopherstack-rxmvb): with --rds-engine=docker the RDS Data API still executes against
+    services/rdsdata's own SQLite engine, not the Docker Aurora databases; read replicas, restore-based
+    instances, custom cluster endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay
+    metadata-only. Restore relaunches empty containers."
   - "OPEN: DescribeDBClusterSnapshots/DescribeDBSnapshots .IncludePublic/.IncludeShared
     are dropped; single-account backend has no cross-account snapshot data to reveal."
   - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): five
@@ -1782,3 +1787,27 @@ Two real bugs found wiring up `aws_rds_custom_db_engine_version`:
 Gates: `go build ./...`, `go vet ./services/rds/...`, `go test -race
 -count=1 ./services/rds/...`, `golangci-lint run ./services/rds/...` --
 all clean. No persisted-struct fields changed; no version bump.
+
+## 2026-10-03 -- optional Docker-backed databases (--rds-engine)
+
+`--rds-engine=docker` (`RDS_ENGINE`, default `stub`; `RDS_DB_HOST` overrides the advertised host) starts a
+pinned official image per DB instance: `postgres:<13-17>` (default 17), `mysql:<8.0|8.4>` (default 8.4),
+`mariadb:<10.6|10.11|11.4|11.8>` (default 11.4), chosen from EngineVersion. `aurora-postgresql`/`aurora-mysql`
+map to the matching base image. Modelled on LocalStack Pro, which runs real Postgres/MySQL/MariaDB with the
+MasterUserPassword as the engine password (https://docs.localstack.cloud/aws/services/rds/).
+The instance is `creating` until a real login plus `SELECT 1` succeeds, then `available` with
+Endpoint/Port set to the real host:port (`failed` on start error or timeout; only container IDs/codes are
+logged, never credentials). The master user must be 1-16 letters/digits/underscores; an omitted password gets
+a random one. MySQL/MariaDB masters are granted server-wide rights.
+
+- Aurora: CreateDBCluster starts one container per cluster (cluster `creating` until up); member instances,
+  the cluster endpoint and the reader endpoint all point at it (no real reader/writer split).
+- ModifyDBInstance/ModifyDBCluster MasterUserPassword runs ALTER USER in the engine (InvalidDBInstanceState if
+  it is not available). Stop/Start/Reboot stop, start and restart the container (stopping/starting/rebooting).
+- DeleteDBInstance/DeleteDBCluster, Reset and Close remove containers. Final snapshots stay metadata-only.
+- Restore relaunches an EMPTY container per restored instance/cluster with a random password: data and
+  passwords are not persisted (no snapshot version bump), like MSK/MQ.
+- Still metadata-only in docker mode: read replicas, restore-from-snapshot/point-in-time/S3 instances, custom
+  cluster endpoints, DBPortNumber changes, other engines (Oracle, SQL Server, Db2, Neptune). The RDS Data API
+  (services/rdsdata) keeps executing against its own SQLite engine, not the Docker databases.
+Proven by `engine_test.go` (fake runtime) and the Docker-gated `TestEngineDockerRealDatabases`.
