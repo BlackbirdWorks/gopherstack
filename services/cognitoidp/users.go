@@ -122,6 +122,7 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 // and webauthnCredentials in the repeat (gopherstack-tq5q/-ljak). Caller must
 // hold b.mu in write mode.
 func (b *InMemoryBackend) deleteUserStateLocked(poolID, username string) {
+	b.dropHostedSessionsLocked(poolID, username)
 	b.users.Delete(userKey(poolID, username))
 	b.deleteRefreshTokensForUserLocked(poolID, username)
 
@@ -191,6 +192,7 @@ func (b *InMemoryBackend) AdminDisableUser(userPoolID, username string) error {
 	}
 
 	u.Enabled = false
+	b.dropHostedSessionsLocked(userPoolID, username)
 
 	return nil
 }

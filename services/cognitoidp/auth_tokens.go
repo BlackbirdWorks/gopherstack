@@ -193,14 +193,22 @@ func (b *InMemoryBackend) resolveClientTokenSettings(clientID string) clientToke
 func (b *InMemoryBackend) issueTokensLocked(
 	pool *UserPool, clientID string, user *User, triggerSource string,
 ) (*AuthResult, error) {
-	return b.issueScopedTokensLocked(pool, clientID, user, triggerSource, nil, true)
+	return b.issueScopedTokensLocked(pool, clientID, user, triggerSource, tokenGrant{storeRefresh: true})
+}
+
+// tokenGrant carries the OAuth specifics of a token issuance.
+type tokenGrant struct {
+	nonce        string
+	scopes       []string
+	storeRefresh bool
 }
 
 // issueScopedTokensLocked is issueTokensLocked with an explicit OAuth scope set (nil means the
 // client's AllowedOAuthScopes) and an option to skip registering the refresh token.
 func (b *InMemoryBackend) issueScopedTokensLocked(
-	pool *UserPool, clientID string, user *User, triggerSource string, scopes []string, storeRefresh bool,
+	pool *UserPool, clientID string, user *User, triggerSource string, grant tokenGrant,
 ) (*AuthResult, error) {
+	scopes, storeRefresh := grant.scopes, grant.storeRefresh
 	groups := b.userGroupsLocked(pool.ID, user.Username)
 
 	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverrideAuth(pool, clientID, user, groups, triggerSource)
@@ -242,6 +250,7 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 		IDTokenExpiry:         settings.idTokenExpiry,
 		ClaimsToAddOrOverride: claimsToAdd,
 		ClaimsToSuppress:      claimsToSuppress,
+		Nonce:                 grant.nonce,
 	}
 
 	var (
@@ -472,6 +481,7 @@ func (b *InMemoryBackend) AdminUserGlobalSignOut(userPoolID, username string) er
 	key := userPoolID + ":" + username
 	b.tokenRevokedBeforeSeq[key] = b.tokenSeq
 	b.tokenRevokedBefore[key] = time.Now().UTC()
+	b.dropHostedSessionsLocked(userPoolID, username)
 
 	return nil
 }
@@ -492,6 +502,7 @@ func (b *InMemoryBackend) GlobalSignOut(accessToken string) error {
 	key := user.UserPoolID + ":" + user.Username
 	b.tokenRevokedBeforeSeq[key] = b.tokenSeq
 	b.tokenRevokedBefore[key] = time.Now().UTC()
+	b.dropHostedSessionsLocked(user.UserPoolID, user.Username)
 
 	return nil
 }

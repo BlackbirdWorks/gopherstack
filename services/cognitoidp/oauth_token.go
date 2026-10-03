@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -194,7 +195,10 @@ func (h *Handler) grantAuthorizationCode(client *UserPoolClient, form url.Values
 		return nil, oerr
 	}
 
-	tokens, err := h.Backend.issueOAuthTokens(entry.PoolID, entry.Username, client.ClientID, entry.Scopes, true)
+	tokens, err := h.Backend.issueOAuthTokens(
+		entry.PoolID, entry.Username, client.ClientID,
+		tokenGrant{scopes: entry.Scopes, nonce: entry.Nonce, storeRefresh: true},
+	)
 	if err != nil {
 		return nil, tokenIssueError(err)
 	}
@@ -289,7 +293,12 @@ func (h *Handler) grantClientCredentials(client *UserPoolClient, form url.Values
 		return nil, oerr
 	}
 
-	tok, expires, err := h.Backend.issueClientCredentialsToken(client.ClientID, scopes)
+	metadata, oerr := clientMetadataParam(form)
+	if oerr != nil {
+		return nil, oerr
+	}
+
+	tok, expires, err := h.Backend.issueClientCredentialsToken(client.ClientID, scopes, metadata)
 	if err != nil {
 		return nil, &oauthError{code: errServerError, status: http.StatusInternalServerError}
 	}
@@ -320,4 +329,19 @@ func (h *Handler) clientCredentialScopes(client *UserPoolClient, requested []str
 	}
 
 	return requested, nil
+}
+
+// clientMetadataParam decodes aws_client_metadata (a URL-encoded JSON object) from a client-credentials request.
+func clientMetadataParam(form url.Values) (map[string]string, *oauthError) {
+	raw := form.Get("aws_client_metadata")
+	if raw == "" {
+		return nil, nil
+	}
+
+	var metadata map[string]string
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+		return nil, newOAuthError(errInvalidRequest, "aws_client_metadata must be a JSON object of strings")
+	}
+
+	return metadata, nil
 }

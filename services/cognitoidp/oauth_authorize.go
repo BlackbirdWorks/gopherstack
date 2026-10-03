@@ -42,6 +42,7 @@ type authorizeRequest struct {
 	redirectURI   string
 	state         string
 	codeChallenge string
+	nonce         string
 	scopes        []string
 }
 
@@ -165,7 +166,7 @@ func (h *Handler) validateAuthorize(q url.Values, hostPool string) (*authorizeRe
 
 	req := &authorizeRequest{
 		client: client, redirectURI: redirect, state: q.Get("state"),
-		responseType: q.Get("response_type"), codeChallenge: q.Get("code_challenge"),
+		responseType: q.Get("response_type"), codeChallenge: q.Get("code_challenge"), nonce: q.Get("nonce"),
 	}
 	fail := func(code string) (*authorizeRequest, *authorizeFailure) {
 		return nil, &authorizeFailure{redirect: redirect, code: code, state: req.state}
@@ -186,11 +187,22 @@ func (h *Handler) validateAuthorize(q url.Values, hostPool string) (*authorizeRe
 
 	req.scopes = scopes
 
-	if q.Get("prompt") == promptNone {
-		return fail("login_required")
+	if none, login := promptFlags(q); none && login {
+		return fail(errInvalidRequest)
 	}
 
 	return req, nil
+}
+
+// promptFlags reports whether the space-delimited prompt parameter holds none and/or login.
+func promptFlags(q url.Values) (bool, bool) {
+	values := strings.Fields(q.Get("prompt"))
+
+	return slices.Contains(values, promptNone), slices.Contains(values, "login")
+}
+
+func (r *authorizeRequest) loginRequired() *authorizeFailure {
+	return &authorizeFailure{redirect: r.redirectURI, code: "login_required", state: r.state}
 }
 
 func (h *Handler) checkGrant(client *UserPoolClient, responseType string) string {
@@ -251,11 +263,59 @@ func (h *Handler) hostPool(c *echo.Context) string {
 }
 
 func (h *Handler) handleOAuthAuthorize(c *echo.Context) error {
-	if _, fail := h.validateAuthorize(c.Request().URL.Query(), h.hostPool(c)); fail != nil {
+	q := c.Request().URL.Query()
+
+	req, fail := h.validateAuthorize(q, h.hostPool(c))
+	if fail != nil {
 		return fail.respond(c)
 	}
 
+	none, login := promptFlags(q)
+	if !login {
+		if username, ok := h.sessionUser(c, req); ok {
+			return h.completeLogin(c, req, username)
+		}
+	}
+
+	if none {
+		return req.loginRequired().respond(c)
+	}
+
 	return c.Redirect(http.StatusFound, pathLogin+"?"+c.Request().URL.RawQuery)
+}
+
+// sessionUser returns the user of the request's managed-login session cookie, if it is live for the client's pool.
+func (h *Handler) sessionUser(c *echo.Context, req *authorizeRequest) (string, bool) {
+	cookie, err := c.Request().Cookie(sessionCookie)
+	if err != nil || cookie.Value == "" {
+		return "", false
+	}
+
+	return h.Backend.hostedSessionUser(cookie.Value, req.client.ClientID)
+}
+
+// finishLogin starts a fresh managed-login session (replacing any old one) and completes the flow.
+func (h *Handler) finishLogin(c *echo.Context, req *authorizeRequest, username string) error {
+	if old, err := c.Request().Cookie(sessionCookie); err == nil {
+		h.Backend.deleteHostedSession(old.Value)
+	}
+
+	id, err := h.Backend.createHostedSession(req.client.UserPoolID, username)
+	if err != nil {
+		return (&authorizeFailure{redirect: req.redirectURI, code: errServerError, state: req.state}).respond(c)
+	}
+
+	setSessionCookie(c.Response(), c.Request(), id, hostedSessionTTL)
+
+	return h.completeLogin(c, req, username)
+}
+
+func (h *Handler) endSession(c *echo.Context) {
+	if cookie, err := c.Request().Cookie(sessionCookie); err == nil {
+		h.Backend.deleteHostedSession(cookie.Value)
+	}
+
+	setSessionCookie(c.Response(), c.Request(), "", 0)
 }
 
 func (h *Handler) handleHostedLogin(c *echo.Context) error {
@@ -265,6 +325,10 @@ func (h *Handler) handleHostedLogin(c *echo.Context) error {
 	req, fail := h.validateAuthorize(q, h.hostPool(c))
 	if fail != nil {
 		return fail.respond(c)
+	}
+
+	if none, _ := promptFlags(q); none {
+		return req.loginRequired().respond(c)
 	}
 
 	if r.Method == http.MethodGet {
@@ -280,18 +344,28 @@ func (h *Handler) handleHostedLogin(c *echo.Context) error {
 		return renderLogin(c, q, http.StatusForbidden, "Your session expired. Please try again.")
 	}
 
-	username := r.PostForm.Get("username")
-	if err := h.Backend.oauthLogin(req.client.ClientID, username, r.PostForm.Get("password")); err != nil {
+	if r.PostForm.Get("challenge") != "" {
+		return h.answerHostedChallenge(c, req, q)
+	}
+
+	res, err := h.Backend.oauthLogin(req.client.ClientID, r.PostForm.Get("username"), r.PostForm.Get("password"))
+	if err != nil {
 		return renderLogin(c, q, http.StatusOK, loginMessage(err))
 	}
 
-	return h.completeLogin(c, req, username)
+	if res.ChallengeName != "" {
+		return renderChallenge(c, q, http.StatusOK, res, "")
+	}
+
+	return h.finishLogin(c, req, res.Username)
 }
 
 func loginMessage(err error) string {
 	switch {
 	case errors.Is(err, errHostedChallenge):
-		return "Additional sign-in steps are required and are not supported by this page."
+		return "This account needs a sign-in step that this page does not support."
+	case errors.Is(err, ErrInvalidPassword):
+		return "The new password does not meet the password policy."
 	case errors.Is(err, ErrUserNotConfirmed):
 		return "User is not confirmed."
 	default:
@@ -322,10 +396,11 @@ func cookieSecure(r *http.Request) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
 }
 
-func renderLogin(c *echo.Context, q url.Values, status int, msg string) error {
+// newCSRFCookie sets a fresh double-submit token cookie and returns the token for the form field.
+func newCSRFCookie(c *echo.Context) (string, error) {
 	raw := make([]byte, csrfBytes)
 	if _, err := rand.Read(raw); err != nil {
-		return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
+		return "", err //nolint:wrapcheck // caller only tests for failure
 	}
 
 	token := base64.RawURLEncoding.EncodeToString(raw)
@@ -335,9 +410,22 @@ func renderLogin(c *echo.Context, q url.Values, status int, msg string) error {
 	cookie.Secure = cookieSecure(c.Request())
 	http.SetCookie(c.Response(), cookie)
 
+	return token, nil
+}
+
+func beginHTML(c *echo.Context, status int) {
 	setHTMLHeaders(c)
 	c.Response().Header().Set("Content-Type", "text/html; charset=utf-8")
 	c.Response().WriteHeader(status)
+}
+
+func renderLogin(c *echo.Context, q url.Values, status int, msg string) error {
+	token, err := newCSRFCookie(c)
+	if err != nil {
+		return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
+	}
+
+	beginHTML(c, status)
 
 	return loginTemplate.Execute(c.Response(), map[string]string{
 		"Error": msg, "CSRF": token, "Username": q.Get("login_hint"),
@@ -352,7 +440,7 @@ func (h *Handler) completeLogin(c *echo.Context, req *authorizeRequest, username
 	if req.responseType == responseCode {
 		code, err := h.Backend.storeAuthCode(&authCodeEntry{
 			PoolID: req.client.UserPoolID, ClientID: req.client.ClientID, Username: username,
-			RedirectURI: req.redirectURI, CodeChallenge: req.codeChallenge, Scopes: req.scopes,
+			RedirectURI: req.redirectURI, CodeChallenge: req.codeChallenge, Nonce: req.nonce, Scopes: req.scopes,
 		})
 		if err != nil {
 			return (&authorizeFailure{redirect: req.redirectURI, code: errServerError, state: req.state}).respond(c)
@@ -361,7 +449,7 @@ func (h *Handler) completeLogin(c *echo.Context, req *authorizeRequest, username
 		query.Set("code", code)
 	} else {
 		tokens, err := h.Backend.issueOAuthTokens(
-			req.client.UserPoolID, username, req.client.ClientID, req.scopes, false,
+			req.client.UserPoolID, username, req.client.ClientID, tokenGrant{scopes: req.scopes, nonce: req.nonce},
 		)
 		if err != nil {
 			return (&authorizeFailure{redirect: req.redirectURI, code: errServerError, state: req.state}).respond(c)
@@ -400,6 +488,8 @@ func (h *Handler) handleHostedLogout(c *echo.Context) error {
 	if hp := h.hostPool(c); !ok || (hp != "" && client.UserPoolID != hp) {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "client_id not found")
 	}
+
+	h.endSession(c)
 
 	if logout := q.Get("logout_uri"); logout != "" {
 		registered, found := registeredURL(client.LogoutURLs, logout)

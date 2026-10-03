@@ -48,7 +48,16 @@ type oauthEnv struct {
 func newOAuthEnv(t *testing.T) *oauthEnv {
 	t.Helper()
 
+	return newOAuthEnvWith(t, cognitoidp.UserPoolOptions{}, nil)
+}
+
+func newOAuthEnvWith(t *testing.T, opts cognitoidp.UserPoolOptions, inv cognitoidp.LambdaTriggerInvoker) *oauthEnv {
+	t.Helper()
+
 	b := newTestBackend()
+	if inv != nil {
+		b.SetLambdaTriggerInvoker(inv)
+	}
 	h := cognitoidp.NewHandler(b, "us-east-1")
 	e := echo.New()
 
@@ -64,7 +73,7 @@ func newOAuthEnv(t *testing.T) *oauthEnv {
 		Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
 
-	pool, err := b.CreateUserPool("oauth-pool")
+	pool, err := b.CreateUserPoolWithOpts("oauth-pool", opts)
 	require.NoError(t, err)
 
 	env.poolID = pool.ID

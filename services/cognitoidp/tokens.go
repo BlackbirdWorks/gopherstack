@@ -182,6 +182,7 @@ type TokenParams struct {
 	Attributes            map[string]string `json:"attributes,omitempty"`
 	ClaimsToAddOrOverride map[string]string `json:"claimsToAddOrOverride,omitempty"`
 	ClientID              string            `json:"clientID,omitempty"`
+	Nonce                 string            `json:"nonce,omitempty"`
 	Username              string            `json:"username,omitempty"`
 	UserSub               string            `json:"userSub,omitempty"`
 	Scopes                []string          `json:"scopes,omitempty"`
@@ -212,6 +213,7 @@ const (
 	claimCognitoUsername = "cognito:username"
 	claimCognitoGroups   = "cognito:groups"
 	claimJTI             = "jti"
+	claimNonce           = "nonce"
 	claimEventID         = "event_id"
 	claimScope           = "scope"
 	claimClientID        = "client_id"
@@ -244,6 +246,7 @@ var protectedTokenClaims = map[string]struct{}{ //nolint:gochecknoglobals // sta
 	claimCognitoUsername: {},
 	claimCognitoGroups:   {},
 	claimJTI:             {},
+	claimNonce:           {},
 	claimEventID:         {},
 	claimScope:           {},
 	claimClientID:        {},
@@ -307,6 +310,10 @@ func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Du
 	}
 	if len(p.Groups) > 0 {
 		idClaims[claimCognitoGroups] = p.Groups
+	}
+
+	if p.Nonce != "" {
+		idClaims[claimNonce] = p.Nonce
 	}
 
 	// Include standard user attributes in the ID token (email, phone_number, name, etc.)

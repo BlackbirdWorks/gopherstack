@@ -44,18 +44,8 @@ type authCodeEntry struct {
 	Username      string
 	RedirectURI   string
 	CodeChallenge string
+	Nonce         string
 	Scopes        []string
-}
-
-// hostedChallengeCheck rejects users that would need a NEW_PASSWORD_REQUIRED or MFA challenge,
-// which the minimal hosted login page cannot answer.
-func hostedChallengeCheck(pool *UserPool, user *User) error {
-	mfa := pool.MfaConfiguration
-	if user.Status == UserStatusForceChangePassword || mfa == "ON" || mfa == "OPTIONAL" {
-		return errHostedChallenge
-	}
-
-	return nil
 }
 
 func (b *InMemoryBackend) oauthClient(clientID string) (*UserPoolClient, bool) {
@@ -74,36 +64,36 @@ func (b *InMemoryBackend) oauthClient(clientID string) (*UserPoolClient, bool) {
 
 // oauthLogin verifies credentials for the hosted login page; it is not reachable through any wire
 // AuthFlow value, so ExplicitAuthFlows (an API-flow setting) does not gate it.
-func (b *InMemoryBackend) oauthLogin(clientID, username, password string) error {
+func (b *InMemoryBackend) oauthLogin(clientID, username, password string) (hostedLogin, error) {
 	b.mu.Lock("OAuthLogin")
 	defer b.mu.Unlock()
 
 	client, ok := b.clients.Get(clientID)
 	if !ok {
-		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+		return hostedLogin{}, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
 	pool, ok := b.pools.Get(client.UserPoolID)
 	if !ok {
-		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
+		return hostedLogin{}, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
 	user, finalStatus, err := b.hostedLoginUserLocked(pool, client, username, password)
 	if err != nil {
-		return err
+		return hostedLogin{}, err
 	}
 
 	if err = b.precheckUserLocked(pool, clientID, user); err != nil {
-		return err
+		return hostedLogin{}, err
 	}
 
 	if err = b.verifyPasswordLocked(pool, user, password); err != nil {
-		return err
+		return hostedLogin{}, err
 	}
 
 	b.applyPostMigrationFinalStatus(pool.ID, username, finalStatus)
 
-	return hostedChallengeCheck(pool, user)
+	return b.hostedChallengeLocked(pool, clientID, user)
 }
 
 // hostedLoginUserLocked finds the user, falling back to the UserMigration trigger like USER_PASSWORD_AUTH.
@@ -195,7 +185,7 @@ func (b *InMemoryBackend) consumeAuthCode(code string) (*authCodeEntry, error) {
 }
 
 func (b *InMemoryBackend) issueOAuthTokens(
-	poolID, username, clientID string, scopes []string, storeRefresh bool,
+	poolID, username, clientID string, grant tokenGrant,
 ) (*TokenResult, error) {
 	b.mu.Lock("IssueOAuthTokens")
 	defer b.mu.Unlock()
@@ -214,9 +204,9 @@ func (b *InMemoryBackend) issueOAuthTokens(
 		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	res, err := b.issueScopedTokensLocked(
-		pool, clientID, user, triggerSourceTokenGenAuthentication, slices.Clone(scopes), storeRefresh,
-	)
+	grant.scopes = slices.Clone(grant.scopes)
+
+	res, err := b.issueScopedTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, grant)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +240,9 @@ func (b *InMemoryBackend) oauthRefresh(clientID, refreshToken string) (*TokenRes
 }
 
 // issueClientCredentialsToken mints the access-token-only M2M token for a client.
-func (b *InMemoryBackend) issueClientCredentialsToken(clientID string, scopes []string) (string, int32, error) {
+func (b *InMemoryBackend) issueClientCredentialsToken(
+	clientID string, scopes []string, metadata map[string]string,
+) (string, int32, error) {
 	b.mu.RLock("IssueClientCredentialsToken")
 
 	client, ok := b.clients.Get(clientID)
@@ -273,10 +265,25 @@ func (b *InMemoryBackend) issueClientCredentialsToken(clientID string, scopes []
 	}
 
 	issuer := pool.issuer
+	call := b.prepareM2MTrigger(pool, clientID, scopes, metadata)
 
 	b.mu.RUnlock()
 
-	tok, err := issuer.signClientCredentialsToken(clientID, resolveAccessScope(scopes), time.Now(), expiry)
+	var override m2mOverride
+
+	if call != nil {
+		var trigErr error
+		if override, trigErr = runM2MTrigger(call); trigErr != nil {
+			return "", 0, trigErr
+		}
+	}
+
+	scope := ""
+	if granted := override.applyScopes(scopes); len(granted) > 0 {
+		scope = resolveAccessScope(granted)
+	}
+
+	tok, err := issuer.signClientCredentialsToken(clientID, scope, time.Now(), expiry, override)
 	if err != nil {
 		return "", 0, err
 	}
@@ -285,14 +292,14 @@ func (b *InMemoryBackend) issueClientCredentialsToken(clientID string, scopes []
 }
 
 func (t *tokenIssuer) signClientCredentialsToken(
-	clientID, scope string, now time.Time, expiry time.Duration,
+	clientID, scope string, now time.Time, expiry time.Duration, override m2mOverride,
 ) (string, error) {
 	jti := make([]byte, jtiBytes)
 	if _, err := rand.Read(jti); err != nil {
 		return "", fmt.Errorf("generating jti: %w", err)
 	}
 
-	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+	claims := jwt.MapClaims{
 		claimSub:      clientID,
 		claimIss:      t.issuerURL,
 		claimClientID: clientID,
@@ -303,7 +310,14 @@ func (t *tokenIssuer) signClientCredentialsToken(
 		claimIat:      now.Unix(),
 		claimExp:      now.Add(expiry).Unix(),
 		claimAuthTime: now.Unix(),
-	})
+	}
+	if scope == "" {
+		delete(claims, claimScope)
+	}
+
+	override.applyClaims(claims)
+
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tok.Header["kid"] = t.keyID
 
 	signed, err := tok.SignedString(t.privateKey)
