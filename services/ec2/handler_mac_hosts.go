@@ -153,9 +153,10 @@ func parseMacSIPConfig(vals url.Values) *MacSIPConfig {
 }
 
 func (h *Handler) handleCreateMacSIPModificationTask(vals url.Values, reqID string) (any, error) {
-	task, err := h.Backend.CreateMacSystemIntegrityProtectionModificationTask(
+	task, err := h.Backend.CreateMacSIPModificationTaskWithCredentials(
 		vals.Get("InstanceId"),
 		vals.Get("MacSystemIntegrityProtectionStatus"),
+		vals.Get("MacCredentials"),
 		parseMacSIPConfig(vals),
 		parseTagSpecification(vals, resourceTypeMacModificationTask),
 	)

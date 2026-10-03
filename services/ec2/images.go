@@ -3,6 +3,7 @@ package ec2
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -99,6 +100,7 @@ func (b *InMemoryBackend) DescribeImages() []AMIStub {
 	images = append(images, stubAMIs...)
 	for _, img := range b.images.All() {
 		cp := *img
+		cp.BlockDeviceMappings = slices.Clone(img.BlockDeviceMappings)
 		images = append(images, cp)
 	}
 
@@ -835,8 +837,20 @@ func (b *InMemoryBackend) DescribeFastLaunchImages(imageIDs []string) []FastLaun
 
 // CopyImage copies an AMI stub, producing a new ID.
 func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*AMIStub, error) {
+	return b.CopyImageEncrypted(sourceImageID, name, description, false, "")
+}
+
+// CopyImageEncrypted is CopyImage plus Encrypted/KmsKeyId: the source image's
+// snapshots are copied (encrypted if requested) and the new image maps to the copies.
+func (b *InMemoryBackend) CopyImageEncrypted(
+	sourceImageID, name, description string, encrypted bool, kmsKeyID string,
+) (*AMIStub, error) {
 	if sourceImageID == "" {
 		return nil, fmt.Errorf("%w: SourceImageId is required", ErrInvalidParameter)
+	}
+
+	if kmsKeyID != "" && !encrypted {
+		return nil, fmt.Errorf("%w: KmsKeyId requires Encrypted to be true", ErrInvalidParameterCombination)
 	}
 
 	b.mu.Lock("CopyImage")
@@ -865,6 +879,7 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 		SourceImageID:  src.ImageID,
 		OwnerID:        b.AccountID,
 	}
+	newImage.BlockDeviceMappings = b.copyImageMappingsLocked(src.BlockDeviceMappings, encrypted, kmsKeyID)
 	b.images.Put(newImage)
 
 	cp := *newImage
@@ -872,17 +887,65 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 	return &cp, nil
 }
 
+// copyImageMappingsLocked copies the EBS snapshots behind mappings. Must be
+// called with b.mu held.
+func (b *InMemoryBackend) copyImageMappingsLocked(
+	mappings []ImageBlockDeviceMapping, encrypted bool, kmsKeyID string,
+) []ImageBlockDeviceMapping {
+	if len(mappings) == 0 {
+		return nil
+	}
+
+	out := make([]ImageBlockDeviceMapping, len(mappings))
+	copy(out, mappings)
+
+	for i := range out {
+		snap, ok := b.snapshots.Get(out[i].SnapshotID)
+		if out[i].SnapshotID == "" || !ok {
+			continue
+		}
+
+		cp := b.copySnapshotLocked(snap, "", encrypted, kmsKeyID)
+		out[i].SnapshotID = cp.SnapshotID
+		out[i].Encrypted = cp.Encrypted
+	}
+
+	return out
+}
+
+// SnapshotDeleteResult is one DeregisterImage DeleteSnapshotResults entry.
+type SnapshotDeleteResult struct {
+	SnapshotID string
+	ReturnCode string
+}
+
 // DeregisterImage removes an AMI from the image store.
 func (b *InMemoryBackend) DeregisterImage(imageID string) error {
+	_, err := b.DeregisterImageDeleteSnapshots(imageID, false)
+
+	return err
+}
+
+// DeregisterImageDeleteSnapshots deregisters an AMI and, when deleteSnapshots
+// is set, deletes the snapshots behind it that no other AMI still maps.
+func (b *InMemoryBackend) DeregisterImageDeleteSnapshots(
+	imageID string, deleteSnapshots bool,
+) ([]SnapshotDeleteResult, error) {
 	if imageID == "" {
-		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeregisterImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images.Get(imageID); !ok {
-		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
+	img, ok := b.images.Get(imageID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
+	}
+
+	var results []SnapshotDeleteResult
+	if deleteSnapshots {
+		results = b.deleteImageSnapshotsLocked(img)
 	}
 	b.images.Delete(imageID)
 	delete(b.tags, imageID)
@@ -895,7 +958,56 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 	delete(b.imageLaunchPermissions, imageID)
 	delete(b.imageLaunchPermissionPublic, imageID)
 
-	return nil
+	return results, nil
+}
+
+// deleteImageSnapshotsLocked deletes the snapshots mapped by img; a snapshot
+// still mapped by another AMI is skipped. Must be called with b.mu held.
+func (b *InMemoryBackend) deleteImageSnapshotsLocked(img *AMIStub) []SnapshotDeleteResult {
+	var results []SnapshotDeleteResult
+
+	for _, m := range img.BlockDeviceMappings {
+		if m.SnapshotID == "" {
+			continue
+		}
+
+		code := "success"
+
+		switch {
+		case b.snapshotMappedByOtherImageLocked(img.ImageID, m.SnapshotID):
+			code = "skipped"
+		case !b.snapshotExistsLocked(m.SnapshotID):
+			code = "client-error"
+		default:
+			b.deleteSnapshotLocked(m.SnapshotID)
+		}
+
+		results = append(results, SnapshotDeleteResult{SnapshotID: m.SnapshotID, ReturnCode: code})
+	}
+
+	return results
+}
+
+func (b *InMemoryBackend) snapshotExistsLocked(snapshotID string) bool {
+	_, ok := b.snapshots.Get(snapshotID)
+
+	return ok
+}
+
+func (b *InMemoryBackend) snapshotMappedByOtherImageLocked(imageID, snapshotID string) bool {
+	for _, other := range b.images.All() {
+		if other.ImageID == imageID {
+			continue
+		}
+
+		for _, m := range other.BlockDeviceMappings {
+			if m.SnapshotID == snapshotID {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ---- VPC / Subnet attribute mutations ----

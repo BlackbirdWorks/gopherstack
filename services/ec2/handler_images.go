@@ -791,10 +791,12 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	sourceImageID := vals.Get("SourceImageId")
 
-	image, err := h.Backend.CopyImage(
+	image, err := h.Backend.CopyImageEncrypted(
 		sourceImageID,
 		vals.Get("Name"),
 		vals.Get("Description"),
+		vals.Get("Encrypted") == ec2BooleanTrue,
+		vals.Get("KmsKeyId"),
 	)
 	if err != nil {
 		return nil, err
@@ -817,23 +819,38 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-// handleDeregisterImage: DeregisterImageOutput also has DeleteSnapshotResults
-// (ec2@v1.319.1 api_op_DeregisterImage.go), populated only when the request's
-// DeleteAssociatedSnapshots=true and a snapshot backing the AMI was actually
-// deleted. This backend doesn't track which snapshots back an AMI (AMIStub
-// has no block-device-mapping/snapshot fields at all -- see store.go), so
-// there's no real data to report for that case; left as a stub (Return only)
-// rather than adding a field that would always be empty. See PARITY.md.
+type deleteSnapshotResultItem struct {
+	ReturnCode string `xml:"returnCode"`
+	SnapshotID string `xml:"snapshotId"`
+}
+
+type deregisterImageResponse struct {
+	XMLName   xml.Name                   `xml:"DeregisterImageResponse"`
+	Xmlns     string                     `xml:"xmlns,attr"`
+	RequestID string                     `xml:"requestId"`
+	Results   []deleteSnapshotResultItem `xml:"deleteSnapshotResultSet>item,omitempty"`
+	Return    bool                       `xml:"return"`
+}
+
+// handleDeregisterImage reports DeleteSnapshotResults when DeleteAssociatedSnapshots=true
+// (deserializers.go awsEc2query_deserializeOpDocumentDeregisterImageOutput).
 func (h *Handler) handleDeregisterImage(vals url.Values, reqID string) (any, error) {
-	if err := h.Backend.DeregisterImage(vals.Get("ImageId")); err != nil {
+	results, err := h.Backend.DeregisterImageDeleteSnapshots(
+		vals.Get("ImageId"), vals.Get("DeleteAssociatedSnapshots") == ec2BooleanTrue,
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeregisterImageResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	resp := &deregisterImageResponse{Xmlns: ec2XMLNS, RequestID: reqID, Return: true}
+	for _, r := range results {
+		resp.Results = append(
+			resp.Results,
+			deleteSnapshotResultItem{ReturnCode: r.ReturnCode, SnapshotID: r.SnapshotID},
+		)
+	}
+
+	return resp, nil
 }
 
 // ---- VPC / Subnet attribute handlers ----

@@ -347,7 +347,33 @@ func (h *Handler) handleCopyVolumes(vals url.Values, reqID string) (any, error) 
 	}, nil
 }
 
+const (
+	volumeInitializationRateMin = 100
+	volumeInitializationRateMax = 300
+)
+
+// parseVolumeInitializationRate reads VolumeInitializationRate, whose
+// documented valid range is 100-300 MiB/s (api_op_CreateVolume.go); absent is 0.
+func parseVolumeInitializationRate(vals url.Values) (int32, error) {
+	v := vals.Get("VolumeInitializationRate")
+	if v == "" {
+		return 0, nil
+	}
+
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil || n < volumeInitializationRateMin || n > volumeInitializationRateMax {
+		return 0, fmt.Errorf("%w: VolumeInitializationRate must be between %d and %d MiB/s",
+			ErrInvalidParameter, volumeInitializationRateMin, volumeInitializationRateMax)
+	}
+
+	return int32(n), nil
+}
+
 func (h *Handler) handleCreateReplaceRootVolumeTask(vals url.Values, reqID string) (any, error) {
+	if _, err := parseVolumeInitializationRate(vals); err != nil {
+		return nil, err
+	}
+
 	instanceID := vals.Get("InstanceId")
 	snapshotID := vals.Get("SnapshotId")
 
@@ -792,13 +818,9 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	var initRate int32
-	if v := vals.Get("VolumeInitializationRate"); v != "" {
-		n, parseErr := strconv.ParseInt(v, 10, 32)
-		if parseErr != nil {
-			return nil, fmt.Errorf("%w: VolumeInitializationRate must be an integer", ErrInvalidParameter)
-		}
-		initRate = int32(n)
+	initRate, err := parseVolumeInitializationRate(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	vol, err := h.Backend.CreateVolume(az, volType, size, snapshotID, initRate)

@@ -113,11 +113,25 @@ func (b *InMemoryBackend) CreateKeyPair(name string, tags map[string]string) (*K
 	return b.CreateKeyPairWithType(name, keyTypeRSA, tags)
 }
 
-// CreateKeyPairWithType generates a key pair of keyType (rsa or ed25519).
-// The PPK KeyFormat is not modeled.
+// CreateKeyPairWithType generates a key pair of keyType (rsa or ed25519) in PEM format.
 func (b *InMemoryBackend) CreateKeyPairWithType(name, keyType string, tags map[string]string) (*KeyPair, error) {
+	return b.CreateKeyPairWithFormat(name, keyType, keyFormatPEM, tags)
+}
+
+// CreateKeyPairWithFormat is CreateKeyPairWithType plus KeyFormat (pem or ppk).
+func (b *InMemoryBackend) CreateKeyPairWithFormat(
+	name, keyType, keyFormat string, tags map[string]string,
+) (*KeyPair, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
+	}
+
+	if keyFormat == "" {
+		keyFormat = keyFormatPEM
+	}
+
+	if keyFormat != keyFormatPEM && keyFormat != keyFormatPPK {
+		return nil, fmt.Errorf("%w: KeyFormat must be pem or ppk, got %q", ErrInvalidParameter, keyFormat)
 	}
 
 	b.mu.Lock("CreateKeyPair")
@@ -138,6 +152,12 @@ func (b *InMemoryBackend) CreateKeyPairWithType(name, keyType string, tags map[s
 	privPEM, pub, fp, err := generate()
 	if err != nil {
 		return nil, err
+	}
+
+	if keyFormat == keyFormatPPK {
+		if privPEM, err = pemToPPK(privPEM, name); err != nil {
+			return nil, err
+		}
 	}
 
 	authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) +

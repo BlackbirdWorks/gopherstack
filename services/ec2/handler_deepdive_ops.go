@@ -65,10 +65,11 @@ func registerDeepDiveOps(h *Handler, ops map[string]ec2ActionFn) {
 }
 
 func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) {
-	image, err := h.Backend.CreateImage(
+	image, err := h.Backend.CreateImageWithLocation(
 		vals.Get("InstanceId"),
 		vals.Get("Name"),
 		vals.Get("Description"),
+		vals.Get("SnapshotLocation"),
 	)
 	if err != nil {
 		return nil, err

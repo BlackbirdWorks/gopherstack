@@ -36,34 +36,42 @@ func (h *Handler) handleDeleteLaunchTemplate(vals url.Values, reqID string) (any
 // backend only ever stores one version snapshot per template, so Versions/
 // MinVersion/MaxVersion are applied against that single item rather than a
 // real multi-version history (which this mock does not model).
-func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID string) (any, error) {
-	id := vals.Get("LaunchTemplateId")
-	if id == "" {
-		if name := vals.Get("LaunchTemplateName"); name != "" {
-			if matches := h.Backend.DescribeLaunchTemplates([]string{name}); len(matches) > 0 {
-				id = matches[0].ID
-			}
+// launchTemplateIDFor resolves LaunchTemplateId, falling back to LaunchTemplateName.
+func (h *Handler) launchTemplateIDFor(vals url.Values) string {
+	if id := vals.Get("LaunchTemplateId"); id != "" {
+		return id
+	}
+
+	if name := vals.Get("LaunchTemplateName"); name != "" {
+		if matches := h.Backend.DescribeLaunchTemplates([]string{name}); len(matches) > 0 {
+			return matches[0].ID
 		}
 	}
 
-	versions, err := h.Backend.DescribeLaunchTemplateVersions(id)
+	return ""
+}
+
+func parseVersionBound(raw string) (int64, bool) {
+	if raw == "" {
+		return 0, false
+	}
+
+	n, _ := strconv.ParseInt(raw, 10, 64)
+
+	return n, true
+}
+
+func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID string) (any, error) {
+	versions, err := h.Backend.DescribeLaunchTemplateVersions(h.launchTemplateIDFor(vals))
 	if err != nil {
 		return nil, err
 	}
 
 	requestedVersions := parseMemberList(vals, "LaunchTemplateVersion")
+	minVersion, hasMin := parseVersionBound(vals.Get("MinVersion"))
+	maxVersion, hasMax := parseVersionBound(vals.Get("MaxVersion"))
 
-	var minVersion, maxVersion int64
-
-	hasMin := vals.Get("MinVersion") != ""
-	if hasMin {
-		minVersion, _ = strconv.ParseInt(vals.Get("MinVersion"), 10, 64)
-	}
-
-	hasMax := vals.Get("MaxVersion") != ""
-	if hasMax {
-		maxVersion, _ = strconv.ParseInt(vals.Get("MaxVersion"), 10, 64)
-	}
+	resolveAlias := vals.Get("ResolveAlias") == ec2BooleanTrue
 
 	items := make([]launchTemplateVersionItem, 0, len(versions))
 	for _, lt := range versions {
@@ -90,6 +98,13 @@ func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID st
 		}
 		item.LaunchTemplateData.ImageID = lt.ImageID
 		item.LaunchTemplateData.InstanceType = lt.InstanceType
+
+		if resolveAlias {
+			if item.LaunchTemplateData.ImageID, err = h.Backend.ResolveSSMImageAlias(lt.ImageID); err != nil {
+				return nil, err
+			}
+		}
+
 		items = append(items, item)
 	}
 

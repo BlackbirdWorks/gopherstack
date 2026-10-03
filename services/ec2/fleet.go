@@ -33,6 +33,8 @@ type FleetLaunchTemplateConfig struct {
 // FleetCreateInput bundles CreateFleet's request fields (ec2@v1.319.1
 // api_op_CreateFleet.go CreateFleetInput).
 type FleetCreateInput struct {
+	ValidFrom                        time.Time
+	ValidUntil                       time.Time
 	Type                             string
 	ExcessCapacityTerminationPolicy  string
 	TargetCapacityUnitType           string
@@ -106,10 +108,27 @@ func (b *InMemoryBackend) CreateFleet(input FleetCreateInput) (*Fleet, []CreateF
 		OnDemandTargetCapacity:           input.OnDemandTargetCapacity,
 		SpotTargetCapacity:               input.SpotTargetCapacity,
 		TerminateInstancesWithExpiration: input.TerminateInstancesWithExpiration,
+		ValidFrom:                        input.ValidFrom,
+		ValidUntil:                       input.ValidUntil,
 	}
 
-	results, fulfilled := b.launchFleetInstancesLocked(f, input.LaunchTemplateConfigs, input.TotalTargetCapacity)
-	f.FulfilledCapacity = fulfilled
+	var results []CreateFleetInstanceResult
+
+	if fleetType != fleetTypeInstant && input.ValidFrom.After(time.Now()) {
+		f.FleetState = SpotFleetStateSubmitted
+		b.fleets.Put(f)
+
+		cp := *f
+		cp.LaunchTemplateConfigs = cloneFleetLaunchTemplateConfigs(f.LaunchTemplateConfigs)
+
+		return &cp, nil, nil
+	}
+
+	results, f.FulfilledCapacity = b.launchFleetInstancesLocked(
+		f,
+		input.LaunchTemplateConfigs,
+		input.TotalTargetCapacity,
+	)
 
 	b.fleets.Put(f)
 
@@ -126,6 +145,29 @@ func (b *InMemoryBackend) CreateFleet(input FleetCreateInput) (*Fleet, []CreateF
 	cp.LaunchTemplateConfigs = cloneFleetLaunchTemplateConfigs(f.LaunchTemplateConfigs)
 
 	return &cp, results, nil
+}
+
+// activateDueFleetsLocked starts fulfilling submitted fleets whose ValidFrom
+// has passed. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) activateDueFleetsLocked() {
+	now := time.Now()
+
+	for _, f := range b.fleets.All() {
+		if f.FleetState != SpotFleetStateSubmitted || f.ValidFrom.After(now) {
+			continue
+		}
+
+		f.FleetState = SpotFleetStateActive
+		_, f.FulfilledCapacity = b.launchFleetInstancesLocked(f, f.LaunchTemplateConfigs, f.TotalTargetCapacity)
+
+		b.appendEC2FleetHistoryLocked(f.FleetID, FleetHistoryRecord{
+			Timestamp: now.UTC(),
+			EventType: fleetHistoryEventType,
+			EventInformation: fmt.Sprintf(
+				"fleet %s moved to active state with %d instances", f.FleetID, len(f.InstanceIDs),
+			),
+		})
+	}
 }
 
 // launchFleetInstancesLocked resolves the fleet's launch template configs
@@ -466,8 +508,10 @@ func (b *InMemoryBackend) fleetReportedStateLocked(f *Fleet) string {
 }
 
 func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
-	b.mu.RLock("DescribeFleets")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeFleets")
+	defer b.mu.Unlock()
+
+	b.activateDueFleetsLocked()
 
 	var result []*Fleet
 
@@ -511,6 +555,8 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 func (b *InMemoryBackend) ModifyFleet(id string, totalTargetCapacity int, excessPolicy string) error {
 	b.mu.Lock("ModifyFleet")
 	defer b.mu.Unlock()
+
+	b.activateDueFleetsLocked()
 
 	f, ok := b.fleets.Get(id)
 	if !ok {
@@ -605,8 +651,10 @@ func (b *InMemoryBackend) DescribeFleetInstances(
 		return nil, fmt.Errorf("%w: FleetId is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("DescribeFleetInstances")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeFleetInstances")
+	defer b.mu.Unlock()
+
+	b.activateDueFleetsLocked()
 
 	f, ok := b.fleets.Get(fleetID)
 	if !ok {

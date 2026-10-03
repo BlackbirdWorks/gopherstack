@@ -604,6 +604,13 @@ func (b *InMemoryBackend) recycleENIIPsLocked(eni *NetworkInterface) {
 func (b *InMemoryBackend) detachVolumesAndEIPsLocked(instanceID string) {
 	for _, vol := range b.volumes.All() {
 		if vol.Attachment != nil && vol.Attachment.InstanceID == instanceID {
+			if vol.Attachment.DeleteOnTermination {
+				b.volumes.Delete(vol.ID)
+				delete(b.tags, vol.ID)
+
+				continue
+			}
+
 			vol.Attachment = nil
 			vol.State = stateAvailable
 		}

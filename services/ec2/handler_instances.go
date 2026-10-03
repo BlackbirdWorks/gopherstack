@@ -967,7 +967,7 @@ func (h *Handler) handleStopInstances(vals url.Values, reqID string) (any, error
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 
-	changes, err := h.Backend.StopInstances(ids)
+	changes, err := h.Backend.StopInstancesWithOptions(ids, vals.Get("Hibernate") == ec2BooleanTrue)
 	if err != nil {
 		return nil, err
 	}

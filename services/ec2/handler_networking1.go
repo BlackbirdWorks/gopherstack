@@ -542,6 +542,12 @@ func (h *Handler) handleCreateLaunchTemplateVersion(vals url.Values, reqID strin
 	item.LaunchTemplateData.ImageID = ver.ImageID
 	item.LaunchTemplateData.InstanceType = ver.InstanceType
 
+	if vals.Get("ResolveAlias") == ec2BooleanTrue {
+		if item.LaunchTemplateData.ImageID, err = h.Backend.ResolveSSMImageAlias(ver.ImageID); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createLaunchTemplateVersionResponse{
 		RequestID:             reqID,
 		LaunchTemplateVersion: item,

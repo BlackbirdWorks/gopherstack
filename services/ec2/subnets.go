@@ -20,6 +20,12 @@ func newSubnetID() string {
 
 // CreateDefaultSubnet creates a new default subnet in the given availability zone.
 func (b *InMemoryBackend) CreateDefaultSubnet(az string) (*Subnet, error) {
+	return b.CreateDefaultSubnetWithOptions(az, false)
+}
+
+// CreateDefaultSubnetWithOptions is CreateDefaultSubnet plus Ipv6Native, which
+// creates an IPv6-only default subnet (no IPv4 CIDR block).
+func (b *InMemoryBackend) CreateDefaultSubnetWithOptions(az string, ipv6Native bool) (*Subnet, error) {
 	if az == "" {
 		az = b.Region + "a"
 	}
@@ -39,6 +45,12 @@ func (b *InMemoryBackend) CreateDefaultSubnet(az string) (*Subnet, error) {
 		return nil, fmt.Errorf("%w: no default VPC found", ErrVPCNotFound)
 	}
 
+	for _, existing := range b.subnets.All() {
+		if existing.IsDefault && existing.AvailabilityZone == az && existing.VPCID == defaultVPCID {
+			return nil, fmt.Errorf("%w: %s", ErrDefaultSubnetExists, az)
+		}
+	}
+
 	subnet := &Subnet{
 		ID:                  newSubnetID(),
 		VPCID:               defaultVPCID,
@@ -46,10 +58,17 @@ func (b *InMemoryBackend) CreateDefaultSubnet(az string) (*Subnet, error) {
 		AvailabilityZone:    az,
 		IsDefault:           true,
 		MapPublicIPOnLaunch: true,
+		Ipv6Native:          ipv6Native,
 	}
-	b.subnets.Put(subnet)
+	if ipv6Native {
+		subnet.CIDRBlock = ""
+	}
 
-	return subnet, nil
+	b.subnets.Put(subnet)
+	b.indexSubnetLocked(subnet.ID, defaultVPCID)
+	cp := *subnet
+
+	return &cp, nil
 }
 
 // ---- AssociateSubnetCidrBlock ----

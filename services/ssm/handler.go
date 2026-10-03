@@ -25,6 +25,11 @@ const errCodeDoesNotExist = "DoesNotExistException"
 
 type regionContextKey struct{}
 
+// WithRegion returns ctx carrying the region SSM resolves parameters in.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // Handler is the Echo HTTP service handler for SSM operations.
 type Handler struct {
 	Backend StorageBackend

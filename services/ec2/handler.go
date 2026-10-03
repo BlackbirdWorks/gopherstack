@@ -703,6 +703,8 @@ var errCodeLookup = []struct {
 	{ErrPlacementGroupNotFound, "InvalidPlacementGroup.Unknown"},
 	{ErrDuplicatePlacementGroupName, "InvalidPlacementGroup.Duplicate"},
 	{ErrInvalidInstanceState, "IncorrectInstanceState"},
+	{ErrUnsupportedHibernation, "UnsupportedHibernationConfiguration"},
+	{ErrDefaultSubnetExists, "DefaultSubnetAlreadyExistsInAvailabilityZone"},
 	{ErrAddressTransferNotFound, "InvalidAddressTransfer.NotFound"},
 	{ErrCapacityReservationNotFound, "InvalidCapacityReservationId.NotFound"},
 	{ErrReservedInstancesNotFound, "InvalidReservedInstancesId"},

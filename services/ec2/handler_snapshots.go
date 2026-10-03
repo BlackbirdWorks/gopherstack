@@ -120,7 +120,9 @@ func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, err
 	excludeDataVolumeIDs := parseMemberList(vals, "InstanceSpecification.ExcludeDataVolumeId")
 	description := vals.Get("Description")
 
-	snaps, err := h.Backend.CreateSnapshots(instanceID, excludeBootVolume, excludeDataVolumeIDs, description)
+	snaps, err := h.Backend.CreateSnapshotsAt(
+		instanceID, excludeBootVolume, excludeDataVolumeIDs, description, vals.Get("Location"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -688,7 +690,7 @@ func (h *Handler) handleDescribeFastSnapshotRestores(vals url.Values, reqID stri
 }
 
 func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, error) {
-	snap, err := h.Backend.CreateSnapshot(vals.Get("VolumeId"), vals.Get("Description"))
+	snap, err := h.Backend.CreateSnapshotAt(vals.Get("VolumeId"), vals.Get("Description"), vals.Get("Location"))
 	if err != nil {
 		return nil, err
 	}

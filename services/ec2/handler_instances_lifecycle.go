@@ -185,6 +185,12 @@ func (h *Handler) applyRunInstancesPostCreateOptions(instances []*Instance, vals
 		return err
 	}
 
+	if vals.Get("HibernationOptions.Configured") == ec2BooleanTrue {
+		if err := h.Backend.SetInstancesHibernation(instanceIDsOf(instances), true); err != nil {
+			return err
+		}
+	}
+
 	profileARN := iamInstanceProfileArg(vals)
 	if profileARN == "" {
 		return nil
@@ -348,12 +354,13 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	sgNames := securityGroupNamesFor(h.Backend, instances)
 	sdcByID := h.Backend.PrimaryNetworkInterfaceSourceDestChecks(instanceIDsOf(instances))
 
+	devicesByID := h.Backend.InstanceBlockDevices(instanceIDsOf(instances))
+
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
-		items = append(
-			items,
-			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID]),
-		)
+		item := toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID])
+		item.BlockDeviceMapping = blockDeviceSet(devicesByID[inst.ID])
+		items = append(items, item)
 	}
 
 	return &runInstancesResponse{
@@ -423,12 +430,13 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 	sgNames := securityGroupNamesFor(h.Backend, instances)
 	sdcByID := h.Backend.PrimaryNetworkInterfaceSourceDestChecks(instanceIDsOf(instances))
 
+	devicesByID := h.Backend.InstanceBlockDevices(instanceIDsOf(instances))
+
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
-		items = append(
-			items,
-			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID]),
-		)
+		item := toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID])
+		item.BlockDeviceMapping = blockDeviceSet(devicesByID[inst.ID])
+		items = append(items, item)
 	}
 
 	reservation := reservationItem{
@@ -542,6 +550,15 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
+	if attr == attrBlockDeviceMapping {
+		return &describeInstanceBlockDevicesResponse{
+			Xmlns:      ec2XMLNS,
+			RequestID:  reqID,
+			InstanceID: instanceID,
+			Devices:    blockDeviceItems(h.Backend.InstanceBlockDevices([]string{instanceID})[instanceID]),
+		}, nil
+	}
+
 	inst := instances[0]
 	attrValue := h.instanceAttributeValue(inst, instanceID, attr)
 
@@ -650,6 +667,10 @@ func toInstanceItem(
 		},
 	}
 
+	if inst.HibernationConfigured {
+		item.HibernationOptions = &instanceHibernationOptionsItem{Configured: true}
+	}
+
 	if inst.StateReasonCode != "" {
 		item.StateReasonItem = &stateReasonItem{
 			Code:    inst.StateReasonCode,
@@ -739,7 +760,66 @@ type instancePrivateDNSNameOptionsItem struct {
 	EnableResourceNameDNSAAAARecord bool   `xml:"enableResourceNameDnsAAAARecord"`
 }
 
+type instanceHibernationOptionsItem struct {
+	Configured bool `xml:"configured"`
+}
+
+// instanceBlockDeviceItem mirrors types.InstanceBlockDeviceMapping
+// (ec2@v1.329.0 deserializers.go awsEc2query_deserializeDocumentInstanceBlockDeviceMapping).
+type instanceBlockDeviceItem struct {
+	DeviceName string                `xml:"deviceName"`
+	Ebs        instanceEbsDeviceItem `xml:"ebs"`
+}
+
+type instanceEbsDeviceItem struct {
+	AttachTime          string `xml:"attachTime,omitempty"`
+	Status              string `xml:"status,omitempty"`
+	VolumeID            string `xml:"volumeId"`
+	DeleteOnTermination bool   `xml:"deleteOnTermination"`
+}
+
+type instanceBlockDeviceSet struct {
+	Items []instanceBlockDeviceItem `xml:"item"`
+}
+
+func blockDeviceSet(atts []VolumeAttachment) *instanceBlockDeviceSet {
+	if len(atts) == 0 {
+		return nil
+	}
+
+	return &instanceBlockDeviceSet{Items: blockDeviceItems(atts)}
+}
+
+func blockDeviceItems(atts []VolumeAttachment) []instanceBlockDeviceItem {
+	if len(atts) == 0 {
+		return nil
+	}
+
+	items := make([]instanceBlockDeviceItem, 0, len(atts))
+
+	for _, att := range atts {
+		items = append(items, instanceBlockDeviceItem{
+			DeviceName: att.Device,
+			Ebs: instanceEbsDeviceItem{
+				AttachTime:          att.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+				Status:              att.State,
+				VolumeID:            att.VolumeID,
+				DeleteOnTermination: att.DeleteOnTermination,
+			},
+		})
+	}
+
+	slices.SortFunc(
+		items,
+		func(a, b instanceBlockDeviceItem) int { return strings.Compare(a.DeviceName, b.DeviceName) },
+	)
+
+	return items
+}
+
 type instanceItem struct {
+	BlockDeviceMapping        *instanceBlockDeviceSet                `xml:"blockDeviceMapping,omitempty"`
+	HibernationOptions        *instanceHibernationOptionsItem        `xml:"hibernationOptions,omitempty"`
 	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
 	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
 	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
@@ -834,6 +914,14 @@ type terminateInstancesResponse struct {
 type namedStringAttr struct {
 	XMLName xml.Name `json:"xmlName"`
 	Value   string   `json:"value,omitempty" xml:"value"`
+}
+
+type describeInstanceBlockDevicesResponse struct {
+	XMLName    xml.Name                  `xml:"DescribeInstanceAttributeResponse"`
+	Xmlns      string                    `xml:"xmlns,attr"`
+	RequestID  string                    `xml:"requestId"`
+	InstanceID string                    `xml:"instanceId"`
+	Devices    []instanceBlockDeviceItem `xml:"blockDeviceMapping>item"`
 }
 
 type describeInstanceAttributeResponse struct {

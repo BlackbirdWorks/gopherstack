@@ -25,9 +25,18 @@ func (b *InMemoryBackend) CopySnapshot(
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, sourceSnapshotID)
 	}
 
+	cp := *b.copySnapshotLocked(src, description, encryptOverride, kmsKeyID)
+
+	return &cp, nil
+}
+
+// copySnapshotLocked builds and stores a copy of src. Must be called with b.mu held.
+func (b *InMemoryBackend) copySnapshotLocked(
+	src *Snapshot, description string, encryptOverride bool, kmsKeyID string,
+) *Snapshot {
 	desc := description
 	if desc == "" {
-		desc = "Copy of " + sourceSnapshotID
+		desc = "Copy of " + src.SnapshotID
 	}
 
 	// Encrypted/KmsKeyId default to the source's own state when the caller
@@ -62,7 +71,7 @@ func (b *InMemoryBackend) CopySnapshot(
 	}
 	b.snapshots.Put(snap)
 
-	return snap, nil
+	return snap
 }
 
 // ---- CreateSnapshots ----
@@ -88,6 +97,16 @@ func (b *InMemoryBackend) CreateSnapshots(
 	excludeDataVolumeIDs []string,
 	description string,
 ) ([]*Snapshot, error) {
+	return b.CreateSnapshotsAt(instanceID, excludeBootVolume, excludeDataVolumeIDs, description, "")
+}
+
+// CreateSnapshotsAt is CreateSnapshots plus the Location request field.
+func (b *InMemoryBackend) CreateSnapshotsAt(
+	instanceID string,
+	excludeBootVolume bool,
+	excludeDataVolumeIDs []string,
+	description, location string,
+) ([]*Snapshot, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("%w: InstanceSpecification.InstanceId is required", ErrInvalidParameter)
 	}
@@ -98,6 +117,10 @@ func (b *InMemoryBackend) CreateSnapshots(
 	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	if err := validateSnapshotLocation(location, inst.Placement.AvailabilityZone, b.Region); err != nil {
+		return nil, err
 	}
 
 	rootDevice := ""
@@ -131,10 +154,29 @@ func (b *InMemoryBackend) CreateSnapshots(
 			OwnerID:     b.AccountID,
 		}
 		b.snapshots.Put(snap)
-		snaps = append(snaps, snap)
+
+		cp := *snap
+		snaps = append(snaps, &cp)
 	}
 
 	return snaps, nil
+}
+
+// validateSnapshotLocation checks Location (regional default, or local for a Local Zone
+// source; api_op_CreateSnapshot.go). A Local Zone AZ is "<region>-<zone>-<n><letter>".
+func validateSnapshotLocation(location, az, region string) error {
+	switch location {
+	case "", "regional":
+		return nil
+	case "local":
+		if strings.HasPrefix(az, region+"-") {
+			return nil
+		}
+
+		return fmt.Errorf("%w: Location local is only supported for resources in a Local Zone", ErrInvalidParameter)
+	default:
+		return fmt.Errorf("%w: Location must be local or regional, got %q", ErrInvalidParameter, location)
+	}
 }
 
 // attachedVolumesLocked returns the volumes attached to instanceID, sorted by
@@ -651,6 +693,11 @@ func splitKey(key string) []string {
 
 // CreateSnapshot creates an EBS snapshot from a volume.
 func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapshot, error) {
+	return b.CreateSnapshotAt(volumeID, description, "")
+}
+
+// CreateSnapshotAt is CreateSnapshot plus the Location request field.
+func (b *InMemoryBackend) CreateSnapshotAt(volumeID, description, location string) (*Snapshot, error) {
 	if volumeID == "" {
 		return nil, fmt.Errorf("%w: VolumeId is required", ErrInvalidParameter)
 	}
@@ -661,6 +708,10 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 	vol, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
+	}
+
+	if err := validateSnapshotLocation(location, vol.AZ, b.Region); err != nil {
+		return nil, err
 	}
 
 	snap := &Snapshot{
@@ -735,6 +786,14 @@ func (b *InMemoryBackend) DeleteSnapshot(id string) error {
 	if _, ok := b.snapshots.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrSnapshotNotFound, id)
 	}
+
+	b.deleteSnapshotLocked(id)
+
+	return nil
+}
+
+// deleteSnapshotLocked removes a snapshot and its side tables. Must be called with b.mu held.
+func (b *InMemoryBackend) deleteSnapshotLocked(id string) {
 	b.snapshots.Delete(id)
 	delete(b.tags, id)
 	delete(b.snapshotAttributes, id)
@@ -748,8 +807,6 @@ func (b *InMemoryBackend) DeleteSnapshot(id string) error {
 			delete(b.fastSnapshotRestores, key)
 		}
 	}
-
-	return nil
 }
 
 // ---- AMI lifecycle ----

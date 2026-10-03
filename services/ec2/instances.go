@@ -75,6 +75,12 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, 
 // StopInstances transitions running instances to stopped.
 // Returns ErrInvalidInstanceState if any instance is not in the running state.
 func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, error) {
+	return b.StopInstancesWithOptions(ids, false)
+}
+
+// StopInstancesWithOptions is StopInstances plus the Hibernate flag: a
+// hibernating stop requires HibernationOptions.Configured at launch.
+func (b *InMemoryBackend) StopInstancesWithOptions(ids []string, hibernate bool) ([]*InstanceStateChange, error) {
 	b.mu.Lock("StopInstances")
 	defer b.mu.Unlock()
 
@@ -103,11 +109,19 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 				ErrOperationNotPermitted, id)
 		}
 
+		if hibernate && !inst.HibernationConfigured {
+			return nil, fmt.Errorf("%w: instance %s is not enabled for hibernation", ErrUnsupportedHibernation, id)
+		}
+
 		prev := inst.State
 		// AWS state machine: running/pending → stopping → stopped (reconciler advances stopping→stopped).
 		inst.State = StateStopping
 		inst.StateReasonCode = "Client.UserInitiatedShutdown"
 		inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+		if hibernate {
+			inst.StateReasonCode = "Client.UserInitiatedHibernate"
+			inst.StateReasonMessage = "Client.UserInitiatedHibernate: User initiated hibernate"
+		}
 		inst.StateTransitionReason = fmt.Sprintf(
 			"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
 		)

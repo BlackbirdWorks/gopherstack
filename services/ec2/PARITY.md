@@ -574,7 +574,6 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
-  - "CreateKeyPair KeyFormat=ppk is not modeled (needs a real PuTTY PPK encoder); pem works for RSA and ED25519."
   - "Filter.N/Filters ignored on ~39 of 181 filterable Describe*/Get* ops (2026-09-24
     gopherstack-rwwvt sweep; 2026-10-01 fixed 10, 11, then 11 more). Needing the
     same treatment as the ops already fixed (read the op's SDK doc comment for its
@@ -618,9 +617,7 @@ items_still_open:
     uppercase 'GRANTED' (verified via TF_LOG=trace against a live apply) -- a
     provider-side bug, not a gopherstack wire-shape gap. Not fixed; would break real-AWS
     parity to appease it."
-  - "Application Status Checks (2026-08-05, gopherstack-8pce): HealthCheckPaths (cross-AZ/
-    Local-Zone health-check source/destination ENI paths) is a whole unmodeled subsystem --
-    CreateApplicationStatusCheck accepts but discards it. InstanceApplicationStatus.
+  - "Application Status Checks (2026-08-05, gopherstack-8pce): InstanceApplicationStatus.
     AvailabilityZoneId is always empty (this backend tracks only AZ name, not a separate AZ
     ID, on Instance) -- real gap. ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check breakdown) are always zero/empty since this backend runs no real
@@ -631,28 +628,31 @@ items_still_open:
     pattern as roughly a dozen other newer op families. DescribeApplicationStatusCheckAssociationsOutput.Tags
     is always empty: its aggregation semantics across multiple checks are ambiguous from the
     SDK doc alone."
-  - "ec2query filter/field sweep (2026-09-13, gopherstack-xhu2t/99nj), fields accepted but
-    with no backing state to apply them against: ModifyCapacityReservation.Accept ('Reserved
-    ... accepted by default', no real semantics); CreateLaunchTemplateVersion.ResolveAlias /
-    DescribeLaunchTemplateVersions.ResolveAlias (needs SSM-parameter-backed AMI-ID
-    resolution, not integrated); DescribeReservedInstancesOfferings.MaxInstanceCount (offering
-    is a catalogue entry, not a purchase, no instance-count dimension); GetConsoleOutput.Latest
-    (this backend synthesizes one static console-output string, no cached-vs-fresh
-    distinction to honour); DisassociateNatGatewayAddress/UnassignPrivateNatGatewayAddress.
-    MaxDrainDurationSeconds (both ops already remove addresses synchronously, no drain
-    pipeline); CreateImage.NoReboot/SnapshotLocation (CreateImage doesn't stop/restart
-    instances or model per-volume EBS snapshots); ImportImage.RoleName/ImportSnapshot.RoleName
-    (neither output echoes it and no S3/IAM permission check runs during import);
-    GetIpamAddressHistory.EndTime/StartTime (already always returns an empty history record
-    set, no live discovery pipeline); ProvisionIpamPoolCidr.VerificationMethod /
-    ProvisionByoipCidr.PubliclyAdvertisable (no output field echoes either, no BYOIP
-    ownership-verification pipeline); GetManagedPrefixListEntries.TargetVersion (no historical
-    per-version entry snapshots exist); DescribeInstanceTypes.IncludeUnsupportedInRegion
-    (single global static instance-type catalog, no per-region modeling);
-    CreateReplaceRootVolumeTask.VolumeInitializationRate (not echoed on the real wire);
-    CreateSnapshot(s).Location (Local Zone volumes not modeled at all). None fabricated --
-    each would need a new subsystem (SSM param store, BYOIP verification, per-region
-    catalogs, Local Zones, etc.) this backend doesn't have."
+  - "reqfielddiff ec2 tier-1 remainder (2026-10-03), request fields the tool still flags
+    because nothing observable is left to read them for: ModifyCapacityReservation.Accept
+    (documented 'Reserved'); DescribeReservedInstancesOfferings.MaxInstanceCount (offerings
+    have no instance-count dimension); GetConsoleOutput.Latest (one static console string);
+    CreateImage.NoReboot (a reboot is not an observable state transition, no guest OS);
+    ImportImage.RoleName/ImportSnapshot.RoleName (no output echoes it, no S3/IAM check in the
+    import path); GetIpamAddressHistory.StartTime/EndTime and GetIpamDiscoveredRoutes/
+    GetIpamRouteProtectionFindings.MaxResults (the three ops always return an empty set, no
+    discovery pipeline); ProvisionByoipCidr.PubliclyAdvertisable (no ByoipCidr output field,
+    no advertisement pipeline); DescribeInstanceTypes.IncludeUnsupportedInRegion (one global
+    catalog, no per-region availability data); StopInstances.Force/SkipOsShutdown and
+    TerminateInstances.SkipOsShutdown (no guest OS or graceful-vs-forced path; the Compute
+    interface has no such knob); CreateNatGateway.AvailabilityZoneAddresses (needs regional
+    NAT gateways: AvailabilityMode/VpcId, no AZ-less gateway model); CreateFleet.ValidUntil
+    expiry is echoed but not enforced; CreateDefaultSubnet.Ipv6Native allocates no IPv6 CIDR
+    (VPCs carry no IPv6 blocks); ModifyInstanceAttribute.BlockDeviceMappings NoDevice/
+    VirtualName ignored (only Ebs.DeleteOnTermination applies); resolve:ssm: aliases only
+    resolve parameters present in the SSM backend (AWS public /aws/service/* parameters are
+    not seeded). Validation-only (rest unmodeled): ProvisionIpamPoolCidr.VerificationMethod
+    (enum), CreateReplaceRootVolumeTask.VolumeInitializationRate (100-300; no replacement
+    volume model), CreateMacSystemIntegrityProtectionModificationTask.MacCredentials (JSON
+    shape, never stored), CreateSnapshot(s)/CreateImage Location/SnapshotLocation (local only
+    for a Local Zone source; no location on the wire). Disassociate/UnassignPrivateNatGateway
+    Address drain only when MaxDrainDurationSeconds is given; AWS's 350s default is not
+    applied because Terraform's waiters expect immediate release."
   - "NetworkAcl associations (gopherstack-n3zi, 2026-09-12): this backend does not model a
     NetworkAclAssociationId distinct from the subnet it associates (NetworkACL.AssociationIDs
     stores bare subnet IDs; DescribeNetworkAcls renders that subnet ID as
@@ -679,20 +679,6 @@ items_still_open:
     any import from this backend's normal create paths -- the happy path is structurally
     unreachable, confirmed via TestBackend_CancelImportTask_AlreadyCompletedFails and
     TestRealClient_TransitGatewayAndLegacyTasks/legacy_bundle_conversion_export_import."
-  - "reqfielddiff tier-1 sweep (2026-09-17, gopherstack-xhu2t), fields with no backing
-    response concept to honour: CopyImage.Encrypted/KmsKeyId and DeregisterImage.
-    DeleteAssociatedSnapshots (AMIStub tracks no block-device-mapping/per-image encryption
-    state at all); StopInstances.Force/Hibernate/SkipOsShutdown and TerminateInstances.
-    SkipOsShutdown (none echoed by the real Output types, and this backend has no distinct
-    forced/graceful/hibernate/OS-shutdown code paths); CreateMacSystemIntegrityProtection
-    ModificationTask.MacCredentials (genuinely write-only and unvalidated on the real wire,
-    confirmed by grep); CreateNatGateway.AvailabilityZoneAddresses (regional multi-AZ NAT
-    gateways, a whole unmodeled subsystem -- NatGateway is tied to one subnet/AZ);
-    CreateFleet.ValidFrom/ValidUntil (fleet activation/expiration scheduling not modeled,
-    CreateFleet processes synchronously); CreateDefaultSubnet.Ipv6Native (Wavelength-Zone-only
-    feature, Subnet has no IPv6-only concept); ModifyInstanceAttribute.BlockDeviceMappings
-    (Instance has no per-device-name block-device-mapping list at all -- would need a new
-    model threaded through RunInstances/DescribeInstances/ModifyInstanceAttribute together)."
   - "aws_spot_fleet_request via classic launch_specification (ec2-compute-and-storage,
     2026-09-19): confirmed a real, pre-existing bug in terraform-provider-aws 5.100.0 itself
     (hashLaunchSpecification, ec2_spot_fleet_request.go:2088, an unconditional interface{}
@@ -5906,7 +5892,8 @@ call populated). `CreateVolume.VolumeInitializationRate` is now declared,
 stored, and echoed (new `Volume.VolumeInitializationRate` -- this backend
 has no real fast-snapshot-restore/lazy-load pipeline to rate-limit, so it's
 a pure round-trip). `CreateReplaceRootVolumeTask.VolumeInitializationRate`
-and `CreateSnapshot`/`CreateSnapshots.Location` recorded, not fixed: neither
+and `CreateSnapshot`/`CreateSnapshots.Location` recorded, not fixed (the range and
+location validation was fixed on 2026-10-03): neither
 `ReplaceRootVolumeTask`/`CreateReplaceRootVolumeTaskOutput` nor
 `Snapshot`/`CreateSnapshotOutput` echoes either field on the real wire
 (confirmed against `types.go`), and `Location` only applies to Local Zone
@@ -6006,8 +5993,8 @@ requested (defaulting to 0). `CreateNetworkInterface.InterfaceType` is now
 declared, stored (new `NetworkInterface.InterfaceType`, defaulting to
 `"interface"`), and echoed. `ReplaceRoute.LocalTarget` now overrides
 `GatewayId`/`NatGatewayId` and resets the route to the implicit `"local"`
-target when true. `GetManagedPrefixListEntries.TargetVersion`,
-`ProvisionByoipCidr.PubliclyAdvertisable`, and
+target when true. `GetManagedPrefixListEntries.TargetVersion` (since fixed, see the 2026-10-03
+section), `ProvisionByoipCidr.PubliclyAdvertisable`, and
 `DescribeInstanceTypes.IncludeUnsupportedInRegion` recorded, not fixed: this
 backend's managed prefix lists have no historical per-version entry
 snapshots (`RestoreManagedPrefixListVersion` only bumps the version counter,
@@ -6276,3 +6263,43 @@ Gates: `gofmt -l services/ec2`, `go build ./...`, `go vet
 ./services/ec2/...`, `go test -race -count=1 ./services/ec2/...`,
 `golangci-lint run ./services/ec2/...`, `go run ./cmd/parityfmtcheck -dir
 services` -- all clean. No persisted-struct fields changed; no version bump.
+
+## 2026-10-03 -- reqfielddiff ec2 tier-1 sweep: request fields the handlers dropped
+
+`go run ./cmd/reqfielddiff -dir ec2` listed 36 tier-1 fields; all were hand-checked
+against ec2@v1.329.0 serializers and the EC2 API reference. Fixed, each proven by a typed
+SDK-client test:
+
+- `StopInstances.Hibernate`: `RunInstances.HibernationOptions.Configured` is now stored
+  (`hibernationOptions` on DescribeInstances); a hibernating stop needs it, else
+  `UnsupportedHibernationConfiguration`, and sets `Client.UserInitiatedHibernate`.
+- `ModifyInstanceAttribute.BlockDeviceMappings`: `Ebs.DeleteOnTermination` is stored on the
+  volume attachment, surfaced by DescribeInstances/DescribeInstanceAttribute
+  (`blockDeviceMapping`), and terminate now deletes volumes flagged for it.
+- `CopyImage.Encrypted/KmsKeyId`: CopyImage now copies the source's snapshots (it copied none
+  before) encrypted as requested; KmsKeyId without Encrypted is `InvalidParameterCombination`.
+- `DeregisterImage.DeleteAssociatedSnapshots`: deletes the backing snapshots and returns
+  `DeleteSnapshotResults` (`success`, `skipped` when another AMI maps it, `client-error`).
+- `CreateKeyPair.KeyFormat`: `ppk` emits an unencrypted PuTTY PPK v3 file (stdlib only). RSA
+  follows the published format; ED25519 stores the seed as an mpint per PuTTY's source and
+  is checked for self-consistency only, not against puttygen.
+- `Create/DescribeLaunchTemplateVersions.ResolveAlias`: `resolve:ssm:` ImageIds resolve
+  against the SSM backend (new `ssm.WithRegion` helper for the lookup's region).
+- `CreateDefaultSubnet.Ipv6Native` (IPv6-only subnet, `ipv6Native` on Describe) and
+  `DefaultSubnetAlreadyExistsInAvailabilityZone`; `CreateFleet.ValidFrom` (future start
+  leaves a non-instant fleet `submitted` with no instances until it passes);
+  `Disassociate/UnassignPrivateNatGatewayAddress.MaxDrainDurationSeconds` (addresses stay
+  `disassociating`/`unassigning` until the drain ends); `GetManagedPrefixListEntries.TargetVersion`
+  (versioned entries, bounded to 100 versions; Restore now restores entries as a new version);
+  `ProvisionIpamPoolCidr.VerificationMethod`, `CreateSnapshot(s).Location`,
+  `CreateImage.SnapshotLocation`, `CreateReplaceRootVolumeTask.VolumeInitializationRate` and
+  `CreateMacSystemIntegrityProtectionModificationTask.MacCredentials` are validated (see
+  items_still_open for what stays unmodeled); `CreateApplicationStatusCheck`/Modify
+  `HealthCheckPaths` are validated, stored and returned.
+
+Still flagged by the tool, reasons in items_still_open: the remaining `Accept`,
+`MaxInstanceCount`, `Latest`, `NoReboot`, `RoleName`, IPAM history/route params,
+`PubliclyAdvertisable`, `IncludeUnsupportedInRegion`, `Force`/`SkipOsShutdown` and
+`AvailabilityZoneAddresses`. Also fixed along the way: CopySnapshot, CreateSnapshots,
+CreateManagedPrefixList, Assign/Unassign NAT address and application-status-check
+paths now return copies, and DescribeFleets/DescribeNatGateways take the write lock.

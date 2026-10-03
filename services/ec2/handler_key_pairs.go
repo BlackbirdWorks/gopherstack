@@ -59,7 +59,7 @@ func (h *Handler) handleCreateKeyPair(vals url.Values, reqID string) (any, error
 	tags := parseTagSpecification(vals, "key-pair")
 	keyType := vals.Get("KeyType")
 
-	kp, err := h.Backend.CreateKeyPairWithType(name, keyType, tags)
+	kp, err := h.Backend.CreateKeyPairWithFormat(name, keyType, vals.Get("KeyFormat"), tags)
 	if err != nil {
 		return nil, err
 	}
