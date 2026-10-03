@@ -257,7 +257,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		_, err := httputils.ReadBody(r)
+		err := inflateRequestBody(r)
+		if err == nil {
+			_, err = httputils.ReadBody(r)
+		}
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 cloudwatch client sets
@@ -344,6 +347,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+
+		if err := inflateRequestBody(r); err != nil {
+			if isCBORRequest(r) {
+				return h.cborError(c, http.StatusBadRequest, "SerializationException", err.Error())
+			}
+
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
 
 		// Route rpc-v2-cbor requests (AWS SDK v2 ≥ cloudwatch@v1.55)
 		if isCBORRequest(r) {
