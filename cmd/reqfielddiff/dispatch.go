@@ -270,8 +270,34 @@ func collectDispatchEntries(
 	collectMapLiteralEntries(files, pkgConsts, funcTypeNames, namedMapTypes, out)
 	collectBinderSliceEntries(files, pkgConsts, out)
 	collectSwitchDispatchEntries(files, pkgConsts, out)
+	collectIndexAssignEntries(files, pkgConsts, out)
 
 	return out
+}
+
+// collectIndexAssignEntries handles `ops["Op"] = h.handleX` statements (ec2's
+// registration shape); entries from the other forms win on conflict.
+func collectIndexAssignEntries(files []*ast.File, pkgConsts map[string]string, out map[string]ast.Expr) {
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			as, ok := n.(*ast.AssignStmt)
+			if !ok || as.Tok != token.ASSIGN || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+				return true
+			}
+
+			idx, isIdx := as.Lhs[0].(*ast.IndexExpr)
+			if !isIdx {
+				return true
+			}
+
+			name, resolved := resolveLiteralPrefix(idx.Index, pkgConsts)
+			if _, exists := out[name]; resolved && !exists && name != "" && name[0] >= 'A' && name[0] <= 'Z' {
+				out[name] = as.Rhs[0]
+			}
+
+			return true
+		})
+	}
 }
 
 // collectSwitchDispatchEntries handles acmpca's real shape (and appsync's,

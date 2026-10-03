@@ -47,6 +47,10 @@ func findMissing(op sdkOp, res opResolution) []missingField {
 	var out []missingField
 
 	for _, f := range op.Fields {
+		if op.Payload[f.Name] {
+			continue
+		}
+
 		if _, ok := res.Fields[normalizeWireName(f.Name)]; ok {
 			continue
 		}

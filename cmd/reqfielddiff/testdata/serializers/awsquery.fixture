@@ -1,0 +1,25 @@
+func awsAwsquery_serializeOpDocumentCreateGadgetInput(v *CreateGadgetInput, value query.Value) error {
+	object := value.Object()
+	_ = object
+
+	if v.Name != nil {
+		objectKey := object.Key("Name")
+		objectKey.String(*v.Name)
+	}
+
+	if v.Tags != nil {
+		objectKey := object.Key("Tags")
+		if err := awsAwsquery_serializeDocumentTagList(v.Tags, objectKey); err != nil {
+			return err
+		}
+	}
+
+	if v.VpcSecurityGroupIds != nil {
+		objectKey := object.Key("VpcSecurityGroupIds")
+		if err := awsAwsquery_serializeDocumentVpcSecurityGroupIdList(v.VpcSecurityGroupIds, objectKey); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

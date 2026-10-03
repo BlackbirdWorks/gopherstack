@@ -1,0 +1,30 @@
+func awsEc2query_serializeOpDocumentModifyWidgetInput(v *ModifyWidgetInput, value query.Value) error {
+	object := value.Object()
+	_ = object
+
+	if v.Description != nil {
+		objectKey := object.Key("Description")
+		objectKey.String(*v.Description)
+	}
+
+	if v.Filters != nil {
+		objectKey := object.FlatKey("Filter")
+		if err := awsEc2query_serializeDocumentFilterList(v.Filters, objectKey); err != nil {
+			return err
+		}
+	}
+
+	if v.Groups != nil {
+		objectKey := object.FlatKey("SecurityGroupId")
+		if err := awsEc2query_serializeDocumentSecurityGroupIdStringList(v.Groups, objectKey); err != nil {
+			return err
+		}
+	}
+
+	if v.Latest != nil {
+		objectKey := object.Key("Latest")
+		objectKey.Boolean(*v.Latest)
+	}
+
+	return nil
+}
