@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 37 (37 ok) |
 | Feature families | 10 (10 ok) |
-| Known gaps | 7 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -22,6 +22,7 @@
 - Non-standard intrinsics (StringConcat, ArraySlice, MathSubtract, etc.) are accepted here but do not exist in AWS; informational, a definition using them would fail on real AWS.
 - JSONata (gopherstack-iisrz) gaps: Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ToleratedFailureCount/Percentage and ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS); TestState does not take StateConfiguration.Variables.
 - Service integrations not implemented (bd gopherstack-wdw): optimized http:invoke and eks:* (not implemented), bedrock:invokeModel (routed to bedrockruntime, untested), and aws-sdk integrations for services outside the 55-service table in sdk_services.go; ecs/glue optimized still use the legacy adapters (no <Service>.<Error> names).
+- Service-initiated calls not yet authorized against a customer role under --enforce-iam (2026-10-03): Firehose delivery role (S3/Redshift/HTTP destinations), CloudWatch Logs subscription-filter RoleArn (Kinesis/Firehose destinations), IoT rule action roleArn, SNS SubscriptionRoleArn Firehose subscriptions, Step Functions S3 ItemReader/ResultWriter (s3:GetObject/PutObject) and activity paths, Scheduler DLQ sqs:SendMessage under the schedule role, and EventBridge Lambda/SQS/SNS targets (AWS authorizes them by the target's resource policy, which gopherstack does not evaluate for these in-process deliveries).
 
 ## More
 
