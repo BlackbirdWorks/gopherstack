@@ -84,12 +84,17 @@ func TestIntegration_EMR_ClusterLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify terminated (removed from active list)
-	listOut2, err := client.ListClusters(ctx, &emr.ListClustersInput{})
+	// ListClusters lists every state by default; the active-state filter drops it.
+	listOut2, err := client.ListClusters(ctx, &emr.ListClustersInput{
+		ClusterStates: []emrtypes.ClusterState{
+			emrtypes.ClusterStateStarting, emrtypes.ClusterStateBootstrapping,
+			emrtypes.ClusterStateRunning, emrtypes.ClusterStateWaiting,
+		},
+	})
 	require.NoError(t, err)
 
 	for _, c := range listOut2.Clusters {
-		assert.NotEqual(t, clusterID, aws.ToString(c.Id), "terminated cluster should not appear in list")
+		assert.NotEqual(t, clusterID, aws.ToString(c.Id), "terminated cluster should not appear in active list")
 	}
 }
 
