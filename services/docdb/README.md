@@ -9,13 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 55 (55 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/MasterUserSecret(+KmsKeyId, ManageMasterUserPassword)/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously).
+- Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously).
+- OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record MasterUserSecret on the cluster but create no secret in services/secretsmanager, RotateMasterUserPassword is unread, and an unset key leaves KmsKeyId empty.
 - ReplicationSourceIdentifier/ReadReplicaIdentifiers stay empty: CreateDBClusterInput has no such member and docdb has no PromoteReadReplicaDBCluster, so only an unbuilt global-cluster secondary-attach path could populate them.
 - DBClusterSnapshot.VpcId stays empty: CreateDBSubnetGroupInput has no VpcId and this backend cannot resolve subnet-to-VPC without EC2, so every subnet group's VpcId is empty.
 - Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn: no authoritative source for the built-in catalog values or ARN format; not guessed.
