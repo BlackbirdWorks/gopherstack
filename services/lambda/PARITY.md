@@ -19,11 +19,25 @@ families:
 gaps: []
 items_still_open:
   - "Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985)."
-  - "Kafka ESM: Amazon MQ (ActiveMQ/RabbitMQ) sources are not polled -- services/mq is metadata-only with no real broker (gopherstack-ce985)."
+  - "MQ ESM: Amazon MQ sources are polled only when services/mq runs a real broker (--mq-engine=docker); metadata-only brokers stay unpolled with a warning. ActiveMQ is consumed over STOMP (AWS uses OpenWire/JMS), so brokerInTime is the message timestamp and messageType is inferred from STOMP content-length; one queue per mapping (Queues[0]); no TLS; the BASIC_AUTH secret must be JSON with username/password keys (the Lambda guide does not show its layout) and is read from services/secretsmanager in the secret ARN's region."
   - "Kafka ESM (self-managed): SourceAccessConfigurations (SASL/SCRAM, mTLS, TLS root CA, VPC) are ignored -- only plaintext brokers are reachable; ProvisionedPollersConfig, DestinationConfig.OnFailure and per-partition concurrency are not honored (gopherstack-ce985)."
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
+
+## Notes (2026-10-03 — Amazon MQ event source mappings)
+
+`arn:aws:mq:` mappings resolve the broker through `MQBrokerResolver` and the `BASIC_AUTH`
+SourceAccessConfiguration secret through `MQSecretResolver` (both wired in `cli.go` to services/mq and
+services/secretsmanager). RabbitMQ uses github.com/rabbitmq/amqp091-go v1.15.0 (manual ack, prefetch =
+BatchSize, `VIRTUAL_HOST` source config, default `/`); ActiveMQ uses github.com/go-stomp/stomp/v3 v3.1.5
+(client-individual ack). Payloads follow https://docs.aws.amazon.com/lambda/latest/dg/with-mq.html: `aws:mq`
+(`messages[]`) and `aws:rmq` (`rmqMessagesByQueue["queue::vhost"]`). Batching honors BatchSize (default
+cap 10000), MaximumBatchingWindowInSeconds (default 500 ms) and the 6 MB payload limit. Messages are acked
+only after the invocation succeeds; on failure they are requeued (RabbitMQ nack, ActiveMQ connection drop)
+and redelivered with `redelivered: true`, after the shared retry backoff. FilterCriteria matches on `data`.
+Proven by `TestMQWorkerBatching`, `TestMQEventPayloadShapes`, `TestMQSpecResolution` and the Docker-gated
+`TestMQESMRealRabbitMQ` / `TestMQESMRealActiveMQ`.
 
 ## Notes (2026-10-01 — MSK event source mappings)
 

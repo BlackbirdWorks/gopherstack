@@ -14,6 +14,10 @@ func (b *InMemoryBackend) RebootBroker(brokerID string) error {
 		return fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
+	if lb, managed := b.liveBrokerLocked(br.BrokerID); managed && !lb.ready {
+		return nil
+	}
+
 	br.BrokerState = BrokerStateRebooting
 
 	return nil

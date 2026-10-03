@@ -108,6 +108,8 @@ type EventSourcePoller struct {
 	sqsReader        SQSReader
 	ddbStreamsReader DynamoDBStreamsReader
 	mskResolver      MSKBrokerResolver
+	mqResolver       MQBrokerResolver
+	mqSecrets        MQSecretResolver
 	lambdaBackend    *InMemoryBackend
 	shardIterators   map[string]string
 	// sqsBatchBuffers holds partial SQS batches per mapping UUID while the
@@ -131,7 +133,10 @@ type EventSourcePoller struct {
 	// kafkaInvoker overrides the Kafka batch invocation in unit tests.
 	kafkaInvoker func(ctx context.Context, fnName string, payload []byte) error
 	// kafkaFactory overrides the Kafka consumer constructor in unit tests.
-	kafkaFactory     kafkaConsumerFactory
+	kafkaFactory kafkaConsumerFactory
+	// mqFactory overrides the Amazon MQ consumer constructor in unit tests.
+	mqFactory        mqConsumerFactory
+	mqWorkers        map[string]*mqWorker
 	kafkaWorkers     map[string]*kafkaWorker
 	kafkaUnsupported map[string]struct{}
 	// stopped is closed when run exits; nil until Start.
@@ -150,6 +155,7 @@ func NewEventSourcePoller(
 		shardIterators:   make(map[string]string),
 		sqsBatchBuffers:  make(map[string]*sqsBatchBuffer),
 		kafkaWorkers:     make(map[string]*kafkaWorker),
+		mqWorkers:        make(map[string]*mqWorker),
 		kafkaUnsupported: make(map[string]struct{}),
 		mu:               lockmetrics.New("lambda.esm"),
 		notifyC:          make(chan struct{}, 1),
@@ -313,6 +319,7 @@ func (p *EventSourcePoller) poll(ctx context.Context) int {
 
 	p.sweepStaleIterators(activeUUIDs)
 	p.reconcileKafka(ctx, mappings)
+	p.reconcileMQ(ctx, mappings)
 
 	return enabledCount
 }
@@ -423,6 +430,7 @@ func (p *EventSourcePoller) RemoveMapping(uuid string) {
 
 	delete(p.sqsBatchBuffers, uuid)
 	p.stopKafkaWorker(uuid)
+	p.stopMQWorker(uuid)
 }
 
 // WaitStopped blocks until the poller goroutine and its Kafka workers have exited.

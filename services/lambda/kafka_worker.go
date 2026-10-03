@@ -105,7 +105,7 @@ func buildKafkaSpec(m *EventSourceMapping, source, sourceARN string, brokers []s
 	}, true
 }
 
-// isUnsupportedBrokerARN reports ARNs of broker sources with no real broker behind them.
+// isUnsupportedBrokerARN reports broker ARNs served by broker workers, not the record pollers.
 func isUnsupportedBrokerARN(a string) bool {
 	return strings.HasPrefix(a, kafkaMSKARNPrefix) || strings.HasPrefix(a, mqARNPrefix)
 }
@@ -121,7 +121,7 @@ func (p *EventSourcePoller) reconcileKafka(ctx context.Context, mappings []*Even
 
 		if spec, ok := p.kafkaSpecForMapping(m); ok {
 			wanted[m.UUID] = spec
-		} else if isUnsupportedBrokerARN(m.EventSourceARN) {
+		} else if strings.HasPrefix(m.EventSourceARN, kafkaMSKARNPrefix) {
 			p.noteUnsupportedBroker(ctx, m)
 		}
 	}
@@ -202,6 +202,10 @@ func (p *EventSourcePoller) stopAllKafka() {
 	p.mu.Lock("stopAllKafka")
 	for id := range p.kafkaWorkers {
 		p.stopKafkaWorker(id)
+	}
+
+	for id := range p.mqWorkers {
+		p.stopMQWorker(id)
 	}
 	p.mu.Unlock()
 

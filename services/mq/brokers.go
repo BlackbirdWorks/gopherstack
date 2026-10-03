@@ -231,6 +231,10 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 		return nil, err
 	}
 
+	if err := b.validateEngineCredentials(engineType, users); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateBroker")
 	defer b.mu.Unlock()
 
@@ -306,6 +310,10 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 
 	b.brokers.Put(br)
 	b.tags[brokerArn] = tagsCopy
+
+	if len(users) > 0 {
+		b.launchBrokerLocked(br, users[0])
+	}
 
 	return b.copyBroker(br), nil
 }
@@ -519,6 +527,10 @@ func (b *InMemoryBackend) ListBrokers() []*Broker {
 // identifiers. The broker is fully removed from the map on the next
 // DescribeBroker / ListBrokers call via promoteDeletingToDeleted.
 func (b *InMemoryBackend) DeleteBroker(brokerID string) (*Broker, error) {
+	var lb *liveBroker
+
+	defer func() { b.reapDetached(lb) }()
+
 	b.mu.Lock("DeleteBroker")
 	defer b.mu.Unlock()
 
@@ -529,6 +541,7 @@ func (b *InMemoryBackend) DeleteBroker(brokerID string) (*Broker, error) {
 
 	cp := b.copyBroker(br)
 	br.BrokerState = BrokerStateDeleting
+	lb = b.detachBrokerLocked(br.BrokerID)
 
 	return cp, nil
 }
@@ -892,6 +905,7 @@ func (b *InMemoryBackend) copyBroker(br *Broker) *Broker {
 	}
 
 	cp.BrokerInstances = append([]BrokerInstance{}, br.BrokerInstances...)
+	b.applyLiveEndpoints(&cp)
 
 	return &cp
 }

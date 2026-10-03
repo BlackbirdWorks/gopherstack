@@ -432,6 +432,7 @@ type CLI struct {
 	shutdownDeadline              time.Time
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
 	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"            default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                     //nolint:lll // config struct tags are intentionally verbose
+	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"               default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."` //nolint:lll // config struct tags are intentionally verbose
 	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`             //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                               //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`             //nolint:lll // config struct tags are intentionally verbose
@@ -1187,6 +1188,9 @@ func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticach
 
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
+
+// GetMQEngine returns the Amazon MQ engine mode (mq.EngineConfig).
+func (c *CLI) GetMQEngine() string { return c.MQEngine }
 
 // GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
 func (c *CLI) GetKafkaEngine() string { return c.KafkaEngine }
@@ -3100,6 +3104,7 @@ func wireEventSourcePollers(byName map[string]service.Registerable) {
 	// Wire SQS → Lambda event source mapping poller.
 	wireSQSLambda(byName["SQS"], byName["Lambda"])
 	wireMSKLambda(byName["Kafka"], byName["Lambda"])
+	wireMQLambda(byName["MQ"], byName["SecretsManager"], byName["Lambda"])
 
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
@@ -5557,6 +5562,31 @@ func wireMSKLambda(kafkaReg, lambdaReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			lambdaBk.SetMSKBrokerResolver(kafkaBk)
+		}
+	}
+}
+
+// wireMQLambda lets Lambda MQ event source mappings reach docker-backed brokers and BASIC_AUTH secrets.
+func wireMQLambda(mqReg, smReg, lambdaReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if mqH, mqOk := mqReg.(*mqbackend.Handler); mqOk {
+		if mqBk, bkOk := mqH.Backend.(*mqbackend.InMemoryBackend); bkOk {
+			lambdaBk.SetMQBrokerResolver(mqBk)
+		}
+	}
+
+	if smH, smOk := smReg.(*secretsmanagerbackend.Handler); smOk {
+		if smBk, bkOk := smH.Backend.(*secretsmanagerbackend.InMemoryBackend); bkOk {
+			lambdaBk.SetMQSecretResolver(smBk)
 		}
 	}
 }

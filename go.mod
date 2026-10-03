@@ -189,6 +189,7 @@ require (
 	github.com/cedar-policy/cedar-go v1.8.0
 	github.com/distribution/distribution/v3 v3.1.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
+	github.com/go-stomp/stomp/v3 v3.1.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
@@ -203,6 +204,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
+	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/recolabs/gnata v0.5.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
