@@ -12,6 +12,10 @@ import (
 
 const cfnSweep1Template = `{"Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}`
 
+// cfnCyclicTemplate fails CreateStack pre-flight; with DisableRollback the stack stays CREATE_FAILED.
+const cfnCyclicTemplate = `{"Resources":{` +
+	`"A":{"Type":"AWS::S3::Bucket","DependsOn":"B"},"B":{"Type":"AWS::S3::Bucket","DependsOn":"A"}}}`
+
 // TestCreateUpdateRollbackStack_OperationID_RealClient drives CreateStack,
 // UpdateStack and RollbackStack through the real aws-sdk-go-v2 client
 // (gopherstack-7185). All three real outputs carry OperationId alongside
@@ -39,12 +43,19 @@ func TestCreateUpdateRollbackStack_OperationID_RealClient(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(updated.OperationId), "UpdateStack: OperationId empty")
 	assert.Equal(t, aws.ToString(created.StackId), aws.ToString(updated.StackId))
 
+	failed, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+		StackName:       aws.String("sweep1-failed"),
+		TemplateBody:    aws.String(cfnCyclicTemplate),
+		DisableRollback: aws.Bool(true),
+	})
+	require.NoError(t, err)
+
 	rolled, err := client.RollbackStack(t.Context(), &cfnsdk.RollbackStackInput{
-		StackName: aws.String("sweep1-stack"),
+		StackName: aws.String("sweep1-failed"),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(rolled.OperationId), "RollbackStack: OperationId empty")
-	assert.Equal(t, aws.ToString(created.StackId), aws.ToString(rolled.StackId),
+	assert.Equal(t, aws.ToString(failed.StackId), aws.ToString(rolled.StackId),
 		"RollbackStack: StackId empty or mismatched")
 }
 

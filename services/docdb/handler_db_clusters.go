@@ -35,6 +35,7 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 	tags := parseTags(vals)
 	opts := &CreateDBClusterOptions{
 		ClusterExtras:                parseClusterExtras(vals),
+		MasterSecretRequest:          parseMasterSecretRequest(vals),
 		KmsKeyID:                     vals.Get("KmsKeyId"),
 		StorageType:                  vals.Get("StorageType"),
 		VpcSecurityGroupIDs:          parseVpcSecurityGroupIDs(vals),
@@ -132,6 +133,7 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 
 	opts := &ModifyDBClusterOptions{
 		ClusterExtras:          parseClusterExtras(vals),
+		MasterSecretRequest:    parseMasterSecretRequest(vals),
 		EngineVersion:          vals.Get("EngineVersion"),
 		MasterUserPassword:     vals.Get("MasterUserPassword"),
 		NewDBClusterIdentifier: vals.Get("NewDBClusterIdentifier"),
@@ -283,6 +285,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		LatestRestorableTime:         time.Now().UTC().Format(time.RFC3339),
 		HostedZoneID:                 c.HostedZoneID,
 		KmsKeyID:                     c.KmsKeyID,
+		MasterUserSecret:             toXMLMasterUserSecret(c),
 		ReplicationSourceIdentifier:  c.ReplicationSourceIdentifier,
 		NetworkType:                  c.NetworkType,
 		ServerlessV2Scaling:          toXMLScaling(c.ServerlessV2Scaling),
@@ -329,6 +332,7 @@ type xmlAvailabilityZoneList struct {
 }
 
 type xmlDBCluster struct {
+	MasterUserSecret             *xmlClusterMasterUserSecret       `xml:"MasterUserSecret,omitempty"`
 	DBClusterIdentifier          string                            `xml:"DBClusterIdentifier"`
 	Engine                       string                            `xml:"Engine"`
 	Status                       string                            `xml:"Status"`

@@ -579,13 +579,13 @@ func TestRollbackStack_ChangesStatus(t *testing.T) {
 	_, err := b.CreateStack(
 		t.Context(),
 		"rb-change",
-		simpleTemplate,
+		cfnCyclicTemplate,
 		nil,
-		cloudformation.StackOptions{},
+		cloudformation.StackOptions{DisableRollback: true},
 	)
 	require.NoError(t, err)
 
-	_, err = b.RollbackStack(t.Context(), "rb-change")
+	_, err = b.RollbackStack(t.Context(), "rb-change", false)
 	require.NoError(t, err)
 
 	// Stack should still be accessible.

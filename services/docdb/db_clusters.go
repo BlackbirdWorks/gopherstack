@@ -157,6 +157,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 		EnabledCloudwatchLogsExports: enabledCloudwatchLogsExports,
 	}
 	extras.applyTo(cluster)
+	if err = b.createClusterMasterSecret(cluster, opts, masterUserPassword); err != nil {
+		return nil, err
+	}
 	b.clusterPut(cluster)
 	if len(tags) > 0 {
 		b.tagsStore(region)[clusterArn] = tagsFromMap(tags)
@@ -325,6 +328,9 @@ func (b *InMemoryBackend) applyModifyDBClusterExtras(
 		c.StorageType = storageType
 	}
 
+	if err := b.updateMasterSecret(c, opts.MasterSecretRequest, opts.MasterUserPassword); err != nil {
+		return err
+	}
 	opts.applyTo(c)
 	applyModifyDBClusterOpts(c, opts)
 	if opts.NewDBClusterIdentifier != "" {

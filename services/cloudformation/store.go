@@ -160,7 +160,7 @@ type StorageBackend interface {
 	DescribeOrganizationsAccess() (string, error)
 	// Misc
 	SignalResource(stackName, logicalID, uniqueID, status string) error
-	RollbackStack(ctx context.Context, stackName string) (*Stack, error)
+	RollbackStack(ctx context.Context, stackName string, retainExceptOnCreate bool) (*Stack, error)
 	RecordHandlerProgress(bearerToken, operationStatus string) error
 	GetHookResult(hookResultToken string) (string, error)
 	ListHookResults(hookResultToken, nextToken string) ([]HookResult, error)
@@ -234,6 +234,7 @@ const (
 	statusRollbackComplete         = "ROLLBACK_COMPLETE"
 	statusRollbackFailed           = "ROLLBACK_FAILED"
 	reasonUserInitiated            = "User Initiated"
+	reasonRollbackDeleteFailed     = "rollback failed to delete one or more resources"
 	deletionPolicyRetain           = "Retain"
 	deletionPolicySnapshot         = "Snapshot"
 )

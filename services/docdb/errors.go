@@ -38,6 +38,7 @@ var (
 	ErrGlobalClusterNotFound          = awserr.New("GlobalClusterNotFoundFault", awserr.ErrNotFound)
 	ErrGlobalClusterAlreadyExists     = awserr.New("GlobalClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
 	ErrInvalidParameter               = awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
+	ErrInvalidParameterCombination    = awserr.New("InvalidParameterCombination", awserr.ErrInvalidParameter)
 	ErrUnknownAction                  = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	ErrInvalidClusterState            = awserr.New("InvalidDBClusterStateFault", awserr.ErrInvalidParameter)
 	ErrInvalidInstanceState           = awserr.New("InvalidDBInstanceState", awserr.ErrInvalidParameter)

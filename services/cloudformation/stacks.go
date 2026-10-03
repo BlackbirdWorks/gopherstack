@@ -603,7 +603,7 @@ func (b *InMemoryBackend) provisionResources(
 				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
 				stack.StackStatus = statusRollbackComplete
 			} else {
-				reason := "rollback failed to delete one or more resources"
+				reason := reasonRollbackDeleteFailed
 				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackFailed, reason)
 				stack.StackStatus = statusRollbackFailed
 				stack.StackStatusReason = reason
@@ -1246,7 +1246,7 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 	maps.Copy(b.resources[stack.StackID], prevResources)
 
 	if !rollbackOK {
-		reason := "rollback failed to delete one or more resources"
+		reason := reasonRollbackDeleteFailed
 		stack.StackStatus = statusUpdateRollbackFailed
 		stack.StackStatusReason = reason
 		b.addEvent(

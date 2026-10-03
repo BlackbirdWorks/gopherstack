@@ -862,3 +862,8 @@ CopyTags; DescribeDBEngineVersions.DefaultOnly; Marker/MaxRecords wired on
 IncludeShared, DeleteDBInstance final-snapshot creation (see
 items_still_open). False positive: CreateDBInstance.KmsKeyId/
 VpcSecurityGroupIds (see items_still_open).
+
+## 2026-10-03 (reqfielddiff tier-1 re-check)
+
+DescribeDBClusterSnapshots IncludePublic/IncludeShared stay unenforced (no foreign-account snapshots exist in the
+single-account backend) and CreateDBInstance VpcSecurityGroupIds/KmsKeyId stay cluster-inherited; no code change.

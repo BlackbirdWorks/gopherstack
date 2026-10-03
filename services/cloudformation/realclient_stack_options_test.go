@@ -44,6 +44,7 @@ func TestRealClient_StackOptions(t *testing.T) {
 		{testRegisterPublisherRequiresAcceptTerms, "register_publisher_requires_accept_terms"},
 		{testTestTypeVersionIDValidated, "test_type_version_id_validated"},
 		{testCreateStackRetainExceptOnCreate, "create_stack_retain_except_on_create"},
+		{testRollbackStack, "rollback_stack"},
 		{testCreateChangeSetResourceTypesThreadedToExecute, "create_change_set_resource_types_threaded_to_execute"},
 	}
 
@@ -505,7 +506,10 @@ func testCreateStackRetainExceptOnCreate(t *testing.T) {
 	runRetainExceptOnCreate(t, true, false)
 }
 
-func runRetainExceptOnCreate(t *testing.T, retainExceptOnCreate, wantBucketSurvives bool) {
+// newQueueFailingClient returns a typed client whose backend fails every AWS::SQS::Queue creation.
+func newQueueFailingClient(
+	t *testing.T,
+) (*cloudformation.InMemoryBackend, *cloudformation.ServiceBackends, *cfnsdk.Client) {
 	t.Helper()
 
 	backends := newServiceBackends(t)
@@ -535,9 +539,15 @@ func runRetainExceptOnCreate(t *testing.T, retainExceptOnCreate, wantBucketSurvi
 	)
 	require.NoError(t, err)
 
-	client := cfnsdk.NewFromConfig(cfg, func(o *cfnsdk.Options) {
+	return backend, backends, cfnsdk.NewFromConfig(cfg, func(o *cfnsdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
 	})
+}
+
+func runRetainExceptOnCreate(t *testing.T, retainExceptOnCreate, wantBucketSurvives bool) {
+	t.Helper()
+
+	backend, backends, client := newQueueFailingClient(t)
 
 	// MyBucket sorts before MyQueue in topoSortResources' alphabetical
 	// tie-break, so it is created (with DeletionPolicy=Retain) before
@@ -546,7 +556,7 @@ func runRetainExceptOnCreate(t *testing.T, retainExceptOnCreate, wantBucketSurvi
 		`"MyBucket":{"Type":"AWS::S3::Bucket","DeletionPolicy":"Retain","Properties":{}},` +
 		`"MyQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
 
-	_, err = client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+	_, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
 		StackName:            aws.String("retainexceptoncreate-stack"),
 		TemplateBody:         aws.String(tmpl),
 		RetainExceptOnCreate: aws.Bool(retainExceptOnCreate),
@@ -644,4 +654,72 @@ func testCreateChangeSetResourceTypesThreadedToExecute(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descAllowed.Stacks, 1)
 	assert.Equal(t, types.StackStatusCreateComplete, descAllowed.Stacks[0].StackStatus)
+}
+
+// testRollbackStack drives RollbackStack against a DisableRollback stack left CREATE_FAILED: the created
+// resources are deleted, Retain-policy ones only when RetainExceptOnCreate is true, and other states are rejected.
+func testRollbackStack(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		name                 string
+		retainExceptOnCreate bool
+		wantBucketSurvives   bool
+	}{
+		{name: "retain_policy_kept_by_default", wantBucketSurvives: true},
+		{name: "retain_except_on_create_deletes", retainExceptOnCreate: true},
+	}
+
+	const tmpl = `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","DeletionPolicy":"Retain","Properties":{}},` +
+		`"MyQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, backends, client := newQueueFailingClient(t)
+			_, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+				StackName: aws.String("rb"), TemplateBody: aws.String(tmpl), DisableRollback: aws.Bool(true),
+			})
+			require.NoError(t, err)
+
+			desc, err := client.DescribeStacks(t.Context(), &cfnsdk.DescribeStacksInput{StackName: aws.String("rb")})
+			require.NoError(t, err)
+			require.Equal(t, types.StackStatusCreateFailed, desc.Stacks[0].StackStatus)
+
+			events, err := backend.DescribeEvents("rb", "", false)
+			require.NoError(t, err)
+
+			var bucketID string
+			for _, e := range events.Data {
+				if e.LogicalResourceID == "MyBucket" && e.ResourceStatus == "CREATE_COMPLETE" {
+					bucketID = e.PhysicalResourceID
+				}
+			}
+			require.NotEmpty(t, bucketID)
+
+			out, err := client.RollbackStack(t.Context(), &cfnsdk.RollbackStackInput{
+				StackName: aws.String("rb"), RetainExceptOnCreate: aws.Bool(tt.retainExceptOnCreate),
+			})
+			require.NoError(t, err)
+			assert.NotEmpty(t, aws.ToString(out.OperationId))
+
+			desc, err = client.DescribeStacks(t.Context(), &cfnsdk.DescribeStacksInput{StackName: aws.String("rb")})
+			require.NoError(t, err)
+			assert.Equal(t, types.StackStatusRollbackComplete, desc.Stacks[0].StackStatus)
+
+			_, headErr := backends.S3.Backend.HeadBucket(
+				t.Context(), &awss3.HeadBucketInput{Bucket: aws.String(bucketID)},
+			)
+			if tt.wantBucketSurvives {
+				require.NoError(t, headErr)
+			} else {
+				require.Error(t, headErr)
+			}
+
+			_, err = client.RollbackStack(t.Context(), &cfnsdk.RollbackStackInput{StackName: aws.String("rb")})
+			require.Error(t, err)
+		})
+	}
 }

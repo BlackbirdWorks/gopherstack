@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -423,7 +424,9 @@ func (h *Handler) handleRollbackStack(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
-	stack, err := h.Backend.RollbackStack(c.Request().Context(), name)
+	stack, err := h.Backend.RollbackStack(
+		c.Request().Context(), name, strings.EqualFold(form.Get("RetainExceptOnCreate"), "true"),
+	)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}

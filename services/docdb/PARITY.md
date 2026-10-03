@@ -90,7 +90,8 @@ gaps: []
   # present-but-always-empty field byte-identical on the wire to an absent
   # one, so modelling them as always-empty would also be zero-effect churn.
 items_still_open:
-  - "Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/MasterUserSecret(+KmsKeyId, ManageMasterUserPassword)/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously)."
+  - "Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously)."
+  - "OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record MasterUserSecret on the cluster but create no secret in services/secretsmanager, RotateMasterUserPassword is unread, and an unset key leaves KmsKeyId empty."
   - "ReplicationSourceIdentifier/ReadReplicaIdentifiers stay empty: CreateDBClusterInput has no such member and docdb has no PromoteReadReplicaDBCluster, so only an unbuilt global-cluster secondary-attach path could populate them."
   - "DBClusterSnapshot.VpcId stays empty: CreateDBSubnetGroupInput has no VpcId and this backend cannot resolve subnet-to-VPC without EC2, so every subnet group's VpcId is empty."
   - "Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn: no authoritative source for the built-in catalog values or ARN format; not guessed."
@@ -432,3 +433,11 @@ DescribeDBClusterSnapshots.IncludePublic/IncludeShared) recorded in
 items_still_open, not fabricated -- no backing feature or, for
 IncludePublic/IncludeShared, no observable effect in a single-account
 emulator.
+
+## 2026-10-03 (reqfielddiff tier-1 follow-up)
+
+CreateDBCluster/ModifyDBCluster now honour ManageMasterUserPassword and MasterUserSecretKmsKeyId (docdb@v1.51.4
+api_op_CreateDBCluster.go:126/152, api_op_ModifyDBCluster.go:124/158): MasterUserSecret is echoed with the key, a key
+without management or with MasterUserPassword returns InvalidParameterCombination, and per the Modify doc the key can
+only be set while turning management on. DescribeDBClusterSnapshots IncludePublic/IncludeShared stay recorded: there
+are no foreign-account snapshots to include.

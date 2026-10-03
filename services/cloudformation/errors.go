@@ -45,6 +45,8 @@ var (
 	// the stack is not in UPDATE_IN_PROGRESS state. Real AWS: "You can
 	// cancel only stacks that are in the UPDATE_IN_PROGRESS state".
 	ErrCancelUpdateStackInvalidState = errors.New("can only cancel stacks that are in the UPDATE_IN_PROGRESS state")
+	// ErrRollbackStackInvalidState is returned by RollbackStack for a stack that is not CREATE_FAILED.
+	ErrRollbackStackInvalidState = errors.New("can only roll back stacks that are in the CREATE_FAILED state")
 	// ErrResourceTypeNotAllowed is returned when a template resource's Type
 	// doesn't match any pattern in the caller's optional ResourceTypes
 	// allowlist (CreateStackInput.ResourceTypes/UpdateStackInput.ResourceTypes/

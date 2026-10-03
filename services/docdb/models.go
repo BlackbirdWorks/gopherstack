@@ -175,6 +175,9 @@ type DBCluster struct {
 	ReplicationSourceIdentifier string               `json:"replicationSourceIdentifier"`
 	DBClusterResourceID         string               `json:"dbClusterResourceId,omitempty"`
 	NetworkType                 string               `json:"networkType,omitempty"`
+	MasterUserSecretARN         string               `json:"masterUserSecretArn,omitempty"`
+	MasterUserSecretStatus      string               `json:"masterUserSecretStatus,omitempty"`
+	MasterUserSecretKmsKeyID    string               `json:"masterUserSecretKmsKeyId,omitempty"`
 	ServerlessV2Scaling         *ServerlessV2Scaling `json:"serverlessV2Scaling,omitempty"`
 	// WriterInstanceID names the cluster member FailoverDBCluster last
 	// promoted to writer; empty means GetClusterMembers falls back to its
@@ -443,6 +446,7 @@ type InMemoryBackend struct {
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.
 type CreateDBClusterOptions struct {
 	ClusterExtras
+	MasterSecretRequest
 	KmsKeyID                     string
 	StorageType                  string
 	VpcSecurityGroupIDs          []string
@@ -458,6 +462,7 @@ type DeleteDBClusterOptions struct {
 // ModifyDBClusterOptions holds optional extra parameters for ModifyDBCluster.
 type ModifyDBClusterOptions struct {
 	ClusterExtras
+	MasterSecretRequest
 	EngineVersion          string
 	MasterUserPassword     string
 	NewDBClusterIdentifier string
