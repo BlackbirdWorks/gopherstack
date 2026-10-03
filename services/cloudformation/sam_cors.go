@@ -107,10 +107,10 @@ func corsMethodsFor(item map[string]any) []string {
 			return !ok
 		})
 	}
-	out := make([]string, 0, len(verbs)+1)
+	up := make([]string, 0, len(verbs))
 	for _, v := range verbs {
-		out = append(out, strings.ToUpper(v))
+		up = append(up, strings.ToUpper(v))
 	}
 
-	return append(out, "OPTIONS")
+	return slices.Concat(up, []string{"OPTIONS"})
 }

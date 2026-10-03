@@ -329,6 +329,9 @@ func (b *InMemoryBackend) markActive(clusterArn string, lb *liveBroker, address 
 	}
 }
 
+// brokerStartFailedCode is logged instead of the cause, which may echo container env.
+const brokerStartFailedCode = "BROKER_START_FAILED"
+
 // finishBroker marks a still-wanted cluster FAILED and releases its broker.
 func (b *InMemoryBackend) finishBroker(ctx context.Context, clusterArn string, lb *liveBroker, cause error) {
 	b.mu.Lock("failBroker")
@@ -343,12 +346,13 @@ func (b *InMemoryBackend) finishBroker(ctx context.Context, clusterArn string, l
 
 	if c, ok := b.clusters.Get(clusterArn); ok {
 		c.State = ClusterStateFailed
-		c.StateInfo = &StateInfo{Code: "BROKER_START_FAILED", Message: cause.Error()}
+		c.StateInfo = &StateInfo{Code: brokerStartFailedCode, Message: cause.Error()}
 	}
 
 	b.mu.Unlock()
 
-	logger.Load(ctx).WarnContext(ctx, "kafka: broker failed to start", "cluster", clusterArn, "error", cause)
+	logger.Load(ctx).WarnContext(ctx, "kafka: broker failed to start",
+		"cluster", clusterArn, "code", brokerStartFailedCode)
 	b.engine.reap([]*liveBroker{lb})
 }
 

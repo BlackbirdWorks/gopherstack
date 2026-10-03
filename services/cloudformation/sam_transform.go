@@ -232,9 +232,6 @@ func (t *samTranslator) resProps(section string, r map[string]any) map[string]an
 	return mergeSAMGlobals(t.globals[section], asMap(r[samKeyProps]))
 }
 
-// samMaxMergeLen bounds template-supplied list lengths before concatenation.
-const samMaxMergeLen = 1 << 16
-
 // mergeSAMGlobals merges Globals under local props: maps recurse, lists
 // concatenate (globals first), scalars take the local value.
 func mergeSAMGlobals(global, local map[string]any) map[string]any {
@@ -255,7 +252,7 @@ func mergeSAMGlobals(global, local map[string]any) map[string]any {
 				continue
 			}
 		case []any:
-			if g, isList := gv.([]any); isList && len(g) <= samMaxMergeLen && len(l) <= samMaxMergeLen {
+			if g, isList := gv.([]any); isList {
 				out[k] = append(slices.Clone(g), l...)
 
 				continue
@@ -294,13 +291,13 @@ func keySet(keys ...string) map[string]bool {
 // samTags converts SAM's Tags map into CloudFormation's Key/Value list and
 // adds the lambda:createdBy tag SAM always applies.
 func samTags(tags map[string]any) []any {
-	out := make([]any, 1, len(tags)+1)
-	out[0] = map[string]any{"Key": "lambda:createdBy", "Value": "SAM"}
-	for _, k := range slices.Sorted(maps.Keys(tags)) {
-		out = append(out, map[string]any{"Key": k, "Value": tags[k]})
+	keys := slices.Sorted(maps.Keys(tags))
+	rest := make([]any, 0, len(keys))
+	for _, k := range keys {
+		rest = append(rest, map[string]any{"Key": k, "Value": tags[k]})
 	}
 
-	return out
+	return slices.Concat([]any{map[string]any{"Key": "lambda:createdBy", "Value": "SAM"}}, rest)
 }
 
 // rewriteSAMRefs applies referenceable-property rewrites (Ref Fn.Alias etc.).
