@@ -642,3 +642,7 @@ well-formed request, consistent with this service's long prior audit
 history (see dated sections above). No `items_still_open` changes; no
 `snapshot_inventory.json` change (no persisted-struct field touched); no
 version bump.
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+StartJobsQuery filter keys: queue matches name or ARN, fileInput is a partial-name substring, jobEngineVersionRequested/Used, audioCodec and videoCodec are honoured (types.JobsQueryFilter.Key list); previously only queue (exact as stored) and status filtered and every other key matched all jobs. ListJobs queue also accepts a bare queue name. Open: the doc says "MediaConvert queries jobs using OR logic" without saying whether that spans filters; filters are still AND-ed across keys and OR-ed across values.

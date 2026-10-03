@@ -80,7 +80,7 @@ func TestACMHandler_ListCertificates_EnrichedSummary(t *testing.T) {
 
 	summary := out.CertificateSummaryList[0]
 	assert.Equal(t, "ISSUED", summary.Status, "summary should include Status")
-	assert.Equal(t, "EC_prime256v1", summary.KeyAlgorithm, "summary should include KeyAlgorithm")
+	assert.Equal(t, "RSA_2048", summary.KeyAlgorithm, "summary should include KeyAlgorithm")
 }
 
 // TestACMHandler_ListCertificates_SortByCreatedAt verifies SortBy=CREATED_AT ordering.
@@ -209,7 +209,7 @@ func TestACMHandler_ListCertificates_IncludesFilters(t *testing.T) {
 		},
 		{
 			name:         "filter_combined_key_type_and_usage",
-			listBody:     `{"Includes":{"keyTypes":["EC_prime256v1"],"keyUsage":["DIGITAL_SIGNATURE"]}}`,
+			listBody:     `{"Includes":{"keyTypes":["RSA_2048"],"keyUsage":["DIGITAL_SIGNATURE"]}}`,
 			wantCode:     http.StatusOK,
 			wantNonEmpty: true,
 		},

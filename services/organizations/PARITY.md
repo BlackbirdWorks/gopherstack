@@ -605,3 +605,7 @@ bug shape.
 
 `go test -race ./services/organizations/...` and `golangci-lint run ./services/organizations/...`
 both clean after the fix.
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+ListHandshakesForAccount/ForOrganization reject a Filter carrying both ActionType and ParentHandshakeId with InvalidInputException (types.HandshakeFilter: "If you specify ParentHandshakeId, you cannot also specify ActionType").

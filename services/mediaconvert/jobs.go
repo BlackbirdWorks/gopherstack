@@ -2,6 +2,7 @@ package mediaconvert
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -285,7 +286,7 @@ func (b *InMemoryBackend) ListJobsFiltered(status, queue, order string) []*Job {
 			continue
 		}
 
-		if queue != "" && j.QueueArn != queue && j.Queue != queue {
+		if queue != "" && !slices.Contains(jobQueueRefs(j), queue) {
 			continue
 		}
 

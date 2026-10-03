@@ -775,8 +775,8 @@ func (b *InMemoryBackend) GetChange(changeID string) (*ChangeInfo, error) {
 // seekRecordSetStart's pagination cursor walks below.
 func sortRecordSets(all []ResourceRecordSet) {
 	sort.Slice(all, func(i, j int) bool {
-		if all[i].Name != all[j].Name {
-			return all[i].Name < all[j].Name
+		if ki, kj := dnsOrderKey(all[i].Name), dnsOrderKey(all[j].Name); ki != kj {
+			return ki < kj
 		}
 
 		if all[i].Type != all[j].Type {
@@ -796,20 +796,20 @@ func seekRecordSetStart(all []ResourceRecordSet, startName, startType, startIden
 		return 0
 	}
 
-	startName = normaliseName(startName)
+	startKey := dnsOrderKey(startName)
 
 	start := 0
 	for start < len(all) {
 		r := all[start]
-		if r.Name > startName {
+		rk := dnsOrderKey(r.Name)
+		if rk > startKey {
 			break
 		}
 
-		if r.Name == startName && (startType == "" || r.Type >= startType) {
-			if startType == "" || r.Type > startType || startIdentifier == "" ||
-				r.SetIdentifier >= startIdentifier {
-				break
-			}
+		if rk == startKey && (startType == "" || r.Type >= startType) &&
+			(startType == "" || r.Type > startType || startIdentifier == "" ||
+				r.SetIdentifier >= startIdentifier) {
+			break
 		}
 
 		start++

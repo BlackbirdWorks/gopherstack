@@ -690,7 +690,7 @@ func TestACMBackend_CertificateBodyIsPEM(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, strings.HasPrefix(cert.CertificateBody, "-----BEGIN CERTIFICATE-----"))
-	assert.True(t, strings.HasPrefix(cert.PrivateKey, "-----BEGIN EC PRIVATE KEY-----"))
+	assert.True(t, strings.HasPrefix(cert.PrivateKey, "-----BEGIN RSA PRIVATE KEY-----"))
 }
 
 // TestACMBackend_ExportCertificate_Passphrase verifies passphrase encryption in ExportCertificate.
@@ -708,7 +708,7 @@ func TestACMBackend_ExportCertificate_Passphrase(t *testing.T) {
 		{
 			name:             "no_passphrase_returns_plain",
 			passphrase:       nil,
-			wantKeyHeader:    "-----BEGIN EC PRIVATE KEY-----",
+			wantKeyHeader:    "-----BEGIN RSA PRIVATE KEY-----",
 			wantKeyEncrypted: false,
 		},
 		{
@@ -720,7 +720,7 @@ func TestACMBackend_ExportCertificate_Passphrase(t *testing.T) {
 		{
 			name:             "empty_passphrase_returns_plain",
 			passphrase:       []byte{},
-			wantKeyHeader:    "-----BEGIN EC PRIVATE KEY-----",
+			wantKeyHeader:    "-----BEGIN RSA PRIVATE KEY-----",
 			wantKeyEncrypted: false,
 		},
 	}

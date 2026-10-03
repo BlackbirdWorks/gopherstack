@@ -1,7 +1,9 @@
 package mediaconvert
 
 import (
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -59,38 +61,101 @@ func (b *InMemoryBackend) GetJobsQueryResults(queryID string) []*Job {
 	return list
 }
 
-// jobMatchesFilters returns true if the job satisfies all provided query filters.
-// Each filter map must have a "key" and a "values" field; any value match passes.
+// jobMatchesFilters applies each JobsQueryFilter: values within a filter are OR'd, filters are AND'd.
+// Keys follow types.JobsQueryFilter.Key; queue accepts a name or ARN, fileInput a partial name.
 func jobMatchesFilters(j *Job, filters []map[string]any) bool {
 	for _, f := range filters {
 		key, _ := f["key"].(string)
 		vals, _ := f["values"].([]any)
 
-		var jobVal string
-
-		switch key {
-		case "queue", "Queue":
-			jobVal = j.Queue
-		case "status", "Status":
-			jobVal = j.Status
-		default:
-			continue
-		}
-
-		matched := false
-
-		for _, v := range vals {
-			if vs, ok := v.(string); ok && vs == jobVal {
-				matched = true
-
-				break
-			}
-		}
-
-		if !matched {
+		if !jobMatchesQueryKey(j, key, vals) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func jobMatchesQueryKey(j *Job, key string, vals []any) bool {
+	var candidates []string
+
+	switch strings.ToLower(key) {
+	case "queue":
+		candidates = jobQueueRefs(j)
+	case "status":
+		candidates = []string{j.Status}
+	case "jobengineversionrequested":
+		candidates = []string{j.JobEngineVersionRequested}
+	case "jobengineversionused":
+		candidates = []string{j.JobEngineVersionUsed}
+	case "audiocodec":
+		candidates = outputCodecs(j, "audioDescriptions")
+	case "videocodec":
+		candidates = outputCodecs(j, "videoDescription")
+	case "fileinput":
+		for _, v := range vals {
+			if vs, ok := v.(string); ok && jobMatchesInputFile(j, vs) {
+				return true
+			}
+		}
+
+		return false
+	default:
+		return true
+	}
+
+	for _, v := range vals {
+		if vs, ok := v.(string); ok && slices.Contains(candidates, vs) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// outputCodecs collects codecSettings.codec from every output's descriptions entry.
+func outputCodecs(j *Job, descKey string) []string {
+	var out []string
+
+	groups, _ := j.Settings["outputGroups"].([]any)
+	for _, g := range groups {
+		gm, _ := g.(map[string]any)
+		outputs, _ := gm["outputs"].([]any)
+
+		for _, o := range outputs {
+			om, _ := o.(map[string]any)
+
+			switch d := om[descKey].(type) {
+			case []any:
+				for _, e := range d {
+					out = appendCodec(out, e)
+				}
+			default:
+				out = appendCodec(out, d)
+			}
+		}
+	}
+
+	return out
+}
+
+func appendCodec(out []string, desc any) []string {
+	dm, _ := desc.(map[string]any)
+	cs, _ := dm["codecSettings"].(map[string]any)
+
+	if codec, ok := cs["codec"].(string); ok {
+		return append(out, codec)
+	}
+
+	return out
+}
+
+// jobQueueRefs returns every reference a caller may use for the job's queue: name or ARN.
+func jobQueueRefs(j *Job) []string {
+	refs := []string{j.Queue, j.QueueArn}
+	if i := strings.LastIndex(j.QueueArn, "queues/"); i >= 0 {
+		refs = append(refs, j.QueueArn[i+len("queues/"):])
+	}
+
+	return refs
 }

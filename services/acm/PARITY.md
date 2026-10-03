@@ -1089,3 +1089,7 @@ clean, `golangci-lint run` 0 issues, `go test ./pkgs/persistence/...` clean.
 
 Added `leak_main_test.go` (goleak TestMain). Auto-validation `time.AfterFunc`
 timers are all tracked and no leak was found under `-race`.
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+ListCertificates Includes.keyTypes omitted now defaults to RSA_1024 and RSA_2048 only (types.Filters.KeyTypes "Default filtering returns only RSA_1024 and RSA_2048"), and RequestCertificate with no KeyAlgorithm now issues RSA_2048 (api_op_RequestCertificate.go "Default: RSA_2048") instead of EC_prime256v1. Not done: the "that have at least one domain" half of the default filter.

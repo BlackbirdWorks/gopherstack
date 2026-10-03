@@ -29,6 +29,10 @@ func (b *InMemoryBackend) RequestCertificate(
 		return nil, err
 	}
 
+	if keyAlgorithm == "" {
+		keyAlgorithm = keyAlgorithmRSA2048
+	}
+
 	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, keyAlgorithm)
 	if errors.Is(err, errWeakKey) {
 		return nil, fmt.Errorf("%w: %w", ErrRequestCertInvalidParameter, err)
@@ -36,10 +40,6 @@ func (b *InMemoryBackend) RequestCertificate(
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificate: %w", err)
-	}
-
-	if keyAlgorithm == "" {
-		keyAlgorithm = keyAlgorithmEC
 	}
 
 	region := getRegion(ctx, b.region)
@@ -752,7 +752,12 @@ func buildListCertFilters(p ListCertificatesParams) listCertFilters {
 		f.statusSet[s] = struct{}{}
 	}
 
-	for _, k := range p.KeyTypes {
+	keyTypes := p.KeyTypes
+	if len(keyTypes) == 0 {
+		keyTypes = []string{"RSA_1024", "RSA_2048"}
+	}
+
+	for _, k := range keyTypes {
 		f.keyTypeSet[k] = struct{}{}
 	}
 

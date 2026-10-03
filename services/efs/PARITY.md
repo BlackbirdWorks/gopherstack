@@ -702,3 +702,7 @@ records (`DeleteReplicationConfiguration.DeletionMode` inert single-region
 model; `DescribeAccountPreferences.MaxResults` structurally non-paginated;
 `ListTagsForResource.MaxResults` bounded 50-tag cap). Tier-1: 5 -> 5 (0
 fixed, 0 recorded as new, 5 already covered).
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+DescribeMountTargets requires one of FileSystemId, MountTargetId or AccessPointId (api_op_DescribeMountTargets.go: "must be included in your request if ... is not included") and accepts an ARN for each; no selector returns BadRequest. Describe* list ops reduce an ARN FileSystemId/AccessPointId to its ID.

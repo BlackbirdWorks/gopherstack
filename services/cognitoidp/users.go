@@ -250,8 +250,7 @@ func (b *InMemoryBackend) DeleteUser(accessToken string) error {
 }
 
 // ListUsersFiltered returns users matching an optional AWS-style filter string.
-// Supported filter form: "username = \"prefix*\"" or "username ^= \"prefix\"".
-// If filter is empty all users are returned (same as ListUsers).
+// Filter form is `attr = "value"` (exact) or `attr ^= "value"` (prefix); empty returns all users.
 func (b *InMemoryBackend) ListUsersFiltered(userPoolID, filter string) ([]*User, error) {
 	b.mu.RLock("ListUsersFiltered")
 	defer b.mu.RUnlock()
@@ -261,12 +260,15 @@ func (b *InMemoryBackend) ListUsersFiltered(userPoolID, filter string) ([]*User,
 	}
 
 	poolUsers := b.usersByPool.Get(userPoolID)
-	prefix, attrFilter := parseListUsersFilter(filter)
+	uf, err := parseListUsersFilter(filter)
+	if err != nil {
+		return nil, err
+	}
 
 	out := make([]*User, 0, len(poolUsers))
 
 	for _, u := range poolUsers {
-		if !userMatchesFilter(u, prefix, attrFilter) {
+		if !userMatchesFilter(u, uf) {
 			continue
 		}
 
@@ -280,61 +282,78 @@ func (b *InMemoryBackend) ListUsersFiltered(userPoolID, filter string) ([]*User,
 	return out, nil
 }
 
-// parseListUsersFilter parses a simplified Cognito filter expression.
-// Returns a username prefix (may be "") and an optional attribute=value pair.
-func parseListUsersFilter(filter string) (string, [2]string) {
-	if filter == "" {
-		return "", [2]string{}
-	}
-
-	// Trim whitespace and quotes.
-	f := strings.TrimSpace(filter)
-
-	// Common form: `username ^= "prefix"` or `username = "value"`
-	for _, sep := range []string{" ^= ", " = "} {
-		before, after, ok := strings.Cut(f, sep)
-		if !ok {
-			continue
-		}
-
-		attr := strings.TrimSpace(before)
-		val := strings.Trim(strings.TrimSpace(after), `"`)
-
-		if attr == "username" {
-			val = strings.TrimSuffix(val, "*")
-
-			return val, [2]string{}
-		}
-
-		return "", [2]string{attr, val}
-	}
-
-	return "", [2]string{}
+type userFilter struct {
+	attr   string
+	value  string
+	prefix bool
 }
 
-// userMatchesFilter returns true if the user satisfies the filter criteria.
-// AttributeName cognito:user_status, status, and sub are not stored in
-// u.Attributes (they're dedicated User fields), so they need their own cases;
-// AWS documents all three as searchable ListUsers attributes alongside the
-// generic standard/custom ones (api_op_ListUsers.go).
-func userMatchesFilter(u *User, usernamePrefix string, attrFilter [2]string) bool {
-	if usernamePrefix != "" && !strings.HasPrefix(u.Username, usernamePrefix) {
-		return false
+// parseListUsersFilter parses `AttributeName (=|^=) "value"`; \" in the value is a literal quote.
+func parseListUsersFilter(filter string) (userFilter, error) {
+	f := strings.TrimSpace(filter)
+	if f == "" {
+		return userFilter{}, nil
 	}
 
-	switch attrFilter[0] {
+	idx := strings.IndexAny(f, "=^ ")
+	if idx <= 0 {
+		return userFilter{}, fmt.Errorf("%w: Error while parsing filter %q", ErrInvalidParameter, filter)
+	}
+
+	attr, rest := f[:idx], strings.TrimSpace(f[idx:])
+	uf := userFilter{attr: attr}
+
+	switch {
+	case strings.HasPrefix(rest, "^="):
+		uf.prefix = true
+		rest = rest[2:]
+	case strings.HasPrefix(rest, "="):
+		rest = rest[1:]
+	default:
+		return userFilter{}, fmt.Errorf("%w: Error while parsing filter %q", ErrInvalidParameter, filter)
+	}
+
+	rest = strings.TrimSpace(rest)
+	if len(rest) < 2 || rest[0] != '"' || rest[len(rest)-1] != '"' {
+		return userFilter{}, fmt.Errorf("%w: Error while parsing filter %q", ErrInvalidParameter, filter)
+	}
+
+	uf.value = strings.ReplaceAll(rest[1:len(rest)-1], `\"`, `"`)
+
+	return uf, nil
+}
+
+func (f userFilter) matches(got string) bool {
+	if f.prefix {
+		return strings.HasPrefix(got, f.value)
+	}
+
+	return got == f.value
+}
+
+// userMatchesFilter applies the documented operators: username and status are case-sensitive,
+// cognito:user_status is case-insensitive (api_op_ListUsers.go Filter doc).
+func userMatchesFilter(u *User, f userFilter) bool {
+	switch f.attr {
 	case "":
 		return true
+	case "username":
+		return f.matches(u.Username)
 	case "cognito:user_status":
-		return strings.EqualFold(u.Status, attrFilter[1])
+		return userFilter{value: strings.ToLower(f.value), prefix: f.prefix}.matches(strings.ToLower(u.Status))
 	case "status":
-		return u.Enabled == (attrFilter[1] == "Enabled")
-	case "sub":
-		return u.Sub == attrFilter[1]
-	default:
-		attrVal, exists := u.Attributes[attrFilter[0]]
+		status := "Disabled"
+		if u.Enabled {
+			status = "Enabled"
+		}
 
-		return exists && attrVal == attrFilter[1]
+		return f.matches(status)
+	case "sub":
+		return f.matches(u.Sub)
+	default:
+		attrVal, exists := u.Attributes[f.attr]
+
+		return exists && f.matches(attrVal)
 	}
 }
 

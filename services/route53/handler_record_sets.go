@@ -269,6 +269,10 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 	startType := q.Get("type")
 	startIdentifier := q.Get("identifier")
 
+	if startName == "" && startType != "" {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "type requires name")
+	}
+
 	mi, parseErr := parseMaxItems(c, q.Get("maxitems"))
 	if parseErr != nil {
 		return parseErr

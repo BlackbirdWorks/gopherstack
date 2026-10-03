@@ -521,3 +521,7 @@ adjudicated, closing all its items at the ledger level.
 `return false`) despite the backing data already being computed. Fixed;
 see GetTraceSummaries op note. Removed: 0. Kept: 9 items_still_open + 1
 deferred, all re-verified accurate.
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+GetTraceSummaries FilterExpression grammar: the SDK doc (api_op_GetTraceSummaries.go FilterExpression) only links to the X-Ray filter-expression guide, so AND/OR/NOT combinators, `!=`, BEGINSWITH/ENDSWITH/CONTAINS are not implemented without guessing their precedence; single clauses only.
