@@ -8,6 +8,10 @@ import (
 
 // BeginTransaction starts a new transaction and returns its ID.
 func (b *InMemoryBackend) BeginTransaction(ctx context.Context, resourceARN string) (string, error) {
+	if id, handled, err := b.beginReal(ctx, resourceARN); handled {
+		return id, err
+	}
+
 	b.mu.Lock("BeginTransaction")
 	defer b.mu.Unlock()
 
@@ -37,6 +41,14 @@ func (b *InMemoryBackend) CommitTransaction(
 	ctx context.Context,
 	transactionID string,
 ) (string, error) {
+	if handled, err := b.finalizeReal(ctx, transactionID, true); handled {
+		if err != nil {
+			return "", err
+		}
+
+		return transactionStatusCommitted, nil
+	}
+
 	b.mu.Lock("CommitTransaction")
 	defer b.mu.Unlock()
 
@@ -58,6 +70,14 @@ func (b *InMemoryBackend) RollbackTransaction(
 	ctx context.Context,
 	transactionID string,
 ) (string, error) {
+	if handled, err := b.finalizeReal(ctx, transactionID, false); handled {
+		if err != nil {
+			return "", err
+		}
+
+		return transactionStatusRolledBack, nil
+	}
+
 	b.mu.Lock("RollbackTransaction")
 	defer b.mu.Unlock()
 

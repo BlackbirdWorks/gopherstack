@@ -246,10 +246,9 @@ items_still_open:
     ManageMasterUserPassword/RotateMasterUserPassword/master-secret ARN anywhere).
     Building that is a subsystem, not a wire fix; declined. (ModifyDBInstance
     .MasterUserPassword is no longer dropped: --rds-engine=docker applies it in the engine.)"
-  - "OPEN 2026-10-03 (gopherstack-rxmvb): with --rds-engine=docker the RDS Data API still executes against
-    services/rdsdata's own SQLite engine, not the Docker Aurora databases; read replicas, restore-based
-    instances, custom cluster endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay
-    metadata-only. Restore relaunches empty containers."
+  - "OPEN 2026-10-03: with --rds-engine=docker read replicas, restore-based instances, custom cluster
+    endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only. Restore
+    relaunches empty containers."
   - "OPEN: DescribeDBClusterSnapshots/DescribeDBSnapshots .IncludePublic/.IncludeShared
     are dropped; single-account backend has no cross-account snapshot data to reveal."
   - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): five
@@ -1808,6 +1807,12 @@ a random one. MySQL/MariaDB masters are granted server-wide rights.
 - Restore relaunches an EMPTY container per restored instance/cluster with a random password: data and
   passwords are not persisted (no snapshot version bump), like MSK/MQ.
 - Still metadata-only in docker mode: read replicas, restore-from-snapshot/point-in-time/S3 instances, custom
-  cluster endpoints, DBPortNumber changes, other engines (Oracle, SQL Server, Db2, Neptune). The RDS Data API
-  (services/rdsdata) keeps executing against its own SQLite engine, not the Docker databases.
+  cluster endpoints, DBPortNumber changes, other engines (Oracle, SQL Server, Db2, Neptune).
 Proven by `engine_test.go` (fake runtime) and the Docker-gated `TestEngineDockerRealDatabases`.
+
+## 2026-10-03 -- Data API reaches docker-mode Aurora clusters (gopherstack-rxmvb)
+
+- `DataAPITarget(resourceARN)` (data_api.go) is the sibling accessor services/rdsdata resolves clusters through: it
+  returns the cluster's real host:port/kind/default database, `ErrHTTPEndpointNotEnabled` when HttpEndpoint is
+  off, `ErrClusterNotReady` until the container is up, and `ErrNotRealCluster` for stub clusters (SQLite serves them).
+- Proven by the Docker-gated `TestRealDockerDataAPI` in services/rdsdata (postgres and mysql Aurora clusters).

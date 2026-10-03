@@ -116,6 +116,12 @@ func (j *Janitor) tick(ctx context.Context) {
 		}
 	}()
 
+	for _, e := range expired {
+		if re := j.Backend.realEngine(); re != nil {
+			_, _ = re.finalize(realTxKey(e.region, e.id), false)
+		}
+	}
+
 	count := len(expired)
 
 	telemetry.RecordWorkerTask(rdsdataWorkerServiceName, txReaperComponent, "success")
