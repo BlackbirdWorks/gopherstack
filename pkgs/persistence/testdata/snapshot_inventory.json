@@ -27251,6 +27251,7 @@
       "integrationsSnapshot.mockRun *asl.MockRun",
       "integrationsSnapshot.s3Reader asl.S3Reader",
       "integrationsSnapshot.s3ResultWriter asl.S3Writer",
+      "integrationsSnapshot.sdkIntegration asl.SDKIntegration",
       "integrationsSnapshot.snsIntegration asl.SNSIntegration",
       "integrationsSnapshot.sqsIntegration asl.SQSIntegration",
       "parsedDefinition.def string",
