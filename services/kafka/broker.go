@@ -352,7 +352,7 @@ func (b *InMemoryBackend) finishBroker(ctx context.Context, clusterArn string, l
 	b.mu.Unlock()
 
 	logger.Load(ctx).WarnContext(ctx, "kafka: broker failed to start",
-		"cluster", clusterArn, "code", brokerStartFailedCode)
+		"code", brokerStartFailedCode)
 	b.engine.reap([]*liveBroker{lb})
 }
 

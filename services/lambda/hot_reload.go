@@ -106,16 +106,25 @@ func resolveHotReloadRoots(roots []string) ([]string, []string) {
 	return resolved, skipped
 }
 
-// withinHotReloadRoot reports whether the cleaned absolute path p is a root or lies under one.
-func withinHotReloadRoot(p string, roots []string) bool {
+// withinRoot returns p only when it is root or lies under it, else ("", false).
+func withinRoot(root, p string) (string, bool) {
+	prefix := strings.TrimSuffix(root, string(filepath.Separator)) + string(filepath.Separator)
+	if !strings.HasPrefix(p, prefix) && p != root {
+		return "", false
+	}
+
+	return p, true
+}
+
+// withinHotReloadRoots returns p when it lies under one of roots; only the returned value may be used.
+func withinHotReloadRoots(p string, roots []string) (string, bool) {
 	for _, root := range roots {
-		prefix := strings.TrimSuffix(root, string(filepath.Separator)) + string(filepath.Separator)
-		if p == root || strings.HasPrefix(p, prefix) {
-			return true
+		if inside, ok := withinRoot(root, p); ok {
+			return inside, true
 		}
 	}
 
-	return false
+	return "", false
 }
 
 // sanitizeHotReloadPath returns key's env-expanded, cleaned, symlink-resolved absolute path,
@@ -142,11 +151,13 @@ func sanitizeHotReloadPath(key string, roots []string) (string, error) {
 		return "", fmt.Errorf("%w: mounting %q is not allowed", ErrInvalidHotReloadPath, clean)
 	}
 
-	safe := filepath.Clean(resolved)
-	if !withinHotReloadRoot(safe, roots) {
+	candidate := filepath.Clean(resolved)
+
+	safe, ok := withinHotReloadRoots(candidate, roots)
+	if !ok {
 		return "", fmt.Errorf(
 			"%w: %q is outside the allowed roots; set %s to permit it",
-			ErrInvalidHotReloadPath, safe, hotReloadRootsEnv,
+			ErrInvalidHotReloadPath, candidate, hotReloadRootsEnv,
 		)
 	}
 
