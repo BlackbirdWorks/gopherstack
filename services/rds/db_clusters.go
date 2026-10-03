@@ -48,7 +48,13 @@ func (b *InMemoryBackend) CreateDBCluster(
 		return nil, err
 	}
 
+	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	if err != nil {
+		return nil, err
+	}
+
 	cluster := b.newDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, opts)
+	cluster.MasterSecret = secret
 	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
 	b.clusters.Put(cluster)
 
@@ -511,6 +517,16 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	secret, err := b.updateMasterSecret(
+		cluster.MasterSecret,
+		"cluster",
+		opts.MasterSecretRequest,
+		opts.MasterUserPassword,
+	)
+	if err != nil {
+		return nil, err
+	}
+	cluster.MasterSecret = secret
 	applyDBClusterOpts(cluster, paramGroupName, opts)
 	if opts.DBInstanceParameterGroupName != "" {
 		cluster.DBInstanceParameterGroupName = opts.DBInstanceParameterGroupName
@@ -1139,7 +1155,12 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	if _, exists := b.clusters.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
 	}
+	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	if err != nil {
+		return nil, err
+	}
 	cluster := &DBCluster{
+		MasterSecret:                     secret,
 		DBClusterIdentifier:              id,
 		DBClusterArn:                     b.rdsARN("cluster", id),
 		Engine:                           engine,

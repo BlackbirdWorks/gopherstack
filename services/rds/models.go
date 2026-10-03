@@ -121,6 +121,9 @@ type CustomDBEngineVersion struct {
 
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
+	MasterSecret
+	ResumeFullAutomationModeTime       time.Time                    `json:"resumeFullAutomationModeTime,omitzero"`
+	AutomationMode                     string                       `json:"automationMode,omitempty"`
 	InstanceCreateTime                 time.Time                    `json:"instanceCreateTime"`
 	PendingModifiedValues              *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
 	EngineLifecycleSupport             string                       `json:"engineLifecycleSupport,omitempty"`
@@ -271,6 +274,7 @@ type ServerlessV2ScalingConfiguration struct {
 
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
+	MasterSecret
 	ClusterCreateTime         time.Time                         `json:"clusterCreateTime"`
 	ServerlessV2ScalingConfig *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
 
@@ -398,11 +402,20 @@ type DBEngineVersion struct {
 	// ImageID is only meaningful for custom engine versions (rds@v1.124.1 types.DBEngineVersion.Image.ImageId);
 	// builtin engines leave it empty like real AWS.
 	ImageID string `json:"imageId,omitempty"`
+	// SupportedCharacterSets and SupportedTimezones back ListSupportedCharacterSets/ListSupportedTimezones.
+	SupportedCharacterSets []CharacterSet `json:"supportedCharacterSets,omitempty"`
+	SupportedTimezones     []string       `json:"supportedTimezones,omitempty"`
 	// IsDefault is internal bookkeeping for DescribeDBEngineVersions.DefaultOnly
 	// filtering -- real AWS's DBEngineVersion output type has no corresponding
 	// wire field (rds@v1.124.1 types.DBEngineVersion), so this never appears in
 	// xmlDBEngineVersion.
 	IsDefault bool `json:"isDefault,omitempty"`
+}
+
+// CharacterSet is an engine-supported CharacterSetName value.
+type CharacterSet struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // DBSnapshotAttribute represents an attribute of a DB snapshot.
@@ -639,6 +652,7 @@ type Integration struct {
 
 // TenantDatabase represents a tenant database within a multi-tenant RDS instance.
 type TenantDatabase struct {
+	MasterSecret
 	CreatedAt            time.Time `json:"createdAt"`
 	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
 	TenantDBName         string    `json:"tenantDBName"`
@@ -687,37 +701,41 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
-	MasterUserPassword                 string
-	EngineLifecycleSupport             string
-	ReplicaMode                        string
-	AvailabilityZone                   string
-	DBParameterGroupName               string
-	OptionGroupName                    string
-	SourceRegion                       string
-	LicenseModel                       string
-	MonitoringRoleArn                  string
-	PreferredMaintenanceWindow         string
-	PreferredBackupWindow              string
-	KmsKeyID                           string
-	BackupTarget                       string
-	StorageType                        string
-	DBSubnetGroupName                  string
-	DBClusterIdentifier                string
-	PerformanceInsightsKMSKeyID        string
-	EngineVersion                      string
-	EnabledCloudwatchLogsExports       []string
-	DBSecurityGroupNames               []string
-	VpcSecurityGroupIDs                []string
+	DBClusterIdentifier          string
+	AutomationMode               string
+	EngineVersion                string
+	PerformanceInsightsKMSKeyID  string
+	MasterUserPassword           string
+	EngineLifecycleSupport       string
+	ReplicaMode                  string
+	AvailabilityZone             string
+	DBParameterGroupName         string
+	OptionGroupName              string
+	SourceRegion                 string
+	LicenseModel                 string
+	MonitoringRoleArn            string
+	PreferredMaintenanceWindow   string
+	PreferredBackupWindow        string
+	KmsKeyID                     string
+	BackupTarget                 string
+	StorageType                  string
+	DBSubnetGroupName            string
+	VpcSecurityGroupIDs          []string
+	EnabledCloudwatchLogsExports []string
+	DBSecurityGroupNames         []string
+	MasterSecretRequest
+	DBPortNumber                       int
+	ResumeFullAutomationModeMinutes    int
 	BackupRetentionPeriod              int
 	Iops                               int
 	StorageThroughput                  int
 	MonitoringInterval                 int
 	PerformanceInsightsRetentionPeriod int
 	PromotionTier                      int
-	DBPortNumber                       int
+	AllowMajorVersionUpgrade           bool
 	MultiAZSet                         bool
 	CopyTagsToSnapshot                 bool
-	AllowMajorVersionUpgrade           bool
+	ResumeFullAutomationModeMinutesSet bool
 	ApplyImmediately                   bool
 	PubliclyAccessible                 bool
 	PerformanceInsightsEnabled         bool
@@ -743,6 +761,7 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
+	MasterSecretRequest
 	MasterUserPassword                 string
 	EngineVersion                      string
 	KmsKeyID                           string

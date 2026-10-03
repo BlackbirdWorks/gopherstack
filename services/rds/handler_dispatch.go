@@ -562,6 +562,7 @@ func rdsErrorCode(opErr error) string {
 		{ErrDBProxyEndpointAlreadyExists, "DBProxyEndpointAlreadyExistsFault"},
 		{ErrCannotDeleteDefaultProxyEndpoint, "InvalidDBProxyEndpointStateFault"},
 		{ErrDBProxyNotFound, "DBProxyNotFoundFault"},
+		{ErrDBProxyTargetGroupNotFound, "DBProxyTargetGroupNotFoundFault"},
 		{ErrDBProxyEndpointNotFound, "DBProxyEndpointNotFoundFault"},
 	}
 

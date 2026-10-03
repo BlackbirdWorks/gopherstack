@@ -73,6 +73,7 @@ func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBCl
 	}
 
 	return DBClusterOptions{
+		MasterSecretRequest:         parseMasterSecretRequest(vals),
 		MasterUserPassword:          vals.Get("MasterUserPassword"),
 		EngineVersion:               vals.Get("EngineVersion"),
 		KmsKeyID:                    vals.Get("KmsKeyId"),
@@ -238,6 +239,8 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 
 	storageEncryptedRaw := vals.Get("StorageEncrypted")
 	opts := DBClusterOptions{
+		MasterSecretRequest:          parseMasterSecretRequest(vals),
+		MasterUserPassword:           vals.Get("MasterUserPassword"),
 		EngineVersion:                vals.Get("EngineVersion"),
 		BackupRetentionPeriod:        backupRetentionPeriod,
 		KmsKeyID:                     vals.Get("KmsKeyId"),
@@ -405,6 +408,7 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		EngineVersion:                      c.EngineVersion,
 		Status:                             c.Status,
 		MasterUsername:                     c.MasterUsername,
+		MasterUserSecret:                   c.MasterSecret.toXML(),
 		DatabaseName:                       c.DatabaseName,
 		DBClusterParameterGroupName:        c.DBClusterParameterGroupName,
 		Endpoint:                           c.Endpoint,
@@ -628,6 +632,7 @@ type xmlDBCluster struct {
 	EnabledCloudwatchLogsExports     *xmlLogTypeList                  `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	AvailabilityZones                *xmlAvailabilityZoneList         `xml:"AvailabilityZones,omitempty"`
 	AssociatedRoles                  *xmlDBClusterRoleList            `xml:"AssociatedRoles,omitempty"`
+	MasterUserSecret                 *xmlMasterUserSecret             `xml:"MasterUserSecret,omitempty"`
 	ReadReplicaIdentifiers           *xmlClusterReplicaIdentifierList `xml:"ReadReplicaIdentifiers,omitempty"`
 	DBClusterOptionGroupMemberships  *xmlDBClusterOGMembershipList    `xml:"DBClusterOptionGroupMemberships,omitempty"`
 
@@ -963,6 +968,8 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 	sourceEngine := vals.Get("SourceEngine")
 	sourceEngineVersion := vals.Get("SourceEngineVersion")
 	s3ClusterOpts := DBClusterOptions{
+		MasterSecretRequest:             parseMasterSecretRequest(vals),
+		MasterUserPassword:              vals.Get("MasterUserPassword"),
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 	}
 	cluster, err := h.Backend.RestoreDBClusterFromS3(

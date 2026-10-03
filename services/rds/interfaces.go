@@ -289,7 +289,7 @@ type StorageBackend interface {
 	DescribeDBProxyTargets(proxyName, targetGroupName string) ([]DBProxyTarget, error)
 	DescribeDBProxyTargetGroups(proxyName, targetGroupName string) ([]DBProxyTargetGroup, error)
 	ModifyDBProxyTargetGroup(
-		proxyName, targetGroupName string,
+		proxyName, targetGroupName, newName string,
 		cfg ConnectionPoolConfig,
 	) (*DBProxyTargetGroup, error)
 
@@ -330,9 +330,15 @@ type StorageBackend interface {
 
 	// Tenant Database operations
 	CreateTenantDatabase(instanceID, tenantDBName, masterUsername string) (*TenantDatabase, error)
+	CreateTenantDatabaseWithSecret(
+		instanceID, tenantDBName, masterUsername, masterPassword string, req MasterSecretRequest,
+	) (*TenantDatabase, error)
 	DeleteTenantDatabase(instanceID, tenantDBName string, opts DeleteTenantDatabaseOptions) (*TenantDatabase, error)
 	DescribeTenantDatabases(instanceID, tenantDBName string) ([]TenantDatabase, error)
 	ModifyTenantDatabase(instanceID, tenantDBName, newTenantDBName string) (*TenantDatabase, error)
+	ModifyTenantDatabaseWithSecret(
+		instanceID, tenantDBName, newTenantDBName, masterPassword string, req MasterSecretRequest,
+	) (*TenantDatabase, error)
 
 	// DB Cluster Automated Backup operations
 	DeleteDBClusterAutomatedBackup(resourceID string) (*DBClusterAutomatedBackup, error)

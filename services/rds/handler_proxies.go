@@ -222,7 +222,7 @@ func (h *Handler) handleModifyDBProxyTargetGroup(vals url.Values) (any, error) {
 		SessionPinningFilters:     sessionPinningFilters,
 	}
 
-	tg, err := h.Backend.ModifyDBProxyTargetGroup(proxyName, targetGroupName, cfg)
+	tg, err := h.Backend.ModifyDBProxyTargetGroup(proxyName, targetGroupName, vals.Get("NewName"), cfg)
 	if err != nil {
 		return nil, err
 	}

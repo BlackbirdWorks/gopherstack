@@ -244,7 +244,7 @@ func staticMajorEngineVersions() []DBMajorEngineVersion {
 		{Engine: enginePostgres, MajorEngineVersion: "14", Status: instanceStatusAvailable},
 		{Engine: enginePostgres, MajorEngineVersion: "13", Status: instanceStatusAvailable},
 		{Engine: engineMariaDB, MajorEngineVersion: "10.6", Status: instanceStatusAvailable},
-		{Engine: "oracle-ee", MajorEngineVersion: "19", Status: instanceStatusAvailable},
+		{Engine: engineOracleEE, MajorEngineVersion: "19", Status: instanceStatusAvailable},
 		{Engine: "sqlserver-ee", MajorEngineVersion: "15.00", Status: instanceStatusAvailable},
 		{Engine: engineAuroraMySQL, MajorEngineVersion: "8.0", Status: instanceStatusAvailable},
 		{Engine: engineAuroraPostgresql, MajorEngineVersion: "15", Status: instanceStatusAvailable},

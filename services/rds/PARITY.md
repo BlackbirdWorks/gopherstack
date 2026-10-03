@@ -237,15 +237,10 @@ gaps: []
   # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
   # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 items_still_open:
-  - "OPEN 2026-09-13 (gopherstack-xhu2t tier-1 sweep): 10 request fields across
-    CreateDBCluster/CreateDBInstance/CreateTenantDatabase/ModifyDBCluster/
-    ModifyDBInstance/
-    ModifyTenantDatabase/RestoreDBClusterFromS3/RestoreDBInstanceFromDBSnapshot/
-    RestoreDBInstanceFromS3/RestoreDBInstanceToPointInTime's .MasterUserSecretKmsKeyId
-    are accepted-but-dropped: this backend has no Secrets Manager integration (no
-    ManageMasterUserPassword/RotateMasterUserPassword/master-secret ARN anywhere).
-    Building that is a subsystem, not a wire fix; declined. (ModifyDBInstance
-    .MasterUserPassword is no longer dropped: --rds-engine=docker applies it in the engine.)"
+  - "OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record a MasterUserSecret (ARN, status, KMS
+    key) on instances, clusters and tenant databases, but no secret is created in services/secretsmanager (rds has no
+    sibling accessor), RotateMasterUserPassword is unread, and an unset MasterUserSecretKmsKeyId leaves KmsKeyId
+    empty rather than the aws/secretsmanager key ARN."
   - "OPEN 2026-10-03: with --rds-engine=docker read replicas, restore-based instances, custom cluster
     endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only. Restore
     relaunches empty containers."
@@ -254,22 +249,14 @@ items_still_open:
   - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): five
     fields describe transient/async state this backend never produces because the
     matching operation applies synchronously -- ModifyDBInstance
-    .CertificateRotationRestart (no CA-rotation concept beyond the account-level
-    default CA), ModifyDBInstance.ResumeFullAutomationModeMinutes (RDS Custom
-    automation-mode pause/resume unmodeled), RestoreDBClusterToPointInTime/
+    .CertificateRotationRestart (no per-instance CACertificateIdentifier, so no
+    rotation/restart to control), RestoreDBClusterToPointInTime/
     RestoreDBInstanceToPointInTime.UseLatestRestorableTime (restore always uses the
     source's current live state; only the SDK-documented conflict with
     RestoreTime/RestoreToTime is validated), SwitchoverBlueGreenDeployment.SwitchoverTimeout (switchover completes
     synchronously, nothing to time out), and DBInstance/DBInstanceAutomatedBackup's
     StorageOperationPercentProgress/StorageOperationStatus (storage modifications
     apply synchronously, so there's never an in-progress op to report)."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): ModifyDBProxyTargetGroup.NewName is
-    accepted-but-dropped. This backend only ever creates the single implicit
-    'default' target group per proxy, which real AWS's own doc comment says can't be
-    renamed (rds@v1.124.1 api_op_ModifyDBProxyTargetGroup.go) -- but that op's error
-    switch declares no dedicated fault for the attempt (only
-    DBProxyNotFoundFault/DBProxyTargetGroupNotFoundFault/InvalidDBProxyStateFault),
-    so rejecting with a guessed code would be inventing behavior, not fixing a gap."
   - "OPEN 2026-09-11 (gopherstack-qpxye, consolidated 2026-09-26): three Describe ops
     return honestly-empty/dropped data because the pinned SDK module
     (aws-sdk-go-v2/service/rds@v1.124.1) has no enumerable catalog to source real
@@ -1816,3 +1803,21 @@ Proven by `engine_test.go` (fake runtime) and the Docker-gated `TestEngineDocker
   returns the cluster's real host:port/kind/default database, `ErrHTTPEndpointNotEnabled` when HttpEndpoint is
   off, `ErrClusterNotReady` until the container is up, and `ErrNotRealCluster` for stub clusters (SQLite serves them).
 - Proven by the Docker-gated `TestRealDockerDataAPI` in services/rdsdata (postgres and mysql Aurora clusters).
+
+## 2026-10-03 -- reqfielddiff tier-1 follow-up (MasterUserSecret, engine-version flags, AutomationMode, proxy rename)
+
+- ManageMasterUserPassword/MasterUserSecretKmsKeyId (rds@v1.124.1 serializers.go:13074/13094 and the Modify/Restore/tenant
+  peers): MasterUserSecret{SecretArn,SecretStatus,KmsKeyId} is now stored and echoed by DBInstance, DBCluster and
+  TenantDatabase (deserializers.go MasterUserSecret). KMS key without ManageMasterUserPassword, and manage with
+  MasterUserPassword, return InvalidParameterCombination; disabling management needs MasterUserPassword. Metadata only
+  (see items_still_open).
+- DescribeDBEngineVersions: IncludeAll (deprecated versions hidden by default), ListSupportedCharacterSets (oracle-ee)
+  and ListSupportedTimezones (sqlserver-se); catalog gained oracle-ee, sqlserver-se and a deprecated postgres 9.6.24.
+- ModifyDBInstance AutomationMode/ResumeFullAutomationModeMinutes: RDS Custom only, 60..1440 minutes, instance returns to
+  `full` once ResumeFullAutomationModeTime passes.
+- ModifyDBProxyTargetGroup NewName: identifier validated and non-default groups are renamed; the SDK doc says "You can't
+  rename the default target group" (api_op_ModifyDBProxyTargetGroup.go:44), so the only group this backend creates
+  rejects it (generic InvalidParameterValue; the op declares no dedicated fault). Unknown groups now return
+  DBProxyTargetGroupNotFoundFault.
+- Still recorded: IncludePublic/IncludeShared (no foreign-account snapshots), CertificateRotationRestart,
+  SwitchoverTimeout (switchover is synchronous).

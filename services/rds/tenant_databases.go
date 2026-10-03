@@ -15,6 +15,14 @@ func tenantKey(instanceID, tenantDBName string) string {
 func (b *InMemoryBackend) CreateTenantDatabase(
 	instanceID, tenantDBName, masterUsername string,
 ) (*TenantDatabase, error) {
+	return b.CreateTenantDatabaseWithSecret(instanceID, tenantDBName, masterUsername, "", MasterSecretRequest{})
+}
+
+// CreateTenantDatabaseWithSecret creates a tenant database, optionally with an RDS-managed master secret.
+func (b *InMemoryBackend) CreateTenantDatabaseWithSecret(
+	instanceID, tenantDBName, masterUsername, masterPassword string,
+	req MasterSecretRequest,
+) (*TenantDatabase, error) {
 	b.mu.Lock("CreateTenantDatabase")
 	defer b.mu.Unlock()
 
@@ -35,7 +43,13 @@ func (b *InMemoryBackend) CreateTenantDatabase(
 		)
 	}
 
+	secret, err := b.createMasterSecret("db", req, masterPassword)
+	if err != nil {
+		return nil, err
+	}
+
 	tdb := &TenantDatabase{
+		MasterSecret:         secret,
 		DBInstanceIdentifier: instanceID,
 		TenantDBName:         tenantDBName,
 		MasterUsername:       masterUsername,
@@ -207,16 +221,17 @@ func matchesAllTenantDatabaseFilters(tdb TenantDatabase, filters map[string][]st
 	return true
 }
 
-// ModifyTenantDatabase modifies a tenant database (e.g. master password).
-// ModifyTenantDatabase applies NewTenantDBName (the real, modeled rename
-// field -- rds@v1.124.1 api_op_ModifyTenantDatabase.go:130). Real
-// ManageMasterUserPassword/MasterUserPassword/MasterUserSecretKmsKeyId/
-// RotateMasterUserPassword aren't modeled by TenantDatabase (no Secrets
-// Manager integration in this backend) and are accepted-but-dropped,
-// matching this file's existing precedent for CreateTenantDatabase's
-// masterUsername-only password handling.
+// ModifyTenantDatabase renames a tenant database (NewTenantDBName).
 func (b *InMemoryBackend) ModifyTenantDatabase(
 	instanceID, tenantDBName, newTenantDBName string,
+) (*TenantDatabase, error) {
+	return b.ModifyTenantDatabaseWithSecret(instanceID, tenantDBName, newTenantDBName, "", MasterSecretRequest{})
+}
+
+// ModifyTenantDatabaseWithSecret also applies the master-password management fields.
+func (b *InMemoryBackend) ModifyTenantDatabaseWithSecret(
+	instanceID, tenantDBName, newTenantDBName, masterPassword string,
+	req MasterSecretRequest,
 ) (*TenantDatabase, error) {
 	b.mu.Lock("ModifyTenantDatabase")
 	defer b.mu.Unlock()
@@ -225,6 +240,11 @@ func (b *InMemoryBackend) ModifyTenantDatabase(
 	tdb, exists := b.tenantDatabases.Get(key)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s/%s", ErrTenantDatabaseNotFound, instanceID, tenantDBName)
+	}
+
+	secret, err := b.updateMasterSecret(tdb.MasterSecret, "db", req, masterPassword)
+	if err != nil {
+		return nil, err
 	}
 
 	if newTenantDBName != "" && newTenantDBName != tenantDBName {
@@ -243,6 +263,7 @@ func (b *InMemoryBackend) ModifyTenantDatabase(
 		)
 		b.tenantDatabases.Put(tdb)
 	}
+	tdb.MasterSecret = secret
 
 	cp := *tdb
 

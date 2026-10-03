@@ -126,6 +126,7 @@ func enginePort(engine string) int {
 
 func (b *InMemoryBackend) reconcileInstancesLocked() {
 	now := time.Now()
+	b.resumeExpiredAutomationLocked(now)
 
 	for id, readyAt := range b.instanceReadyAt {
 		if !readyAt.IsZero() && now.After(readyAt) {

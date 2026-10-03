@@ -128,8 +128,14 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 	// DefaultOnly doc: "the default version of the specified engine or engine and
 	// major version combination"). Custom engine versions are never default.
 	builtin := []DBEngineVersion{
+		{
+			Engine: enginePostgres, EngineVersion: "9.6.24", DBEngineDescription: "PostgreSQL 9.6.24",
+			Status: engineVersionStatusDeprecated,
+		},
 		{Engine: enginePostgres, EngineVersion: "14.10", DBEngineDescription: "PostgreSQL 14.10"},
 		{Engine: enginePostgres, EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5", IsDefault: true},
+		oracleEngineVersion(),
+		sqlServerEngineVersion(),
 		{Engine: engineMySQL, EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35", IsDefault: true},
 		{Engine: engineMariaDB, EngineVersion: "10.6.14", DBEngineDescription: "MariaDB 10.6.14", IsDefault: true},
 		{
@@ -174,6 +180,35 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 	}
 
 	return result
+}
+
+const (
+	engineVersionStatusDeprecated = "deprecated"
+	engineOracleEE                = "oracle-ee"
+)
+
+func oracleEngineVersion() DBEngineVersion {
+	return DBEngineVersion{
+		Engine: engineOracleEE, EngineVersion: "19.0.0.0.ru-2023-10.rur-2023-10.r1",
+		DBEngineDescription: "Oracle Database 19c Enterprise Edition", IsDefault: true,
+		SupportedCharacterSets: []CharacterSet{
+			{Name: "AL32UTF8", Description: "Unicode 5.0 UTF-8 Universal character set"},
+			{Name: "JA16SJIS", Description: "Japanese 16-bit Shift-JIS"},
+			{Name: "WE8ISO8859P1", Description: "Western European 8-bit ISO 8859 Part 1"},
+			{Name: "WE8MSWIN1252", Description: "MS Windows Latin 1"},
+			{Name: "ZHS16GBK", Description: "GBK 16-bit Simplified Chinese"},
+		},
+	}
+}
+
+func sqlServerEngineVersion() DBEngineVersion {
+	return DBEngineVersion{
+		Engine: "sqlserver-se", EngineVersion: "15.00.4345.5.v1",
+		DBEngineDescription: "SQL Server 2019 Standard Edition", IsDefault: true,
+		SupportedTimezones: []string{
+			"Central Standard Time", "Eastern Standard Time", "Pacific Standard Time", "UTC",
+		},
+	}
 }
 
 // isKnownDBEngineVersionFilterName reports whether name is a
@@ -353,7 +388,7 @@ var validDBInstanceEngines = map[string]bool{
 	"db2-se":                true,
 	engineMariaDB:           true,
 	engineMySQL:             true,
-	"oracle-ee":             true,
+	engineOracleEE:          true,
 	"oracle-ee-cdb":         true,
 	"oracle-se2":            true,
 	"oracle-se2-cdb":        true,
