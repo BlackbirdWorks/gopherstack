@@ -58,6 +58,7 @@ type candidate struct {
 	File            string
 	Code            string
 	MapperReason    string
+	DemoteReason    string
 	Mechanism       mechanism
 	Line            int
 	pos             token.Pos
@@ -145,6 +146,9 @@ func extractCandidates(dir, repoRoot string) ([]candidate, error) {
 
 	out = append(out, applyMapperDetection(files, structTypes, pkgStrings, fset, repoRoot, out)...)
 	applyRoutingFallbackDetection(files, out)
+	applyUseSiteDemotions(files, pkgStrings, out)
+	applyFallbackDemotions(files, out)
+	applyDeadSentinelDemotions(files, dir, repoRoot, out)
 
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {
