@@ -211,6 +211,7 @@ func (b *InMemoryBackend) rebuildRuleIndexesLocked() error {
 	for region, regRules := range b.rules {
 		for busKey, busRules := range regRules {
 			for _, rule := range busRules.All() {
+				rule.Arn = canonicalRuleARN(rule.Arn)
 				if rule.EventPattern != "" {
 					compiled, err := b.getOrCompilePattern(rule.EventPattern)
 					if err != nil {
@@ -331,8 +332,12 @@ func (h *Handler) restoreTags(tagMap map[string]map[string]string) {
 	h.tags = make(map[string]*svcTags.Tags, len(tagMap))
 
 	for resourceID, kv := range tagMap {
-		t := svcTags.New("eb." + resourceID + ".tags")
+		resourceID = canonicalRuleARN(resourceID)
+		t := h.tags[resourceID]
+		if t == nil {
+			t = svcTags.New("eb." + resourceID + ".tags")
+			h.tags[resourceID] = t
+		}
 		t.Merge(kv)
-		h.tags[resourceID] = t
 	}
 }

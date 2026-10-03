@@ -83,6 +83,14 @@ func TestServiceResourceAuthzEventBridgeQueue(t *testing.T) {
 		noPolicy   bool
 	}{
 		{name: "allowed", enforce: true, principal: "events.amazonaws.com", sourceLike: "arn:aws:events:*:*:rule/*r"},
+		{
+			name: "allowed_exact_aws_arn", enforce: true, principal: "events.amazonaws.com",
+			sourceLike: "arn:aws:events:us-east-1:000000000000:rule/r",
+		},
+		{
+			name: "denied_legacy_default_segment", enforce: true, principal: "events.amazonaws.com",
+			sourceLike: "arn:aws:events:us-east-1:000000000000:rule/default/r", wantCode: "NO_PERMISSIONS",
+		},
 		{name: "allowed_no_condition", enforce: true, principal: "events.amazonaws.com"},
 		{name: "denied_no_policy", enforce: true, noPolicy: true, wantCode: "NO_PERMISSIONS"},
 		{

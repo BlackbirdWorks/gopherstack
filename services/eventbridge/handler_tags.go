@@ -36,7 +36,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			tagMap := h.getTags(input.ResourceARN)
+			tagMap := h.getTags(canonicalRuleARN(input.ResourceARN))
 			tagList := make([]svcTags.KV, 0, len(tagMap))
 			for k, v := range tagMap {
 				tagList = append(tagList, svcTags.KV{Key: k, Value: v})
@@ -53,7 +53,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 			for _, t := range input.Tags {
 				kv[t.Key] = t.Value
 			}
-			h.setTags(input.ResourceARN, kv)
+			h.setTags(canonicalRuleARN(input.ResourceARN), kv)
 
 			return &tagResourceOutput{}, nil
 		},
@@ -62,7 +62,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			h.removeTags(input.ResourceARN, input.TagKeys)
+			h.removeTags(canonicalRuleARN(input.ResourceARN), input.TagKeys)
 
 			return &untagResourceOutput{}, nil
 		},

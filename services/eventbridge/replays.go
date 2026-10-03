@@ -242,7 +242,7 @@ func buildFilterRuleARNs(dest *ReplayDestination) map[string]struct{} {
 
 	set := make(map[string]struct{}, len(dest.FilterArns))
 	for _, arn := range dest.FilterArns {
-		set[arn] = struct{}{}
+		set[canonicalRuleARN(arn)] = struct{}{}
 	}
 
 	return set

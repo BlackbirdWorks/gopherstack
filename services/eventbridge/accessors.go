@@ -14,8 +14,24 @@ func (b *InMemoryBackend) busARN(region, name string) string {
 	return arn.Build("events", region, b.accountID, "event-bus/"+name)
 }
 
+// ruleARN omits the bus segment for the default bus, per the EventBridge ARN format
+// arn:aws:events:region:account:rule/[event-bus-name/]rule-name.
 func (b *InMemoryBackend) ruleARN(region, busName, ruleName string) string {
+	if ebBusKey(busName) == defaultEventBusName {
+		return arn.Build("events", region, b.accountID, "rule/"+ruleName)
+	}
+
 	return arn.Build("events", region, b.accountID, "rule/"+busName+"/"+ruleName)
+}
+
+// canonicalRuleARN rewrites the legacy default-bus form rule/default/<name> to rule/<name>.
+func canonicalRuleARN(s string) string {
+	head, name, ok := strings.Cut(s, ":rule/default/")
+	if !ok || name == "" || strings.Contains(name, "/") {
+		return s
+	}
+
+	return head + ":rule/" + name
 }
 
 func (b *InMemoryBackend) apiDestinationARN(name string) string {
