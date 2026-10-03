@@ -282,16 +282,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return c.Request().Header.Get("X-Amz-Account-Id")
 }
 
-// Handler returns the Echo handler function.
+// Handler returns the Echo handler function. Multi-Region Access Point operations are
+// account-global, so every region is served from the home backend.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
-		if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
-			return p.Handler()(c)
-		}
-
 		path := r.URL.Path
 		method := r.Method
+
+		if extractMRAPOps(path, method) == "" {
+			if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
+				return p.Handler()(c)
+			}
+		}
 
 		if strings.HasSuffix(path, pathPublicAccessBlock) {
 			return h.dispatchPublicAccessBlock(c, method)

@@ -11,6 +11,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	s3csdk "github.com/aws/aws-sdk-go-v2/service/s3control"
+	s3controltypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,6 +167,70 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 			legacy := newRegionHandler()
 			require.NoError(t, legacy.Backend.Restore(t.Context(), snap), "older builds must ignore the regions key")
 			assert.Len(t, legacy.Backend.ListAccessPoints(createTagsTestAccountID), 1)
+		})
+	}
+}
+
+func TestHandler_MultiRegionAccessPointsAreAccountGlobal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		createIn   string
+		readRegion string
+	}{
+		{name: "create-west-read-east", createIn: "us-west-2", readRegion: "us-east-1"},
+		{name: "create-west-read-west", createIn: "us-west-2", readRegion: "us-west-2"},
+		{name: "create-east-read-west", createIn: "us-east-1", readRegion: "us-west-2"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			clients := regionClients(t, newRegionHandler(), "us-east-1", "us-west-2")
+
+			created, err := clients[tc.createIn].CreateMultiRegionAccessPoint(t.Context(),
+				&s3csdk.CreateMultiRegionAccessPointInput{
+					AccountId: aws.String(createTagsTestAccountID),
+					Details: &s3controltypes.CreateMultiRegionAccessPointInput{
+						Name:    aws.String("mrap"),
+						Regions: []s3controltypes.Region{{Bucket: aws.String("b1")}},
+					},
+				})
+			require.NoError(t, err)
+
+			reader := clients[tc.readRegion]
+
+			got, err := reader.GetMultiRegionAccessPoint(t.Context(), &s3csdk.GetMultiRegionAccessPointInput{
+				AccountId: aws.String(createTagsTestAccountID), Name: aws.String("mrap"),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "mrap", aws.ToString(got.AccessPoint.Name))
+
+			list, err := reader.ListMultiRegionAccessPoints(t.Context(), &s3csdk.ListMultiRegionAccessPointsInput{
+				AccountId: aws.String(createTagsTestAccountID),
+			})
+			require.NoError(t, err)
+			assert.Len(t, list.AccessPoints, 1)
+
+			op, err := reader.DescribeMultiRegionAccessPointOperation(t.Context(),
+				&s3csdk.DescribeMultiRegionAccessPointOperationInput{
+					AccountId: aws.String(createTagsTestAccountID), RequestTokenARN: created.RequestTokenARN,
+				})
+			require.NoError(t, err)
+			assert.Equal(t, aws.ToString(created.RequestTokenARN), aws.ToString(op.AsyncOperation.RequestTokenARN))
+
+			_, err = reader.DeleteMultiRegionAccessPoint(t.Context(), &s3csdk.DeleteMultiRegionAccessPointInput{
+				AccountId: aws.String(createTagsTestAccountID),
+				Details:   &s3controltypes.DeleteMultiRegionAccessPointInput{Name: aws.String("mrap")},
+			})
+			require.NoError(t, err)
+
+			_, err = clients[tc.createIn].GetMultiRegionAccessPoint(t.Context(), &s3csdk.GetMultiRegionAccessPointInput{
+				AccountId: aws.String(createTagsTestAccountID), Name: aws.String("mrap"),
+			})
+			require.Error(t, err)
 		})
 	}
 }

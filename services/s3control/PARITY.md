@@ -1120,3 +1120,7 @@ region-isolation `items_still_open` entry is closed. Snapshots gain an additive 
 sibling exists (no version bump; legacy snapshots restore unchanged). Proof: `TestHandler_MultiRegionIsolation`,
 `TestHandler_MultiRegionPersistence`, and `TestRegionIsolation/s3control` at the repo root. Limitation:
 non-home regions are not visible to the tagging-API bridge or the dashboard.
+
+## 2026-10-03 (gopherstack-1izbr MRAP is account-global)
+
+Multi-Region Access Points are account-global: `Handler.Handler()` serves every MRAP operation (create/delete/put-policy/describe-operation/get/list/routes) from the home backend whichever region signed it, so a MRAP created through us-west-2 (where the AWS provider sends it) is visible from every region, including its async request tokens; the other S3 Control resources stay per region. Snapshot shape is unchanged. Fixes the terraform `TestTerraform_S3controlAndVpclattice` GetMultiRegionAccessPoint 404 from the per-region isolation change. Proof: `TestHandler_MultiRegionAccessPointsAreAccountGlobal`.
