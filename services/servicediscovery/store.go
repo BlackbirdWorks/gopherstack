@@ -124,6 +124,13 @@ func (b *InMemoryBackend) SetHostedZoneCreator(hz HostedZoneCreator) {
 	b.mu.Unlock()
 }
 
+func (b *InMemoryBackend) currentWiring() (DNSRegistrar, HostedZoneCreator) {
+	b.mu.RLock("currentWiring")
+	defer b.mu.RUnlock()
+
+	return b.dns, b.hostedZones
+}
+
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 

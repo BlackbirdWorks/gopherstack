@@ -239,22 +239,30 @@ func (b *InMemoryBackend) restoreFromSnapshot(snap backendSnapshot) {
 	b.iterableFormItems = snap.IterableFormItems
 }
 
-// Snapshot implements Snapshottable by delegating to the backend when it
-// supports it.
+// Snapshot implements Snapshottable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot(ctx)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return h.peers.Snapshot(s.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
-// Restore implements Snapshottable by delegating to the backend when it
-// supports it.
+// Restore implements Snapshottable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(ctx, data)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	if err := s.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+		func(p *Handler) { p.Backend.StopReconciler() },
+	)
 }

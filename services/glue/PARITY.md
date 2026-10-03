@@ -2703,3 +2703,7 @@ version bump: every changed struct (`Database`/`Table`/`Connection`/
 `PartitionInput`... field additions) is additive-only (new `omitempty`/
 internal-carrier fields), matching this repo's existing tolerant-decoder
 convention for additive changes.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+Glue is region-isolated: per-region sibling handlers: each non-home region gets a lazily built sibling Handler (own catalog, jobs, crawlers and reconciler, region-correct ARNs) via `pkgs/regionpeers`. Siblings inherit the resource limits and RAM share creator. `Handler.BackendFor(region)` lets Athena read the Glue catalog of its own region. Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/glue`, `TestInitializeServices_RegionAwareCrossServiceWiring`. Limitation: Non-home regions are not visible to the tagging-API bridge, the Step Functions Glue integration or the dashboard.

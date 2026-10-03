@@ -593,3 +593,7 @@ rewrote `TestWorkGroup_StateValidation`'s create-side cases (which assumed
 State was accepted/validated at creation) and added
 `TestCreateWorkGroup_AlwaysEnabled_NoStateMember` proving the create path
 now always yields ENABLED regardless of client input.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+Athena is region-isolated: per-region sibling handlers: each non-home region gets a lazily built sibling Handler (own workgroups, queries, catalogs and janitor, region-correct ARNs) via `pkgs/regionpeers`. A sibling's GLUE data catalog resolves the Glue backend of its own region (`SetGlueSourceFactory`). Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/athena`, `TestInitializeServices_RegionAwareCrossServiceWiring`. Limitation: Non-home regions are not visible to the tagging-API bridge or the dashboard.

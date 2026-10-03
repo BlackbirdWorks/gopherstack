@@ -13,8 +13,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -88,8 +90,24 @@ func marshalPagedResponse(key string, items []map[string]any, nextToken string) 
 // Handler is the HTTP handler for the AWS Cloud Map service discovery API.
 type Handler struct {
 	Backend   StorageBackend
+	peers     *regionpeers.Set[Handler]
 	AccountID string
 	Region    string
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region siblings.
+func (h *Handler) EnableRegions() {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	h.peers = regionpeers.New(h.Region, func(region string) *Handler {
+		nb := NewInMemoryBackend(h.AccountID, region)
+		nb.dns, nb.hostedZones = home.currentWiring()
+
+		return NewHandler(nb)
+	})
 }
 
 // NewHandler creates a new Cloud Map handler.
@@ -192,6 +210,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(ctx)
 
 		body, err := httputils.ReadBody(c.Request())
@@ -544,6 +566,10 @@ func validateServiceAttributeShape(attrs map[string]string) error {
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 // encodeCursor encodes an integer offset as an opaque NextToken.

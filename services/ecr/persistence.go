@@ -160,22 +160,30 @@ func copyNestedMap[T any](in map[string]map[string]T) map[string]map[string]T {
 	return cp
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Returns nil for non-snapshottable backends.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot(ctx)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return h.peers.Snapshot(s.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Non-snapshottable backends are skipped.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(ctx, data)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	if err := s.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+		(*Handler).closePeer,
+	)
 }

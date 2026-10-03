@@ -367,6 +367,13 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the backend account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
+func (b *InMemoryBackend) currentResourceShareCreator() ResourceShareCreator {
+	b.mu.RLock("currentResourceShareCreator")
+	defer b.mu.RUnlock()
+
+	return b.ramShareCreator
+}
+
 // SetResourceShareCreator registers the RAM seam used by PutResourcePolicy/
 // DeleteResourcePolicy to keep a CREATED_FROM_POLICY resource share in sync with a
 // hybrid resource policy's cross-account grants. Unwired backends (nil, the default)

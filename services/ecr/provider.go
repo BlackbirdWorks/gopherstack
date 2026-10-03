@@ -74,5 +74,8 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 
 	// Attach the background lifecycle-expiry janitor. StartWorker runs it against
 	// appCtx.JanitorCtx once the service is registered.
-	return NewHandler(backend, registryHandler).WithJanitor(0, appCtx.JanitorTimeout), nil
+	handler := NewHandler(backend, registryHandler).WithJanitor(0, appCtx.JanitorTimeout)
+	handler.EnableRegions(appCtx.JanitorCtx)
+
+	return handler, nil
 }

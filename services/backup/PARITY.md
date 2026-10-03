@@ -921,3 +921,7 @@ backup row updated with the one new field. Gates: `go build ./...`, `go vet
 violation was `transfer`, owned by a concurrent pass), `golangci-lint run
 --new-from-rev=HEAD ./services/backup/...` and the full-run equivalent (both
 0 issues) all clean.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+Backup is region-isolated: per-region sibling handlers: each non-home region gets a lazily built sibling Handler (own vaults, plans, jobs, recovery points and janitor, region-correct ARNs) via `pkgs/regionpeers`. Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/backup`. Limitation: Non-home regions are not visible to the tagging-API bridge or the dashboard.

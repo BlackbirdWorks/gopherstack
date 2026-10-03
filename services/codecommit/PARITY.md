@@ -1106,3 +1106,7 @@ Gates: `go build ./...`, `go vet ./services/codecommit/...`, `go test -race
 -count=1 ./services/codecommit/...` (pass, including the new suite),
 `golangci-lint run --new-from-rev=HEAD ./services/codecommit/...` (0 issues).
 `cmd/paritylint` stays at 0 missing-items-still-open FAIL.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+CodeCommit is region-isolated: per-region sibling handlers: each non-home region gets a lazily built sibling Handler (own repositories, branches, pull requests, triggers, region-correct ARNs and clone URLs) via `pkgs/regionpeers`. Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/codecommit`. Limitation: Non-home regions are not visible to the tagging-API bridge or the dashboard.

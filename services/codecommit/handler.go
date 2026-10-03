@@ -11,8 +11,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -79,6 +81,14 @@ func paginateStrings(items []string, nextToken string, maxResults int) ([]string
 type Handler struct {
 	Backend *InMemoryBackend
 	ops     map[string]func([]byte) (any, error)
+	peers   *regionpeers.Set[Handler]
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region siblings.
+func (h *Handler) EnableRegions() {
+	h.peers = regionpeers.New(h.Backend.region, func(region string) *Handler {
+		return NewHandler(NewInMemoryBackend(h.Backend.accountID, region))
+	})
 }
 
 // NewHandler creates a new CodeCommit handler.
@@ -92,6 +102,10 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Reset clears all handler and backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 // buildOps returns the dispatch table mapping action name to handler function.
@@ -318,6 +332,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"CodeCommit", "application/x-amz-json-1.1",

@@ -6574,6 +6574,13 @@ func wireAthenaGlue(athenaReg, glueReg service.Registerable) {
 	}
 
 	athenaBk.SetGlueMetadataSource(&athenaGlueAdapter{backend: glueBk})
+	athenaH.SetGlueSourceFactory(func(region string) athenabackend.GlueMetadataSource {
+		if bk, regionOK := glueH.BackendFor(region).(*gluebackend.InMemoryBackend); regionOK {
+			return &athenaGlueAdapter{backend: bk}
+		}
+
+		return nil
+	})
 }
 
 // wireAthenaS3 connects the Athena backend to S3 so a succeeded query execution's
@@ -6940,12 +6947,11 @@ func wireLambdaECR(lambdaReg, ecrReg service.Registerable) {
 		return
 	}
 
-	ecrBk, ecrBkOk := ecrH.Backend.(*ecrbackend.InMemoryBackend)
-	if !ecrBkOk {
+	if _, ecrBkOk := ecrH.Backend.(*ecrbackend.InMemoryBackend); !ecrBkOk {
 		return
 	}
 
-	lambdaBk.SetECRResolver(&lambdaECRResolverAdapter{backend: ecrBk})
+	lambdaBk.SetECRResolver(&lambdaECRResolverAdapter{handler: ecrH})
 }
 
 // lambdaECRResolverAdapter adapts the ECR backend to the lambda.ECRResolver
@@ -6954,7 +6960,7 @@ func wireLambdaECR(lambdaReg, ecrReg service.Registerable) {
 // public Docker Hub image) is accepted unvalidated: real AWS only validates
 // Code.ImageUri against ECR when it is in fact an ECR reference.
 type lambdaECRResolverAdapter struct {
-	backend *ecrbackend.InMemoryBackend
+	handler *ecrbackend.Handler
 }
 
 func (a *lambdaECRResolverAdapter) ResolveImage(imageURI string) bool {
@@ -6963,9 +6969,28 @@ func (a *lambdaECRResolverAdapter) ResolveImage(imageURI string) bool {
 		return true
 	}
 
-	_, err := a.backend.DescribeImages(context.Background(), repo, []ecrbackend.ImageIdentifier{id})
+	bk, ok := a.handler.BackendFor(ecrImageURIRegion(imageURI)).(*ecrbackend.InMemoryBackend)
+	if !ok {
+		return true
+	}
+
+	_, err := bk.DescribeImages(context.Background(), repo, []ecrbackend.ImageIdentifier{id})
 
 	return err == nil
+}
+
+// ecrImageURIRegion returns the region in <acct>.dkr.ecr.<region>.amazonaws.com, or "" for the home region.
+func ecrImageURIRegion(imageURI string) string {
+	host, _, _ := strings.Cut(imageURI, "/")
+	_, rest, found := strings.Cut(host, ".dkr.ecr.")
+
+	if !found {
+		return ""
+	}
+
+	region, _, _ := strings.Cut(rest, ".")
+
+	return region
 }
 
 // parseECRImageURI splits an ECR-style image URI

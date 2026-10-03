@@ -11,7 +11,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -19,6 +21,49 @@ import (
 type Handler struct {
 	Backend *InMemoryBackend
 	janitor *Janitor
+	peers   *regionpeers.Set[Handler]
+	stop    context.CancelFunc
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own janitor running under ctx.
+func (h *Handler) EnableRegions(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	h.peers = regionpeers.New(h.Backend.region, func(region string) *Handler {
+		nb := NewInMemoryBackend(h.Backend.accountID, region)
+		nb.s3 = h.Backend.s3
+		p := NewHandler(nb)
+
+		if h.janitor == nil {
+			return p
+		}
+
+		p.WithJanitor(h.janitor.Interval, h.janitor.JobTTL, h.janitor.TaskTimeout)
+
+		var pctx context.Context
+
+		pctx, p.stop = context.WithCancel(ctx)
+		go p.janitor.Run(pctx)
+
+		return p
+	})
+}
+
+func (h *Handler) closePeers() {
+	for _, p := range h.peers.Drain() {
+		p.closePeer()
+	}
+}
+
+func (h *Handler) closePeer() {
+	if h.stop != nil {
+		h.stop()
+	}
+
+	h.Backend.Reset()
 }
 
 // NewHandler creates a new Backup handler.
@@ -118,6 +163,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Backup requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		route := parseBackupPath(c.Request().Method, c.Request().URL.Path)
 

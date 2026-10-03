@@ -313,7 +313,7 @@ func regionIsolationCases() []regionCase {
 			},
 		},
 		{
-			name: "ecr", knownCollision: true,
+			name: "ecr",
 			create: func(ctx context.Context, cfg aws.Config, name string) error {
 				_, err := ecr.NewFromConfig(cfg).CreateRepository(
 					ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
@@ -330,7 +330,7 @@ func regionIsolationCases() []regionCase {
 			},
 		},
 		{
-			name: "glue", knownCollision: true,
+			name: "glue",
 			create: func(ctx context.Context, cfg aws.Config, name string) error {
 				_, err := glue.NewFromConfig(cfg).CreateDatabase(ctx, &glue.CreateDatabaseInput{
 					DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(name)},
@@ -348,7 +348,7 @@ func regionIsolationCases() []regionCase {
 			},
 		},
 		{
-			name: "athena", knownCollision: true,
+			name: "athena",
 			create: func(ctx context.Context, cfg aws.Config, name string) error {
 				_, err := athena.NewFromConfig(cfg).
 					CreateWorkGroup(ctx, &athena.CreateWorkGroupInput{Name: aws.String(name)})
@@ -365,7 +365,7 @@ func regionIsolationCases() []regionCase {
 			},
 		},
 		{
-			name: "backup", knownCollision: true,
+			name: "backup",
 			create: func(ctx context.Context, cfg aws.Config, name string) error {
 				_, err := backup.NewFromConfig(cfg).CreateBackupVault(
 					ctx, &backup.CreateBackupVaultInput{BackupVaultName: aws.String(name)})
@@ -401,7 +401,7 @@ func regionIsolationCases() []regionCase {
 			},
 		},
 		{
-			name: "codecommit", knownCollision: true,
+			name: "codecommit",
 			create: func(ctx context.Context, cfg aws.Config, name string) error {
 				_, err := codecommit.NewFromConfig(cfg).CreateRepository(
 					ctx, &codecommit.CreateRepositoryInput{RepositoryName: aws.String(name)})
@@ -639,7 +639,7 @@ func regionIsolationCases() []regionCase {
 			},
 		},
 		{
-			name: "servicediscovery", knownCollision: true,
+			name: "servicediscovery",
 			create: func(ctx context.Context, cfg aws.Config, name string) error {
 				_, err := servicediscovery.NewFromConfig(cfg).CreatePrivateDnsNamespace(
 					ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{Name: aws.String(name + ".local"), Vpc: aws.String("vpc-1")})
@@ -653,7 +653,9 @@ func regionIsolationCases() []regionCase {
 					return nil, err
 				}
 
-				return strs(out.Namespaces, func(n sdtypes.NamespaceSummary) *string { return n.Name }), nil
+				return strs(out.Namespaces, func(n sdtypes.NamespaceSummary) *string {
+					return aws.String(strings.TrimSuffix(aws.ToString(n.Name), ".local"))
+				}), nil
 			},
 		},
 		{
