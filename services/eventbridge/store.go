@@ -59,6 +59,7 @@ var (
 	ErrRuleNotFound           = errors.New("ResourceNotFoundException")
 	ErrCannotDeleteDefaultBus = errors.New("IllegalArgumentException")
 	ErrInvalidParameter       = errors.New("InvalidParameterException")
+	ErrInvalidEventPattern    = errors.New("InvalidEventPatternException")
 	ErrNotFound               = errors.New("ResourceNotFoundException")
 	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidState           = errors.New("InvalidStateException")

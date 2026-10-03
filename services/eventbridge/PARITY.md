@@ -1065,3 +1065,12 @@ changed (a string field's value, not its shape); no version bump.
 Added `leak_main_test.go` (goleak TestMain). Scheduler/archive-janitor
 goroutines are derived from a cancellable `workerCtx` stored for `Shutdown`;
 no leak found.
+
+## 2026-10-03: errcodeaudit invalid-parameter codes
+
+PutRule/TestEventPattern raised `InvalidParameterException` (no such type in
+the eventbridge SDK) for an unparseable EventPattern; both declare
+`InvalidEventPatternException`, now emitted. Other `ErrInvalidParameter`
+cases now emit `ValidationException`, which AWS returns for EventBridge input
+validation but the SDK does not model (UNCONFIRMED per-op). Proven by
+`errcode_invalid_pattern_test.go` via errors.As on the SDK type.

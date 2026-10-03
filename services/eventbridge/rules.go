@@ -106,7 +106,7 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		var err error
 		compiled, err = b.getOrCompilePattern(input.EventPattern)
 		if err != nil {
-			return nil, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidParameter)
+			return nil, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidEventPattern)
 		}
 	}
 
@@ -356,7 +356,7 @@ func (b *InMemoryBackend) TestEventPattern(
 
 	compiled, err := b.getOrCompilePattern(pattern)
 	if err != nil {
-		return false, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidParameter)
+		return false, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidEventPattern)
 	}
 
 	return matchCompiledPattern(compiled, event), nil

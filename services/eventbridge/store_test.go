@@ -716,7 +716,7 @@ func TestPutRule_PatternCompilationCache(t *testing.T) {
 			firstPattern:    `{"source":["svc-a"]}`,
 			secondPattern:   `{"source":[}`,
 			wantCacheSize:   1,
-			wantSecondError: eventbridge.ErrInvalidParameter,
+			wantSecondError: eventbridge.ErrInvalidEventPattern,
 		},
 	}
 
