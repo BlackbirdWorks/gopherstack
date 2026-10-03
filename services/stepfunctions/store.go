@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
@@ -104,6 +105,7 @@ type InMemoryBackend struct {
 	glueSyncWaiter  asl.GlueSyncWaiter
 	ebIntegration   asl.EventBridgeIntegration
 	sdkIntegration  asl.SDKIntegration
+	roleAuth        roleauth.Authorizer
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
 	mockConfig      *asl.MockConfig
@@ -314,6 +316,13 @@ func (b *InMemoryBackend) SetSDKIntegration(sdk asl.SDKIntegration) {
 	b.sdkIntegration = sdk
 }
 
+// SetRoleAuthorizer makes direct service calls run under the execution role's policies.
+func (b *InMemoryBackend) SetRoleAuthorizer(a roleauth.Authorizer) {
+	b.mu.Lock("SetRoleAuthorizer")
+	defer b.mu.Unlock()
+	b.roleAuth = a
+}
+
 // SetSQSIntegration configures the SQS integration for Task states.
 func (b *InMemoryBackend) SetSQSIntegration(sqs asl.SQSIntegration) {
 	b.mu.Lock("SetSQSIntegration")
@@ -400,6 +409,7 @@ type integrationsSnapshot struct {
 	glueSyncWaiter  asl.GlueSyncWaiter
 	ebIntegration   asl.EventBridgeIntegration
 	sdkIntegration  asl.SDKIntegration
+	roleAuth        roleauth.Authorizer
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
 	mockRun         *asl.MockRun
@@ -419,6 +429,7 @@ func (b *InMemoryBackend) snapshotIntegrationsLocked() integrationsSnapshot {
 		glueSyncWaiter:  b.glueSyncWaiter,
 		ebIntegration:   b.ebIntegration,
 		sdkIntegration:  b.sdkIntegration,
+		roleAuth:        b.roleAuth,
 		s3Reader:        b.s3Reader,
 		s3ResultWriter:  b.s3ResultWriter,
 	}
@@ -437,6 +448,7 @@ func applyIntegrations(executor *asl.Executor, s integrationsSnapshot) {
 	executor.SetGlueSyncWaiter(s.glueSyncWaiter)
 	executor.SetEventBridgeIntegration(s.ebIntegration)
 	executor.SetSDKIntegration(s.sdkIntegration)
+	executor.SetRoleAuthorizer(s.roleAuth)
 	executor.SetS3Reader(s.s3Reader)
 	executor.SetS3ResultWriter(s.s3ResultWriter)
 	executor.SetMockRun(s.mockRun)

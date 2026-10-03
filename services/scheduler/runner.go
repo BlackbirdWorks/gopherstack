@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // runnerTickInterval is how often the runner polls for due schedules.
@@ -70,6 +71,7 @@ type Runner struct {
 	kinesis     KinesisRecordPutter
 	sageMaker   SageMakerPipelineStarter
 	ecsRunner   ECSTaskRunner
+	auth        roleauth.Authorizer
 	lastFiredAt map[string]time.Time
 	// invalidExprWarned tracks schedule keys that have already logged an unparseable
 	// expression, so a bad stored expression warns once instead of every poll.
@@ -432,6 +434,13 @@ func (r *Runner) invokeTarget(ctx context.Context, s *Schedule, _ time.Time) {
 			return
 		}
 
+		if isPermanentTargetError(invokeErr) {
+			log.WarnContext(ctx, "scheduler: target access denied, not retrying", "schedule", s.Name)
+			r.sendToDLQ(ctx, s, payload, log)
+
+			return
+		}
+
 		log.WarnContext(
 			ctx,
 			"scheduler: target invocation failed",
@@ -486,6 +495,10 @@ func retryBackoff(attempt int) time.Duration {
 // dispatchTarget routes the payload to the correct underlying service.
 func (r *Runner) dispatchTarget(ctx context.Context, s *Schedule, payload []byte, log loggerIface) error {
 	targetARN := s.Target.ARN
+
+	if err := r.authorizeTarget(s); err != nil {
+		return err
+	}
 
 	switch {
 	case strings.HasPrefix(targetARN, "arn:aws:lambda:"):

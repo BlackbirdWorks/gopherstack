@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // ErrExecutionFailed is returned when a Fail state is reached.
@@ -380,6 +381,7 @@ type Executor struct {
 	glueSyncWaiter       GlueSyncWaiter
 	eventbridge          EventBridgeIntegration
 	sdk                  SDKIntegration
+	auth                 roleauth.Authorizer
 	history              HistoryRecorder
 	mapRunNotifier       MapRunNotifier
 	distributedMapRunner DistributedMapRunner
@@ -453,6 +455,8 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		glue:                 e.glue,
 		glueSyncWaiter:       e.glueSyncWaiter,
 		eventbridge:          e.eventbridge,
+		sdk:                  e.sdk,
+		auth:                 e.auth,
 		history:              e.history,
 		activity:             e.activity,
 		callback:             e.callback,
@@ -1383,6 +1387,10 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 		return nil, ErrLambdaNotConfigured
 	}
 
+	if err := e.authorizeRole("Lambda", "lambda:InvokeFunction", state.Resource); err != nil {
+		return nil, err
+	}
+
 	payload, err := json.Marshal(input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal task input: %w", err)
@@ -1590,6 +1598,12 @@ func (e *Executor) invokeECSTask(ctx context.Context, state *State, input any) (
 	case "runTask":
 		m, _ := input.(map[string]any)
 
+		taskDef, _ := m["TaskDefinition"].(string)
+		taskDefARN := e.resourceARN("ecs", "task-definition/", taskDef)
+		if authErr := e.authorizeRole("Ecs", "ecs:RunTask", taskDefARN); authErr != nil {
+			return nil, authErr
+		}
+
 		result, err := e.ecs.SFNRunTask(ctx, m)
 		if err != nil {
 			return nil, err
@@ -1655,6 +1669,11 @@ func (e *Executor) invokeGlueTask(ctx context.Context, state *State, input any) 
 			for k, v := range rawArgs {
 				arguments[k], _ = v.(string)
 			}
+		}
+
+		jobARN := e.resourceARN("glue", "job/", jobName)
+		if authErr := e.authorizeRole("Glue", "glue:StartJobRun", jobARN); authErr != nil {
+			return nil, authErr
 		}
 
 		runID, err := e.glue.SFNStartJobRun(ctx, jobName, arguments)

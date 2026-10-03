@@ -147,6 +147,11 @@ func (e *Executor) invokeLambdaOptimized(ctx context.Context, input any) (any, e
 		payload = b
 	}
 
+	fnARN := e.resourceARN("lambda", "function:", name)
+	if authErr := e.authorizeRole("Lambda", "lambda:InvokeFunction", fnARN); authErr != nil {
+		return nil, authErr
+	}
+
 	resp, status, err := e.lambda.InvokeFunction(ctx, name, invType, payload)
 	if err != nil {
 		return nil, lambdaInvokeError(err)

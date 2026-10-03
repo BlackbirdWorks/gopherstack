@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -324,6 +325,7 @@ type InMemoryBackend struct {
 	apiDestinations map[string]*store.Table[APIDestination]
 	cancel          context.CancelFunc
 	deliveryTargets *DeliveryTargets
+	roleAuth        roleauth.Authorizer
 	endpoints       map[string]*store.Table[Endpoint]
 	buses           map[string]*store.Table[EventBus]
 	partnerSources  map[string]*store.Table[PartnerEventSource]
@@ -503,6 +505,9 @@ func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 	}
 	if dt != nil && dt.EventBusRouter == nil {
 		dt.EventBusRouter = b
+	}
+	if dt != nil && dt.RoleAuth == nil {
+		dt.RoleAuth = b.roleAuth
 	}
 	b.deliveryTargets = dt
 }

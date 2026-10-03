@@ -35,9 +35,10 @@ var errFakeServiceException = errors.New("ServiceException")
 const sfnTestRole = "arn:aws:iam::000000000000:role/sfn-role"
 
 type sfnFixture struct {
-	sfn     *sfnbackend.InMemoryBackend
-	handler http.Handler
-	cfg     aws.Config
+	sfn      *sfnbackend.InMemoryBackend
+	handler  http.Handler
+	cfg      aws.Config
+	services []service.Registerable
 }
 
 func newSFNFixture(t *testing.T) *sfnFixture {
@@ -87,7 +88,7 @@ func newSFNFixtureIAM(t *testing.T, enforceIAM bool) *sfnFixture {
 	bk, ok := sfnH.Backend.(*sfnbackend.InMemoryBackend)
 	require.True(t, ok)
 
-	return &sfnFixture{sfn: bk, handler: e, cfg: cfg}
+	return &sfnFixture{sfn: bk, handler: e, services: services, cfg: cfg}
 }
 
 type fakeLambda struct {

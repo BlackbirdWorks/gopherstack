@@ -12320,6 +12320,7 @@ func setupChaosAndRegistry(
 
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
 	wireStepFunctionsSDKIntegration(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
+	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 
 	return nil
 }

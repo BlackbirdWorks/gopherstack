@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -82,6 +83,7 @@ type DeliveryTargets struct {
 	CloudWatchLogs  CloudWatchLogsPublisher
 	APIDestinations APIDestinationResolver
 	EventBusRouter  EventBusRouter
+	RoleAuth        roleauth.Authorizer
 }
 
 // EventBusRouter routes a matched event to another event bus, implementing
@@ -404,6 +406,12 @@ func deliverToTargetBounded(
 		if target.RetryPolicy.MaximumEventAgeInSeconds > 0 {
 			maxAgeSeconds = target.RetryPolicy.MaximumEventAgeInSeconds
 		}
+	}
+
+	if reason := authorizeTarget(target, dt); reason != "" {
+		sendToDLQ(ctx, target, envelope, dt, busDLQ, reason)
+
+		return
 	}
 
 	eventAge := extractEventAge(envelope)

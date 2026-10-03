@@ -30,6 +30,16 @@ leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes
 
 ## Notes (2026-08-21 pass, gopherstack-r80d batch 32)
 
+### 2026-10-03: schedule RoleArn is authorized under --enforce-iam
+
+With `--enforce-iam`, each invocation requires `scheduler.amazonaws.com` to be able to assume the target `RoleArn` and
+the role's policies to allow the target action (`lambda:InvokeFunction`, `sqs:SendMessage`, `sns:Publish`,
+`states:StartExecution`, `events:PutEvents`, `kinesis:PutRecord`, `ecs:RunTask`, `sagemaker:StartPipelineExecution`).
+A denial is a permanent error: no retries, the payload goes straight to the DLQ (Scheduler DLQ docs,
+`configuring-schedule-dlq`: ERROR_CODE is the target API's code and EXHAUSTED_RETRY_CONDITION is only present for
+retryable errors). DLQ messages here carry no ERROR_CODE/ERROR_MESSAGE message attributes, and the DLQ send itself is not
+authorized under the schedule role (AWS requires sqs:SendMessage on it). Enforcement off is unchanged.
+
 Part of the mgn/redshiftdata/scheduler batch testing r80d's op-count-vs-
 field-count hypothesis (see `services/_REQUIRED_OUTPUT_CANDIDATES.md`).
 scheduler tied at 5 required output fields (12 ops); flat scan alone is

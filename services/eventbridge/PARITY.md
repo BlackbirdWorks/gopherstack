@@ -123,6 +123,18 @@ leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery
 
 ## Notes
 
+### 2026-10-03: rule target RoleArn is authorized under --enforce-iam
+
+With `--enforce-iam`, targets that EventBridge delivers to as the target `RoleArn` (Kinesis stream, Firehose, ECS,
+Step Functions, event bus, API destination) require `events.amazonaws.com` trust and a policy allowing
+`kinesis:PutRecord` / `firehose:PutRecord` / `ecs:RunTask` / `states:StartExecution` / `events:PutEvents` /
+`events:InvokeApiDestination`. A denial is not retried and goes straight to the target/bus DLQ (DLQ docs,
+`eb-rule-dlq`: missing-permission errors are sent to the DLQ without retries; sample ERROR_CODE values
+`NO_PERMISSIONS` and `FAILED_TO_ASSUME_ROLE`). The DLQ message here has no ERROR_CODE attribute and no
+FailedInvocations metric is emitted. Lambda, SQS, SNS and CloudWatch Logs targets are authorized by resource policy on
+AWS; gopherstack does not evaluate those resource policies for in-process delivery, so they stay unauthenticated.
+Enforcement off is unchanged.
+
 ## 2026-10-01: per-event archive retention (gopherstack-pm4ym)
 
 SDK v1.53.0 CreateArchive: "RetentionDays ... If set to 0, events are retained indefinitely"; types.Archive: "number of days to retain events in the archive before they are deleted". The janitor wrongly deleted the whole archive at creation+retention and never pruned events; it now prunes events by capture time (an archive never expires), keeping EventCount/SizeBytes in step (SizeBytes now tracked). Leaks: unbounded archivedEvents growth fixed. Test: archive_retention_test.go.
