@@ -52,7 +52,7 @@ func (b *InMemoryBackend) CreateAccessGrantsInstance(accountID, identityCenterAr
 // CreateAccessGrant creates an access grant for an account.
 // Returns ErrValidation if permission is empty.
 func (b *InMemoryBackend) CreateAccessGrant(
-	accountID, locationID, granteeType, granteeIdentifier, permission, applicationArn string,
+	accountID, locationID, granteeType, granteeIdentifier, permission, applicationArn, s3SubPrefix string,
 ) (*AccessGrant, error) {
 	if permission == "" {
 		return nil, fmt.Errorf("permission is required: %w", ErrValidation)
@@ -60,6 +60,11 @@ func (b *InMemoryBackend) CreateAccessGrant(
 
 	b.mu.Lock("CreateAccessGrant")
 	defer b.mu.Unlock()
+
+	loc, ok := b.accessGrantsLocations.Get(accountID + ":" + locationID)
+	if !ok {
+		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
+	}
 
 	id := b.newID("grant")
 	arn := fmt.Sprintf(arnFmtAccessGrant, b.region, accountID, id)
@@ -69,7 +74,7 @@ func (b *InMemoryBackend) CreateAccessGrant(
 		AccessGrantID:          id,
 		AccessGrantArn:         arn,
 		AccessGrantsLocationID: locationID,
-		GrantScope:             fmt.Sprintf("s3://%s/*", locationID),
+		GrantScope:             loc.LocationScope + s3SubPrefix,
 		Permission:             permission,
 		GranteeType:            granteeType,
 		GranteeIdentifier:      granteeIdentifier,
@@ -462,7 +467,7 @@ func (b *InMemoryBackend) AddAccessGrantsInstanceInternal(accountID, identityCen
 func (b *InMemoryBackend) AddAccessGrantInternal(
 	accountID, locationID, granteeType, granteeIdentifier, permission string,
 ) *AccessGrant {
-	grant, _ := b.CreateAccessGrant(accountID, locationID, granteeType, granteeIdentifier, permission, "")
+	grant, _ := b.CreateAccessGrant(accountID, locationID, granteeType, granteeIdentifier, permission, "", "")
 
 	return grant
 }

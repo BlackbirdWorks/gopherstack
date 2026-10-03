@@ -1128,4 +1128,4 @@ Multi-Region Access Points are account-global: `Handler.Handler()` serves every 
 ## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
 
 FIXED: ListCallerAccessGrants matched `GrantScope` exactly; `api_op_ListCallerAccessGrants.go` says "You can optionally pass only the beginning characters of a path", so it is now a prefix match. Proven by `list_caller_access_grants_scope_test.go`.
-OPEN (not fixed): CreateAccessGrant builds GrantScope as `s3://<locationId>/*` and never reads `AccessGrantsLocationConfiguration.S3SubPrefix`; the real scope is the location scope plus the sub-prefix. ListAccessGrantsLocations `locationScope` is exact-match here; the doc does not say whether it is a prefix.
+FIXED 2026-10-03 (gopherstack-twwrp): CreateAccessGrant now sets GrantScope to the registered location scope plus `AccessGrantsLocationConfiguration.S3SubPrefix` (types.go: "appended to the location scope creating the grant scope") and returns NoSuchAccessGrantsLocation for an unknown location. Proven by `TestCreateAccessGrant_S3SubPrefix_RealClient`. Still open: ListAccessGrantsLocations `locationScope` is exact-match here; the doc does not say whether it is a prefix.

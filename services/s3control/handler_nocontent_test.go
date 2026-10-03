@@ -54,7 +54,7 @@ func TestHTTP_DeleteAccessGrant_NoContent(t *testing.T) {
 	h := newTestS3ControlHandler(t)
 	loc := h.Backend.CreateAccessGrantsLocation("acct1", "s3://bucket/", "arn:aws:iam::acct1:role/r")
 	grant, err := h.Backend.CreateAccessGrant(
-		"acct1", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+		"acct1", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "", "",
 	)
 	require.NoError(t, err)
 

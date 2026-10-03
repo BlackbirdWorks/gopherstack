@@ -44,7 +44,7 @@ func TestCollaborations_Handlers(t *testing.T) {
 			method:     "PATCH",
 			path:       "/collaborations/invalid",
 			body:       map[string]any{"name": "new-name"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "ListMembers",

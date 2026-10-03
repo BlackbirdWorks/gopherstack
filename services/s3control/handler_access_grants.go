@@ -354,13 +354,18 @@ type createAccessGrantGranteeXML struct {
 	GranteeIdentifier string `xml:"GranteeIdentifier"`
 }
 
+type createAccessGrantLocationXML struct {
+	S3SubPrefix string `xml:"S3SubPrefix"`
+}
+
 type createAccessGrantRequestXML struct {
-	XMLName                xml.Name                    `xml:"CreateAccessGrantRequest"`
-	AccessGrantsLocationID string                      `xml:"AccessGrantsLocationId"`
-	Permission             string                      `xml:"Permission"`
-	Grantee                createAccessGrantGranteeXML `xml:"Grantee"`
-	ApplicationArn         string                      `xml:"ApplicationArn"`
-	Tags                   []resourceTagXML            `xml:"Tags>Tag"`
+	XMLName                xml.Name                     `xml:"CreateAccessGrantRequest"`
+	AccessGrantsLocationID string                       `xml:"AccessGrantsLocationId"`
+	Permission             string                       `xml:"Permission"`
+	Grantee                createAccessGrantGranteeXML  `xml:"Grantee"`
+	ApplicationArn         string                       `xml:"ApplicationArn"`
+	LocationConfiguration  createAccessGrantLocationXML `xml:"AccessGrantsLocationConfiguration"`
+	Tags                   []resourceTagXML             `xml:"Tags>Tag"`
 }
 
 type createAccessGrantResponseXML struct {
@@ -390,6 +395,7 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 		body.Grantee.GranteeIdentifier,
 		body.Permission,
 		body.ApplicationArn,
+		body.LocationConfiguration.S3SubPrefix,
 	)
 	if err != nil {
 		return handleBackendError(c, err)

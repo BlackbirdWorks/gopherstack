@@ -3,6 +3,8 @@ package cleanrooms
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/labstack/echo/v5"
 )
@@ -50,6 +52,16 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 	return mustJSON(map[string]any{keyCollaboration: c}), nil
 }
 
+// declaredCollaborationError maps not-found to ValidationException: Get/UpdateCollaboration
+// declare no ResourceNotFoundException (cleanrooms@v1.49.4 deserializers.go:4695-4705).
+func declaredCollaborationError(err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("collaboration not found: %w", ErrValidation)
+	}
+
+	return err
+}
+
 func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
@@ -57,7 +69,7 @@ func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte
 	_ = json.Unmarshal(body, &req)
 	c, err := h.Backend.GetCollaboration(req.CollaborationIdentifier)
 	if err != nil {
-		return nil, err
+		return nil, declaredCollaborationError(err)
 	}
 
 	return mustJSON(map[string]any{keyCollaboration: c}), nil
@@ -95,7 +107,7 @@ func (h *Handler) handleUpdateCollaboration(_ context.Context, body []byte) ([]b
 		CollaborationSettings{AnalyticsEngine: req.AnalyticsEngine},
 	)
 	if err != nil {
-		return nil, err
+		return nil, declaredCollaborationError(err)
 	}
 
 	return mustJSON(map[string]any{keyCollaboration: col}), nil

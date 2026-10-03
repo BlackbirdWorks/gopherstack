@@ -13,7 +13,7 @@ type StorageBackend interface {
 	AssociateAccessGrantsIdentityCenter(accountID, identityCenterArn string)
 	CreateAccessGrantsInstance(accountID, identityCenterArn string) *AccessGrantsInstance
 	CreateAccessGrant(
-		accountID, locationID, granteeType, granteeIdentifier, permission, applicationArn string,
+		accountID, locationID, granteeType, granteeIdentifier, permission, applicationArn, s3SubPrefix string,
 	) (*AccessGrant, error)
 	CreateAccessGrantsLocation(accountID, locationScope, iamRoleArn string) *AccessGrantsLocation
 	CreateAccessPoint(accountID, name, bucket string) *AccessPoint

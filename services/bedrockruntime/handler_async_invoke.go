@@ -2,12 +2,15 @@ package bedrockruntime
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 // startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
@@ -79,6 +82,10 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 	}
 
 	inv, err := h.Backend.GetAsyncInvoke(invocationArn)
+	if errors.Is(err, awserr.ErrNotFound) {
+		// GetAsyncInvoke declares no ResourceNotFoundException (bedrockruntime@v1.57.1).
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+	}
 	if err != nil {
 		return handleError(c, err)
 	}

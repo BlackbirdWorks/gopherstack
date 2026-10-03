@@ -62,7 +62,6 @@ items_still_open:
   - "chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: shared pkgs/chaos infrastructure with no per-service extension point (bd: gopherstack-ayfw)."
   - "No real inference or classifier: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply, InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones."
   - "AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed and no AWS-documented trigger exists to key a Failed transition off."
-  - "GetAsyncInvoke not-found returns ResourceNotFoundException/404, which the pinned SDK does not declare for that op (deserializers.go:796-859), so errors.As on the typed exception fails; real AWS behaviour is unverified, tests assume the current shape."
   - "Converse guardrailConfig is opaque and not checked for identifier-requires-version: no AWS doc states that rule for the Converse body (InvokeModel's header rule is documented)."
 deferred: []
 leaks: {status: clean, note: "2026-09-04: re-verified; janitor (RunJanitor/StartWorker/Shutdown) uses context-bounded worker.Group with proper cancel+done-channel wiring, no goroutine leaks found. Model-invoke and stream handlers (InvokeModel/InvokeModelWithResponseStream/InvokeModelWithBidirectionalStream/ConverseStream) write synchronously to the response and spawn no per-request goroutines, so there is nothing there to leak on client disconnect. Fixed this pass: StartWorker's janitor interval (see async-invoke family) -- not a leak, but the same worker-lifecycle surface. No new goroutines/locks introduced."}
@@ -449,3 +448,7 @@ fallback field no real client can send -- the real StartAsyncInvokeInput
 (bedrockruntime@v1.57.1) has only ModelId; an inference profile ARN is
 passed as ModelId's value. Removed the alias per the no-dead-paths rule; see
 `TestStartAsyncInvoke_ModelIDAsInferenceProfileARN`.
+
+## 2026-10-03 (gopherstack-q2yu)
+
+FIXED: GetAsyncInvoke returned ResourceNotFoundException for an unknown ARN, which its op does not declare (deserializers.go:796-859). It now returns the declared ValidationException (400). Proven by `TestGetAsyncInvoke_UnknownArnIsDeclaredValidation_RealClient` (errors.As to `*types.ValidationException`). Real AWS behaviour remains unverified; this is the declared code that best fits a bad parameter.

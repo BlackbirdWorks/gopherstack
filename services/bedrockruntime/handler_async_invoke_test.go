@@ -291,9 +291,9 @@ func TestHandler_GetAsyncInvoke(t *testing.T) {
 			name: "gets existing async invoke",
 		},
 		{
-			name:    "returns 404 for unknown ARN",
+			name:    "returns 400 for unknown ARN",
 			wantErr: true,
-			errCode: http.StatusNotFound,
+			errCode: http.StatusBadRequest,
 		},
 	}
 
@@ -446,7 +446,7 @@ func TestAsyncInvoke_GetNotFound(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/async-invoke/nonexistent-arn", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // --- ListAsyncInvokes tests ---
