@@ -667,3 +667,7 @@ Gates: `go build ./...` clean, `go vet ./services/pinpoint/...` clean,
 `./pkgs/persistence/...` pass, `golangci-lint run --new-from-rev=HEAD
 ./services/pinpoint/...` 0 issues, `go run ./cmd/paritylint` 0 FAIL. No
 persisted-struct fields changed; no version bump.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+Recorded: RemoveAttributes `Blacklist` says "a glob pattern that an attribute name must match" (`types.UpdateAttributesRequest`); only a trailing `*` is implemented because the SDK does not define the glob grammar (`?`, character classes, mid-string `*`).

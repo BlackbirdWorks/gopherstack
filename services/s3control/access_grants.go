@@ -2,7 +2,9 @@ package s3control
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -330,9 +332,11 @@ func (b *InMemoryBackend) ListAccessGrants(accountID string, filter AccessGrants
 }
 
 // ListCallerAccessGrants returns access grants visible to the caller,
-// optionally filtered by grantScope.
+// optionally narrowed to grants whose scope begins with grantScope (the input documents a path fragment).
 func (b *InMemoryBackend) ListCallerAccessGrants(accountID, grantScope string) []*AccessGrant {
-	return b.ListAccessGrants(accountID, AccessGrantsFilter{GrantScope: grantScope})
+	all := b.ListAccessGrants(accountID, AccessGrantsFilter{})
+
+	return slices.DeleteFunc(all, func(g *AccessGrant) bool { return !strings.HasPrefix(g.GrantScope, grantScope) })
 }
 
 // GetAccessGrantsLocation returns an access grants location by ID.

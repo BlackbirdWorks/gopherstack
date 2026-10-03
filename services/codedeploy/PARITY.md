@@ -416,3 +416,8 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
   table. Verdict unchanged: no safe remedy for any of the five; landmine comments at
   all five call sites left as-is (already accurate and complete). No `.go` files
   touched for this issue.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListDeployments accepted applicationName without deploymentGroupName (and the reverse). `api_op_ListDeployments.go` documents "If applicationName is specified, then deploymentGroupName must be specified" and the converse; now DeploymentGroupNameRequiredException / ApplicationNameRequiredException, plus ApplicationDoesNotExist / DeploymentGroupDoesNotExist for unknown names. `TestDeployments_SortedList` had listed by application alone and now passes the group too. Proven by `list_deployments_scope_test.go`.
+Recorded: `createTimeRange` bounds and on-premises `tagFilters` combination are not specified by the SDK docs; left as inclusive bounds / AND.

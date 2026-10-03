@@ -146,7 +146,7 @@ func (b *InMemoryBackend) ListSequenceStores(
 	ids := make([]string, 0, len(all))
 
 	for _, ss := range all {
-		if filter != nil && filter.Name != "" && ss.Name != filter.Name {
+		if !filter.matches(ss) {
 			continue
 		}
 

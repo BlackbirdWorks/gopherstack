@@ -108,24 +108,16 @@ func (b *InMemoryBackend) ListApplications(
 	list := make([]*Application, 0, len(all))
 
 	for _, app := range all {
-		list = append(list, cloneApplication(app))
-	}
-
-	if len(states) > 0 {
-		stateSet := make(map[string]struct{}, len(states))
-		for _, s := range states {
-			stateSet[s] = struct{}{}
+		if stateRank(states, app.State) >= 0 {
+			list = append(list, cloneApplication(app))
 		}
-		filtered := list[:0]
-		for _, app := range list {
-			if _, ok := stateSet[app.State]; ok {
-				filtered = append(filtered, app)
-			}
-		}
-		list = filtered
 	}
 
 	sort.Slice(list, func(i, j int) bool {
+		if ri, rj := stateRank(states, list[i].State), stateRank(states, list[j].State); ri != rj {
+			return ri < rj
+		}
+
 		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
 			return list[i].ApplicationID < list[j].ApplicationID
 		}

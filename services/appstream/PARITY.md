@@ -1065,3 +1065,7 @@ CreateImageBuilder's handler read a "Platform" field CreateImageBuilderInput
 CreateFleet/CreateAppBlockBuilder-only. Removed the read; CreateImageBuilder
 now always defaults, matching what a real client experiences. See
 `TestCreateImageBuilder_NoPlatformMember`.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: DescribeSessions accepted `UserId` without `AuthenticationType`; `api_op_DescribeSessions.go` says "If you specify a user ID, you must also specify the authentication type", and the op declares InvalidParameterCombinationException. Proven by `describe_sessions_user_auth_test.go`; one pre-existing real-client test now sends `AuthenticationTypeApi` with its UserId.

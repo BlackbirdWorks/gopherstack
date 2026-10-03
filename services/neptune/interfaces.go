@@ -37,7 +37,7 @@ type StorageBackend interface {
 		id, clusterID, instanceClass string,
 		opts DBInstanceCreateOptions,
 	) (*DBInstance, error)
-	DescribeDBInstances(ctx context.Context, id string, clusterFilter []string) ([]DBInstance, error)
+	DescribeDBInstances(ctx context.Context, id string, filters DBInstanceFilters) ([]DBInstance, error)
 	DeleteDBInstance(ctx context.Context, id string, opts DBInstanceDeleteOptions) (*DBInstance, error)
 	ModifyDBInstance(
 		ctx context.Context,

@@ -1124,3 +1124,8 @@ non-home regions are not visible to the tagging-API bridge or the dashboard.
 ## 2026-10-03 (gopherstack-1izbr MRAP is account-global)
 
 Multi-Region Access Points are account-global: `Handler.Handler()` serves every MRAP operation (create/delete/put-policy/describe-operation/get/list/routes) from the home backend whichever region signed it, so a MRAP created through us-west-2 (where the AWS provider sends it) is visible from every region, including its async request tokens; the other S3 Control resources stay per region. Snapshot shape is unchanged. Fixes the terraform `TestTerraform_S3controlAndVpclattice` GetMultiRegionAccessPoint 404 from the per-region isolation change. Proof: `TestHandler_MultiRegionAccessPointsAreAccountGlobal`.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListCallerAccessGrants matched `GrantScope` exactly; `api_op_ListCallerAccessGrants.go` says "You can optionally pass only the beginning characters of a path", so it is now a prefix match. Proven by `list_caller_access_grants_scope_test.go`.
+OPEN (not fixed): CreateAccessGrant builds GrantScope as `s3://<locationId>/*` and never reads `AccessGrantsLocationConfiguration.S3SubPrefix`; the real scope is the location scope plus the sub-prefix. ListAccessGrantsLocations `locationScope` is exact-match here; the doc does not say whether it is a prefix.

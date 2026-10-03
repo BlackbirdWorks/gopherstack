@@ -18,6 +18,7 @@ type ReferenceStore struct {
 
 // ReferenceStoreFilter is filter criteria for listing reference stores.
 type ReferenceStoreFilter struct {
+	createdWindow
 	Name string
 }
 
@@ -53,11 +54,14 @@ type ReferenceSummary struct {
 
 // ReferenceFilter is filter criteria for listing references.
 type ReferenceFilter struct {
+	createdWindow
 	Name string
+	Md5  string
 }
 
 // ReferenceImportJobFilter is filter criteria for listing reference import jobs.
 type ReferenceImportJobFilter struct {
+	createdWindow
 	Status string
 }
 
@@ -108,7 +112,11 @@ type SequenceStore struct {
 
 // SequenceStoreFilter is filter criteria for listing sequence stores.
 type SequenceStoreFilter struct {
-	Name string
+	createdWindow
+	UpdatedAfter  *time.Time `json:"updatedAfter"`
+	UpdatedBefore *time.Time `json:"updatedBefore"`
+	Name          string
+	Status        string
 }
 
 // ReadSetMetadata holds metadata for a read set.
@@ -158,8 +166,12 @@ type ReadSetSummary struct {
 
 // ReadSetFilter is filter criteria for listing read sets.
 type ReadSetFilter struct {
-	Name   string
-	Status string
+	createdWindow
+	Name         string
+	Status       string
+	ReferenceArn string
+	SampleID     string `json:"sampleId"`
+	SubjectID    string `json:"subjectId"`
 }
 
 // ReadSetBatchError is an error item from a batch delete operation.

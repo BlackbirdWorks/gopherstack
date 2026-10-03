@@ -703,3 +703,7 @@ GuardDuty, not macie2; see their own PARITY.md Notes.
 ## 2026-10-03 (gopherstack-uox6 value-semantics pass)
 
 ListFindings/GetFindingStatistics criteria now apply gt/gte/lt/lte (types.CriterionAdditionalProperties) to createdAt, updatedAt (epoch ms), severity.score and count; before, these operators were ignored and every finding matched. Open: eqExactMatch and criterion properties outside the string/number fields modelled in getFindingFieldValue are still ignored, and the doc does not say how neq OR logic reads for a multi-value list.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: UntagResource and `extractQueryParam` hand-split the raw query string without percent-decoding, so encoded tag keys / query values never matched. Now `url.ParseQuery`. Proven by `untag_encoded_keys_test.go`.

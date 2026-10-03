@@ -254,6 +254,10 @@ func (h *Handler) handleListDeployments(
 	_ context.Context,
 	in *listDeploymentsInput,
 ) (*listDeploymentsOutput, error) {
+	if err := h.validateListDeploymentsScope(in); err != nil {
+		return nil, err
+	}
+
 	filter := DeploymentFilter{
 		ApplicationName:     in.ApplicationName,
 		DeploymentGroupName: in.DeploymentGroupName,
@@ -275,6 +279,27 @@ func (h *Handler) handleListDeployments(
 	return &listDeploymentsOutput{
 		Deployments: h.Backend.ListDeployments(filter),
 	}, nil
+}
+
+// validateListDeploymentsScope enforces ListDeploymentsInput's rule that
+// applicationName and deploymentGroupName are specified together or not at all.
+func (h *Handler) validateListDeploymentsScope(in *listDeploymentsInput) error {
+	switch {
+	case in.ApplicationName == "" && in.DeploymentGroupName == "":
+		return nil
+	case in.DeploymentGroupName == "":
+		return fmt.Errorf("%w: deploymentGroupName is required with applicationName", ErrDeploymentGroupNameRequired)
+	case in.ApplicationName == "":
+		return fmt.Errorf("%w: applicationName is required with deploymentGroupName", ErrApplicationNameRequired)
+	}
+
+	if _, err := h.Backend.GetApplication(in.ApplicationName); err != nil {
+		return err
+	}
+
+	_, err := h.Backend.GetDeploymentGroup(in.ApplicationName, in.DeploymentGroupName)
+
+	return err
 }
 
 // deploymentOverviewForStatus returns a synthetic DeploymentOverview based on deployment status.

@@ -891,3 +891,8 @@ https://docs.localstack.cloud/aws/capabilities/config/configuration/).
 ## 2026-10-03 (gopherstack-1izbr multi-region)
 
 SESv2 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own identities, configuration sets, templates, contact lists, suppression list; region-correct ARNs) via `pkgs/regionpeers`; siblings share the home SMTP relay. `Handler.MailBackends()` returns every region's backend, so `/_aws/ses` retrospection (GET and DELETE) aggregates messages from all regions. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionMailAggregates`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/sesv2`. Limitation: non-home regions are not visible to the dashboard.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: UntagResource read `TagKeys` with `QueryParam` and split on commas, so only the first of several keys was removed and a key containing a comma was split. The SDK sends one `TagKeys` entry per key (`serializers.go`); all are now consumed. Proven by `untag_multiple_keys_test.go`.
+Recorded: ListContacts `Filter.FilteredStatus` alone is undocumented ("The status by which you are filtering") so the filter stays unapplied; ListSuppressedDestinations StartDate/EndDate inclusivity is not stated.

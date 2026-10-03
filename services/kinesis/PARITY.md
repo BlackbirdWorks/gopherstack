@@ -1106,3 +1106,7 @@ gofmt/goimports/golines) all green.
 Added `leak_main_test.go` (goleak TestMain). `runChannelFlusher` and the
 SubscribeToShard poll ticker already correctly stop on ctx cancellation
 (wired to the janitor lifecycle context); no leak found.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+Clean (ListShards filter types/timestamps, ListStreams, ListStreamConsumers). Recorded: ListTagsForStream `Limit` states no default in the SDK; the 10-tag default here is unverified against the service.

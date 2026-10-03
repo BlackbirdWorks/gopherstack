@@ -316,6 +316,7 @@ var errorWireMappings = []errorWireMapping{
 	{ErrValidation, "ValidationException", http.StatusBadRequest},
 	{ErrInvalidParameterValue, "InvalidParameterValueException", http.StatusBadRequest},
 	{ErrInvalidNextToken, "InvalidNextTokenException", http.StatusBadRequest},
+	{ErrInvalidExpression, "InvalidExpressionException", http.StatusBadRequest},
 	{ErrLastDeliveryChannelDeleteFailed, "LastDeliveryChannelDeleteFailedException", http.StatusBadRequest},
 }
 

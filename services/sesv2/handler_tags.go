@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -57,14 +56,8 @@ func (h *Handler) handleTagResource(c *echo.Context) (any, error) {
 
 func (h *Handler) handleUntagResource(c *echo.Context) (any, error) {
 	arn := c.QueryParam("ResourceArn")
-	keysParam := c.QueryParam("TagKeys")
 
-	var keys []string
-	if keysParam != "" {
-		keys = strings.Split(keysParam, ",")
-	}
-
-	if err := h.Backend.UntagResource(arn, keys); err != nil {
+	if err := h.Backend.UntagResource(arn, c.Request().URL.Query()["TagKeys"]); err != nil {
 		return nil, err
 	}
 

@@ -290,3 +290,8 @@ Gates: `go build ./...`, `go vet`, `go test -race -count=1`
 --new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
 missing-items-still-open FAIL. No persisted-struct fields changed; no
 version bump.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListTasks `LocationId` with NotEquals/NotContains matched a task when EITHER location differed (source != x OR destination != x), so excluding a location still returned its own tasks; negative operators now require both locations to pass. Proven by `list_tasks_negated_filter_test.go`.
+Recorded: the SDK docs give no semantics for `LocationId` against a task's two locations or for CreationTime string comparison (`types.TaskFilter`); either-side matching and RFC3339 ordering are kept.

@@ -475,3 +475,7 @@ Gates: `go build ./...`, `go vet ./services/appconfig/`, `go test -race
 tier-1 (`cmd/reqfielddiff -dir appconfig`): 4 -> 4 (all 4 confirmed
 already-handled false positives; the tool cannot see header/query-string
 reads for this protocol style).
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListHostedConfigurationVersions `VersionLabel` was exact-match only; the SDK documents prefix filtering with a trailing `*` ("v2*") and exact match otherwise (`api_op_ListHostedConfigurationVersions.go`). Proven by `hosted_version_label_filter_test.go`.

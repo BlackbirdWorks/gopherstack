@@ -386,8 +386,15 @@ type GlobalClusterMember struct {
 	IsWriter     bool   `json:"IsWriter"`
 }
 
+// DBInstanceFilters holds filter values for DescribeDBInstances.
+type DBInstanceFilters struct {
+	ClusterID []string
+	Engine    []string
+}
+
 // DBClusterFilters holds filter values for DescribeDBClusters.
 type DBClusterFilters struct {
+	ClusterID     []string
 	Engine        []string
 	EngineVersion []string
 	Status        []string

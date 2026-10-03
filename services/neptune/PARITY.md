@@ -867,3 +867,8 @@ VpcSecurityGroupIds (see items_still_open).
 
 DescribeDBClusterSnapshots IncludePublic/IncludeShared stay unenforced (no foreign-account snapshots exist in the
 single-account backend) and CreateDBInstance VpcSecurityGroupIds/KmsKeyId stay cluster-inherited; no code change.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: DescribeDBClusters ignored the documented `db-cluster-id` filter (identifiers and ARNs) and DescribeDBInstances honoured `db-cluster-id` for identifiers only and had no `engine` filter (`api_op_DescribeDBClusters.go:43-53`, `api_op_DescribeDBInstances.go:48-58`). Proven by `describe_filters_test.go`. `DescribeDBInstances` now takes `DBInstanceFilters` instead of a bare cluster-id slice.
+Recorded: DBClusterIdentifier/DBInstanceIdentifier are documented "not case-sensitive"; lookups here are exact-match (a lowercasing change touches every key and persisted state, not done).

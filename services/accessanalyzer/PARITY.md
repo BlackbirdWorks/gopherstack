@@ -739,3 +739,7 @@ Zero bugs in the remaining 15 ops -- consistent with this service's deep
 prior audit history. No `items_still_open` changes (these were undisclosed
 latent bugs, not previously-known gaps); no `snapshot_inventory.json`
 change; no version bump.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: UntagResource read `tagKeys` from the raw query string without percent-decoding; now `url.ParseQuery`. Proven by `untag_encoded_keys_test.go`.

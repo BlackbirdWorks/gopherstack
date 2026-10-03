@@ -1131,3 +1131,7 @@ reported violation was `transfer`, owned by a concurrent pass) all clean.
 as the zero value, same as never having set it) -- no `bedrockagentSnapshotVersion`
 bump, `pkgs/persistence/testdata/snapshot_inventory.json`'s bedrockagent row
 updated with the one new field.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+Clean for filters (ListIngestionJobs STATUS/EQ is the only SDK-defined attribute/operator). Hygiene: the descending ingestion-job sort used `!less`, which is not a strict weak ordering for ties; it now swaps operands and sorts stably.

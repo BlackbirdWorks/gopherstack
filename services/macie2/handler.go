@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -478,11 +479,7 @@ func extractID(path, prefix string) string {
 }
 
 func extractQueryParam(query, key string) string {
-	for part := range strings.SplitSeq(query, "&") {
-		if v, ok := strings.CutPrefix(part, key+"="); ok {
-			return v
-		}
-	}
+	vals, _ := url.ParseQuery(query)
 
-	return ""
+	return vals.Get(key)
 }

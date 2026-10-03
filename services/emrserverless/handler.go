@@ -800,14 +800,7 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 		maxResults = n
 	}
 
-	var states []string
-	if s := q.Get("states"); s != "" {
-		for st := range strings.SplitSeq(s, ",") {
-			if trimmed := strings.TrimSpace(st); trimmed != "" {
-				states = append(states, trimmed)
-			}
-		}
-	}
+	states := queryStates(q)
 
 	apps, outToken := h.Backend.ListApplications(nextToken, maxResults, states...)
 	list := make([]map[string]any, 0, len(apps))
@@ -986,16 +979,14 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 		maxResults = n
 	}
 
-	var states []string
-	if s := q.Get("states"); s != "" {
-		for st := range strings.SplitSeq(s, ",") {
-			if trimmed := strings.TrimSpace(st); trimmed != "" {
-				states = append(states, trimmed)
-			}
-		}
+	states := queryStates(q)
+
+	filter, err := jobRunFilterFromQuery(q, states)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	}
 
-	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults, states...)
+	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults, filter)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1147,4 +1138,41 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, query
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// queryStates reads the repeated "states" query parameter (the SDK adds one entry per state).
+func queryStates(q url.Values) []string {
+	var states []string
+
+	for _, v := range q["states"] {
+		for st := range strings.SplitSeq(v, ",") {
+			if trimmed := strings.TrimSpace(st); trimmed != "" {
+				states = append(states, trimmed)
+			}
+		}
+	}
+
+	return states
+}
+
+var errInvalidTimestamp = errors.New("must be an ISO-8601 timestamp")
+
+func jobRunFilterFromQuery(q url.Values, states []string) (JobRunFilter, error) {
+	f := JobRunFilter{States: states, Mode: q.Get("mode")}
+
+	for key, dst := range map[string]**time.Time{"createdAtAfter": &f.CreatedAfter, "createdAtBefore": &f.CreatedBefore} {
+		raw := q.Get(key)
+		if raw == "" {
+			continue
+		}
+
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return f, fmt.Errorf("%w: %s", errInvalidTimestamp, key)
+		}
+
+		*dst = &t
+	}
+
+	return f, nil
 }

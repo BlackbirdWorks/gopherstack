@@ -293,6 +293,9 @@ func (b *InMemoryBackend) DescribeDBClusters(
 	clusters := b.clustersInRegion(region)
 	result := make([]DBCluster, 0, len(clusters))
 	for _, c := range clusters {
+		if !clusterIDFilterMatches(filters.ClusterID, c) {
+			continue
+		}
 		if len(filters.Engine) > 0 && !slices.Contains(filters.Engine, c.Engine) {
 			continue
 		}
@@ -309,6 +312,12 @@ func (b *InMemoryBackend) DescribeDBClusters(
 	})
 
 	return result, nil
+}
+
+// clusterIDFilterMatches applies the db-cluster-id filter, which accepts
+// cluster identifiers and ARNs; an empty filter matches everything.
+func clusterIDFilterMatches(ids []string, c *DBCluster) bool {
+	return len(ids) == 0 || slices.Contains(ids, c.DBClusterIdentifier) || slices.Contains(ids, c.DBClusterArn)
 }
 
 // DeleteDBCluster deletes a Neptune DB cluster and all associated DB instances.

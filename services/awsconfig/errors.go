@@ -41,6 +41,9 @@ var (
 	// awsAwsjson11_deserializeOpErrorDescribeConfigRules, which declares
 	// InvalidNextTokenException/InvalidParameterValueException, never ValidationException).
 	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
+	// ErrInvalidExpression is returned for a query outside the supported SELECT grammar
+	// (SelectResourceConfig/SelectAggregateResourceConfig declare InvalidExpressionException).
+	ErrInvalidExpression = awserr.New("InvalidExpressionException", awserr.ErrInvalidParameter)
 	// ErrResourceNotFound is returned when a referenced resource evaluation does not exist.
 	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrResourceNotDiscovered is returned when GetAggregateResourceConfig's

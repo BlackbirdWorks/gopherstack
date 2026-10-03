@@ -471,7 +471,12 @@ func TestDeployments_SortedList(t *testing.T) {
 	d1, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 	d2, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
-	rec := doRequest(t, h, "ListDeployments", map[string]any{"applicationName": "my-app"})
+	rec := doRequest(
+		t,
+		h,
+		"ListDeployments",
+		map[string]any{"applicationName": "my-app", "deploymentGroupName": "my-dg"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {

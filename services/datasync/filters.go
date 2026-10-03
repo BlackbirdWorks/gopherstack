@@ -41,3 +41,9 @@ func compareOrdered(operator, actual, value string) bool {
 		return actual >= value
 	}
 }
+
+// isNegativeFilterOperator reports whether operator excludes matching values; across a
+// task's two location ARNs such an operator must hold for both, not either.
+func isNegativeFilterOperator(operator string) bool {
+	return operator == "NotEquals" || operator == "NotContains"
+}

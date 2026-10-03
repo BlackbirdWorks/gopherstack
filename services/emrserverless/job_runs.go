@@ -3,6 +3,7 @@ package emrserverless
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -162,9 +163,36 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string, attempt *int
 	return cloneJobRun(jr), nil
 }
 
-// ListJobRuns returns paginated job runs for an application, optionally filtered by state.
+// JobRunFilter holds ListJobRuns' optional filters; the creation bounds are inclusive and an
+// unset Mode matches every run, with a run recorded without a mode counted as BATCH.
+type JobRunFilter struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	Mode          string
+	States        []string
+}
+
+func (f JobRunFilter) admits(jr *JobRun) bool {
+	if f.CreatedAfter != nil && jr.CreatedAt.Before(*f.CreatedAfter) {
+		return false
+	}
+
+	if f.CreatedBefore != nil && jr.CreatedAt.After(*f.CreatedBefore) {
+		return false
+	}
+
+	mode := jr.Mode
+	if mode == "" {
+		mode = "BATCH"
+	}
+
+	return f.Mode == "" || f.Mode == mode
+}
+
+// ListJobRuns returns paginated job runs for an application, filtered per f. When several
+// states are requested the result is grouped by state in the order received (ListJobRunsInput.States).
 func (b *InMemoryBackend) ListJobRuns(
-	applicationID, nextToken string, maxResults int, states ...string,
+	applicationID, nextToken string, maxResults int, f JobRunFilter,
 ) ([]*JobRun, string, error) {
 	b.mu.RLock("ListJobRuns")
 	defer b.mu.RUnlock()
@@ -177,24 +205,16 @@ func (b *InMemoryBackend) ListJobRuns(
 	list := make([]*JobRun, 0, len(runs))
 
 	for _, jr := range runs {
-		list = append(list, cloneJobRun(jr))
-	}
-
-	if len(states) > 0 {
-		stateSet := make(map[string]struct{}, len(states))
-		for _, s := range states {
-			stateSet[s] = struct{}{}
+		if f.admits(jr) && stateRank(f.States, jr.State) >= 0 {
+			list = append(list, cloneJobRun(jr))
 		}
-		filtered := list[:0]
-		for _, jr := range list {
-			if _, ok := stateSet[jr.State]; ok {
-				filtered = append(filtered, jr)
-			}
-		}
-		list = filtered
 	}
 
 	sort.Slice(list, func(i, j int) bool {
+		if ri, rj := stateRank(f.States, list[i].State), stateRank(f.States, list[j].State); ri != rj {
+			return ri < rj
+		}
+
 		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
 			return list[i].JobRunID < list[j].JobRunID
 		}
@@ -300,4 +320,13 @@ func (b *InMemoryBackend) AddJobRunInternal(jr *JobRun) {
 	}
 
 	b.jobRuns.Put(jr)
+}
+
+// stateRank returns state's position in states (0 when no state filter is set), or -1 when excluded.
+func stateRank(states []string, state string) int {
+	if len(states) == 0 {
+		return 0
+	}
+
+	return slices.Index(states, state)
 }

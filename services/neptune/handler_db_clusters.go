@@ -86,6 +86,7 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	filters := DBClusterFilters{
+		ClusterID:     parseNeptuneFilterValues(vals, "db-cluster-id"),
 		Engine:        parseNeptuneFilterValues(vals, "engine"),
 		EngineVersion: parseNeptuneFilterValues(vals, "engine-version"),
 		Status:        parseNeptuneFilterValues(vals, "status"),

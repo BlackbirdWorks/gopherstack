@@ -136,23 +136,20 @@ func sortIngestionJobs(jobs []*IngestionJob, sortBy *IngestionJobSortBy) {
 
 	desc := sortBy.Order == "DESCENDING"
 
-	sort.Slice(jobs, func(i, k int) bool {
-		var less bool
+	sort.SliceStable(jobs, func(i, k int) bool {
+		a, c := jobs[i], jobs[k]
+		if desc {
+			a, c = c, a
+		}
 
 		switch sortBy.Attribute {
 		case "STATUS":
-			less = jobs[i].Status < jobs[k].Status
+			return a.Status < c.Status
 		case "STARTED_AT":
-			less = jobs[i].StartedAt.Before(jobs[k].StartedAt)
+			return a.StartedAt.Before(c.StartedAt)
 		default:
 			return false
 		}
-
-		if desc {
-			return !less
-		}
-
-		return less
 	})
 }
 

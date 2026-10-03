@@ -911,3 +911,9 @@ against aws_config_remediation_configuration. See organization.go, aggregators.g
 
 ### 2026-09-30 items_still_open burn-down
 Fixed with typed-client tests in open_items_client_test.go: GetDiscoveredResourceCounts per-type ResourceCounts/resourceTypes filter/Limit/NextToken; GetAggregateDiscoveredResourceCounts GroupedResourceCounts (RESOURCE_TYPE/ACCOUNT_ID/AWS_REGION), Filters, Limit/NextToken; InvalidRecordingGroupException (allSupported with resourceTypes), InvalidSNSTopicARNException/InvalidS3KmsKeyArnException (non-ARN / non-KMS ARN); DeliveryChannel.s3KmsKeyArn is now stored and returned (omitempty, additive). Describe paths clone recorder/channel pointers. Already fixed and removed from the list: per-op ValidationException swaps (jkma) and the one-customer-managed-recorder limit (TestAWSConfigBackend_PutConfigurationRecorder_MaxOneCustomerManaged). The integration flake TestIntegration_AWSConfig_PutConfigurationRecorder was that limit: parallel tests on one container used recorder names "default" and "describe-test", so the second got MaxNumberOfConfigurationRecordersExceededException; the describe test now reuses "default".
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListDiscoveredResources ignored `resourceIds` ("The IDs of only those resources that you want Config to list", `api_op_ListDiscoveredResources.go`). Proven by `list_discovered_resources_filter_test.go`.
+FIXED: SelectResourceConfig/SelectAggregateResourceConfig silently dropped any WHERE clause outside `field (=|LIKE) 'v' [AND ...]` (OR, `!=`, IN ...), widening the result to every resource; they now return InvalidExpressionException, which both ops declare. Same test file.
+Recorded: ListDiscoveredResources `resourceName` is unmodeled (config items carry no display name); GetNetworkResources-style SQL beyond the supported grammar is rejected rather than evaluated.

@@ -38,9 +38,9 @@ type parsedSelectQuery struct {
 }
 
 // parseSelectQuery parses a SELECT query into its field list and WHERE
-// predicates. Unparseable input yields a query with no fields/predicates
-// (evaluateSelectQuery then matches nothing), rather than panicking.
-func parseSelectQuery(expr string) parsedSelectQuery {
+// predicates; ok is false when the expression or any WHERE clause is outside
+// the supported grammar, so callers can reject it instead of over-matching.
+func parseSelectQuery(expr string) (parsedSelectQuery, bool) {
 	var fieldsPart, wherePart string
 
 	switch {
@@ -51,10 +51,10 @@ func parseSelectQuery(expr string) parsedSelectQuery {
 		fieldsPart = selectOnlyRe.FindStringSubmatch(expr)[1]
 	}
 
-	return parsedSelectQuery{
-		Fields:     splitFields(fieldsPart),
-		Predicates: parsePredicates(wherePart),
-	}
+	predicates, ok := parsePredicates(wherePart)
+	fields := splitFields(fieldsPart)
+
+	return parsedSelectQuery{Fields: fields, Predicates: predicates}, ok && len(fields) > 0
 }
 
 func splitFields(fieldsPart string) []string {
@@ -69,9 +69,9 @@ func splitFields(fieldsPart string) []string {
 	return fields
 }
 
-func parsePredicates(wherePart string) []selectPredicate {
+func parsePredicates(wherePart string) ([]selectPredicate, bool) {
 	if wherePart == "" {
-		return nil
+		return nil, true
 	}
 
 	clauses := andSplitRe.Split(wherePart, -1)
@@ -80,13 +80,13 @@ func parsePredicates(wherePart string) []selectPredicate {
 	for _, clause := range clauses {
 		m := predicateRe.FindStringSubmatch(clause)
 		if m == nil {
-			continue
+			return nil, false
 		}
 
 		predicates = append(predicates, selectPredicate{Field: m[1], Op: strings.ToUpper(m[2]), Value: m[3]})
 	}
 
-	return predicates
+	return predicates, true
 }
 
 // resolveSelectField returns the value of a named field for a resource: the
@@ -149,8 +149,11 @@ func likeMatch(s, pattern string) bool {
 // matching resource containing just the selected fields (mirroring the real
 // SelectResourceConfig wire shape: Results is a []string of JSON rows).
 // Items are evaluated in a deterministic (resourceType, resourceId) order.
-func evaluateSelectQuery(items []*ResourceConfigItem, expression string) []string {
-	q := parseSelectQuery(expression)
+func evaluateSelectQuery(items []*ResourceConfigItem, expression string) ([]string, error) {
+	q, valid := parseSelectQuery(expression)
+	if !valid {
+		return nil, fmt.Errorf("%w: unsupported or malformed query %q", ErrInvalidExpression, expression)
+	}
 
 	sorted := make([]*ResourceConfigItem, len(items))
 	copy(sorted, items)
@@ -182,7 +185,7 @@ func evaluateSelectQuery(items []*ResourceConfigItem, expression string) []strin
 		}
 	}
 
-	return out
+	return out, nil
 }
 
 func matchesAll(item *ResourceConfigItem, config map[string]any, predicates []selectPredicate) bool {

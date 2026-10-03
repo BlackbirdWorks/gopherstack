@@ -3,6 +3,7 @@ package awsconfig
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -295,9 +296,10 @@ func (h *Handler) handleGetAggregateResourceConfig(
 // rather than tombstoning it, so there is no deleted-resource record to
 // include -- disclosed as a gap (PARITY.md) rather than fabricated.
 type listDiscoveredResourcesInput struct {
-	ResourceType string `json:"resourceType"`
-	NextToken    string `json:"nextToken,omitempty"`
-	Limit        int32  `json:"limit,omitempty"`
+	ResourceType string   `json:"resourceType"`
+	NextToken    string   `json:"nextToken,omitempty"`
+	ResourceIDs  []string `json:"resourceIds,omitempty"`
+	Limit        int32    `json:"limit,omitempty"`
 }
 type listDiscoveredResourcesOutput struct {
 	NextToken           string               `json:"nextToken,omitempty"`
@@ -312,6 +314,12 @@ func (h *Handler) handleListDiscoveredResources(
 	_ context.Context, in *listDiscoveredResourcesInput,
 ) (*listDiscoveredResourcesOutput, error) {
 	all := h.Backend.ListDiscoveredResources(in.ResourceType)
+	if len(in.ResourceIDs) > 0 {
+		all = slices.DeleteFunc(
+			all,
+			func(it ResourceConfigItem) bool { return !slices.Contains(in.ResourceIDs, it.ResourceID) },
+		)
+	}
 
 	p, err := paginate(all, in.NextToken, in.Limit, listDiscoveredResourcesPageDefault)
 	if err != nil {
@@ -383,9 +391,12 @@ type selectResourceConfigOutput struct {
 func (h *Handler) handleSelectResourceConfig(
 	_ context.Context, in *selectResourceConfigInput,
 ) (*selectResourceConfigOutput, error) {
-	return &selectResourceConfigOutput{
-		Results: h.Backend.SelectResourceConfig(in.Expression),
-	}, nil
+	results, err := h.Backend.SelectResourceConfig(in.Expression)
+	if err != nil {
+		return nil, err
+	}
+
+	return &selectResourceConfigOutput{Results: results}, nil
 }
 
 // SelectAggregateResourceConfig request/response types and handler.
@@ -400,9 +411,12 @@ type selectAggregateResourceConfigOutput struct {
 func (h *Handler) handleSelectAggregateResourceConfig(
 	_ context.Context, in *selectAggregateResourceConfigInput,
 ) (*selectAggregateResourceConfigOutput, error) {
-	return &selectAggregateResourceConfigOutput{
-		Results: h.Backend.SelectAggregateResourceConfig(in.Expression),
-	}, nil
+	results, err := h.Backend.SelectAggregateResourceConfig(in.Expression)
+	if err != nil {
+		return nil, err
+	}
+
+	return &selectAggregateResourceConfigOutput{Results: results}, nil
 }
 
 // GetResourceEvaluationSummary request/response types and handler.

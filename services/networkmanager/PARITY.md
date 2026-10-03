@@ -1385,3 +1385,8 @@ Gates: `go build ./...`, `go vet ./services/networkmanager/...`,
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/networkmanager/...` (0 issues). `go run ./cmd/paritylint` stays
 at 0 FAIL. No persisted-struct/snapshot changes.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: GetNetworkResources and GetNetworkTelemetry ignored `accountId` / `awsRegion` (`api_op_GetNetworkResources.go`), returning this account's resources for any value. Proven by `network_resources_scope_filter_test.go`.
+Recorded: `registeredGatewayArn` is still unread (no registered-gateway model).

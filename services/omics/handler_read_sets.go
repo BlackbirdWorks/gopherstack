@@ -105,9 +105,17 @@ func (h *Handler) handleGetReadSetActivationJob(c *echo.Context, storeID, jobID 
 }
 
 func (h *Handler) handleListReadSetActivationJobs(c *echo.Context, storeID string) error {
+	var req struct {
+		Filter *ReadSetJobFilter `json:"filter"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
-	jobs, next, err := h.Backend.ListReadSetActivationJobs(storeID, maxResults, nextToken)
+	jobs, next, err := h.Backend.ListReadSetActivationJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -151,9 +159,17 @@ func (h *Handler) handleGetReadSetExportJob(c *echo.Context, storeID, jobID stri
 }
 
 func (h *Handler) handleListReadSetExportJobs(c *echo.Context, storeID string) error {
+	var req struct {
+		Filter *ReadSetJobFilter `json:"filter"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
-	jobs, next, err := h.Backend.ListReadSetExportJobs(storeID, maxResults, nextToken)
+	jobs, next, err := h.Backend.ListReadSetExportJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -189,9 +205,17 @@ func (h *Handler) handleGetReadSetImportJob(c *echo.Context, storeID, jobID stri
 }
 
 func (h *Handler) handleListReadSetImportJobs(c *echo.Context, storeID string) error {
+	var req struct {
+		Filter *ReadSetJobFilter `json:"filter"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
-	jobs, next, err := h.Backend.ListReadSetImportJobs(storeID, maxResults, nextToken)
+	jobs, next, err := h.Backend.ListReadSetImportJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}

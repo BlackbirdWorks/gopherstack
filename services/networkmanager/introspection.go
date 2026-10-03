@@ -210,6 +210,8 @@ func mustJSON(v any) string {
 // networkResourceFilter is the common optional-filter set every family T
 // op takes.
 type networkResourceFilter struct {
+	AccountID     string
+	AwsRegion     string
 	CoreNetworkID string
 	ResourceArn   string
 	ResourceType  string
@@ -231,6 +233,12 @@ func (f networkResourceFilter) matches(item networkResourceItem) bool {
 	return true
 }
 
+// inScope reports whether this backend's account and Region satisfy the filter's
+// accountId/awsRegion; every resource it holds lives in exactly that scope.
+func (b *InMemoryBackend) inScope(f networkResourceFilter) bool {
+	return (f.AccountID == "" || f.AccountID == b.accountID) && (f.AwsRegion == "" || f.AwsRegion == b.region)
+}
+
 func (b *InMemoryBackend) GetNetworkResources(
 	globalNetworkID string, filter networkResourceFilter, token string, limit int,
 ) (page.Page[networkResourceItem], error) {
@@ -242,6 +250,10 @@ func (b *InMemoryBackend) GetNetworkResources(
 			resourceGlobalNetwork,
 			globalNetworkID,
 		)
+	}
+
+	if !b.inScope(filter) {
+		return page.New([]networkResourceItem{}, token, limit, defaultPageLimit), nil
 	}
 
 	all := b.gatherNetworkResources(globalNetworkID)
@@ -469,6 +481,10 @@ func (b *InMemoryBackend) GetNetworkTelemetry(
 	}
 
 	var out []networkTelemetryWire
+
+	if !b.inScope(filter) {
+		return page.New(out, token, limit, defaultPageLimit), nil
+	}
 
 	for _, c := range b.connections.Snapshot() {
 		if c.GlobalNetworkID != globalNetworkID || c.State != stateAvailable {

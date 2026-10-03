@@ -3,6 +3,7 @@ package macie2
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -89,13 +90,7 @@ func extractTagARN(path string) string {
 }
 
 func parseTagKeys(query string) []string {
-	var keys []string
+	vals, _ := url.ParseQuery(query)
 
-	for part := range strings.SplitSeq(query, "&") {
-		if v, ok := strings.CutPrefix(part, "tagKeys="); ok {
-			keys = append(keys, v)
-		}
-	}
-
-	return keys
+	return vals["tagKeys"]
 }

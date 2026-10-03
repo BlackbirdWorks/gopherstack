@@ -953,3 +953,7 @@ Gates: `go build ./...`, `go vet ./services/guardduty/...`, `go test -race
 -count=1 ./services/guardduty/...` (pass), `golangci-lint run
 ./services/guardduty/...` (0 issues). No persisted field changed, no
 snapshot version bump.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: UntagResource hand-split the raw query string and never percent-decoded `tagKeys`, so keys with `:`, space, `/` or `&` were never removed. Now parsed with `url.ParseQuery`. Proven by `untag_encoded_keys_test.go` (fails against the old parser).
