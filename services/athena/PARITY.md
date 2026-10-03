@@ -597,3 +597,7 @@ now always yields ENABLED regardless of client input.
 ## 2026-10-03 (gopherstack-1izbr multi-region)
 
 Athena is region-isolated: per-region sibling handlers: each non-home region gets a lazily built sibling Handler (own workgroups, queries, catalogs and janitor, region-correct ARNs) via `pkgs/regionpeers`. A sibling's GLUE data catalog resolves the Glue backend of its own region (`SetGlueSourceFactory`). Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/athena`, `TestInitializeServices_RegionAwareCrossServiceWiring`. Limitation: Non-home regions are not visible to the tagging-API bridge or the dashboard.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (list_default_workgroup_test.go): ListNamedQueries and ListQueryExecutions default to the primary workgroup ("If a workgroup is not specified, ... the primary workgroup"). Recorded: ListTableMetadata Expression ("A regex filter that pattern-matches table names") is matched unanchored; ListNotebookMetadata FilterDefinition.Name ("The name of the notebook to search for") is a prefix match, mode unspecified.

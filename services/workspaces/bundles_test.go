@@ -23,7 +23,7 @@ func TestDescribeWorkspaceBundles_PaginatesResults(t *testing.T) {
 	// Fetch first page (Amazon has 5 bundles; page size = 25, so all fit on one page normally).
 	// Add custom bundles to force pagination by querying via API with small NextToken simulation.
 	// Instead test that a real NextToken from the API roundtrips correctly.
-	rec := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{})
+	rec := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{"Owner": "AMAZON"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -91,7 +91,7 @@ func TestDescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{})
+	rec := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{"Owner": "AMAZON"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -164,7 +164,7 @@ func TestDescribeWorkspaceBundles_ByOwnerAmazon(t *testing.T) {
 
 	// Filter by owner=Amazon: should NOT include custom bundle.
 	rec2 := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{
-		"Owner": "Amazon",
+		"Owner": "AMAZON",
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -174,7 +174,7 @@ func TestDescribeWorkspaceBundles_ByOwnerAmazon(t *testing.T) {
 
 	for _, b := range bundles {
 		bun := b.(map[string]any)
-		assert.Equal(t, "Amazon", bun["Owner"], "owner=Amazon filter must exclude custom bundles")
+		assert.Equal(t, "AMAZON", bun["Owner"], "owner=Amazon filter must exclude custom bundles")
 	}
 }
 
@@ -225,7 +225,7 @@ func TestDescribeWorkspaceBundles_IncludesCustomBundle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 	customBundleID := createResp["WorkspaceBundle"].(map[string]any)["BundleId"].(string)
 
-	// Without owner filter: should include both Amazon and custom bundles.
+	// Without owner: only the account's own (custom) bundles.
 	rec2 := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -240,7 +240,7 @@ func TestDescribeWorkspaceBundles_IncludesCustomBundle(t *testing.T) {
 		}
 	}
 
-	assert.True(t, found, "custom bundle must appear in unfiltered DescribeWorkspaceBundles")
+	assert.True(t, found, "custom bundle must appear when no Owner is given")
 }
 
 func TestDescribeWorkspaceBundles_FilterByID(t *testing.T) {

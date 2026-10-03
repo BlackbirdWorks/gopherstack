@@ -732,3 +732,7 @@ No persisted (`backendSnapshot`) fields changed. Gates: `go build ./...`,
 pass), `golangci-lint run --new-from-rev=HEAD ./services/wafv2/` (0 issues).
 tier-1 (`cmd/reqfielddiff -dir wafv2`): 4 -> 0. `DescribeAllManagedProducts.Scope`
 (tier3, out of this sweep's scope) still open, unchanged.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (list_logging_configurations_default_scope_test.go): ListLoggingConfigurations with no LogScope lists only CUSTOMER configurations ("Default: CUSTOMER").

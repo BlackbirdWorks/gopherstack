@@ -113,6 +113,10 @@ func (h *Handler) handleDescribeTrusts(c *echo.Context) error {
 		}
 	}
 
+	if req.TrustIDs != nil && len(req.TrustIDs) == 0 {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "TrustIds must not be empty"))
+	}
+
 	trusts, nextToken, descErr := h.Backend.DescribeTrusts(
 		h.contextWithRegion(c),
 		req.DirectoryID,

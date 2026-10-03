@@ -636,7 +636,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 		{
 			name:     "DescribeWorkspaceBundles returns bundles",
 			target:   "DescribeWorkspaceBundles",
-			body:     func(_ string) any { return map[string]any{} },
+			body:     func(_ string) any { return map[string]any{"Owner": "AMAZON"} },
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()

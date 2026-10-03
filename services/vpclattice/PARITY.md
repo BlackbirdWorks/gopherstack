@@ -387,3 +387,7 @@ per-item-status operation in this service -- is fully wired: both
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: SNRA IncludeChildren, ListTargets target filter, association filters accept ID or ARN. No change.

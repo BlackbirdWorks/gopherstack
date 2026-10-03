@@ -380,3 +380,7 @@ No persisted struct fields changed; no version bump. Gates: `go build
 ./...`, `go vet ./services/waf/...`, `go test -race -count=1
 ./services/waf/...` (pass), `golangci-lint run --new-from-rev=HEAD
 ./services/waf/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: Limit/NextMarker paging across the List ops. No change.

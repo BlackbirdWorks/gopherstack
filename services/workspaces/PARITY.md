@@ -721,3 +721,7 @@ Gates: `go build ./...` (whole module, clean). `go vet
 ./services/workspaces/...` (clean). `go test -race -count=1
 ./services/workspaces/...` (pass). `golangci-lint run --new-from-rev=HEAD
 ./services/workspaces/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (describe_filter_semantics_test.go): DescribeWorkspaceBundles Owner AMAZON lists AWS bundles and no Owner lists the account's own ("don't specify a value"), BundleIds cannot combine with Owner; DescribeWorkspaces rejects the documented filter combinations. Recorded: DescribeWorkspaces WorkspaceName and DescribeWorkspaceImages ImageType are not read (no shared-image or user-decoupled model).

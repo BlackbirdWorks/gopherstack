@@ -510,3 +510,7 @@ candidates resolve them before the ambiguous fold is ever reached).
 for all three services before and after ef0eef041, matching that commit's
 own doc claim of zero real collisions in `reqfieldscan`'s narrower
 `wrapOpFuncs`-only universe.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: ListGraphqlApis apiType/owner, other List ops. Left: ListGraphqlApis with no apiType returns every type; the doc ("whether the GraphQL API is a standard API ( GRAPHQL ) or merged API ( MERGED )") states no default.

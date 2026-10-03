@@ -292,15 +292,15 @@ func (b *InMemoryBackend) ListAIWorkloadConfigs(
 		list = append(list, cloneAIWorkloadConfig(c))
 	}
 
-	desc := params.SortOrder == sortOrderDescending
+	desc := params.SortOrder != sortOrderAscending
 	sort.Slice(list, func(i, j int) bool {
 		var less bool
 
 		switch params.SortBy {
-		case keyCreationTime:
-			less = list[i].CreationTime.Before(list[j].CreationTime)
-		default:
+		case keyGenericName:
 			less = list[i].AIWorkloadConfigName < list[j].AIWorkloadConfigName
+		default:
+			less = list[i].CreationTime.Before(list[j].CreationTime)
 		}
 
 		if desc {

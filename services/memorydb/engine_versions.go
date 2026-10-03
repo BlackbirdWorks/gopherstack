@@ -70,11 +70,26 @@ func (b *InMemoryBackend) DescribeEngineVersions(
 		result = append(result, &cp)
 	}
 
-	if req.DefaultOnly && len(result) > 0 {
-		result = result[:1]
+	if req.DefaultOnly {
+		result = firstPerEngine(result)
 	}
 
 	return result, nil
+}
+
+// firstPerEngine keeps the first (default) version of each engine.
+func firstPerEngine(versions []*EngineVersion) []*EngineVersion {
+	seen := make(map[string]bool, len(versions))
+	out := versions[:0:0]
+
+	for _, v := range versions {
+		if !seen[v.Engine] {
+			seen[v.Engine] = true
+			out = append(out, v)
+		}
+	}
+
+	return out
 }
 
 // -- Event operations -----------------------------------------------------------

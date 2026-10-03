@@ -879,3 +879,7 @@ this spot check as complete.
 this was a handler-contract change (`Handler()`'s dispatch return, and the five
 touched helpers' signatures), so the full run was the right blast-radius check, not
 just this package.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: DescribeEvents default window/Duration, engine-version DefaultOnly, offerings Duration, ShowCacheClustersNotInReplicationGroups. No change.

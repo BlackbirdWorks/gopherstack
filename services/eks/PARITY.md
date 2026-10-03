@@ -1280,3 +1280,7 @@ The backend method's signature grew a `*Update` return value; the only
 non-test caller is `handleAssociateEncryptionConfig`
 (`handler_updates.go`), updated in the same commit -- no CloudFormation
 call site exists for this op.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (describe_addon_versions_filters_test.go): DescribeAddonVersions honours addonName, kubernetesVersion and types. Recorded: Owners/Publishers are not modeled on the static add-on table; DescribeClusterVersions clusterVersions/includeAll/versionStatus/clusterType are not read.

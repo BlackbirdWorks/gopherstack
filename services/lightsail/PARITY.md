@@ -1556,3 +1556,7 @@ Snapshots gain an additive `regions` key only when a sibling exists (no version 
 stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`,
 `TestRegionIsolation/lightsail`. Limitation: non-home regions are not visible to the tagging-API bridge,
 the CloudFormation export path or the dashboard.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (get_certificates_filters_test.go): GetCertificates honours CertificateStatuses. Recorded, not changed: IncludeCertificateDetails ("When omitted, the response includes only the certificate names, ARNs, domain names, and tags") is not honoured, because the terraform aws_lightsail_certificate read dereferences certificateDetail without setting it and the provider crashed when the detail was dropped.

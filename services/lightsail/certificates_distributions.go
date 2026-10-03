@@ -10,6 +10,7 @@ package lightsail
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -111,6 +112,7 @@ func (b *InMemoryBackend) DeleteCertificate(name string) ([]Operation, error) {
 func (b *InMemoryBackend) GetCertificates(
 	name string,
 	token string,
+	statuses []string,
 ) (page.Page[*Certificate], error) {
 	b.mu.RLock("GetCertificates")
 	defer b.mu.RUnlock()
@@ -122,6 +124,10 @@ func (b *InMemoryBackend) GetCertificates(
 
 	for _, c := range all {
 		if name != "" && c.Name != name {
+			continue
+		}
+
+		if len(statuses) > 0 && !slices.Contains(statuses, c.Status) {
 			continue
 		}
 

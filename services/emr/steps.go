@@ -156,9 +156,9 @@ func (b *InMemoryBackend) ListSteps(
 
 	filtered := filterSteps(steps, stateSet, idSet)
 
-	// AWS returns most recently added first.
-	for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
-		filtered[i], filtered[j] = filtered[j], filtered[i]
+	// api_op_ListSteps.go:13: reverse order unless stepIds or StepStates is given.
+	if stateSet == nil && idSet == nil {
+		slices.Reverse(filtered)
 	}
 
 	p := page.New(filtered, marker, listStepsPageSize, listStepsPageSize)

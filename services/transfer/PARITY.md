@@ -390,3 +390,7 @@ Gates: `go build ./...` clean; `go test -race -count=1 ./services/transfer/...` 
 persisted map's contents change, not `backendSnapshot`'s fields), so no
 `TestSnapshotVersionGuard` re-run was needed -- confirmed by running
 `TestPersistence_FullStateRoundTrip` anyway, which passed unchanged.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: ListProfiles ProfileType ("If not supplied in the request, the command lists all types of profiles") and the other list ops. No change.

@@ -279,23 +279,11 @@ func matchesImageListParams(img *SMImage, p ListImagesParams) bool {
 		return false
 	}
 
-	if p.CreationTimeAfter != nil && !img.CreationTime.After(*p.CreationTimeAfter) {
+	if !timeWindowInclusiveOK(img.CreationTime, p.CreationTimeAfter, p.CreationTimeBefore) {
 		return false
 	}
 
-	if p.CreationTimeBefore != nil && !img.CreationTime.Before(*p.CreationTimeBefore) {
-		return false
-	}
-
-	if p.LastModifiedTimeAfter != nil && !img.LastModifiedTime.After(*p.LastModifiedTimeAfter) {
-		return false
-	}
-
-	if p.LastModifiedTimeBefore != nil && !img.LastModifiedTime.Before(*p.LastModifiedTimeBefore) {
-		return false
-	}
-
-	return true
+	return timeWindowInclusiveOK(img.LastModifiedTime, p.LastModifiedTimeAfter, p.LastModifiedTimeBefore)
 }
 
 // imageSortLess orders two images by sortBy — one of ImageSortBy's real
@@ -752,23 +740,11 @@ func (b *InMemoryBackend) ListImageVersions(
 
 // matchesImageVersionListParams reports whether iv satisfies every filter in params.
 func matchesImageVersionListParams(iv *ImageVersion, p ListImageVersionsParams) bool {
-	if p.CreationTimeAfter != nil && !iv.CreationTime.After(*p.CreationTimeAfter) {
+	if !timeWindowInclusiveOK(iv.CreationTime, p.CreationTimeAfter, p.CreationTimeBefore) {
 		return false
 	}
 
-	if p.CreationTimeBefore != nil && !iv.CreationTime.Before(*p.CreationTimeBefore) {
-		return false
-	}
-
-	if p.LastModifiedTimeAfter != nil && !iv.LastModifiedTime.After(*p.LastModifiedTimeAfter) {
-		return false
-	}
-
-	if p.LastModifiedTimeBefore != nil && !iv.LastModifiedTime.Before(*p.LastModifiedTimeBefore) {
-		return false
-	}
-
-	return true
+	return timeWindowInclusiveOK(iv.LastModifiedTime, p.LastModifiedTimeAfter, p.LastModifiedTimeBefore)
 }
 
 // imageVersionSortLess orders two image versions by sortBy — one of

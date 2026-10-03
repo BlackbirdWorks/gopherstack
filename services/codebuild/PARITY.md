@@ -1053,3 +1053,7 @@ Gates: `go build ./...` (whole module) clean; `go vet
 --new-from-rev=HEAD ./services/codebuild/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL. No persisted fields changed, no inventory rows,
 no version bump.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: sortOrder/sortBy, build-batch and report status filters. No change.

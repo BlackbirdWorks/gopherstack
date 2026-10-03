@@ -1622,3 +1622,7 @@ produces a failure state -- correct-by-absence, recorded in
 items_still_open rather than fabricated. Locked in via
 list_summary_shapes_test.go. Gates: `go build`/`go vet`/`go test -race`
 clean, `golangci-lint run` 0 issues.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed: the in-process _search match query is token based (lowercase alphanumeric tokens, any token or operator "and") with the long {query, operator} form, term accepts {value}; previously a substring check. No typed SDK surface exists for the data plane. Recorded: DescribePackages filter names EngineVersion and PackageOwner are inert because Package does not track them.

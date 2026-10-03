@@ -688,3 +688,7 @@ changed; no version bump.
 
 ### 2026-09-30 items_still_open burn-down
 Fixed with typed-client tests in open_items_client_test.go: RadiusServersIpv6 accepted/echoed (EnableRadius/UpdateRadius), IpRoute CidrIpv6 (AddIpRoutes/RemoveIpRoutes CidrIpv6s/ListIpRoutes), consumer-side DescribeDirectories(sharedDirectoryId) after AcceptSharedDirectory (SharedMicrosoftAD with OwnerDirectoryDescription, ShareMethod/ShareStatus/ShareNotes; only returned when requested by ID), ShareTarget/UnshareTarget Type must be ACCOUNT, SettingEntry.LastRequestedDateTime. Persisted additions are omitempty (additive).
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (describe_empty_id_lists_test.go): DescribeDirectories DirectoryIds and DescribeTrusts TrustIds reject an empty list with InvalidParameterException ("An empty list results in an InvalidParameterException being thrown"); null still means all.

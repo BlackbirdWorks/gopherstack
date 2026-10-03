@@ -3,6 +3,7 @@ package workspaces
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -317,10 +318,29 @@ type workspaceResp struct {
 	RootVolumeEncryptionEnabled bool                         `json:"RootVolumeEncryptionEnabled,omitempty"`
 }
 
+// validateDescribeWorkspacesFilters enforces DescribeWorkspacesInput's exclusions:
+// WorkspaceIds, BundleId and DirectoryId stand alone (DirectoryId may add UserName).
+func validateDescribeWorkspacesFilters(req *describeWorkspacesInput) error {
+	switch {
+	case len(req.WorkspaceIDs) > 0 && (req.DirectoryID != "" || req.UserName != "" || req.BundleID != ""):
+		return fmt.Errorf("%w: WorkspaceIds cannot be combined with any other filter", ErrInvalidParameter)
+	case req.BundleID != "" && (req.DirectoryID != "" || req.UserName != ""):
+		return fmt.Errorf("%w: BundleId cannot be combined with any other filter", ErrInvalidParameter)
+	case req.UserName != "" && req.DirectoryID == "":
+		return fmt.Errorf("%w: UserName must be specified with DirectoryId", ErrInvalidParameter)
+	default:
+		return nil
+	}
+}
+
 func (h *Handler) handleDescribeWorkspaces(
 	ctx context.Context,
 	req *describeWorkspacesInput,
 ) (*describeWorkspacesOutput, error) {
+	if err := validateDescribeWorkspacesFilters(req); err != nil {
+		return nil, err
+	}
+
 	var directoryIDs, userIDs, bundleIDs []string
 	if req.DirectoryID != "" {
 		directoryIDs = []string{req.DirectoryID}

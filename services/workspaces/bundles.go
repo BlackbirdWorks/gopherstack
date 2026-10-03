@@ -8,7 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-const ownerAmazon = "Amazon"
+const ownerAmazon = "AMAZON"
 
 // bundlesPageSize is the AWS default page size for DescribeWorkspaceBundles.
 const bundlesPageSize = 25
@@ -75,11 +75,8 @@ func amazonBundleList() []*WorkspaceBundle {
 	}
 }
 
-// DescribeWorkspaceBundles returns workspace bundles, optionally filtered by IDs or owner.
-// When no owner is specified, returns both Amazon-owned and account-owned custom bundles.
-// When owner is "Amazon", returns only Amazon-owned bundles.
-// When owner is an account ID, returns custom bundles for that account.
-// Results are sorted by BundleID and paginated (max 25 per page, matching AWS).
+// DescribeWorkspaceBundles lists bundles: owner AMAZON gives AWS bundles, anything else the
+// account's custom ones, and bundleIDs match either kind. Sorted by BundleID, 25 per page.
 func (b *InMemoryBackend) DescribeWorkspaceBundles(
 	_ context.Context,
 	bundleIDs []string, owner string, nextToken string,
@@ -89,13 +86,13 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 
 	var bundles []*WorkspaceBundle
 
-	// Include Amazon bundles unless the caller explicitly requests a specific account.
-	if owner == "" || owner == ownerAmazon {
+	// api_op_DescribeWorkspaceBundles.go: AMAZON lists AWS bundles; no value lists the account's own.
+	if owner == ownerAmazon || len(bundleIDs) > 0 {
 		bundles = append(bundles, amazonBundleList()...)
 	}
 
-	// Include custom bundles when the caller wants all bundles or account-specific bundles.
-	if owner != ownerAmazon {
+	// Custom bundles are the account's own; BundleIds can name either kind.
+	if owner != ownerAmazon || len(bundleIDs) > 0 {
 		for _, bun := range b.customBundles.All() {
 			bundles = append(bundles, &WorkspaceBundle{
 				BundleID:    bun.BundleID,

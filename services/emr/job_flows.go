@@ -8,6 +8,34 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
+const (
+	jobFlowRetention       = 60 * 24 * time.Hour
+	jobFlowRecentCompleted = 14 * 24 * time.Hour
+)
+
+// jobFlowState maps a cluster state to its JobFlowExecutionState.
+func jobFlowState(clusterState string) string {
+	switch clusterState {
+	case StateTerminated:
+		return "COMPLETED"
+	case StateTerminatedWithErrors:
+		return "FAILED"
+	case "TERMINATING":
+		return "SHUTTING_DOWN"
+	default:
+		return clusterState
+	}
+}
+
+func jobFlowIsActive(state string) bool {
+	switch state {
+	case "RUNNING", "WAITING", "SHUTTING_DOWN", "STARTING":
+		return true
+	default:
+		return false
+	}
+}
+
 // DescribeJobFlows translates clusters into the legacy JobFlow format.
 func (b *InMemoryBackend) DescribeJobFlows(
 	ctx context.Context,
@@ -25,7 +53,9 @@ func (b *InMemoryBackend) DescribeJobFlows(
 	flows := make([]JobFlow, 0)
 
 	for _, c := range b.clustersInRegion(region) {
-		if !jobFlowMatchesFilter(c, idSet, stateSet, createdAfter, createdBefore) {
+		noParams := idSet == nil && stateSet == nil && createdAfter == nil && createdBefore == nil
+		if !jobFlowMatchesFilter(c, idSet, stateSet, createdAfter, createdBefore) ||
+			!jobFlowInDefaultWindow(c, noParams, time.Now()) {
 			continue
 		}
 
@@ -48,7 +78,7 @@ func jobFlowMatchesFilter(
 		return false
 	}
 
-	if stateSet != nil && !stateSet[c.Status.State] {
+	if stateSet != nil && !stateSet[jobFlowState(c.Status.State)] {
 		return false
 	}
 
@@ -62,6 +92,25 @@ func jobFlowMatchesFilter(
 	}
 
 	return true
+}
+
+// jobFlowInDefaultWindow applies the retention in api_op_DescribeJobFlows.go:17-28:
+// two months always, and with no parameters only recent completed or active flows.
+func jobFlowInDefaultWindow(c *Cluster, noParams bool, now time.Time) bool {
+	created := epochSecondsToTime(clusterCreationSecondsFromCluster(c))
+	if created.Before(now.Add(-jobFlowRetention)) {
+		return false
+	}
+
+	if !noParams {
+		return true
+	}
+
+	state := jobFlowState(c.Status.State)
+
+	completed := state == "COMPLETED" || state == "FAILED"
+
+	return jobFlowIsActive(state) || (completed && !created.Before(now.Add(-jobFlowRecentCompleted)))
 }
 
 func clusterToJobFlow(c *Cluster) JobFlow {
@@ -96,7 +145,7 @@ func clusterToJobFlow(c *Cluster) JobFlow {
 		LogURI:       c.LogURI,
 		ServiceRole:  c.ServiceRole,
 		ExecutionStatusDetail: JobFlowExecutionStatusDetail{
-			State:             c.Status.State,
+			State:             jobFlowState(c.Status.State),
 			CreationDateTime:  creationSeconds,
 			EndDateTime:       endSeconds,
 			StateChangeReason: stateChangeMsg,

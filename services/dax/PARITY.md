@@ -762,3 +762,7 @@ Gates: `go build ./...`, `go vet ./services/dax/...`, `go test -race
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/dax/...` (0 issues). `go run ./cmd/paritylint` stays at 0 FAIL.
 No persisted-struct/snapshot changes.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: DescribeEvents source/time filters, DescribeParameters Source, ordering. No change.

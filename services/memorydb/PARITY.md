@@ -606,3 +606,7 @@ state exists to report without fabrication, confirmed by grep: no
 `ShardDetail` type anywhere in the package). `staleclaims` flagged 0
 candidates for memorydb. Removed: 0. Fixed: 0. Kept: 6 + 3 deferred, all
 re-verified accurate. yusn is fully adjudicated.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (describe_engine_versions_default_test.go): DescribeEngineVersions DefaultOnly returns one version per engine instead of one overall. Recorded: DescribeEngineVersions EngineVersion ("The Redis OSS engine version") is not read; the major-version semantics implied by DefaultOnly are unspecified.

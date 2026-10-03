@@ -639,3 +639,7 @@ namespace/service helper. No `items_still_open` changes; no
 ## 2026-10-03 (gopherstack-1izbr multi-region)
 
 Cloud Map is region-isolated: per-region sibling handlers: each non-home region gets a lazily built sibling Handler (own namespaces, services, instances, operations, region-correct ARNs) via `pkgs/regionpeers`; siblings share the DNS registrar and hosted-zone creator wiring. Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/servicediscovery`. Limitation: Non-home regions are not visible to the tagging-API bridge or the dashboard.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: NamespaceFilter/ServiceFilter/OperationFilter conditions, DiscoverInstances HealthStatus/OptionalParameters all follow their SDK doc comments. No change.

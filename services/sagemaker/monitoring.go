@@ -185,14 +185,8 @@ func matchesAlertHistoryFilter(e *MonitoringAlertHistoryEntry, f MonitoringAlert
 	if f.StatusEquals != "" && !strings.EqualFold(e.AlertStatus, f.StatusEquals) {
 		return false
 	}
-	if f.CreationTimeAfter != nil && !e.CreationTime.After(*f.CreationTimeAfter) {
-		return false
-	}
-	if f.CreationTimeBefore != nil && !e.CreationTime.Before(*f.CreationTimeBefore) {
-		return false
-	}
 
-	return true
+	return timeWindowInclusiveOK(e.CreationTime, f.CreationTimeAfter, f.CreationTimeBefore)
 }
 
 // ListMonitoringAlertHistory returns alert status history entries, optionally

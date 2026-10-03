@@ -169,6 +169,10 @@ func (h *Handler) handleListApps(ctx context.Context, body []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.UserProfileNameEquals != "" && req.SpaceNameEquals != "" {
+		return nil, fmt.Errorf("%w: UserProfileNameEquals and SpaceNameEquals cannot both be set", ErrValidation)
+	}
+
 	apps, nextToken := h.Backend.ListApps(ctx, ListAppsParams{
 		DomainIDEquals:        req.DomainIDEquals,
 		UserProfileNameEquals: req.UserProfileNameEquals,

@@ -365,48 +365,6 @@ func TestRunJobFlow_ApplicationsDefaulted(t *testing.T) {
 	assert.NotEmpty(t, desc.Cluster.Applications)
 }
 
-func TestListClusters_StateFilter(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createRec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "waiting-cluster"})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var create struct {
-		JobFlowID string `json:"JobFlowId"`
-	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
-
-	doEMRRequest(t, h, "TerminateJobFlows", map[string]any{
-		"JobFlowIds": []string{create.JobFlowID},
-	})
-
-	listActive := doEMRRequest(t, h, "ListClusters", map[string]any{})
-	require.Equal(t, http.StatusOK, listActive.Code)
-
-	var activeOut struct {
-		Clusters []struct {
-			ID string `json:"Id"`
-		} `json:"Clusters"`
-	}
-	require.NoError(t, json.Unmarshal(listActive.Body.Bytes(), &activeOut))
-	assert.Empty(t, activeOut.Clusters)
-
-	listTerminated := doEMRRequest(t, h, "ListClusters", map[string]any{
-		"ClusterStates": []string{"TERMINATED"},
-	})
-	require.Equal(t, http.StatusOK, listTerminated.Code)
-
-	var termOut struct {
-		Clusters []struct {
-			ID string `json:"Id"`
-		} `json:"Clusters"`
-	}
-	require.NoError(t, json.Unmarshal(listTerminated.Body.Bytes(), &termOut))
-	assert.Len(t, termOut.Clusters, 1)
-}
-
 func TestListClusters_DateFilter(t *testing.T) {
 	t.Parallel()
 

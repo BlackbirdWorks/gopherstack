@@ -588,7 +588,7 @@ func (h *Handler) handleCreateCertificate(_ context.Context, body []byte) ([]byt
 		return nil, createErr
 	}
 
-	cert, getErr := h.Backend.GetCertificates(req.CertificateName, "")
+	cert, getErr := h.Backend.GetCertificates(req.CertificateName, "", nil)
 	if getErr != nil {
 		return nil, getErr
 	}
@@ -641,7 +641,7 @@ func (h *Handler) handleGetCertificates(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	pg, pgErr := h.Backend.GetCertificates(req.CertificateName, req.PageToken)
+	pg, pgErr := h.Backend.GetCertificates(req.CertificateName, req.PageToken, req.CertificateStatuses)
 	if pgErr != nil {
 		return nil, pgErr
 	}
