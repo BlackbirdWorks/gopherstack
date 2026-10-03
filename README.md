@@ -206,6 +206,7 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--tls` | `TLS` | `false` | Serve over HTTPS (self-signed certificate unless `--tls-cert`/`--tls-key` are set). |
 | `--tls-cert` | `TLS_CERT` | *(empty)* | Path to a TLS certificate (PEM). Requires `--tls-key`. |
 | `--tls-key` | `TLS_KEY` | *(empty)* | Path to a TLS private key (PEM). |
+| `--compression` | `COMPRESSION` | `on` | Runtime response compression (`on`/`off`). See [Response compression](#response-compression). |
 | `--validate-sigv4` | `VALIDATE_SIGV4` | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
 | `--sigv4-secret` | `SIGV4_SECRET` | `test` | Secret access key SigV4 validation signs against (only used with `--validate-sigv4`). |
 | `--dns-addr` | `DNS_ADDR` | *(empty)* | Address for the embedded DNS server (e.g. `:10053`). Empty disables it. |
@@ -435,6 +436,20 @@ polling and invocation for you once an ESM exists. Respects batch size, starting
   footprint small
 - **Profile-guided optimization** — the binary ships with a PGO profile captured from real
   workloads (see [PGO](#profile-guided-optimization-pgo))
+
+### Response compression
+
+Responses are compressed at runtime (never at build time) when the client asks via
+`Accept-Encoding`; the server prefers `zstd`, then `br`, then `gzip` when weights tie.
+
+- **Dashboard** — assets and JSON API responses of at least 1 KiB are compressed; embedded
+  assets are compressed once per coding and cached in memory. Streams (SSE, Connect/gRPC),
+  `Range`, `HEAD` and already-encoded responses are never touched.
+- **AWS APIs** — SDK clients send `Accept-Encoding: identity`, so nothing changes for them.
+  Only DynamoDB answers `gzip` to clients that opt in (`EnableAcceptEncodingGzip`), with
+  `X-Amz-Crc32` computed over the compressed bytes like the real service. No other AWS
+  service, S3 object body or proxied Lambda/API Gateway response is compressed.
+- **Opt out** — `--compression off` (or `COMPRESSION=off`) disables all of it.
 
 ## Examples
 

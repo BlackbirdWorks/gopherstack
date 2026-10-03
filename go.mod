@@ -11,6 +11,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue v1.0.1
 	github.com/alecthomas/kong v1.16.1
 	github.com/alicebob/miniredis/v2 v2.39.0
+	github.com/andybalholm/brotli v1.2.6
 	github.com/aws/aws-dax-go v1.2.15
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/aws/aws-sdk-go-v2 v1.47.1
