@@ -63,9 +63,64 @@ func (b *InMemoryBackend) isHotReloadFunction(fn *FunctionConfiguration) bool {
 	return fn.PackageType == PackageTypeZip && len(fn.ZipData) == 0 && b.IsHotReloadBucket(fn.S3BucketCode)
 }
 
+// hotReloadRootsEnv lists the directories hot-reload mounts must live under.
+const hotReloadRootsEnv = "LAMBDA_HOT_RELOAD_ROOTS"
+
+// configuredHotReloadRoots returns LAMBDA_HOT_RELOAD_ROOTS, or the home dir and temp dir when unset.
+func configuredHotReloadRoots() []string {
+	if v := os.Getenv(hotReloadRootsEnv); v != "" {
+		return filepath.SplitList(v)
+	}
+
+	roots := []string{os.TempDir()}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots, home)
+	}
+
+	return roots
+}
+
+// resolveHotReloadRoots returns the absolute, symlink-resolved existing roots and the ones skipped.
+func resolveHotReloadRoots(roots []string) ([]string, []string) {
+	var resolved, skipped []string
+
+	for _, r := range roots {
+		if r == "" {
+			continue
+		}
+
+		abs, err := filepath.Abs(r)
+		if err == nil {
+			abs, err = filepath.EvalSymlinks(abs)
+		}
+
+		if err != nil {
+			skipped = append(skipped, r)
+
+			continue
+		}
+
+		resolved = append(resolved, filepath.Clean(abs))
+	}
+
+	return resolved, skipped
+}
+
+// withinHotReloadRoot reports whether the cleaned absolute path p is a root or lies under one.
+func withinHotReloadRoot(p string, roots []string) bool {
+	for _, root := range roots {
+		prefix := strings.TrimSuffix(root, string(filepath.Separator)) + string(filepath.Separator)
+		if p == root || strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // sanitizeHotReloadPath returns key's env-expanded, cleaned, symlink-resolved absolute path,
-// rejecting relative, traversing and forbidden-root paths. Only the returned value may reach file ops.
-func sanitizeHotReloadPath(key string) (string, error) {
+// rejecting relative, traversing, forbidden-root and out-of-roots paths. Only the returned value may reach file ops.
+func sanitizeHotReloadPath(key string, roots []string) (string, error) {
 	expanded := os.ExpandEnv(key)
 
 	if !filepath.IsAbs(expanded) {
@@ -87,13 +142,28 @@ func sanitizeHotReloadPath(key string) (string, error) {
 		return "", fmt.Errorf("%w: mounting %q is not allowed", ErrInvalidHotReloadPath, clean)
 	}
 
-	return filepath.Clean(resolved), nil
+	safe := filepath.Clean(resolved)
+	if !withinHotReloadRoot(safe, roots) {
+		return "", fmt.Errorf(
+			"%w: %q is outside the allowed roots; set %s to permit it",
+			ErrInvalidHotReloadPath, safe, hotReloadRootsEnv,
+		)
+	}
+
+	return safe, nil
 }
 
 // ResolveHotReloadPath expands env placeholders in key and validates it as an
 // absolute, traversal-free path to an existing directory.
 func ResolveHotReloadPath(key string) (string, error) {
-	safe, err := sanitizeHotReloadPath(key)
+	return ResolveHotReloadPathIn(key, configuredHotReloadRoots())
+}
+
+// ResolveHotReloadPathIn is ResolveHotReloadPath restricted to the given allowed root directories.
+func ResolveHotReloadPathIn(key string, roots []string) (string, error) {
+	allowed, _ := resolveHotReloadRoots(roots)
+
+	safe, err := sanitizeHotReloadPath(key, allowed)
 	if err != nil {
 		return "", err
 	}

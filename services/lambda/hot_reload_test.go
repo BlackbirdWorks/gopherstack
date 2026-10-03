@@ -417,3 +417,73 @@ func TestHotReload_SocketAppearingAfterStartFailsInvoke(t *testing.T) {
 	require.ErrorIs(t, err, lambda.ErrInvalidHotReloadPath)
 	assert.Len(t, api.created(), 1)
 }
+
+func TestHotReload_RootAllowlist(t *testing.T) {
+	t.Parallel()
+
+	rootA, rootB, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	sub := filepath.Join(rootA, "sub")
+	require.NoError(t, os.Mkdir(sub, 0o750))
+
+	escape := filepath.Join(rootA, "escape")
+	require.NoError(t, os.Symlink(outside, escape))
+
+	sibling := rootA + "x"
+	require.NoError(t, os.Mkdir(sibling, 0o750))
+	t.Cleanup(func() { _ = os.Remove(sibling) })
+
+	inside := filepath.Join(rootB, "link")
+	require.NoError(t, os.Symlink(sub, inside))
+
+	tests := []struct {
+		name    string
+		key     string
+		roots   []string
+		wantErr bool
+	}{
+		{name: "inside_root", key: sub, roots: []string{rootA}},
+		{name: "root_itself", key: rootA, roots: []string{rootA}},
+		{name: "outside_every_root", key: outside, roots: []string{rootA, rootB}, wantErr: true},
+		{name: "symlink_escaping_root", key: escape, roots: []string{rootA}, wantErr: true},
+		{name: "symlink_within_other_root", key: inside, roots: []string{rootA}},
+		{name: "second_root", key: rootB, roots: []string{rootA, rootB}},
+		{name: "missing_root_skipped", key: sub, roots: []string{filepath.Join(rootA, "nope"), rootA}},
+		{name: "no_usable_roots", key: sub, roots: []string{filepath.Join(rootA, "nope")}, wantErr: true},
+		{name: "sibling_prefix", key: sibling, roots: []string{rootA}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := lambda.ResolveHotReloadPathIn(tt.key, tt.roots)
+			if tt.wantErr {
+				require.ErrorIs(t, err, lambda.ErrInvalidHotReloadPath)
+				assert.Contains(t, err.Error(), "LAMBDA_HOT_RELOAD_ROOTS")
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.DirExists(t, got)
+		})
+	}
+}
+
+func TestHotReload_DefaultRootsAndEnv(t *testing.T) {
+	outside := t.TempDir()
+	t.Setenv("LAMBDA_HOT_RELOAD_ROOTS", filepath.Join(outside, "other")+string(os.PathListSeparator)+outside)
+
+	got, err := lambda.ResolveHotReloadPath(outside)
+	require.NoError(t, err)
+	assert.Equal(t, outside, got)
+
+	t.Setenv("LAMBDA_HOT_RELOAD_ROOTS", t.TempDir())
+	_, err = lambda.ResolveHotReloadPath(outside)
+	require.ErrorIs(t, err, lambda.ErrInvalidHotReloadPath)
+
+	t.Setenv("LAMBDA_HOT_RELOAD_ROOTS", "")
+	got, err = lambda.ResolveHotReloadPath(outside)
+	require.NoError(t, err)
+	assert.Equal(t, outside, got)
+}

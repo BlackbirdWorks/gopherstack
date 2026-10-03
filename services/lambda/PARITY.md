@@ -1294,3 +1294,5 @@ non-directories are rejected with InvalidParameterValueException.
   read-only mount through a mock Docker API, not a real runtime executing edited code.
 
 Hot-reload hardening (2026-10-01): S3Key is symlink-resolved and rejected under `/`, `/proc`, `/sys`, `/dev`, `/run`, `/var/run`, `/boot`, `/etc`, `/root` and container-engine data dirs; trees containing sockets or device files are refused at create and at every invoke scan.
+
+Hot-reload root allowlist (2026-10-02): after symlink resolution the mount path must lie under a directory in `LAMBDA_HOT_RELOAD_ROOTS` (`os.PathListSeparator`-separated; default the user home dir and `os.TempDir()`), else 400 InvalidParameterValueException. Deliberate deviation from LocalStack, which mounts any absolute path; it resolves CodeQL go/path-injection.

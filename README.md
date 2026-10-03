@@ -257,6 +257,7 @@ configuration](#lambda-configuration) below. A few more exist:
 |------|---------|---------|-------------|
 | `--lambda-max-runtimes` | `LAMBDA_MAX_RUNTIMES` | `50` | Maximum number of simultaneous per-function Lambda runtimes. |
 | *(none)* | `LAMBDA_HOT_RELOAD_BUCKET` | `hot-reload` | Magic S3 bucket name whose S3Key is a local directory mounted live (Lambda hot reloading). |
+| *(none)* | `LAMBDA_HOT_RELOAD_ROOTS` | home dir and temp dir | Path-list (`:` separated) of absolute directories hot-reload S3Keys must live under; others are rejected. |
 | `--lambda-hot-reload-interval-ms` | `LAMBDA_HOT_RELOAD_INTERVAL_MS` | `250` | Minimum milliseconds between hot-reload change scans. |
 | `--lambda-disable-hot-reload` | `LAMBDA_DISABLE_HOT_RELOAD` | `false` | Disable Lambda hot reloading from local directories. |
 | `--lambda-keep-containers` | `LAMBDA_KEEP_CONTAINERS` | `false` | If true, keep Lambda containers alive for debugging. |
