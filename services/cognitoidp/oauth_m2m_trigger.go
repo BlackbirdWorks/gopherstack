@@ -43,9 +43,7 @@ func (b *InMemoryBackend) prepareM2MTrigger(
 		map[string]any{
 			eventKeyUserAttributes: map[string]any{},
 			"scopes":               stringsToAny(scopes),
-			"groupConfiguration": map[string]any{
-				"groupsToOverride": []any{}, "iamRolesToOverride": []any{}, "preferredRole": nil,
-			},
+			keyGroupConfiguration:  groupConfigEvent(nil, nil, nil),
 			eventKeyClientMetadata: stringMapToAny(metadata),
 		},
 		map[string]any{"claimsAndScopeOverrideDetails": map[string]any{}},
@@ -105,17 +103,7 @@ func (o m2mOverride) applyScopes(scopes []string) []string {
 	return slices.DeleteFunc(out, func(s string) bool { return slices.Contains(o.scopesToRemove, s) })
 }
 
-// applyClaims adds, overrides and suppresses claims; protected claims are left alone.
+// applyClaims adds, overrides and suppresses claims under the documented protected-claim rules.
 func (o m2mOverride) applyClaims(claims jwt.MapClaims) {
-	for k, v := range o.claims {
-		if _, protected := protectedTokenClaims[k]; !protected {
-			claims[k] = v
-		}
-	}
-
-	for _, k := range o.suppress {
-		if _, protected := protectedTokenClaims[k]; !protected {
-			delete(claims, k)
-		}
-	}
+	(&preTokenOverride{access: o}).applyAccess(claims)
 }

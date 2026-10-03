@@ -50,6 +50,7 @@ const (
 	triggerSourceTokenGenAuthentication   = "TokenGeneration_Authentication"
 	triggerSourceTokenGenNewPasswordFlow  = "TokenGeneration_NewPasswordChallenge"
 	triggerSourceTokenGenRefreshTokens    = "TokenGeneration_RefreshTokens"
+	triggerSourceTokenGenHostedAuth       = "TokenGeneration_HostedAuth"
 	triggerSourceCustomMessageSignUp      = "CustomMessage_SignUp"
 	triggerSourceCustomMessageResendCode  = "CustomMessage_ResendCode"
 	triggerSourceCustomMessageForgotPwd   = "CustomMessage_ForgotPassword"
@@ -176,7 +177,7 @@ func (b *InMemoryBackend) prepareTrigger(
 		inv:         b.lambdaInvoker,
 		functionARN: functionARN,
 		event: map[string]any{
-			"version":       "1",
+			"version":       triggerEventVersion(pool, triggerKey),
 			"triggerSource": triggerSource,
 			"region":        b.region,
 			"userPoolId":    pool.ID,
@@ -189,6 +190,14 @@ func (b *InMemoryBackend) prepareTrigger(
 			"response": defaultResponse,
 		},
 	}
+}
+
+func triggerEventVersion(pool *UserPool, triggerKey string) string {
+	if triggerKey == triggerKeyPreTokenGeneration {
+		return preTokenEventVersion(pool.LambdaConfig)
+	}
+
+	return "1"
 }
 
 func parseTriggerResult(triggerKey string, result map[string]any, err error) (map[string]any, error) {
@@ -447,33 +456,45 @@ func (b *InMemoryBackend) InvokeCustomMessageTrigger(
 	return message, subject, nil
 }
 
-// preTokenGenerationOverrideAuth is preTokenGenerationOverride with b.mu released
-// around the Lambda call (sign-in path).
+// preTokenGenerationOverrideAuth runs PreTokenGeneration with b.mu released (sign-in path); V2_0/V3_0
+// pools get the version-2/3 event and claimsAndScopeOverrideDetails, V1_0 keeps claimsOverrideDetails.
 func (b *InMemoryBackend) preTokenGenerationOverrideAuth(
-	pool *UserPool, clientID string, user *User, groups []string, triggerSource string,
-) (map[string]string, []string, error) {
+	pool *UserPool, clientID string, user *User, groups, scopes []string, triggerSource string,
+) (tokenOverrides, error) {
+	v2 := preTokenAccessCustomizable(pool.LambdaConfig)
+
 	request, defaults := preTokenEvent(user, groups)
+	if v2 {
+		request = b.preTokenV2Request(pool, user, groups, scopes)
+		defaults = map[string]any{respKeyClaimsAndScope: map[string]any{}}
+	}
 
 	resp, err := b.invokeAuthTrigger(
 		pool, user, triggerKeyPreTokenGeneration, triggerSource, clientID, request, defaults,
 	)
 	if err != nil {
-		return nil, nil, err
+		return tokenOverrides{}, err
 	}
 
-	claimsToAdd, claimsToSuppress := parseClaimsOverride(resp)
+	if v2 {
+		if resp == nil {
+			return tokenOverrides{}, nil
+		}
 
-	return claimsToAdd, claimsToSuppress, nil
+		parsed, parseErr := parseClaimsAndScopeOverride(resp)
+
+		return tokenOverrides{v2: parsed}, parseErr
+	}
+
+	claims, suppress := parseClaimsOverride(resp)
+
+	return tokenOverrides{v1Claims: claims, v1Suppress: suppress}, nil
 }
 
 func preTokenEvent(user *User, groups []string) (map[string]any, map[string]any) {
 	return map[string]any{
 		eventKeyUserAttributes: stringMapToAny(user.Attributes),
-		"groupConfiguration": map[string]any{
-			"groupsToOverride":   stringsToAny(groups),
-			"iamRolesToOverride": []any{},
-			"preferredRole":      nil,
-		},
+		keyGroupConfiguration:  groupConfigEvent(groups, nil, nil),
 		eventKeyClientMetadata: map[string]any{},
 	}, map[string]any{
 		"claimsOverrideDetails": map[string]any{

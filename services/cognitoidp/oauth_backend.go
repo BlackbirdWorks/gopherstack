@@ -206,7 +206,7 @@ func (b *InMemoryBackend) issueOAuthTokens(
 
 	grant.scopes = slices.Clone(grant.scopes)
 
-	res, err := b.issueScopedTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, grant)
+	res, err := b.issueScopedTokensLocked(pool, clientID, user, triggerSourceTokenGenHostedAuth, grant)
 	if err != nil {
 		return nil, err
 	}

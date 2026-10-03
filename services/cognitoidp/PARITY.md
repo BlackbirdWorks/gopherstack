@@ -152,12 +152,34 @@ gaps: []
 items_still_open:
   - "domains: Routing and Version (DomainDescriptionType) remain unpopulated -- no multi-region-domain-routing model or app-version tracking exists in this backend; left absent rather than fabricated."
   - "MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents."
-  - "OAuth2/OIDC endpoints (gopherstack-1ryp5): no federated IdP redirect, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, nonce is not carried into ID tokens minted by the refresh grant, PreTokenGeneration V2_0/V3_0 accessTokenGeneration/idTokenGeneration responses are applied only to client_credentials (user sign-in still reads the V1_0 claimsOverrideDetails shape), hosted login cannot answer MFA_SETUP or EMAIL_OTP/SMS challenges it has no delivery for beyond the generated code."
+  - "OAuth2/OIDC endpoints (gopherstack-1ryp5): no federated IdP redirect, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, nonce is not carried into ID tokens minted by the refresh grant, hosted login cannot answer MFA_SETUP or EMAIL_OTP/SMS challenges it has no delivery for beyond the generated code."
 deferred: []
 leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused. FIXED (gopherstack-cq0z, 2026-09-06): DeleteUserPool's user cascade deletes users directly (b.users.Delete) instead of calling AdminDeleteUser, so it did not inherit AdminDeleteUser's own devices/authEvents cleanup for each user -- the cascade-variant of the ghost-row class, where a parent delete bypasses the single-resource delete path holding the fix. Now clears devices[userStateKey]/authEvents[userStateKey] per user in the same cascade loop. Pool-level side maps (riskConfigurations, logDeliveryConfigs, poolMfaConfigs, and the pool's own resourceTags entry) are NOT cleared by DeleteUserPool either and remain open findings, not addressed this pass. See TestDeleteUserPool_ClearsUserDeviceState."}
 ---
 
 ## Notes
+
+### 2026-10-03 PreTokenGeneration V2_0/V3_0 on user token issuance
+
+Docs: user-pool-lambda-pre-token-generation (event versions, claims and scopes reference, trigger sources,
+request/response parameters). `LambdaVersion` V2_0/V3_0 sends the version-2/3 event (`userAttributes`,
+`groupConfiguration`, `scopes`, `clientMetadata`) and applies `claimsAndScopeOverrideDetails`; V1_0 and the bare ARN
+keep `claimsOverrideDetails` and ignore the V2 shape.
+
+- Applies to password/SRP/custom/MFA sign-in, NEW_PASSWORD_REQUIRED, `REFRESH_TOKEN_AUTH`, and the hosted code
+  exchange, implicit grant and refresh grant. Hosted flows now report `TokenGeneration_HostedAuth`.
+- ID and access edits are separate; values may be string, number, boolean, scalar arrays, or objects, except objects
+  and arrays on `email_verified`, `phone_number_verified`, `updated_at`, `address`. Suppress beats add.
+- Protected per the claims table: the previous list plus `identities`, `device_key`, `version`, `acr`, `amr`,
+  `at_hash`, `azp`, `nbf`, any `cognito:`/`dev:` add. `cognito:groups`, `cognito:roles`, `cognito:preferred_role`
+  and `dev:` claims can still be suppressed. Access `aud` is accepted only when it equals the client ID.
+- `scopesToAdd` (no whitespace) and `scopesToSuppress` edit `scope`; an empty result drops the claim.
+- `groupOverrideDetails` replaces `cognito:groups` in both tokens and sets ID `cognito:roles`/`cognito:preferred_role`;
+  an empty object suppresses groups, an absent one keeps them.
+- A wrongly typed container, claims map or string list is `UnexpectedLambdaException`.
+- Not changed: the docs do not mention `nonce` on refresh-issued ID tokens, so the refresh grant still omits it.
+  `clientMetadata` from RespondToAuthChallenge is not yet forwarded (sent empty), and the real-group
+  `cognito:roles`/`cognito:preferred_role` claims are not emitted without an override.
 
 ### 2026-10-03 OAuth nonce, managed-login session, hosted challenges, M2M pre-token trigger
 

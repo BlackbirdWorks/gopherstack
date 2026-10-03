@@ -179,15 +179,18 @@ type TokenResult struct {
 
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
+	Overrides             *preTokenOverride `json:"-"`
 	Attributes            map[string]string `json:"attributes,omitempty"`
 	ClaimsToAddOrOverride map[string]string `json:"claimsToAddOrOverride,omitempty"`
 	ClientID              string            `json:"clientID,omitempty"`
 	Nonce                 string            `json:"nonce,omitempty"`
+	PreferredRole         string            `json:"preferredRole,omitempty"`
 	Username              string            `json:"username,omitempty"`
 	UserSub               string            `json:"userSub,omitempty"`
 	Scopes                []string          `json:"scopes,omitempty"`
 	Groups                []string          `json:"groups,omitempty"`
 	ClaimsToSuppress      []string          `json:"claimsToSuppress,omitempty"`
+	Roles                 []string          `json:"roles,omitempty"`
 	AuthTime              int64             `json:"authTime,omitempty"`
 	// AuthSeq is a monotonic per-mint sequence number (InMemoryBackend.tokenSeq),
 	// distinct from AuthTime: AuthTime is real-AWS-shaped (JWT NumericDate,
@@ -252,6 +255,14 @@ var protectedTokenClaims = map[string]struct{}{ //nolint:gochecknoglobals // sta
 	claimClientID:        {},
 	claimUsername:        {},
 	claimOriginJTI:       {},
+	"identities":         {},
+	"device_key":         {},
+	"version":            {},
+	"acr":                {},
+	"amr":                {},
+	"at_hash":            {},
+	"azp":                {},
+	"nbf":                {},
 }
 
 // applyClaimsOverride merges addOrOverride into claims and deletes claims named in
@@ -312,13 +323,21 @@ func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Du
 		idClaims[claimCognitoGroups] = p.Groups
 	}
 
+	if len(p.Roles) > 0 {
+		idClaims[claimCognitoRoles] = p.Roles
+	}
+
+	if p.PreferredRole != "" {
+		idClaims[claimPreferredRole] = p.PreferredRole
+	}
+
 	if p.Nonce != "" {
 		idClaims[claimNonce] = p.Nonce
 	}
 
 	// Include standard user attributes in the ID token (email, phone_number, name, etc.)
 	standardAttrs := []string{
-		"email", "email_verified", "phone_number", "phone_number_verified",
+		"email", attrEmailVerified, "phone_number", "phone_number_verified",
 		"name", "given_name", "family_name", "middle_name", "nickname",
 		"preferred_username", "website", "zoneinfo", "locale", "birthdate",
 		"gender", "address", "updated_at",
@@ -330,6 +349,7 @@ func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Du
 	}
 
 	applyClaimsOverride(idClaims, p.ClaimsToAddOrOverride, p.ClaimsToSuppress)
+	p.Overrides.applyID(idClaims)
 
 	idToken := jwt.NewWithClaims(jwt.SigningMethodRS256, idClaims)
 	idToken.Header["kid"] = t.keyID
@@ -395,6 +415,11 @@ func (t *tokenIssuer) signAccessToken(
 	}
 
 	applyClaimsOverride(accessClaims, p.ClaimsToAddOrOverride, p.ClaimsToSuppress)
+	p.Overrides.applyAccess(accessClaims)
+
+	if scope == "" {
+		delete(accessClaims, claimScope)
+	}
 
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodRS256, accessClaims)
 	accessToken.Header["kid"] = t.keyID
@@ -431,7 +456,7 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 		return nil, err
 	}
 
-	scope := resolveAccessScope(p.Scopes)
+	scope := p.Overrides.accessScope(resolveAccessScope(p.Scopes))
 
 	accessTokenString, err := t.signAccessToken(p, now, accessExpiry, scope)
 	if err != nil {

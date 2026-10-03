@@ -196,6 +196,15 @@ func (b *InMemoryBackend) issueTokensLocked(
 	return b.issueScopedTokensLocked(pool, clientID, user, triggerSource, tokenGrant{storeRefresh: true})
 }
 
+// grantScopes is the scope set a grant will issue: explicit scopes, else the client's allowed scopes.
+func (b *InMemoryBackend) grantScopes(clientID string, scopes []string) []string {
+	if scopes != nil {
+		return scopes
+	}
+
+	return b.resolveClientTokenSettings(clientID).scopes
+}
+
 // tokenGrant carries the OAuth specifics of a token issuance.
 type tokenGrant struct {
 	nonce        string
@@ -211,7 +220,9 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 	scopes, storeRefresh := grant.scopes, grant.storeRefresh
 	groups := b.userGroupsLocked(pool.ID, user.Username)
 
-	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverrideAuth(pool, clientID, user, groups, triggerSource)
+	eventScopes := strings.Fields(resolveAccessScope(b.grantScopes(clientID, scopes)))
+
+	overrides, err := b.preTokenGenerationOverrideAuth(pool, clientID, user, groups, eventScopes, triggerSource)
 	if err != nil {
 		return nil, err
 	}
@@ -238,20 +249,19 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 	}
 
 	params := TokenParams{
-		ClientID:              clientID,
-		Username:              user.Username,
-		UserSub:               user.Sub,
-		Groups:                b.userGroupsLocked(pool.ID, user.Username),
-		AuthTime:              now.Unix(),
-		AuthSeq:               seq,
-		Scopes:                settings.scopes,
-		Attributes:            maps.Clone(user.Attributes),
-		AccessTokenExpiry:     settings.accessTokenExpiry,
-		IDTokenExpiry:         settings.idTokenExpiry,
-		ClaimsToAddOrOverride: claimsToAdd,
-		ClaimsToSuppress:      claimsToSuppress,
-		Nonce:                 grant.nonce,
+		ClientID:          clientID,
+		Username:          user.Username,
+		UserSub:           user.Sub,
+		Groups:            b.userGroupsLocked(pool.ID, user.Username),
+		AuthTime:          now.Unix(),
+		AuthSeq:           seq,
+		Scopes:            settings.scopes,
+		Attributes:        maps.Clone(user.Attributes),
+		AccessTokenExpiry: settings.accessTokenExpiry,
+		IDTokenExpiry:     settings.idTokenExpiry,
+		Nonce:             grant.nonce,
 	}
+	overrides.useTo(&params)
 
 	var (
 		tokens  *TokenResult
@@ -345,8 +355,9 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		entry.AuthTime = authTime
 	}
 
-	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverrideAuth(
-		pool, clientID, user, groups, triggerSourceTokenGenRefreshTokens,
+	overrides, err := b.preTokenGenerationOverrideAuth(
+		pool, clientID, user, groups, strings.Fields(resolveAccessScope(settings.scopes)),
+		triggerSourceTokenGenRefreshTokens,
 	)
 	if err != nil {
 		return nil, err
@@ -360,18 +371,17 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 
 	seq := b.tokenSeq
 	params := TokenParams{
-		ClientID:              clientID,
-		Username:              user.Username,
-		UserSub:               user.Sub,
-		Groups:                b.userGroupsLocked(entry.PoolID, user.Username),
-		AuthTime:              authTime,
-		AuthSeq:               seq,
-		Scopes:                settings.scopes,
-		AccessTokenExpiry:     settings.accessTokenExpiry,
-		IDTokenExpiry:         settings.idTokenExpiry,
-		ClaimsToAddOrOverride: claimsToAdd,
-		ClaimsToSuppress:      claimsToSuppress,
+		ClientID:          clientID,
+		Username:          user.Username,
+		UserSub:           user.Sub,
+		Groups:            b.userGroupsLocked(entry.PoolID, user.Username),
+		AuthTime:          authTime,
+		AuthSeq:           seq,
+		Scopes:            settings.scopes,
+		AccessTokenExpiry: settings.accessTokenExpiry,
+		IDTokenExpiry:     settings.idTokenExpiry,
 	}
+	overrides.useTo(&params)
 
 	var (
 		tokens  *TokenResult
