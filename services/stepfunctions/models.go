@@ -1,9 +1,12 @@
 package stepfunctions
 
+import "github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
+
 // StateMachine represents a Step Functions state machine.
 // Timestamp fields use float64 (Unix epoch seconds) as required by the
 // AWS JSON 1.0 protocol used by Step Functions.
 type StateMachine struct {
+	parsed                  *parsedDefinition
 	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
 	TracingConfiguration    *TracingConfiguration    `json:"tracingConfiguration,omitempty"`
 	LoggingConfiguration    *LoggingConfiguration    `json:"loggingConfiguration,omitempty"`
@@ -22,6 +25,21 @@ type StateMachine struct {
 	RevisionID   string  `json:"revisionId,omitempty"`
 	CreationDate float64 `json:"creationDate"`
 	UpdatedDate  float64 `json:"updatedDate,omitempty"`
+}
+
+// parsedDefinition is a Parse result valid only while it matches StateMachine.Definition.
+type parsedDefinition struct {
+	sm  *asl.StateMachine
+	def string
+}
+
+// parseDefinition returns the cached parse of sm.Definition, parsing on a miss.
+func (sm *StateMachine) parseDefinition() (*asl.StateMachine, error) {
+	if p := sm.parsed; p != nil && p.def == sm.Definition {
+		return p.sm, nil
+	}
+
+	return asl.Parse(sm.Definition)
 }
 
 // EncryptionConfiguration configures KMS encryption for a state machine.

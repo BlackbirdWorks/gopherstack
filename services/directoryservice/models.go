@@ -130,6 +130,7 @@ type storedIpRoute struct { //nolint:revive,staticcheck // existing issue.
 	AddedDateTime time.Time `json:"addedDateTime"`
 	DirectoryID   string    `json:"directoryId"`
 	CidrIP        string    `json:"cidrIp"`
+	CidrIPv6      string    `json:"cidrIpv6,omitempty"`
 	Description   string    `json:"description"`
 	IPRouteStatus string    `json:"ipRouteStatus"`
 }
@@ -288,6 +289,7 @@ type storedRadiusSettings struct {
 	DisplayLabel           string   `json:"displayLabel"`
 	SharedSecret           string   `json:"sharedSecret"`
 	RadiusServers          []string `json:"radiusServers"`
+	RadiusServersIPv6      []string `json:"radiusServersIpv6,omitempty"`
 	RadiusPort             int32    `json:"radiusPort"`
 	RadiusRetries          int32    `json:"radiusRetries"`
 	RadiusTimeout          int32    `json:"radiusTimeout"`
@@ -338,6 +340,7 @@ type storedADAssessment struct {
 
 type storedDirectorySetting struct {
 	LastUpdatedDateTime time.Time `json:"lastUpdatedDateTime"`
+	LastRequestedTime   time.Time `json:"lastRequestedDateTime,omitzero"`
 	DirectoryID         string    `json:"directoryId"`
 	Name                string    `json:"name"`
 	AllowedValues       string    `json:"allowedValues"`
@@ -390,6 +393,7 @@ type storedHybridADUpdate struct {
 type IpRoute struct { //nolint:revive,staticcheck // existing issue.
 	DirectoryID string
 	CidrIP      string
+	CidrIPv6    string
 	Description string
 	AddedTime   time.Time
 	Status      string
@@ -534,6 +538,7 @@ type RadiusSettingsInput struct {
 	DisplayLabel           string
 	SharedSecret           string
 	RadiusServers          []string
+	RadiusServersIPv6      []string
 	RadiusPort             int32
 	RadiusRetries          int32
 	RadiusTimeout          int32
@@ -627,6 +632,7 @@ type DirectorySetting struct {
 // SettingEntry domain type.
 type SettingEntry struct {
 	LastUpdatedDateTime time.Time
+	LastRequestedTime   time.Time
 	DirectoryID         string
 	Name                string
 	AllowedValues       string

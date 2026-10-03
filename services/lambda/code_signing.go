@@ -41,7 +41,15 @@ func (b *InMemoryBackend) CreateCodeSigningConfig(
 
 	b.codeSigningConfigs.Put(cfg)
 
-	return cfg, nil
+	return cloneCodeSigningConfig(cfg), nil
+}
+
+// cloneCodeSigningConfig stops a caller from racing UpdateCodeSigningConfig,
+// which mutates cfg's fields under the lock.
+func cloneCodeSigningConfig(cfg *CodeSigningConfig) *CodeSigningConfig {
+	cp := *cfg
+
+	return &cp
 }
 
 // GetCodeSigningConfig retrieves a code signing config by ARN.
@@ -54,7 +62,7 @@ func (b *InMemoryBackend) GetCodeSigningConfig(cscARN string) (*CodeSigningConfi
 		return nil, ErrFunctionNotFound
 	}
 
-	return cfg, nil
+	return cloneCodeSigningConfig(cfg), nil
 }
 
 // DeleteCodeSigningConfig removes a code signing config by ARN.
@@ -99,7 +107,7 @@ func (b *InMemoryBackend) UpdateCodeSigningConfig(
 	cfg.LastModified = time.Now().UTC().Format(time.RFC3339)
 	b.codeSigningConfigs.Put(cfg)
 
-	return cfg, nil
+	return cloneCodeSigningConfig(cfg), nil
 }
 
 // ListCodeSigningConfigs returns all code signing configs.
@@ -107,7 +115,12 @@ func (b *InMemoryBackend) ListCodeSigningConfigs(marker string, maxItems int) pa
 	b.mu.RLock("ListCodeSigningConfigs")
 	defer b.mu.RUnlock()
 
-	cfgs := b.codeSigningConfigs.All()
+	stored := b.codeSigningConfigs.All()
+	cfgs := make([]*CodeSigningConfig, len(stored))
+
+	for i, cfg := range stored {
+		cfgs[i] = cloneCodeSigningConfig(cfg)
+	}
 
 	sort.Slice(cfgs, func(i, j int) bool {
 		return cfgs[i].CodeSigningConfigID < cfgs[j].CodeSigningConfigID

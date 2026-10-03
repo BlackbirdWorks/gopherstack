@@ -2,7 +2,9 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"strconv"
 )
 
 type createManagedPrefixListResponse struct {
@@ -182,7 +184,17 @@ func (h *Handler) handleDescribeManagedPrefixLists(vals url.Values, reqID string
 
 func (h *Handler) handleGetManagedPrefixListEntries(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("PrefixListId")
-	entries, err := h.Backend.GetManagedPrefixListEntries(id)
+	var targetVersion int64
+	if v := vals.Get("TargetVersion"); v != "" {
+		n, parseErr := strconv.ParseInt(v, 10, 64)
+		if parseErr != nil || n < 1 {
+			return nil, fmt.Errorf("%w: TargetVersion must be a positive integer", ErrInvalidParameter)
+		}
+
+		targetVersion = n
+	}
+
+	entries, err := h.Backend.GetManagedPrefixListEntriesAt(id, targetVersion)
 	if err != nil {
 		return nil, err
 	}

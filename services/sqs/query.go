@@ -3,7 +3,6 @@ package sqs
 import (
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -202,17 +201,27 @@ func (h *Handler) queueURLEndpoint(r *http.Request) string {
 	return r.Host
 }
 
+// numberedParam reads "prefix.N" or "prefix.N.suffix"; avoids fmt.Sprintf in
+// per-entry loops.
+func numberedParam(vals url.Values, prefix string, n int, suffix string) string {
+	if suffix == "" {
+		return vals.Get(prefix + "." + strconv.Itoa(n))
+	}
+
+	return vals.Get(prefix + "." + strconv.Itoa(n) + "." + suffix)
+}
+
 // parseQueryAttrMap parses numbered Attribute.N.Name / Attribute.N.Value pairs.
 func parseQueryAttrMap(vals url.Values) map[string]string {
 	attrs := make(map[string]string)
 
 	for i := 1; i <= maxParseIterations; i++ {
-		name := vals.Get(fmt.Sprintf("Attribute.%d.Name", i))
+		name := numberedParam(vals, "Attribute", i, "Name")
 		if name == "" {
 			break
 		}
 
-		attrs[name] = vals.Get(fmt.Sprintf("Attribute.%d.Value", i))
+		attrs[name] = numberedParam(vals, "Attribute", i, "Value")
 	}
 
 	return attrs
@@ -223,12 +232,12 @@ func parseQueryTagMap(vals url.Values) map[string]string {
 	tagMap := make(map[string]string)
 
 	for i := 1; i <= maxParseIterations; i++ {
-		key := vals.Get(fmt.Sprintf("Tag.%d.Key", i))
+		key := numberedParam(vals, "Tag", i, "Key")
 		if key == "" {
 			break
 		}
 
-		tagMap[key] = vals.Get(fmt.Sprintf("Tag.%d.Value", i))
+		tagMap[key] = numberedParam(vals, "Tag", i, "Value")
 	}
 
 	return tagMap
@@ -239,7 +248,7 @@ func parseQueryList(vals url.Values, prefix string) []string {
 	var result []string
 
 	for i := 1; i <= maxParseIterations; i++ {
-		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
+		v := numberedParam(vals, prefix, i, "")
 		if v == "" {
 			break
 		}

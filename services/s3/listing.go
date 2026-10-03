@@ -310,6 +310,11 @@ func (b *InMemoryBackend) ListObjectsV2(
 	ctx context.Context,
 	input *s3.ListObjectsV2Input,
 ) (*s3.ListObjectsV2Output, error) {
+	delim := aws.ToString(input.Delimiter)
+	if delim != "" && delim != "/" && b.IsDirectoryBucket(aws.ToString(input.Bucket)) {
+		return nil, ErrDirectoryBucketDelimiter
+	}
+
 	// Re-use ListObjects logic but handle V2 specific params
 	marker := ""
 	if input.ContinuationToken != nil && *input.ContinuationToken != "" {

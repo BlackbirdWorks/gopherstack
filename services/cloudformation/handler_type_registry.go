@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -216,7 +217,16 @@ func (h *Handler) dispatchTypeManagementOps(
 func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
 	// ActivateTypeInput has no "TypeArn" member; the ARN identifier is
 	// "PublicTypeArn" (cloudformation@v1.76.1 serializers.go:7181).
-	arn, err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("PublicTypeArn"))
+	opts := ActivateTypeOptions{
+		ExecutionRoleArn: form.Get("ExecutionRoleArn"),
+		LogGroupName:     form.Get("LoggingConfig.LogGroupName"),
+		LogRoleArn:       form.Get("LoggingConfig.LogRoleArn"),
+	}
+	if v, parseErr := strconv.ParseBool(form.Get("AutoUpdate")); parseErr == nil {
+		opts.AutoUpdate = &v
+	}
+
+	arn, err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("PublicTypeArn"), opts)
 	if err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
@@ -646,22 +656,30 @@ func (h *Handler) handleDescribePublisher(form url.Values, c *echo.Context) erro
 // describeTypeFromRegistry returns a DescribeType XML response from the backend registry.
 // Returns (true, nil) if the type was found in the registry, (false, nil) if not found,
 // or (true, err) if an error occurred during XML serialization.
+type loggingConfigXML struct {
+	LogRoleArn   string `xml:"LogRoleArn"`
+	LogGroupName string `xml:"LogGroupName"`
+}
+
 func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bool, error) {
 	details, err := h.Backend.DescribeType(form.Get("TypeName"), form.Get("Arn"), form.Get("VersionId"))
 	if err == nil {
 		type typeDetailXML struct {
-			TypeName         string `xml:"TypeName,omitempty"`
-			TypeArn          string `xml:"Arn,omitempty"`
-			Type             string `xml:"Type,omitempty"`
-			Visibility       string `xml:"Visibility,omitempty"`
-			Status           string `xml:"TypeVersionStatus,omitempty"`
-			Description      string `xml:"Description,omitempty"`
-			Schema           string `xml:"Schema,omitempty"`
-			VersionID        string `xml:"VersionId,omitempty"`
-			DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
-			DeprecatedStatus string `xml:"DeprecatedStatus,omitempty"`
-			IsActivated      bool   `xml:"IsActivated"`
-			IsDefaultVersion bool   `xml:"IsDefaultVersion"`
+			AutoUpdate       *bool             `xml:"AutoUpdate,omitempty"`
+			LoggingConfig    *loggingConfigXML `xml:"LoggingConfig,omitempty"`
+			Schema           string            `xml:"Schema,omitempty"`
+			Visibility       string            `xml:"Visibility,omitempty"`
+			Status           string            `xml:"TypeVersionStatus,omitempty"`
+			Description      string            `xml:"Description,omitempty"`
+			TypeName         string            `xml:"TypeName,omitempty"`
+			VersionID        string            `xml:"VersionId,omitempty"`
+			DefaultVersionID string            `xml:"DefaultVersionId,omitempty"`
+			DeprecatedStatus string            `xml:"DeprecatedStatus,omitempty"`
+			Type             string            `xml:"Type,omitempty"`
+			ExecutionRoleArn string            `xml:"ExecutionRoleArn,omitempty"`
+			TypeArn          string            `xml:"Arn,omitempty"`
+			IsActivated      bool              `xml:"IsActivated"`
+			IsDefaultVersion bool              `xml:"IsDefaultVersion"`
 		}
 		type response struct {
 			XMLName   xml.Name      `xml:"DescribeTypeResponse"`
@@ -670,22 +688,31 @@ func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bo
 			Result    typeDetailXML `xml:"DescribeTypeResult"`
 		}
 
+		result := typeDetailXML{
+			TypeName:         details.TypeName,
+			TypeArn:          details.TypeArn,
+			Type:             details.Type,
+			Visibility:       details.Visibility,
+			Status:           details.Status,
+			Description:      details.Description,
+			Schema:           details.Schema,
+			VersionID:        details.VersionID,
+			DefaultVersionID: details.DefaultVersionID,
+			IsActivated:      details.IsActivated,
+			IsDefaultVersion: details.IsDefaultVersion,
+			DeprecatedStatus: details.DeprecatedStatus,
+			AutoUpdate:       details.AutoUpdate,
+			ExecutionRoleArn: details.ExecutionRoleArn,
+		}
+		if details.LogGroupName != "" || details.LogRoleArn != "" {
+			result.LoggingConfig = &loggingConfigXML{
+				LogRoleArn: details.LogRoleArn, LogGroupName: details.LogGroupName,
+			}
+		}
+
 		return true, writeXML(c, response{
-			Xmlns: cfnNS,
-			Result: typeDetailXML{
-				TypeName:         details.TypeName,
-				TypeArn:          details.TypeArn,
-				Type:             details.Type,
-				Visibility:       details.Visibility,
-				Status:           details.Status,
-				Description:      details.Description,
-				Schema:           details.Schema,
-				VersionID:        details.VersionID,
-				DefaultVersionID: details.DefaultVersionID,
-				IsActivated:      details.IsActivated,
-				IsDefaultVersion: details.IsDefaultVersion,
-				DeprecatedStatus: details.DeprecatedStatus,
-			},
+			Xmlns:     cfnNS,
+			Result:    result,
 			RequestID: uuid.New().String(),
 		})
 	}

@@ -27,6 +27,29 @@ func newUsageTracker() *usageTracker {
 	}
 }
 
+// clearKey drops the quota and throttle state for one plan/key pair.
+func (u *usageTracker) clearKey(mapKey string) {
+	delete(u.quota, mapKey)
+	delete(u.buckets, mapKey)
+}
+
+// clearPlan drops the quota and throttle state for every key of a plan.
+func (u *usageTracker) clearPlan(planID string) {
+	prefix := planID + "\x00"
+
+	for k := range u.quota {
+		if strings.HasPrefix(k, prefix) {
+			delete(u.quota, k)
+		}
+	}
+
+	for k := range u.buckets {
+		if strings.HasPrefix(k, prefix) {
+			delete(u.buckets, k)
+		}
+	}
+}
+
 // quotaCounter tracks how many requests an API key has consumed against a usage-plan
 // quota within the current fixed period. periodStart is reset whenever the period
 // rolls over.

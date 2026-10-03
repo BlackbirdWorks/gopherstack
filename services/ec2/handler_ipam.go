@@ -348,7 +348,17 @@ func (h *Handler) handleDeleteIpamPool(vals url.Values, reqID string) (any, erro
 	return &deleteIpamPoolResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamPool: item}, nil
 }
 
+// ipamVerificationMethods are the documented VerificationMethod values (default remarks-x509).
+//
+//nolint:gochecknoglobals // lookup set
+var ipamVerificationMethods = map[string]bool{"": true, "remarks-x509": true, "dns-token": true}
+
 func (h *Handler) handleProvisionIpamPoolCidr(vals url.Values, reqID string) (any, error) {
+	if method := vals.Get("VerificationMethod"); !ipamVerificationMethods[method] {
+		return nil, fmt.Errorf("%w: VerificationMethod must be remarks-x509 or dns-token, got %q",
+			ErrInvalidParameter, method)
+	}
+
 	cidr, err := h.Backend.ProvisionIpamPoolCidr(vals.Get("IpamPoolId"), vals.Get("Cidr"))
 	if err != nil {
 		return nil, err

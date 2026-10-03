@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -64,71 +64,56 @@ func TestHandler_AccessLogDispatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler, backend := newTestHandler(t)
-			tt.setup(t, backend)
+			synctest.Test(t, func(t *testing.T) {
+				handler, backend := newTestHandler(t)
+				tt.setup(t, backend)
 
-			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key, nil)
-			rec := httptest.NewRecorder()
-			serveS3Handler(handler, rec, req)
-			require.Equal(t, http.StatusOK, rec.Code)
+				req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key, nil)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
 
-			if tt.wantLog {
-				logKey := waitForAccessLog(t, backend)
-				out, err := backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
-					Bucket: aws.String("log-bkt"),
-					Key:    aws.String(logKey),
-				})
-				require.NoError(t, err)
+				synctest.Wait()
 
-				body, err := io.ReadAll(out.Body)
-				require.NoError(t, err)
+				if tt.wantLog {
+					logKey := findAccessLog(t, backend)
+					out, err := backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
+						Bucket: aws.String("log-bkt"),
+						Key:    aws.String(logKey),
+					})
+					require.NoError(t, err)
 
-				line := string(body)
-				require.Contains(t, line, "REST.GET.OBJECT")
-				require.Contains(t, line, tt.bucket)
-				require.Contains(t, line, tt.key)
-				require.True(t, strings.HasSuffix(line, "\n"), "log line must end with newline")
-			}
+					body, err := io.ReadAll(out.Body)
+					require.NoError(t, err)
 
-			if !tt.wantLog {
-				require.Never(t, func() bool {
-					out, err := backend.ListObjectsV2(
-						context.Background(),
-						&sdk_s3.ListObjectsV2Input{
-							Bucket: aws.String(tt.bucket),
-						},
-					)
+					line := string(body)
+					require.Contains(t, line, "REST.GET.OBJECT")
+					require.Contains(t, line, tt.bucket)
+					require.Contains(t, line, tt.key)
+					require.True(t, strings.HasSuffix(line, "\n"), "log line must end with newline")
+				}
 
-					return err == nil && len(out.Contents) != tt.wantObjects
-				}, 100*time.Millisecond, 20*time.Millisecond)
-
-				out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
-					Bucket: aws.String(tt.bucket),
-				})
-				require.NoError(t, err)
-				require.Len(t, out.Contents, tt.wantObjects)
-			}
+				if !tt.wantLog {
+					out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
+						Bucket: aws.String(tt.bucket),
+					})
+					require.NoError(t, err)
+					require.Len(t, out.Contents, tt.wantObjects)
+				}
+			})
 		})
 	}
 }
 
-func waitForAccessLog(t *testing.T, backend *s3.InMemoryBackend) string {
+func findAccessLog(t *testing.T, backend *s3.InMemoryBackend) string {
 	t.Helper()
 
-	var logKey string
-	require.Eventually(t, func() bool {
-		out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
-			Bucket: aws.String("log-bkt"),
-			Prefix: aws.String("logs/"),
-		})
-		if err == nil && len(out.Contents) > 0 {
-			logKey = aws.ToString(out.Contents[0].Key)
+	out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
+		Bucket: aws.String("log-bkt"),
+		Prefix: aws.String("logs/"),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Contents, "expected an access-log object under logs/")
 
-			return true
-		}
-
-		return false
-	}, time.Second, 20*time.Millisecond, "expected an access-log object under logs/")
-
-	return logKey
+	return aws.ToString(out.Contents[0].Key)
 }

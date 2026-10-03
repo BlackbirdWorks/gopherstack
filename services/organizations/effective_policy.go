@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+// validEffectivePolicyTypes is the EffectivePolicyType enum (aws-sdk-go-v2 organizations v1.53.5 enums.go).
+func validEffectivePolicyTypes() []string {
+	return []string{
+		policyTypeTag, policyTypeBackup, policyTypeAIOptOut, policyTypeChatbot, policyTypeDeclEC2,
+		policyTypeSecHub, "INSPECTOR_POLICY", "UPGRADE_ROLLOUT_POLICY", "BEDROCK_POLICY",
+		"S3_POLICY", "NETWORK_SECURITY_DIRECTOR_POLICY",
+	}
+}
+
 // DescribeEffectivePolicy returns the effective policy of a given type for a target.
 func (b *InMemoryBackend) DescribeEffectivePolicy(
 	policyType, targetID string,
@@ -15,6 +24,10 @@ func (b *InMemoryBackend) DescribeEffectivePolicy(
 
 	if b.org == nil {
 		return nil, ErrOrgNotFound
+	}
+
+	if !slices.Contains(validEffectivePolicyTypes(), policyType) {
+		return nil, ErrInvalidInput
 	}
 
 	if targetID == "" {
@@ -138,7 +151,7 @@ func (b *InMemoryBackend) ListEffectivePolicyValidationErrors(policyType, _ stri
 		return nil, ErrOrgNotFound
 	}
 
-	if !slices.Contains(validPolicyTypes(), policyType) {
+	if !slices.Contains(validEffectivePolicyTypes(), policyType) {
 		return nil, ErrInvalidInput
 	}
 

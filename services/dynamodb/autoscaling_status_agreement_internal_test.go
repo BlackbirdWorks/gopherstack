@@ -200,10 +200,11 @@ func TestTableAutoScaling_TableStatusSourcedFromSameField(t *testing.T) {
 				mu:     lockmetrics.New("test.table"),
 			}
 
-			_, updStatus := applyAutoScalingSettingsLocked(
+			_, updStatus, err := applyAutoScalingSettingsLocked(
 				table,
 				&sdkdynamodb.UpdateTableReplicaAutoScalingInput{TableName: aws.String(table.Name)},
 			)
+			require.NoError(t, err)
 			descStatus, _ := replicaAutoScalingDescriptionsRLocked(table)
 
 			assert.Equal(t, descStatus, updStatus, "both helpers must agree on TableStatus")

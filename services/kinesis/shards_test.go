@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -136,7 +138,8 @@ func TestHashRouting_MD5_MatchesExpectedShard(t *testing.T) {
 	t.Run("known partition keys land on MD5-predicted shard", func(t *testing.T) {
 		t.Parallel()
 
-		b := newParityBackend(t)
+		clock := newFakeClock(time.Now())
+		b := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 		ctx := context.Background()
 
 		const (
@@ -145,6 +148,7 @@ func TestHashRouting_MD5_MatchesExpectedShard(t *testing.T) {
 		)
 
 		createParityStream(t, b, streamName, shardCount)
+		clock.Advance(streamSettleWait)
 
 		partitionKeys := []string{"hello", "world", "foo", "bar", "kinesis", "test-key-99"}
 
@@ -171,10 +175,12 @@ func TestHashRouting_MD5_MatchesExpectedShard(t *testing.T) {
 	t.Run("multi-shard distribution: records spread across shards", func(t *testing.T) {
 		t.Parallel()
 
-		b := newParityBackend(t)
+		clock := newFakeClock(time.Now())
+		b := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 		ctx := context.Background()
 
 		createParityStream(t, b, "md5-spread", 2)
+		clock.Advance(streamSettleWait)
 
 		shardCounts := map[string]int{}
 
@@ -197,29 +203,32 @@ func TestHashRouting_MD5_MatchesExpectedShard(t *testing.T) {
 func TestSequenceNumber_MonotonicWithinShard(t *testing.T) {
 	t.Parallel()
 
-	b := newParityBackend(t)
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		b := newParityBackend(t)
+		ctx := context.Background()
 
-	createParityStream(t, b, "seq-mono", 1)
+		createParityStream(t, b, "seq-mono", 1)
+		time.Sleep(streamSettleWait)
 
-	const recordCount = 10
-	seqs := make([]string, 0, recordCount)
+		const recordCount = 10
+		seqs := make([]string, 0, recordCount)
 
-	for i := range recordCount {
-		out, err := b.PutRecord(ctx, &kinesis.PutRecordInput{
-			StreamName:   "seq-mono",
-			PartitionKey: "pk",
-			Data:         fmt.Appendf(nil, "data-%d", i),
-		})
-		require.NoError(t, err)
-		seqs = append(seqs, out.SequenceNumber)
-	}
+		for i := range recordCount {
+			out, err := b.PutRecord(ctx, &kinesis.PutRecordInput{
+				StreamName:   "seq-mono",
+				PartitionKey: "pk",
+				Data:         fmt.Appendf(nil, "data-%d", i),
+			})
+			require.NoError(t, err)
+			seqs = append(seqs, out.SequenceNumber)
+		}
 
-	for i := 1; i < recordCount; i++ {
-		assert.Greater(t, seqs[i], seqs[i-1],
-			"sequence numbers must be strictly increasing: seqs[%d]=%s seqs[%d]=%s",
-			i, seqs[i], i-1, seqs[i-1])
-	}
+		for i := 1; i < recordCount; i++ {
+			assert.Greater(t, seqs[i], seqs[i-1],
+				"sequence numbers must be strictly increasing: seqs[%d]=%s seqs[%d]=%s",
+				i, seqs[i], i-1, seqs[i-1])
+		}
+	})
 }
 
 func TestListShards_Pagination_Complete(t *testing.T) {
@@ -277,28 +286,31 @@ func TestCountOpenShards_ExcludesClosedShards(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			b := h.Backend.(*kinesis.InMemoryBackend)
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-				StreamName: tt.streamName,
-				ShardCount: tt.shardCount,
-			}))
-
-			if tt.doMerge {
-				out, err := b.DescribeStream(
-					context.Background(),
-					&kinesis.DescribeStreamInput{StreamName: tt.streamName},
-				)
-				require.NoError(t, err)
-				require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
-					StreamName:           tt.streamName,
-					ShardToMerge:         out.Shards[0].ShardID,
-					AdjacentShardToMerge: out.Shards[1].ShardID,
+				require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+					StreamName: tt.streamName,
+					ShardCount: tt.shardCount,
 				}))
-			}
+				time.Sleep(streamSettleWait)
 
-			assert.Equal(t, tt.wantCount, b.CountOpenShards(context.Background()))
+				if tt.doMerge {
+					out, err := b.DescribeStream(
+						context.Background(),
+						&kinesis.DescribeStreamInput{StreamName: tt.streamName},
+					)
+					require.NoError(t, err)
+					require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
+						StreamName:           tt.streamName,
+						ShardToMerge:         out.Shards[0].ShardID,
+						AdjacentShardToMerge: out.Shards[1].ShardID,
+					}))
+				}
+
+				assert.Equal(t, tt.wantCount, b.CountOpenShards(context.Background()))
+			})
 		})
 	}
 }
@@ -355,35 +367,41 @@ func TestListShards_IncludesClosedShards(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			b := h.Backend.(*kinesis.InMemoryBackend)
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-				StreamName: tt.streamName,
-				ShardCount: tt.shardCount,
-			}))
+				require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+					StreamName: tt.streamName,
+					ShardCount: tt.shardCount,
+				}))
+				time.Sleep(streamSettleWait)
 
-			ds, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
-			require.NoError(t, err)
+				ds, err := b.DescribeStream(
+					context.Background(),
+					&kinesis.DescribeStreamInput{StreamName: tt.streamName},
+				)
+				require.NoError(t, err)
 
-			require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
-				StreamName:           tt.streamName,
-				ShardToMerge:         ds.Shards[0].ShardID,
-				AdjacentShardToMerge: ds.Shards[1].ShardID,
-			}))
+				require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
+					StreamName:           tt.streamName,
+					ShardToMerge:         ds.Shards[0].ShardID,
+					AdjacentShardToMerge: ds.Shards[1].ShardID,
+				}))
 
-			// Use FROM_TRIM_HORIZON filter to retrieve all shards including closed ones.
-			out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
-				StreamName:  tt.streamName,
-				ShardFilter: "FROM_TRIM_HORIZON",
+				// Use FROM_TRIM_HORIZON filter to retrieve all shards including closed ones.
+				out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
+					StreamName:  tt.streamName,
+					ShardFilter: "FROM_TRIM_HORIZON",
+				})
+				require.NoError(t, err)
+				assert.Len(t, out.Shards, tt.wantTotalShards)
+
+				// Without a filter, only open shards are returned (matching AWS default behavior).
+				openOut, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: tt.streamName})
+				require.NoError(t, err)
+				assert.Len(t, openOut.Shards, 1, "expected only the 1 open (merged) shard without filter")
 			})
-			require.NoError(t, err)
-			assert.Len(t, out.Shards, tt.wantTotalShards)
-
-			// Without a filter, only open shards are returned (matching AWS default behavior).
-			openOut, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: tt.streamName})
-			require.NoError(t, err)
-			assert.Len(t, openOut.Shards, 1, "expected only the 1 open (merged) shard without filter")
 		})
 	}
 }
@@ -402,40 +420,49 @@ func TestShardDescription_ParentShardId(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			b := h.Backend.(*kinesis.InMemoryBackend)
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-				StreamName: tt.streamName,
-				ShardCount: 2,
-			}))
+				require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+					StreamName: tt.streamName,
+					ShardCount: 2,
+				}))
+				time.Sleep(streamSettleWait)
 
-			ds, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
-			require.NoError(t, err)
+				ds, err := b.DescribeStream(
+					context.Background(),
+					&kinesis.DescribeStreamInput{StreamName: tt.streamName},
+				)
+				require.NoError(t, err)
 
-			shard0ID := ds.Shards[0].ShardID
-			shard1ID := ds.Shards[1].ShardID
+				shard0ID := ds.Shards[0].ShardID
+				shard1ID := ds.Shards[1].ShardID
 
-			require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
-				StreamName:           tt.streamName,
-				ShardToMerge:         shard0ID,
-				AdjacentShardToMerge: shard1ID,
-			}))
+				require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
+					StreamName:           tt.streamName,
+					ShardToMerge:         shard0ID,
+					AdjacentShardToMerge: shard1ID,
+				}))
 
-			ds2, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
-			require.NoError(t, err)
+				ds2, err := b.DescribeStream(
+					context.Background(),
+					&kinesis.DescribeStreamInput{StreamName: tt.streamName},
+				)
+				require.NoError(t, err)
 
-			var mergedShard *kinesis.ShardDescription
-			for i := range ds2.Shards {
-				if !ds2.Shards[i].Closed {
-					mergedShard = &ds2.Shards[i]
+				var mergedShard *kinesis.ShardDescription
+				for i := range ds2.Shards {
+					if !ds2.Shards[i].Closed {
+						mergedShard = &ds2.Shards[i]
 
-					break
+						break
+					}
 				}
-			}
-			require.NotNil(t, mergedShard)
-			assert.Equal(t, shard0ID, mergedShard.ParentShardID)
-			assert.Equal(t, shard1ID, mergedShard.AdjacentParentShardID)
+				require.NotNil(t, mergedShard)
+				assert.Equal(t, shard0ID, mergedShard.ParentShardID)
+				assert.Equal(t, shard1ID, mergedShard.AdjacentParentShardID)
+			})
 		})
 	}
 }
@@ -454,33 +481,36 @@ func TestNextSeq_Serialized(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := kinesis.NewInMemoryBackend()
-			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-				StreamName: tt.streamName,
-				ShardCount: 1,
-			}))
+			synctest.Test(t, func(t *testing.T) {
+				b := kinesis.NewInMemoryBackend()
+				require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+					StreamName: tt.streamName,
+					ShardCount: 1,
+				}))
+				time.Sleep(streamSettleWait)
 
-			out, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
-				StreamName:   tt.streamName,
-				PartitionKey: "key",
-				Data:         []byte("data"),
+				out, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
+					StreamName:   tt.streamName,
+					PartitionKey: "key",
+					Data:         []byte("data"),
+				})
+				require.NoError(t, err)
+				firstSeq := out.SequenceNumber
+
+				snapshot := b.Snapshot(t.Context())
+				require.NotNil(t, snapshot)
+
+				b2 := kinesis.NewInMemoryBackend()
+				require.NoError(t, b2.Restore(t.Context(), snapshot))
+
+				out2, err := b2.PutRecord(context.Background(), &kinesis.PutRecordInput{
+					StreamName:   tt.streamName,
+					PartitionKey: "key2",
+					Data:         []byte("data2"),
+				})
+				require.NoError(t, err)
+				assert.NotEqual(t, firstSeq, out2.SequenceNumber)
 			})
-			require.NoError(t, err)
-			firstSeq := out.SequenceNumber
-
-			snapshot := b.Snapshot(t.Context())
-			require.NotNil(t, snapshot)
-
-			b2 := kinesis.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(t.Context(), snapshot))
-
-			out2, err := b2.PutRecord(context.Background(), &kinesis.PutRecordInput{
-				StreamName:   tt.streamName,
-				PartitionKey: "key2",
-				Data:         []byte("data2"),
-			})
-			require.NoError(t, err)
-			assert.NotEqual(t, firstSeq, out2.SequenceNumber)
 		})
 	}
 }
@@ -652,47 +682,50 @@ func TestListShards_MaxResults_ExactlyFits(t *testing.T) {
 func TestListShards_WithMaxResults_PlusClosedShards(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	b := h.Backend.(*kinesis.InMemoryBackend)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "listshards-closed-paged",
-		ShardCount: 2,
-	}))
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "listshards-closed-paged",
+			ShardCount: 2,
+		}))
+		time.Sleep(streamSettleWait)
 
-	out, err := b.DescribeStream(
-		context.Background(),
-		&kinesis.DescribeStreamInput{StreamName: "listshards-closed-paged"},
-	)
-	require.NoError(t, err)
+		out, err := b.DescribeStream(
+			context.Background(),
+			&kinesis.DescribeStreamInput{StreamName: "listshards-closed-paged"},
+		)
+		require.NoError(t, err)
 
-	// Merge to produce 1 open + 2 closed = 3 total.
-	require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
-		StreamName:           "listshards-closed-paged",
-		ShardToMerge:         out.Shards[0].ShardID,
-		AdjacentShardToMerge: out.Shards[1].ShardID,
-	}))
+		// Merge to produce 1 open + 2 closed = 3 total.
+		require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
+			StreamName:           "listshards-closed-paged",
+			ShardToMerge:         out.Shards[0].ShardID,
+			AdjacentShardToMerge: out.Shards[1].ShardID,
+		}))
 
-	// FROM_TRIM_HORIZON includes all shards; MaxResults=2 → page 1 of 2.
-	list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
-		StreamName:  "listshards-closed-paged",
-		ShardFilter: "FROM_TRIM_HORIZON",
-		MaxResults:  2,
+		// FROM_TRIM_HORIZON includes all shards; MaxResults=2 → page 1 of 2.
+		list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
+			StreamName:  "listshards-closed-paged",
+			ShardFilter: "FROM_TRIM_HORIZON",
+			MaxResults:  2,
+		})
+		require.NoError(t, err)
+		assert.Len(t, list.Shards, 2)
+		assert.NotEmpty(t, list.NextToken)
+
+		// Page 2.
+		list2, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
+			StreamName:  "listshards-closed-paged",
+			ShardFilter: "FROM_TRIM_HORIZON",
+			MaxResults:  2,
+			NextToken:   list.NextToken,
+		})
+		require.NoError(t, err)
+		assert.Len(t, list2.Shards, 1)
+		assert.Empty(t, list2.NextToken)
 	})
-	require.NoError(t, err)
-	assert.Len(t, list.Shards, 2)
-	assert.NotEmpty(t, list.NextToken)
-
-	// Page 2.
-	list2, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
-		StreamName:  "listshards-closed-paged",
-		ShardFilter: "FROM_TRIM_HORIZON",
-		MaxResults:  2,
-		NextToken:   list.NextToken,
-	})
-	require.NoError(t, err)
-	assert.Len(t, list2.Shards, 1)
-	assert.Empty(t, list2.NextToken)
 }
 
 func TestListShards_NextToken_SinglePage(t *testing.T) {
@@ -750,36 +783,42 @@ func TestListShards_NextToken_OddPageSize(t *testing.T) {
 func TestListShards_ClosedShards_IncludedWithFilter(t *testing.T) {
 	t.Parallel()
 
-	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-		StreamName: "listshards-closed-filter",
-		ShardCount: 2,
-	}))
+	synctest.Test(t, func(t *testing.T) {
+		b := kinesis.NewInMemoryBackend()
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: "listshards-closed-filter",
+			ShardCount: 2,
+		}))
+		time.Sleep(streamSettleWait)
 
-	ds, err := b.DescribeStream(
-		context.Background(),
-		&kinesis.DescribeStreamInput{StreamName: "listshards-closed-filter"},
-	)
-	require.NoError(t, err)
+		ds, err := b.DescribeStream(
+			context.Background(),
+			&kinesis.DescribeStreamInput{StreamName: "listshards-closed-filter"},
+		)
+		require.NoError(t, err)
 
-	require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
-		StreamName:           "listshards-closed-filter",
-		ShardToMerge:         ds.Shards[0].ShardID,
-		AdjacentShardToMerge: ds.Shards[1].ShardID,
-	}))
+		require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
+			StreamName:           "listshards-closed-filter",
+			ShardToMerge:         ds.Shards[0].ShardID,
+			AdjacentShardToMerge: ds.Shards[1].ShardID,
+		}))
 
-	// Default: only open shards.
-	open, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "listshards-closed-filter"})
-	require.NoError(t, err)
-	assert.Len(t, open.Shards, 1)
+		// Default: only open shards.
+		open, err := b.ListShards(
+			context.Background(),
+			&kinesis.ListShardsInput{StreamName: "listshards-closed-filter"},
+		)
+		require.NoError(t, err)
+		assert.Len(t, open.Shards, 1)
 
-	// FROM_TRIM_HORIZON: all shards.
-	all, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
-		StreamName:  "listshards-closed-filter",
-		ShardFilter: "FROM_TRIM_HORIZON",
+		// FROM_TRIM_HORIZON: all shards.
+		all, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
+			StreamName:  "listshards-closed-filter",
+			ShardFilter: "FROM_TRIM_HORIZON",
+		})
+		require.NoError(t, err)
+		assert.Len(t, all.Shards, 3)
 	})
-	require.NoError(t, err)
-	assert.Len(t, all.Shards, 3)
 }
 
 func TestListShards_ExclusiveStart_WithMaxResults(t *testing.T) {
@@ -813,48 +852,51 @@ func TestListShards_ExclusiveStart_WithMaxResults(t *testing.T) {
 func TestListShards_ShardFilterType_AfterShardID(t *testing.T) {
 	t.Parallel()
 
-	b := kinesis.NewInMemoryBackend()
-	ctx := context.Background()
-	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
-		StreamName: "after-shard-id-stream",
-		ShardCount: 4,
-	}))
+	synctest.Test(t, func(t *testing.T) {
+		b := kinesis.NewInMemoryBackend()
+		ctx := context.Background()
+		require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+			StreamName: "after-shard-id-stream",
+			ShardCount: 4,
+		}))
+		time.Sleep(streamSettleWait)
 
-	all, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: "after-shard-id-stream"})
-	require.NoError(t, err)
-	require.Len(t, all.Shards, 4)
+		all, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: "after-shard-id-stream"})
+		require.NoError(t, err)
+		require.Len(t, all.Shards, 4)
 
-	out, err := b.ListShards(ctx, &kinesis.ListShardsInput{
-		StreamName:         "after-shard-id-stream",
-		ShardFilterType:    "AFTER_SHARD_ID",
-		ShardFilterShardID: all.Shards[0].ShardID,
+		out, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+			StreamName:         "after-shard-id-stream",
+			ShardFilterType:    "AFTER_SHARD_ID",
+			ShardFilterShardID: all.Shards[0].ShardID,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Shards, 3, "shards after shard 0")
+		assert.Equal(t, all.Shards[1].ShardID, out.Shards[0].ShardID)
+
+		// Now close a shard via merge and confirm AFTER_SHARD_ID surfaces it too
+		// (includeAll), where the AT_LATEST default would not.
+		require.NoError(t, b.MergeShards(ctx, &kinesis.MergeShardsInput{
+			StreamName:           "after-shard-id-stream",
+			ShardToMerge:         all.Shards[0].ShardID,
+			AdjacentShardToMerge: all.Shards[1].ShardID,
+		}))
+
+		afterAll, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+			StreamName:         "after-shard-id-stream",
+			ShardFilterType:    "AFTER_SHARD_ID",
+			ShardFilterShardID: all.Shards[0].ShardID,
+		})
+		require.NoError(t, err)
+		// shards[1] (closed), shards[2] (open), shards[3] (open), plus the merged shard.
+		assert.Len(t, afterAll.Shards, 4)
+
+		defaultOut, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: "after-shard-id-stream"})
+		require.NoError(t, err)
+		// Default (open-only) excludes the two merge parents, keeping only the
+		// still-open originals plus the new merged shard.
+		assert.Len(t, defaultOut.Shards, 3)
 	})
-	require.NoError(t, err)
-	require.Len(t, out.Shards, 3, "shards after shard 0")
-	assert.Equal(t, all.Shards[1].ShardID, out.Shards[0].ShardID)
-
-	// Now close a shard via merge and confirm AFTER_SHARD_ID surfaces it too
-	// (includeAll), where the AT_LATEST default would not.
-	require.NoError(t, b.MergeShards(ctx, &kinesis.MergeShardsInput{
-		StreamName:           "after-shard-id-stream",
-		ShardToMerge:         all.Shards[0].ShardID,
-		AdjacentShardToMerge: all.Shards[1].ShardID,
-	}))
-
-	afterAll, err := b.ListShards(ctx, &kinesis.ListShardsInput{
-		StreamName:         "after-shard-id-stream",
-		ShardFilterType:    "AFTER_SHARD_ID",
-		ShardFilterShardID: all.Shards[0].ShardID,
-	})
-	require.NoError(t, err)
-	// shards[1] (closed), shards[2] (open), shards[3] (open), plus the merged shard.
-	assert.Len(t, afterAll.Shards, 4)
-
-	defaultOut, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: "after-shard-id-stream"})
-	require.NoError(t, err)
-	// Default (open-only) excludes the two merge parents, keeping only the
-	// still-open originals plus the new merged shard.
-	assert.Len(t, defaultOut.Shards, 3)
 }
 
 // TestListShards_ShardFilterType_TimestampRequired verifies AT_TIMESTAMP and

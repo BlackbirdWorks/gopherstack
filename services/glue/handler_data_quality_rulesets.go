@@ -239,9 +239,7 @@ func (h *Handler) handleListDataQualityRulesets(
 // startDataQualityRulesetEvaluationRunInput holds input for
 // StartDataQualityRulesetEvaluationRun. Role and DataSource are real, required
 // input members (glue@v1.157.0 api_op_StartDataQualityRulesetEvaluationRun.go);
-// ClientToken is accepted but not stored -- idempotent-replay detection needs a
-// request-dedup store this backend doesn't have anywhere (same class of gap as
-// IdempotentParameterMismatchException, see PARITY.md).
+// A repeated ClientToken returns the original run.
 type startDataQualityRulesetEvaluationRunInput struct {
 	DataSource            *DataQualityDataSource           `json:"DataSource,omitempty"`
 	AdditionalRunOptions  *DataQualityRunAdditionalOptions `json:"AdditionalRunOptions,omitempty"`
@@ -274,6 +272,7 @@ func (h *Handler) handleStartDataQualityRulesetEvaluationRun(
 			NumberOfWorkers:       in.NumberOfWorkers,
 			Timeout:               in.Timeout,
 			Role:                  in.Role,
+			ClientToken:           in.ClientToken,
 			DataSource:            in.DataSource,
 			AdditionalRunOptions:  in.AdditionalRunOptions,
 			AdditionalDataSources: in.AdditionalDataSources,

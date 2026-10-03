@@ -1,6 +1,9 @@
 package fis
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+)
 
 // ----------------------------------------
 // Phase 3 — Safety Lever
@@ -26,6 +29,7 @@ func (b *InMemoryBackend) GetSafetyLever(id string) (*SafetyLever, error) {
 	}
 
 	cp := *b.safetyLever
+	cp.Tags = maps.Clone(b.safetyLever.Tags)
 
 	return &cp, nil
 }
@@ -60,6 +64,7 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 	}
 
 	cp := *b.safetyLever
+	cp.Tags = maps.Clone(b.safetyLever.Tags)
 
 	return &cp, nil
 }

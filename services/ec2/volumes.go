@@ -489,6 +489,8 @@ type VolumeAttachment struct {
 	Device       string    `json:"device,omitempty"`
 	State        string    `json:"state,omitempty"`
 	EbsCardIndex int32     `json:"ebsCardIndex,omitempty"`
+	// DeleteOnTermination deletes the volume when its instance terminates.
+	DeleteOnTermination bool `json:"deleteOnTermination,omitempty"`
 }
 
 // CreateVolume creates a new EBS volume, optionally restored from an

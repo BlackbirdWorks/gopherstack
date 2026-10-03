@@ -139,7 +139,7 @@ func skipAPIConsoleCapture(req *http.Request) bool {
 // credentials/signatures, cookies, API keys) so secrets are never stored in
 // the console ring buffer or logged in clear text.
 func captureRequestHeaders(header http.Header, sensitiveHeaders map[string]struct{}) map[string]string {
-	headers := make(map[string]string)
+	headers := make(map[string]string, len(header))
 	for k, v := range header {
 		if len(v) == 0 {
 			continue

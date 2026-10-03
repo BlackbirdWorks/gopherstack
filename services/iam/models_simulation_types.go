@@ -170,14 +170,23 @@ type PermBoundaryDecisionXML struct {
 	AllowedByPermissionsBoundary bool `xml:"AllowedByPermissionsBoundary"`
 }
 
+// ResourceSpecificResultXML is one per-resource decision under an EvaluationResult.
+type ResourceSpecificResultXML struct {
+	PermissionsBoundaryDecisionDetail *PermBoundaryDecisionXML  `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
+	EvalResourceName                  string                    `xml:"EvalResourceName"`
+	EvalResourceDecision              string                    `xml:"EvalResourceDecision"`
+	EvalDecisionDetails               []EvalDecisionDetailEntry `xml:"EvalDecisionDetails>entry,omitempty"`
+}
+
 // SimulationEvalResultXML is a single evaluation result in SimulatePrincipalPolicy.
 type SimulationEvalResultXML struct {
 	// PermissionsBoundaryDecisionDetail is present when the principal has a permissions boundary.
-	PermissionsBoundaryDecisionDetail *PermBoundaryDecisionXML  `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
-	EvalActionName                    string                    `xml:"EvalActionName"`
-	EvalResourceName                  string                    `xml:"EvalResourceName"`
-	EvalDecision                      string                    `xml:"EvalDecision"`
-	EvalDecisionDetails               []EvalDecisionDetailEntry `xml:"EvalDecisionDetails>entry,omitempty"`
+	PermissionsBoundaryDecisionDetail *PermBoundaryDecisionXML    `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
+	EvalActionName                    string                      `xml:"EvalActionName"`
+	EvalResourceName                  string                      `xml:"EvalResourceName"`
+	EvalDecision                      string                      `xml:"EvalDecision"`
+	EvalDecisionDetails               []EvalDecisionDetailEntry   `xml:"EvalDecisionDetails>entry,omitempty"`
+	ResourceSpecificResults           []ResourceSpecificResultXML `xml:"ResourceSpecificResults>member,omitempty"`
 }
 
 // SimulatePrincipalPolicyResponse is the XML response for SimulatePrincipalPolicy.

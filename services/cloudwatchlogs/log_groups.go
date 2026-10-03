@@ -419,6 +419,13 @@ func (b *InMemoryBackend) GetLogGroupFields(
 func (b *InMemoryBackend) ListLogGroups(
 	ctx context.Context, namePattern, nextToken, logGroupClass string, limit int,
 ) ([]LogGroup, string, error) {
+	return b.ListLogGroupsFiltered(ctx, namePattern, nextToken, logGroupClass, limit, nil)
+}
+
+// ListLogGroupsFiltered is ListLogGroups plus a keep predicate applied before pagination.
+func (b *InMemoryBackend) ListLogGroupsFiltered(
+	ctx context.Context, namePattern, nextToken, logGroupClass string, limit int, keep func(LogGroup) bool,
+) ([]LogGroup, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListLogGroups")
@@ -441,6 +448,10 @@ func (b *InMemoryBackend) ListLogGroups(
 		}
 
 		if logGroupClass != "" && g.LogGroupClass != logGroupClass {
+			continue
+		}
+
+		if keep != nil && !keep(*g) {
 			continue
 		}
 

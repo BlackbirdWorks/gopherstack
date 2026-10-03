@@ -199,7 +199,7 @@ func collectQueryAccessorWrappers(files []*ast.File) map[string]int {
 			idx, ok := findForwardedArgIndex(fd, candidates, func(call *ast.CallExpr) bool {
 				sel, isSel := call.Fun.(*ast.SelectorExpr)
 
-				return isSel && queryParamSelectors[sel.Sel.Name] && len(call.Args) > 0
+				return isSel && len(call.Args) > 0 && (queryParamSelectors[sel.Sel.Name] || isInlineQueryGet(sel))
 			})
 			if ok {
 				out[fd.Name.Name] = idx
@@ -208,6 +208,13 @@ func collectQueryAccessorWrappers(files []*ast.File) map[string]int {
 	}
 
 	return out
+}
+
+// isInlineQueryGet reports whether sel is `<expr>.Query().Get`.
+func isInlineQueryGet(sel *ast.SelectorExpr) bool {
+	recv, ok := sel.X.(*ast.CallExpr)
+
+	return ok && sel.Sel.Name == methodGet && isURLQueryCall(recv)
 }
 
 // typeParamNames flattens a generic function's own type-parameter field

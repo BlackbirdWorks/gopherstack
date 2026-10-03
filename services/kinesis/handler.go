@@ -417,6 +417,10 @@ func resourceErrorDetails(err error) (string, string, int, bool) {
 		return errTypeResourceInUse,
 			"The stream has registered consumers. Set EnforceConsumerDeletion to true to delete it anyway.",
 			http.StatusBadRequest, true
+	case errors.Is(err, ErrStreamNotActive):
+		return errTypeResourceInUse,
+			"Stream is not in ACTIVE state.",
+			http.StatusBadRequest, true
 	case errors.Is(err, ErrConsumerNotFound):
 		return errTypeResourceNotFound,
 			"Consumer not found.",

@@ -23,10 +23,14 @@ type StorageBackend interface {
 		isMetricsEnabled bool,
 		creatorPaymentConfiguration map[string]any,
 		tags map[string]string,
+		settings ...CollaborationSettings,
 	) (*Collaboration, error)
 	GetCollaboration(id string) (*Collaboration, error)
 	ListCollaborations(memberStatus, maxResults, nextToken string) ([]*CollaborationSummary, string)
-	UpdateCollaboration(id, name, description string) (*Collaboration, error)
+	UpdateCollaboration(
+		id, name, description string,
+		settings ...CollaborationSettings,
+	) (*Collaboration, error)
 	DeleteCollaboration(id string) error
 	ListMembers(
 		collaborationID string,
@@ -57,10 +61,14 @@ type StorageBackend interface {
 		allowedColumns []string,
 		analysisMethod string,
 		tags map[string]string,
+		settings ...ConfiguredTableSettings,
 	) (*ConfiguredTable, error)
 	GetConfiguredTable(id string) (*ConfiguredTable, error)
 	ListConfiguredTables(maxResults, nextToken string) ([]*ConfiguredTableSummary, string)
-	UpdateConfiguredTable(id, name, description string) (*ConfiguredTable, error)
+	UpdateConfiguredTable(
+		id, name, description string,
+		settings ...ConfiguredTableSettings,
+	) (*ConfiguredTable, error)
 	DeleteConfiguredTable(id string) error
 
 	// ConfiguredTableAnalysisRule operations.
@@ -111,6 +119,7 @@ type StorageBackend interface {
 		source map[string]any,
 		analysisParameters []map[string]any,
 		tags map[string]string,
+		settings ...AnalysisTemplateSettings,
 	) (*AnalysisTemplate, error)
 	GetAnalysisTemplate(membershipID, templateID string) (*AnalysisTemplate, error)
 	ListAnalysisTemplates(
@@ -147,6 +156,7 @@ type StorageBackend interface {
 		membershipID, sqlText string,
 		resultConfig map[string]any,
 		computeConfiguration map[string]any,
+		payerAccountID string,
 	) (*ProtectedQuery, error)
 	GetProtectedQuery(membershipID, queryID string) (*ProtectedQuery, error)
 	ListProtectedQueries(
@@ -159,6 +169,7 @@ type StorageBackend interface {
 		membershipID, jobType string,
 		jobParameters map[string]any,
 		resultConfig map[string]any,
+		payerAccountID string,
 	) (*ProtectedJob, error)
 	GetProtectedJob(membershipID, jobID string) (*ProtectedJob, error)
 	ListProtectedJobs(

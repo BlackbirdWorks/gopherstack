@@ -14,7 +14,6 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
-	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -51,14 +50,45 @@ func (rc *ResourceCreator) createIAMRole(
 		path = "/"
 	}
 
-	assumeRolePolicyDocument := strProp(props, "AssumeRolePolicyDocument", params, physicalIDs)
+	assumeRolePolicyDocument := resolvedJSONProp(props, "AssumeRolePolicyDocument", params, physicalIDs)
 
-	role, err := rc.backends.IAM.Backend.CreateRole(roleName, path, assumeRolePolicyDocument, "")
+	role, err := rc.backends.IAM.Backend.CreateRole(
+		roleName, path, assumeRolePolicyDocument, strProp(props, "PermissionsBoundary", params, physicalIDs),
+	)
 	if err != nil {
 		return "", fmt.Errorf("create IAM role %s: %w", roleName, err)
 	}
 
+	if err = rc.attachRolePolicies(roleName, props, params, physicalIDs); err != nil {
+		return "", err
+	}
+
 	return role.Arn, nil
+}
+
+// attachRolePolicies applies the role's ManagedPolicyArns and inline Policies.
+func (rc *ResourceCreator) attachRolePolicies(
+	roleName string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) error {
+	for _, arn := range stringList(props["ManagedPolicyArns"], params, physicalIDs) {
+		if err := rc.backends.IAM.Backend.AttachRolePolicy(roleName, arn); err != nil {
+			return fmt.Errorf("attach policy %s to IAM role %s: %w", arn, roleName, err)
+		}
+	}
+
+	inline, _ := props["Policies"].([]any)
+	for _, p := range inline {
+		pm := asMap(p)
+		name := resolve(pm["PolicyName"], params, physicalIDs)
+		doc := resolvedJSONProp(pm, "PolicyDocument", params, physicalIDs)
+		if err := rc.backends.IAM.Backend.PutRolePolicy(roleName, name, doc); err != nil {
+			return fmt.Errorf("put policy %s on IAM role %s: %w", name, roleName, err)
+		}
+	}
+
+	return nil
 }
 
 func (rc *ResourceCreator) deleteIAMRole(arn string) error {
@@ -71,6 +101,10 @@ func (rc *ResourceCreator) deleteIAMRole(arn string) error {
 	attached, _ := rc.backends.IAM.Backend.ListAttachedRolePolicies(roleName)
 	for _, p := range attached {
 		_ = rc.backends.IAM.Backend.DetachRolePolicy(roleName, p.PolicyArn)
+	}
+	inline, _ := rc.backends.IAM.Backend.ListRolePolicies(roleName)
+	for _, name := range inline {
+		_ = rc.backends.IAM.Backend.DeleteRolePolicy(roleName, name)
 	}
 
 	return rc.backends.IAM.Backend.DeleteRole(roleName)
@@ -259,11 +293,37 @@ func (rc *ResourceCreator) createLambdaPermission(
 
 	statementID := logicalID + "-" + uuid.New().String()[:8]
 
+	if imb, ok := rc.backends.Lambda.Backend.(*lambdabackend.InMemoryBackend); ok {
+		_, err := imb.AddPermission(functionName, "", &lambdabackend.AddPermissionInput{
+			Action:        strProp(props, "Action", params, physicalIDs),
+			Principal:     strProp(props, "Principal", params, physicalIDs),
+			StatementID:   statementID,
+			SourceAccount: strProp(props, "SourceAccount", params, physicalIDs),
+			SourceArn:     strProp(props, "SourceArn", params, physicalIDs),
+		})
+		if err != nil {
+			return "", fmt.Errorf("add Lambda permission to %s: %w", functionName, err)
+		}
+	}
+
 	return functionName + ":" + statementID, nil
 }
 
-func (rc *ResourceCreator) deleteLambdaPermission(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteLambdaPermission(physicalID string) error {
+	if rc.backends.Lambda == nil {
+		return nil
+	}
+	imb, ok := rc.backends.Lambda.Backend.(*lambdabackend.InMemoryBackend)
+	idx := strings.LastIndexByte(physicalID, ':')
+	if !ok || idx < 0 {
+		return nil
+	}
+	err := imb.RemovePermission(physicalID[:idx], "", physicalID[idx+1:], "")
+	if errors.Is(err, lambdabackend.ErrFunctionNotFound) {
+		return nil
+	}
+
+	return err
 }
 
 func (rc *ResourceCreator) createLambdaAlias(
@@ -287,6 +347,9 @@ func (rc *ResourceCreator) createLambdaAlias(
 	}
 
 	functionVersion := strProp(props, "FunctionVersion", params, physicalIDs)
+	if idx := strings.LastIndexByte(functionVersion, ':'); idx >= 0 {
+		functionVersion = functionVersion[idx+1:]
+	}
 	description := strProp(props, "Description", params, physicalIDs)
 
 	alias, err := imb.CreateAlias(functionName, &lambdabackend.CreateAliasInput{
@@ -520,6 +583,10 @@ func (rc *ResourceCreator) createAPIGatewayStage(
 	stageName := strProp(props, "StageName", params, physicalIDs)
 	if stageName == "" {
 		stageName = logicalID
+	}
+
+	if err := rc.ensureAPIGatewayStage(restAPIID, stageName, props, params, physicalIDs); err != nil {
+		return "", err
 	}
 
 	return restAPIID + ":" + stageName, nil
@@ -1068,61 +1135,6 @@ func (rc *ResourceCreator) deleteS3BucketPolicy(ctx context.Context, bucket stri
 
 // ---- Scheduler ----
 
-func (rc *ResourceCreator) createSchedulerSchedule(
-	ctx context.Context,
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.Scheduler == nil {
-		return logicalID + "-stub", nil
-	}
-
-	name := strProp(props, "Name", params, physicalIDs)
-	if name == "" {
-		name = logicalID
-	}
-
-	scheduleExpression := strProp(props, "ScheduleExpression", params, physicalIDs)
-	state := strProp(props, "State", params, physicalIDs)
-	if state == "" {
-		state = "ENABLED"
-	}
-
-	var target schedulerbackend.Target
-	if rawTarget, ok := props["Target"].(map[string]any); ok {
-		target.ARN = resolve(rawTarget["Arn"], params, physicalIDs)
-		target.RoleARN = resolve(rawTarget["RoleArn"], params, physicalIDs)
-	}
-
-	sched, err := rc.backends.Scheduler.Backend.CreateSchedule(
-		ctx,
-		name,
-		"",
-		scheduleExpression,
-		"",
-		"",
-		target,
-		state,
-		schedulerbackend.FlexibleTimeWindow{Mode: "OFF"},
-	)
-	if err != nil {
-		return "", fmt.Errorf("create Scheduler schedule %s: %w", name, err)
-	}
-
-	return sched.ARN, nil
-}
-
-func (rc *ResourceCreator) deleteSchedulerSchedule(ctx context.Context, arn string) error {
-	if rc.backends.Scheduler == nil {
-		return nil
-	}
-
-	name := resourceNameFromARN(arn)
-
-	return rc.backends.Scheduler.Backend.DeleteSchedule(ctx, name, "")
-}
-
 // ---- helpers ----
 
 // resourceNameFromARN extracts the last segment after "/" or ":" in an ARN.
@@ -1156,4 +1168,37 @@ func splitCompositeID(id string) (string, string) {
 	}
 
 	return before, after
+}
+
+// ensureAPIGatewayStage creates the stage unless a Deployment's StageName already did.
+func (rc *ResourceCreator) ensureAPIGatewayStage(
+	restAPIID, stageName string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) error {
+	deploymentID := strProp(props, "DeploymentId", params, physicalIDs)
+	if deploymentID == "" {
+		return nil
+	}
+	if _, err := rc.backends.APIGateway.Backend.GetStage(restAPIID, stageName); err == nil {
+		return nil
+	}
+
+	vars := map[string]string{}
+	for k, v := range asMap(props["Variables"]) {
+		vars[k] = resolve(v, params, physicalIDs)
+	}
+	tracing, _ := props["TracingEnabled"].(bool)
+	if _, err := rc.backends.APIGateway.Backend.CreateStage(apigwbackend.CreateStageInput{
+		RestAPIID:      restAPIID,
+		StageName:      stageName,
+		DeploymentID:   deploymentID,
+		Description:    strProp(props, "Description", params, physicalIDs),
+		Variables:      vars,
+		TracingEnabled: tracing,
+	}); err != nil {
+		return fmt.Errorf("create API Gateway stage %s: %w", stageName, err)
+	}
+
+	return nil
 }

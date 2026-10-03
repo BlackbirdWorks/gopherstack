@@ -97,6 +97,9 @@ families:
     simulate IAM or Aurora Serverless timeouts.}
 gaps: []
 items_still_open:
+  - "OPEN 2026-10-03: on docker-backed Aurora clusters Database selects the database but Schema, the 1 MB response
+    cap, continueAfterTimeout and real-engine column origin (schemaName/tableName/isAutoIncrement) are not
+    implemented; ExecuteSql stays on SQLite. Database/Schema remain unread on the SQLite path (next item)."
   - "Database/Schema (ExecuteStatement, BatchExecuteStatement, BeginTransaction,
     ExecuteSql -- all 4 ops that carry them) are decoded off the wire and never
     read anywhere (cmd/reqfieldscan, 2026-08-30 pass: 8 of rdsdata's 9 flagged
@@ -774,3 +777,32 @@ database/sql's connectionOpener per backend. Added `sqlEngine.close()` and
 `InMemoryBackend.Close()` (idempotent), wired via `Handler.Shutdown` (new
 `service.Shutdowner`), `t.Cleanup`'d across all ~62 test constructor sites,
 added `leak_main_test.go`. `go test -race -count=2` clean.
+
+## 2026-10-03 -- real Postgres/MySQL for docker-mode Aurora clusters (gopherstack-rxmvb)
+
+ExecuteStatement, BatchExecuteStatement, BeginTransaction, CommitTransaction and RollbackTransaction run against
+the real database when `resourceArn` is a `--rds-engine=docker` Aurora cluster (services/rds `DataAPITarget`).
+Stub clusters and ExecuteSql keep the SQLite engine.
+- Credentials: `secretArn` is read through `secretsmanager.SecretString`; the secret is the JSON object with
+  `username` and `password` documented at
+  https://docs.aws.amazon.com/secretsmanager/latest/userguide/reference_secret_json_structure.html.
+  A missing secret is SecretsErrorException, a malformed one InvalidSecretException (API_ExecuteStatement.html Errors).
+- Placeholders: `:name` becomes `$n` (pgx, a reused name shares one slot) or `?` (mysql); string literals,
+  quoted identifiers, comments, dollar quotes and `::casts` are skipped and values travel as driver args.
+- typeHint (API_SqlParameter.html): DATE/TIME/TIMESTAMP/DECIMAL/UUID become `::date`, `::time`, `::timestamp`,
+  `::numeric`, `::uuid` on Postgres; JSON binds untyped so json and jsonb both accept it. MySQL coerces strings.
+- Results: Field union from the driver value and column type (long/double/boolean/string/blob/isNull, one-dimensional
+  Postgres arrays as arrayValue); ColumnMetadata type codes are java.sql.Types per API_ColumnMetadata.html;
+  formatRecordsAs=JSON reuses the existing renderer; resultSetOptions apply; MySQL INSERT sets generatedFields
+  (not supported by Aurora PostgreSQL per API_ExecuteStatement.html, use RETURNING, which is returned as rows).
+- Transactions are held `*sql.Tx` on the engine's own context, capped at 100 open, expired by the existing Janitor
+  (3 minutes idle, 24 hours total per API_BeginTransaction.html) and rolled back on Reset/Close.
+  BatchExecuteStatement without a transactionId is atomic (one implicit transaction).
+- Errors: statement failures are DatabaseErrorException, rejected credentials InvalidSecretException,
+  timeouts StatementTimeoutException, connection loss DatabaseUnavailableException, a disabled endpoint
+  HttpEndpointNotEnabledException, a not-yet-available cluster InvalidResourceStateException; no connection
+  details or credentials appear in messages.
+- Proven by real-engine `TestRealDockerDataAPI` plus Docker-free tests (placeholder translation, type mapping, error
+  mapping, transaction expiry under synctest) in real_*_test.go.
+- Not done: ColumnMetadata schemaName/tableName/isAutoIncrement are empty on real engines; the 1 MB response cap;
+  multidimensional or NULL-containing arrays (UnsupportedResultException); continueAfterTimeout; `schema`.

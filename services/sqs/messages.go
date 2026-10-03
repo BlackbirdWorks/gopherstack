@@ -61,7 +61,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	out, err := sendMessageLocked(q, input, md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID, b.now())
+	out, err := sendMessageLocked(q, input, md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID, true, b.now())
 	if err != nil {
 		return nil, err
 	}
@@ -71,13 +71,13 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	return out, nil
 }
 
-// sendMessageLocked appends one message to an already-locked queue.
-// md5Body, sha256Body, md5Attrs, and msgID must be pre-computed by the caller.
-// Caller must hold q.mu (#55). Used by both SendMessage and SendMessageBatch (#58).
+// sendMessageLocked appends one message to an already-locked queue (#55/#58).
+// checkThroughput is false when the batch caller already reserved the budget.
 func sendMessageLocked(
 	q *Queue,
 	input *SendMessageInput,
 	md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID string,
+	checkThroughput bool,
 	now time.Time,
 ) (*SendMessageOutput, error) {
 	// SendMessage's top-level entry point already checks these three (empty
@@ -105,7 +105,7 @@ func sendMessageLocked(
 	}
 
 	if q.IsFIFO {
-		if pre := preflightFIFOSend(q, input, md5Body, sha256Body, now); pre.Handled {
+		if pre := preflightFIFOSend(q, input, md5Body, sha256Body, checkThroughput, now); pre.Handled {
 			return pre.Output, pre.Err
 		}
 	}
@@ -327,6 +327,10 @@ func (b *InMemoryBackend) ReceiveMessage(
 		return nil, err
 	}
 
+	if err := b.checkReceiveThroughput(input); err != nil {
+		return nil, err
+	}
+
 	waitSecs := b.resolveWaitSeconds(input.QueueURL, input.WaitTimeSeconds)
 	name := queueNameFromInput(input.QueueURL)
 
@@ -348,12 +352,37 @@ func (b *InMemoryBackend) ReceiveMessage(
 	return b.pollReceive(name, input, waitSecs)
 }
 
+// checkReceiveThroughput runs once per API call, not per pollReceive recheck.
+// Always queue-scoped (no MessageGroupId here); reserves MaxNumberOfMessages.
+func (b *InMemoryBackend) checkReceiveThroughput(input *ReceiveMessageInput) error {
+	b.mu.RLock("checkReceiveThroughput")
+	q, ok := b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
+	b.mu.RUnlock()
+
+	if !ok || !q.IsFIFO {
+		return nil
+	}
+
+	maxMessages := input.MaxNumberOfMessages
+	if maxMessages <= 0 {
+		maxMessages = 1
+	}
+	if maxMessages > maxBatchSize {
+		maxMessages = maxBatchSize
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	return checkFIFOThroughput(q, fifoMethodReceive, "", maxMessages, b.now())
+}
+
 func (b *InMemoryBackend) pollReceive(
 	name string,
 	input *ReceiveMessageInput,
 	waitSecs int,
 ) (*ReceiveMessageOutput, error) {
-	deadline := time.Now().Add(time.Duration(waitSecs) * time.Second)
+	deadline := b.now().Add(time.Duration(waitSecs) * time.Second)
 
 	const recheckInterval = time.Second
 
@@ -373,7 +402,7 @@ func (b *InMemoryBackend) pollReceive(
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
 
-		remaining := time.Until(deadline)
+		remaining := deadline.Sub(b.now())
 		if remaining <= 0 {
 			return &ReceiveMessageOutput{}, nil
 		}
@@ -446,11 +475,12 @@ func (b *InMemoryBackend) receiveOnce(
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	now := time.Now()
+	now := b.now()
 
 	// #54: single-pass prepareAndPickMessages replaces the four-pass sequence.
+	// Dedup pruning is left to the janitor + checkDedup/storeDedup's lazy
+	// per-key expiry: ReceiveMessage never reads q.DeduplicationIDs.
 	if q.IsFIFO {
-		pruneDedup(q, now)
 		pruneReceiveAttempts(q, now)
 
 		// FIFO exactly-once retry: if the caller repeats with the same
@@ -536,6 +566,13 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 		return ErrReceiptHandleInvalid
 	}
 
+	if q.IsFIFO {
+		scopeKey := fifoThroughputScopeKey(q, inf.Msg.MessageGroupID)
+		if err := checkFIFOThroughput(q, fifoMethodDelete, scopeKey, 1, b.now()); err != nil {
+			return err
+		}
+	}
+
 	delete(q.inFlightByHandle, input.ReceiptHandle)
 	removeInFlight(q, inf)
 
@@ -606,15 +643,28 @@ type batchEntryPrep struct {
 
 // processSendMessageBatchEntries iterates over batch entries (already lock-held on q),
 // delegates to sendMessageLocked, and accumulates Successful/Failed results.
+// throttled[i] true skips straight to a RequestThrottled failure for entry i.
 func processSendMessageBatchEntries(
 	q *Queue,
 	input *SendMessageBatchInput,
 	preps []batchEntryPrep,
+	throttled []bool,
 	now time.Time,
 ) *SendMessageBatchOutput {
 	out := &SendMessageBatchOutput{}
 
 	for i, entry := range input.Entries {
+		if throttled[i] {
+			out.Failed = append(out.Failed, BatchResultErrorEntry{
+				ID:          entry.ID,
+				Code:        ErrRequestThrottled.Error(),
+				Message:     ErrRequestThrottled.Error(),
+				SenderFault: true,
+			})
+
+			continue
+		}
+
 		p := preps[i]
 		sendOut, err := sendMessageLocked(q, &SendMessageInput{
 			QueueURL:                input.QueueURL,
@@ -625,7 +675,7 @@ func processSendMessageBatchEntries(
 			DelaySeconds:            entry.DelaySeconds,
 			MessageAttributes:       entry.MessageAttributes,
 			MessageSystemAttributes: entry.MessageSystemAttributes,
-		}, p.md5Body, p.sha256Body, p.md5Attrs, p.md5SysAttrs, p.msgID, now)
+		}, p.md5Body, p.sha256Body, p.md5Attrs, p.md5SysAttrs, p.msgID, false, now)
 		if err != nil {
 			out.Failed = append(out.Failed, BatchResultErrorEntry{
 				ID:          entry.ID,
@@ -724,9 +774,14 @@ func (b *InMemoryBackend) SendMessageBatch(
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	throttled := make([]bool, len(input.Entries))
+	if q.IsFIFO {
+		throttled = computeFIFOSendThrottling(q, input.Entries, now)
+	}
+
 	// Process entries in input order; append results directly so Successful and
 	// Failed slices already match the original entry order without sorting.
-	out := processSendMessageBatchEntries(q, input, preps, now)
+	out := processSendMessageBatchEntries(q, input, preps, throttled, now)
 
 	b.emitMetric("NumberOfMessagesSent", float64(len(out.Successful)))
 
@@ -734,6 +789,8 @@ func (b *InMemoryBackend) SendMessageBatch(
 }
 
 // DeleteMessageBatch deletes a batch of messages from the specified queue.
+// Holds q.mu for the whole batch (not per-entry) so throughput can be
+// reserved once per batch via computeFIFODeleteThrottling.
 func (b *InMemoryBackend) DeleteMessageBatch(
 	input *DeleteMessageBatchInput,
 ) (*DeleteMessageBatchOutput, error) {
@@ -748,36 +805,51 @@ func (b *InMemoryBackend) DeleteMessageBatch(
 
 	// AWS returns QueueDoesNotExist at the batch level (not per-entry) when the
 	// target queue does not exist.
-	var queueExists bool
-
-	func() {
-		b.mu.RLock("DeleteMessageBatch.queueCheck")
-		defer b.mu.RUnlock()
-
-		_, queueExists = b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
-	}()
+	b.mu.RLock("DeleteMessageBatch")
+	q, queueExists := b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
+	b.mu.RUnlock()
 
 	if !queueExists {
 		return nil, ErrQueueNotFound
 	}
 
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	throttled := make([]bool, len(input.Entries))
+	if q.IsFIFO {
+		throttled = computeFIFODeleteThrottling(q, input.Entries, b.now())
+	}
+
 	out := &DeleteMessageBatchOutput{}
 
-	for _, entry := range input.Entries {
-		err := b.DeleteMessage(&DeleteMessageInput{
-			QueueURL:      input.QueueURL,
-			ReceiptHandle: entry.ReceiptHandle,
-		})
-		if err != nil {
+	for i, entry := range input.Entries {
+		if throttled[i] {
 			out.Failed = append(out.Failed, BatchResultErrorEntry{
 				ID:          entry.ID,
-				Code:        err.Error(),
-				Message:     err.Error(),
+				Code:        ErrRequestThrottled.Error(),
+				Message:     ErrRequestThrottled.Error(),
 				SenderFault: true,
 			})
 
 			continue
 		}
+
+		inf, found := q.inFlightByHandle[entry.ReceiptHandle]
+		if !found {
+			out.Failed = append(out.Failed, BatchResultErrorEntry{
+				ID:          entry.ID,
+				Code:        ErrReceiptHandleInvalid.Error(),
+				Message:     ErrReceiptHandleInvalid.Error(),
+				SenderFault: true,
+			})
+
+			continue
+		}
+
+		delete(q.inFlightByHandle, entry.ReceiptHandle)
+		removeInFlight(q, inf)
+		b.emitMetric("NumberOfMessagesDeleted", 1)
 
 		out.Successful = append(out.Successful, DeleteMessageBatchResultEntry{ID: entry.ID})
 	}

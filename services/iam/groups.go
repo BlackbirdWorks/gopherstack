@@ -341,13 +341,13 @@ func (b *InMemoryBackend) purgeGroupsLocked(cutoff time.Time) {
 	}
 }
 
-// ListGroupsForUser returns all groups that the specified user belongs to.
-func (b *InMemoryBackend) ListGroupsForUser(userName string) ([]Group, error) {
+// ListGroupsForUser returns a paginated list of groups the specified user belongs to.
+func (b *InMemoryBackend) ListGroupsForUser(userName, marker string, maxItems int) (page.Page[Group], error) {
 	b.mu.RLock("ListGroupsForUser")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.users.Get(userName); !exists {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		return page.Page[Group]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	result := make([]Group, 0, len(b.groupMembers))
@@ -361,7 +361,7 @@ func (b *InMemoryBackend) ListGroupsForUser(userName string) ([]Group, error) {
 
 	sort.Slice(result, func(i, j int) bool { return result[i].GroupName < result[j].GroupName })
 
-	return result, nil
+	return page.New(result, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // UpdateGroup renames a group and/or updates its path.

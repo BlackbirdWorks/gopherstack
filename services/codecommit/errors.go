@@ -77,6 +77,8 @@ var (
 	ErrBlobNotFound = awserr.New("BlobIdDoesNotExistException", awserr.ErrNotFound)
 	// ErrCommentNotFound is returned when a comment ID does not exist.
 	ErrCommentNotFound = awserr.New("CommentDoesNotExistException", awserr.ErrNotFound)
+	// ErrInvalidRuleContentSha256 is returned when existingRuleContentSha256 does not match the current content.
+	ErrInvalidRuleContentSha256 = awserr.New("InvalidRuleContentSha256Exception", awserr.ErrInvalidParameter)
 	// ErrApprovalRuleNotFound is returned when a pull request approval rule does not exist.
 	ErrApprovalRuleNotFound = awserr.New("ApprovalRuleDoesNotExistException", awserr.ErrNotFound)
 	// ErrInvalidPullRequestEventType is returned when pullRequestEventType is not a recognized enum value.

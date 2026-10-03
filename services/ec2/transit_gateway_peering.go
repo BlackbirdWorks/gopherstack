@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateTransitGatewayPeeringAttachment creates a TGW peering attachment.
-func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
+// createTransitGatewayPeeringAttachmentLocal creates a TGW peering attachment.
+func (b *InMemoryBackend) createTransitGatewayPeeringAttachmentLocal(
 	transitGatewayID, peerTransitGatewayID, peerAccountID, peerRegion string,
 ) (*TransitGatewayPeeringAttachment, error) {
 	if transitGatewayID == "" || peerTransitGatewayID == "" || peerAccountID == "" || peerRegion == "" {
@@ -36,17 +36,20 @@ func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
 	}
 	b.tgwPeeringAttachments.Put(att)
 
-	return att, nil
+	cp := *att
+
+	return &cp, nil
 }
 
-// DeleteTransitGatewayPeeringAttachment removes a TGW peering attachment.
-// DeleteTransitGatewayPeeringAttachment removes a TGW peering attachment,
+// deleteTransitGatewayPeeringAttachmentLocal removes a TGW peering attachment,
 // keeping a tombstone in state "deleted" so a subsequent by-ID Describe
 // still finds it (real AWS keeps a deleted attachment describable for a
 // period; terraform-provider-aws's delete waiter polls by ID and treats a
 // NotFound response as a fatal error instead of "done" -- see
 // nat_gateways.go's DeleteNatGateway for the same pattern).
-func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) (*TransitGatewayPeeringAttachment, error) {
+func (b *InMemoryBackend) deleteTransitGatewayPeeringAttachmentLocal(
+	id string,
+) (*TransitGatewayPeeringAttachment, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
 	}

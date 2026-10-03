@@ -29,7 +29,6 @@ func (b *InMemoryBackend) CreateApprovalRuleTemplate(name, description, content 
 	templateID := uuid.NewString()
 	templateARN := arn.Build("codecommit", b.region, b.accountID, "approval-rule-template/"+name)
 	now := time.Now().UTC()
-	hash := sha256.Sum256([]byte(content))
 	t := &ApprovalRuleTemplate{
 		ApprovalRuleTemplateID:          templateID,
 		ApprovalRuleTemplateName:        name,
@@ -38,7 +37,7 @@ func (b *InMemoryBackend) CreateApprovalRuleTemplate(name, description, content 
 		ApprovalRuleTemplateDescription: description,
 		CreationDate:                    now,
 		LastModifiedDate:                now,
-		RuleContentSha256:               hex.EncodeToString(hash[:]),
+		RuleContentSha256:               contentSha256(content),
 	}
 	b.approvalRuleTemplates.Put(t)
 	cp := *t
@@ -229,8 +228,15 @@ func (b *InMemoryBackend) ListApprovalRuleTemplates() []*ApprovalRuleTemplate {
 	return list
 }
 
-// UpdateApprovalRuleTemplateContent updates the content of an approval rule template.
-func (b *InMemoryBackend) UpdateApprovalRuleTemplateContent(name, content string) error {
+func contentSha256(content string) string {
+	hash := sha256.Sum256([]byte(content))
+
+	return hex.EncodeToString(hash[:])
+}
+
+// UpdateApprovalRuleTemplateContent updates the content of an approval rule
+// template; a non-empty existingSha256 must match the current content hash.
+func (b *InMemoryBackend) UpdateApprovalRuleTemplateContent(name, content, existingSha256 string) error {
 	b.mu.Lock("UpdateApprovalRuleTemplateContent")
 	defer b.mu.Unlock()
 
@@ -238,7 +244,11 @@ func (b *InMemoryBackend) UpdateApprovalRuleTemplateContent(name, content string
 	if !ok {
 		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
 	}
+	if existingSha256 != "" && existingSha256 != t.RuleContentSha256 {
+		return fmt.Errorf("%w: ruleContentSha256 does not match template %s", ErrInvalidRuleContentSha256, name)
+	}
 	t.ApprovalRuleTemplateContent = content
+	t.RuleContentSha256 = contentSha256(content)
 	t.LastModifiedDate = time.Now().UTC()
 
 	return nil

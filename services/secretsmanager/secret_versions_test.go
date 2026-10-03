@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -20,60 +22,85 @@ import (
 // Version pruning
 // ---------------------------------------------------------------------------
 
-// TestVersionPruning verifies that old unlabeled versions are pruned
-// when the version count exceeds maxVersionsPerSecret (100).
+func countVersions(t *testing.T, b *secretsmanager.InMemoryBackend, id string) int {
+	t.Helper()
+
+	total, token := 0, ""
+
+	for {
+		out, err := b.ListSecretVersionIDs(context.Background(), &secretsmanager.ListSecretVersionIDsInput{
+			SecretID: id, IncludeDeprecated: true, NextToken: token,
+		})
+		require.NoError(t, err)
+
+		total += len(out.Versions)
+
+		if out.NextToken == "" {
+			return total
+		}
+
+		token = out.NextToken
+	}
+}
+
+// TestVersionPruning checks the 100-version limit, the 24h minimum age and the hard cap.
 func TestVersionPruning(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		putCount    int
-		wantMaxVers int
+		name      string
+		putCount  int
+		labelEach bool
+		age       time.Duration
+		wantCount int
 	}{
-		{
-			name:        "below_limit_no_pruning",
-			putCount:    5,
-			wantMaxVers: 6, // 1 initial + 5 puts
-		},
-		{
-			name:        "at_limit_no_pruning",
-			putCount:    99,
-			wantMaxVers: 100,
-		},
-		{
-			name:        "above_limit_pruned",
-			putCount:    150,
-			wantMaxVers: 100,
-		},
+		{name: "below_limit_kept", putCount: 5, wantCount: 6},
+		{name: "at_limit_kept", putCount: 99, wantCount: 100},
+		{name: "old_deprecated_pruned", putCount: 120, age: 25 * time.Hour, wantCount: 100},
+		{name: "all_recent_kept", putCount: 150, wantCount: 151},
+		{name: "hard_cap_bounds_recent", putCount: 600, wantCount: 500},
+		{name: "labelled_never_pruned", putCount: 120, labelEach: true, age: 25 * time.Hour, wantCount: 122},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := secretsmanager.NewInMemoryBackend()
-			t.Cleanup(backend.StopRotationScheduler)
+			synctest.Test(t, func(t *testing.T) {
+				backend := secretsmanager.NewInMemoryBackend()
+				t.Cleanup(backend.StopRotationScheduler)
 
-			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
-				Name:         "prune-test",
-				SecretString: "initial",
-			})
-			require.NoError(t, err)
-
-			for i := range tt.putCount {
-				_, putErr := backend.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
-					SecretID:     "prune-test",
-					SecretString: fmt.Sprintf("value-%d", i),
+				ctx := context.Background()
+				_, err := backend.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+					Name:         "prune-test",
+					SecretString: "initial",
 				})
-				require.NoError(t, putErr)
-			}
+				require.NoError(t, err)
 
-			out, err := backend.DescribeSecret(
-				context.Background(),
-				&secretsmanager.DescribeSecretInput{SecretID: "prune-test"},
-			)
-			require.NoError(t, err)
-			assert.LessOrEqual(t, len(out.VersionIDsToStages), tt.wantMaxVers)
+				put := func(i int) {
+					in := &secretsmanager.PutSecretValueInput{
+						SecretID:     "prune-test",
+						SecretString: fmt.Sprintf("value-%d", i),
+					}
+					if tt.labelEach {
+						in.VersionStages = []string{fmt.Sprintf("keep-%d", i)}
+					}
+
+					_, putErr := backend.PutSecretValue(ctx, in)
+					require.NoError(t, putErr)
+				}
+
+				for i := range tt.putCount {
+					put(i)
+				}
+
+				if tt.age > 0 {
+					time.Sleep(tt.age)
+					put(tt.putCount)
+				}
+
+				assert.Equal(t, tt.wantCount, countVersions(t, backend, "prune-test"))
+			})
 		})
 	}
 }

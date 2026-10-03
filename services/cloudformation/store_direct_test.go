@@ -52,6 +52,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 		[]string{"111111111111"},
 		nil,
 		[]string{"us-east-1"},
+		"",
 	)
 	require.NoError(t, err)
 
@@ -111,6 +112,7 @@ func TestStackSetOperationList(t *testing.T) {
 		[]string{"111"},
 		nil,
 		[]string{"us-east-1"},
+		"",
 	)
 	require.NoError(t, err)
 
@@ -231,6 +233,7 @@ func TestTypeManagement_ActivateDeactivate(t *testing.T) {
 	_, err := b.ActivateType(
 		"AWS::S3::Bucket",
 		"arn:aws:cloudformation:us-east-1::type/resource/AWS-S3-Bucket",
+		cloudformation.ActivateTypeOptions{},
 	)
 	require.NoError(t, err)
 
@@ -576,13 +579,13 @@ func TestRollbackStack_ChangesStatus(t *testing.T) {
 	_, err := b.CreateStack(
 		t.Context(),
 		"rb-change",
-		simpleTemplate,
+		cfnCyclicTemplate,
 		nil,
-		cloudformation.StackOptions{},
+		cloudformation.StackOptions{DisableRollback: true},
 	)
 	require.NoError(t, err)
 
-	_, err = b.RollbackStack(t.Context(), "rb-change")
+	_, err = b.RollbackStack(t.Context(), "rb-change", false)
 	require.NoError(t, err)
 
 	// Stack should still be accessible.

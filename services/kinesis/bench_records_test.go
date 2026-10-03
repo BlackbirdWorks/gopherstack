@@ -5,7 +5,9 @@ package kinesis_test
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -15,12 +17,18 @@ import (
 func benchCreateActiveStream(b *testing.B, name string, shardCount int) *kinesis.InMemoryBackend {
 	b.Helper()
 
-	bk := kinesis.NewInMemoryBackend()
+	var offset atomic.Int64
+
+	bk := kinesis.NewInMemoryBackend().WithClock(func() time.Time {
+		return time.Now().Add(time.Duration(offset.Load()))
+	})
 	err := bk.CreateStream(b.Context(), &kinesis.CreateStreamInput{
 		StreamName: name,
 		ShardCount: shardCount,
 	})
 	require.NoError(b, err)
+
+	offset.Store(int64(streamSettleWait))
 
 	return bk
 }

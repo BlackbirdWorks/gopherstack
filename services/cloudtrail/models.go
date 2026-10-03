@@ -271,6 +271,8 @@ type Import struct {
 	CreatedTimestamp time.Time     `json:"createdTimestamp"`
 	UpdatedTimestamp time.Time     `json:"updatedTimestamp"`
 	ImportSource     *ImportSource `json:"importSource,omitempty"`
+	StartEventTime   *time.Time    `json:"startEventTime,omitempty"`
+	EndEventTime     *time.Time    `json:"endEventTime,omitempty"`
 	ImportID         string        `json:"importId"`
 	ImportStatus     string        `json:"importStatus"`
 	Destinations     []string      `json:"destinations,omitempty"`

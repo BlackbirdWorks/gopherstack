@@ -100,10 +100,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Auto-creates a stub Package entry.
-	_, err = original.DescribePackage(ctx, "domain-1", "repo-1", "npm", "", "pkg-1")
-	require.NoError(t, err)
-
 	pv, err := original.PublishPackageVersion(
 		ctx,
 		"domain-1",
@@ -190,7 +186,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "pkg-1", gotPkg.Name)
 
-	versions, err := fresh.ListPackageVersions(ctx, "domain-1", "repo-1", "npm", "", "pkg-1", "", "")
+	versions, err := fresh.ListPackageVersions(ctx, "domain-1", "repo-1", "npm", "", "pkg-1", "", "", "")
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	assert.Equal(t, pv.Version, versions[0].Version)
@@ -292,13 +288,7 @@ func TestHandler_NewOperations_Persistence(t *testing.T) {
 	)
 
 	// Create package version entry.
-	doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version?domain=persist2-domain&repository=persist2-repo&format=npm&package=react&version=18.0.0",
-		nil,
-	)
+	seedVersion(t, h, "persist2-domain", "persist2-repo", "npm", "", "react", "18.0.0")
 
 	// Associate external connection.
 	doRequest(

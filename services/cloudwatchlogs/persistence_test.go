@@ -482,7 +482,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "delivery_source_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliverySource("my-src", "APPLICATION_LOGS", []string{"arn:aws:ec2:::i-1"}, nil)
+				_, err := b.PutDeliverySource("my-src", "APPLICATION_LOGS", []string{"arn:aws:ec2:::i-1"}, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -923,7 +923,7 @@ func TestInMemoryBackend_CreationFieldsSurviveRestore(t *testing.T) {
 
 				src, err := b.PutDeliverySource(
 					"my-ds", "APPLICATION_LOGS",
-					[]string{"arn:aws:lambda:us-east-1:000000000000:function:f"}, nil,
+					[]string{"arn:aws:lambda:us-east-1:000000000000:function:f"}, nil, nil,
 				)
 				require.NoError(t, err)
 				require.False(t, src.CreatedAt.IsZero())

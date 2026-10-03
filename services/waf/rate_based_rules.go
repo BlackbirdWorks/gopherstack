@@ -43,7 +43,17 @@ func (b *InMemoryBackend) CreateRateBasedRule(
 		b.tags[b.rateBasedRuleARN(id)] = maps.Clone(tags)
 	}
 
-	return rule, nil
+	return cloneRateBasedRule(rule), nil
+}
+
+// cloneRateBasedRule stops a caller from racing UpdateRateBasedRule. A
+// shallow copy is not enough: applyEntryUpdate reuses the predicates backing array.
+func cloneRateBasedRule(rule *RateBasedRule) *RateBasedRule {
+	cp := *rule
+	cp.MatchPredicates = make([]Predicate, len(rule.MatchPredicates))
+	copy(cp.MatchPredicates, rule.MatchPredicates)
+
+	return &cp
 }
 
 // GetRateBasedRule retrieves a RateBasedRule by ID.
@@ -56,7 +66,7 @@ func (b *InMemoryBackend) GetRateBasedRule(id string) (*RateBasedRule, error) {
 		return nil, ErrNotFound
 	}
 
-	return rule, nil
+	return cloneRateBasedRule(rule), nil
 }
 
 // UpdateRateBasedRule updates a RateBasedRule's predicates and rate limit.

@@ -1,7 +1,6 @@
 package sqs
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -11,16 +10,18 @@ import (
 func parseQueryChangeBatchEntries(vals url.Values) []ChangeMessageVisibilityBatchRequestEntry {
 	var entries []ChangeMessageVisibilityBatchRequestEntry
 
+	const prefix = "ChangeMessageVisibilityBatchRequestEntry"
+
 	for i := 1; i <= maxParseIterations; i++ {
-		id := vals.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.Id", i))
+		id := numberedParam(vals, prefix, i, "Id")
 		if id == "" {
 			break
 		}
 
-		vt, _ := strconv.Atoi(vals.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.VisibilityTimeout", i)))
+		vt, _ := strconv.Atoi(numberedParam(vals, prefix, i, "VisibilityTimeout"))
 		entries = append(entries, ChangeMessageVisibilityBatchRequestEntry{
 			ID:                id,
-			ReceiptHandle:     vals.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.ReceiptHandle", i)),
+			ReceiptHandle:     numberedParam(vals, prefix, i, "ReceiptHandle"),
 			VisibilityTimeout: vt,
 		})
 	}

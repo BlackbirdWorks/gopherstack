@@ -3,6 +3,8 @@ package rds
 import (
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // PurchaseReservedDBInstancesOffering purchases a reserved DB instance offering.
@@ -36,7 +38,9 @@ func (b *InMemoryBackend) PurchaseReservedDBInstancesOffering(
 		}
 	}
 	if reservedDBInstanceID == "" {
-		reservedDBInstanceID = fmt.Sprintf("ri-%s-%d", offeringID, time.Now().UnixNano())
+		// ReservedDBInstanceId has no documented pattern beyond "customer-specified
+		// identifier"; a bare UUID is a collision-free, real-shaped default.
+		reservedDBInstanceID = uuid.NewString()
 	}
 	b.mu.Lock("PurchaseReservedDBInstancesOffering")
 	defer b.mu.Unlock()

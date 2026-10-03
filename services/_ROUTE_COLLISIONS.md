@@ -935,3 +935,47 @@ overcorrect).
 
 See `services/detective/PARITY.md` and `services/guardduty/PARITY.md`'s
 matching 2026-09-12 entries for the full gate results.
+
+## kafkaconnect (new service, 2026-09-25): `/v1/` bare prefix (batch vs. kafkaconnect)
+
+Adding the MSK Connect service (`services/kafkaconnect`, paths
+`/v1/connectors`, `/v1/custom-plugins`, `/v1/worker-configurations`,
+`/v1/connectorOperations/{arn}`, all at `PriorityPathVersioned` = 85)
+reproduced the same species of bug as the first pass's batch/kafka case
+above, except this time it was live, not a false positive: `batch`'s
+`RouteMatcher` falls through to an unconditional
+`strings.HasPrefix(path, "/v1/")` after excluding only `/v1/tags/`,
+`/v1/apis`, the CodeArtifact paths, and `/v1/clusters`/`/v1/configurations`
+(Kafka MSK) — none of kafkaconnect's paths were excluded, and unlike MSK,
+kafkaconnect does not bump its own `MatchPriority` above batch's, so at a
+tied priority-85 the router's stable sort falls back to registration order,
+and batch registers before kafkaconnect in `cli.go`. Batch's matcher would
+therefore have won every kafkaconnect request.
+
+**Fix** (per this file's own rule and `.claude/memories`'s
+route-matcher-prefix-collision entry: never fix by raising `MatchPriority`):
+`services/batch/handler.go`'s
+`RouteMatcher` gained a third exclusion block, `kafkaConnectConnectorPrefix
+= "/v1/connector"` (covers `/v1/connectors` and `/v1/connectorOperations/`),
+`kafkaConnectPluginPrefix = "/v1/custom-plugins"`, and
+`kafkaConnectWorkerPrefix = "/v1/worker-configurations"`, mirroring the
+existing MSK exclusion shape exactly.
+
+`go run ./cmd/routecollisions` still lists `batch shadows kafkaconnect` and
+`polly shadows kafkaconnect` after the fix — both `(guarded/guarded)`, the
+same coarse-tool residue the batch/kafka and polly/appsync false positives
+above already document: the tool flags any narrower same-or-lower-priority
+`/v1/...` claim against batch's/polly's bare `/v1/` literal regardless of
+what carve-outs precede it in the source, because `isExclusion` only
+suppresses a literal from the *owning* service's own claim list, it does
+not cross-reference another service's specific claims. Verified functionally
+correct instead: `services/batch/handler_test.go`'s existing RouteMatcher
+table plus `services/kafkaconnect`'s own routing tests
+(`routes_whitebox_test.go`) pass, and `TestTerraform_MskConnect`
+(`test/terraform/msk_connect_test.go`) — which exercises the real
+`service.NewServiceRouter` with every service registered, including batch —
+passes, proving kafkaconnect's requests reach `services/kafkaconnect`, not
+batch. `polly` needed no change: its bare `/v1/` claim is already gated by
+`parseRoute(...).operation != opUnknown`, which rejects any kafkaconnect
+path (confirmed by reading `services/polly/handler.go`, not just the tool's
+"guarded" bit).

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 25 (24 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -18,6 +18,7 @@
 - 2026-08-29 sweep: `go run ./cmd/acceptguard` flagged handler_configurations.go's createConfigurationInput reading a 'Description' JSON field on CreateConfiguration -- confirmed against serializers.go's awsRestjson1_serializeOpDocumentCreateConfigurationInput that the real CreateConfigurationInput NEVER serializes a description key (only authenticationStrategy/engineType/engineVersion/name/tags). Verdict: harmless, not fixed -- a real SDK client can never populate this field on Create (it will always decode as ""), which exactly matches real AWS's own behavior (Configuration.Description starts empty on Create and is set via UpdateConfiguration, which gopherstack already supports correctly). Pre-existing, not introduced this pass; left as-is rather than removed since gopherstack's own internal Go backend API and non-SDK/raw test callers use the same positional description parameter for convenience.
 - DescribeSharedResources (now callable via aws-sdk-go-v2/service/mq@v1.39.4, the pinned version) always returns an empty sharedResources list: this backend does not model AWS RAM cross-account resource sharing, so there is no real state to report against. This is an honest empty result, not a stub -- BrokerId is still validated against real broker state. UpdateBrokerInput/Output.resourceShareArns (2026-08-29) is accept-and-echo only for the same reason -- there is no real resource-share state for it to affect.
 - 2026-08-29: DescribeBrokerOutput.pendingStorageSize/UpdateBrokerOutput.storageSize semantics assume storage size behaves like EngineVersion/HostInstanceType (stage-then-promote-on-reboot); the pinned SDK's doc text for these fields is terse enough that this is a best-effort interpretation, not a confirmed AWS behavior (real EBS/EFS volume resize is likely asynchronous and NOT reboot-gated in the live service). Flagged for a future pass with access to real AWS behavior to confirm or correct.
+- Docker engine (--mq-engine=docker, 2026-10-03): endpoints are plaintext only (amqp://, tcp:// OpenWire, stomp://, mqtt:// -- no TLS, so no amqps/ssl/+ssl forms), multi-AZ deployment modes run one container and report one broker instance, ActiveMQ AMQP/WSS ports and the ActiveMQ web console are not published, and only the first CreateBroker user is configured: CreateUser/UpdateUser/DeleteUser and broker configurations are not applied to the running container.
 
 ### Deferred
 

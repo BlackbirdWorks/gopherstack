@@ -387,3 +387,81 @@ func BenchmarkGetObject_1MiB(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkUploadPart_5MiB measures backend UploadPart at the 5 MiB minimum part
+// size, without HTTP or compression overhead.
+func BenchmarkUploadPart_5MiB(b *testing.B) {
+	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}).WithSkipMultipartSizeCheck()
+	bucketName := "bench-uploadpart-5m"
+	_, _ = backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+	key := "bench-key"
+	initOut, err := backend.CreateMultipartUpload(b.Context(), &sdk_s3.CreateMultipartUploadInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	partData := bytes.Repeat([]byte("a"), 5*1024*1024)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err = backend.UploadPart(b.Context(), &sdk_s3.UploadPartInput{
+			Bucket:     aws.String(bucketName),
+			Key:        aws.String(key),
+			UploadId:   initOut.UploadId,
+			PartNumber: aws.Int32(1),
+			Body:       bytes.NewReader(partData),
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkGetObjectSizes drives GetObject through the HTTP handler across
+// object sizes and a ranged read.
+func BenchmarkGetObjectSizes(b *testing.B) {
+	tests := []struct {
+		name  string
+		rng   string
+		size  int
+		wantC int
+	}{
+		{"1KiB", "", 1 << 10, http.StatusOK},
+		{"256KiB", "", 256 << 10, http.StatusOK},
+		{"8MiB", "", 8 << 20, http.StatusOK},
+		{"256KiB_range", "bytes=1000-5000", 256 << 10, http.StatusPartialContent},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			handler, backend := benchHandler(b)
+			_, _ = backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String("bkt")})
+			data := bytes.Repeat([]byte("gopherstack-object-0123456789\n"), tt.size/30+1)[:tt.size]
+
+			rec := benchServe(handler, http.MethodPut, "/bkt/k", bytes.NewReader(data))
+			if rec.Code != http.StatusOK {
+				b.Fatalf("setup PutObject failed: %d", rec.Code)
+			}
+
+			b.ReportAllocs()
+			b.SetBytes(int64(tt.size))
+			b.ResetTimer()
+
+			for range b.N {
+				req := httptest.NewRequest(http.MethodGet, "/bkt/k", nil)
+				if tt.rng != "" {
+					req.Header.Set("Range", tt.rng)
+				}
+
+				w := httptest.NewRecorder()
+				serveS3Handler(handler, w, req)
+
+				if w.Code != tt.wantC {
+					b.Fatalf("GetObject status %d", w.Code)
+				}
+			}
+		})
+	}
+}

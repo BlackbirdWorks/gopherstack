@@ -101,8 +101,7 @@ func (b *InMemoryBackend) findDefaultMoveDestinationLocked(dlqARN string) (strin
 
 // approximateQueueDepthLocked returns the approximate number of visible messages in the queue with the given name.
 // Must be called with b.mu held (either read or write).
-func approximateQueueDepthLocked(q *Queue) int64 {
-	now := time.Now()
+func approximateQueueDepthLocked(q *Queue, now time.Time) int64 {
 	visible := 0
 
 	for _, msg := range q.messages {
@@ -150,6 +149,8 @@ func (b *InMemoryBackend) startMessageMoveTaskLocked(
 	b.mu.Lock("StartMessageMoveTask")
 	defer b.mu.Unlock()
 
+	now := b.now()
+
 	// Check for existing running task on the same source ARN (AWS realism).
 	// We check task status while holding both b.mu and t.mu to ensure the
 	// status snapshot is consistent with the subsequent task insertion.
@@ -186,7 +187,7 @@ func (b *InMemoryBackend) startMessageMoveTaskLocked(
 
 	// Snapshot queue depth under the lock so the estimate is consistent.
 	srcQueue, _ := b.lookupQueueByURL("", srcURL)
-	totalCount := approximateQueueDepthLocked(srcQueue)
+	totalCount := approximateQueueDepthLocked(srcQueue, now)
 
 	taskHandle := uuid.NewString()
 
@@ -199,7 +200,7 @@ func (b *InMemoryBackend) startMessageMoveTaskLocked(
 		destArn:    destArn,
 		status:     MoveTaskStatusRunning,
 		maxPerSec:  input.MaxNumberOfMessagesPerSecond,
-		startedAt:  time.Now().UnixMilli(),
+		startedAt:  now.UnixMilli(),
 		totalCount: totalCount,
 	}
 

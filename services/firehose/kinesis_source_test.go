@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,89 +112,93 @@ func totalRecords(t *testing.T, b *firehose.InMemoryBackend, streamName string) 
 func TestFirehose_KinesisSource_PollerDeliversSingleRecord(t *testing.T) {
 	t.Parallel()
 
-	b := newFirehoseBackend(t)
-	kinesis := &mockKinesisReader{}
-	kinesis.addRecords([]byte("record-1"))
+	synctest.Test(t, func(t *testing.T) {
+		b := newFirehoseBackend(t)
+		kinesis := &mockKinesisReader{}
+		kinesis.addRecords([]byte("record-1"))
 
-	b.SetKinesisBackend(kinesis)
+		b.SetKinesisBackend(kinesis)
 
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/my-stream"
-	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
-		Name:               "poll-stream",
-		DeliveryStreamType: "KinesisStreamAsSource",
-		Source: &firehose.SourceDescription{
-			KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
-				KinesisStreamARN: streamARN,
+		streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/my-stream"
+		_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
+			Name:               "poll-stream",
+			DeliveryStreamType: "KinesisStreamAsSource",
+			Source: &firehose.SourceDescription{
+				KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
+					KinesisStreamARN: streamARN,
+				},
 			},
-		},
+		})
+		require.NoError(t, err)
+
+		// The poller delivers the record on its first pass, then blocks on
+		// its next-poll timer once the shard is drained.
+		synctest.Wait()
+
+		assert.Equal(t, int64(1), totalRecords(t, b, "poll-stream"))
 	})
-	require.NoError(t, err)
-
-	// Wait for the poller to deliver the record.
-	require.Eventually(t, func() bool {
-		return totalRecords(t, b, "poll-stream") >= 1
-	}, 3*time.Second, 50*time.Millisecond, "poller should deliver records from Kinesis to Firehose")
-
-	assert.Equal(t, int64(1), totalRecords(t, b, "poll-stream"))
 }
 
 func TestFirehose_KinesisSource_PollerDeliversManyRecords(t *testing.T) {
 	t.Parallel()
 
-	b := newFirehoseBackend(t)
-	kinesis := &mockKinesisReader{}
-	kinesis.addRecords([]byte("a"), []byte("b"), []byte("c"))
+	synctest.Test(t, func(t *testing.T) {
+		b := newFirehoseBackend(t)
+		kinesis := &mockKinesisReader{}
+		kinesis.addRecords([]byte("a"), []byte("b"), []byte("c"))
 
-	b.SetKinesisBackend(kinesis)
+		b.SetKinesisBackend(kinesis)
 
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/multi-stream"
-	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
-		Name:               "multi-poll-stream",
-		DeliveryStreamType: "KinesisStreamAsSource",
-		Source: &firehose.SourceDescription{
-			KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
-				KinesisStreamARN: streamARN,
+		streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/multi-stream"
+		_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
+			Name:               "multi-poll-stream",
+			DeliveryStreamType: "KinesisStreamAsSource",
+			Source: &firehose.SourceDescription{
+				KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
+					KinesisStreamARN: streamARN,
+				},
 			},
-		},
+		})
+		require.NoError(t, err)
+
+		synctest.Wait()
+
+		assert.Equal(t, int64(3), totalRecords(t, b, "multi-poll-stream"))
 	})
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		return totalRecords(t, b, "multi-poll-stream") >= 3
-	}, 3*time.Second, 50*time.Millisecond, "poller should deliver all 3 records")
-
-	assert.Equal(t, int64(3), totalRecords(t, b, "multi-poll-stream"))
 }
 
 func TestFirehose_KinesisSource_DeleteStopsPoller(t *testing.T) {
 	t.Parallel()
 
-	b := newFirehoseBackend(t)
-	kinesis := &mockKinesisReader{} // no records, infinite polling
+	synctest.Test(t, func(t *testing.T) {
+		b := newFirehoseBackend(t)
+		kinesis := &mockKinesisReader{} // no records, infinite polling
 
-	b.SetKinesisBackend(kinesis)
+		b.SetKinesisBackend(kinesis)
 
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/stop-stream"
-	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
-		Name:               "stop-poll-stream",
-		DeliveryStreamType: "KinesisStreamAsSource",
-		Source: &firehose.SourceDescription{
-			KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
-				KinesisStreamARN: streamARN,
+		streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/stop-stream"
+		_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
+			Name:               "stop-poll-stream",
+			DeliveryStreamType: "KinesisStreamAsSource",
+			Source: &firehose.SourceDescription{
+				KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
+					KinesisStreamARN: streamARN,
+				},
 			},
-		},
+		})
+		require.NoError(t, err)
+
+		// Let the poller reach its idle wait before deleting.
+		synctest.Wait()
+
+		err = b.DeleteDeliveryStream(context.TODO(), "stop-poll-stream")
+		require.NoError(t, err)
+		synctest.Wait()
+
+		// Verify stream is gone and no panic.
+		_, err = b.DescribeDeliveryStream(context.TODO(), "stop-poll-stream")
+		assert.Error(t, err)
 	})
-	require.NoError(t, err)
-
-	// Wait a bit then delete.
-	time.Sleep(50 * time.Millisecond)
-
-	err = b.DeleteDeliveryStream(context.TODO(), "stop-poll-stream")
-	require.NoError(t, err)
-
-	// Verify stream is gone and no panic.
-	_, err = b.DescribeDeliveryStream(context.TODO(), "stop-poll-stream")
-	assert.Error(t, err)
 }
 
 func TestFirehose_KinesisSource_NoBackendDoesNotStart(t *testing.T) {
@@ -296,25 +300,28 @@ func TestFirehose_KinesisSource_DirectPutUnaffected(t *testing.T) {
 func TestFirehose_KinesisSource_ListShardsError_NoBlock(t *testing.T) {
 	t.Parallel()
 
-	b := newFirehoseBackend(t)
-	kinesis := &mockKinesisReader{listErr: errAccessDenied}
-	b.SetKinesisBackend(kinesis)
+	synctest.Test(t, func(t *testing.T) {
+		b := newFirehoseBackend(t)
+		kinesis := &mockKinesisReader{listErr: errAccessDenied}
+		b.SetKinesisBackend(kinesis)
 
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/error-stream"
-	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
-		Name:               "error-stream",
-		DeliveryStreamType: "KinesisStreamAsSource",
-		Source: &firehose.SourceDescription{
-			KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
-				KinesisStreamARN: streamARN,
+		streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/error-stream"
+		_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
+			Name:               "error-stream",
+			DeliveryStreamType: "KinesisStreamAsSource",
+			Source: &firehose.SourceDescription{
+				KinesisStreamSourceDescription: &firehose.KinesisStreamSourceDescription{
+					KinesisStreamARN: streamARN,
+				},
 			},
-		},
+		})
+		require.NoError(t, err, "CreateDeliveryStream must succeed even when Kinesis polling will fail")
+
+		// ListShards fails synchronously, so the poller goroutine exits
+		// immediately without ever polling for records.
+		synctest.Wait()
+
+		// No panic, no records.
+		assert.Equal(t, int64(0), totalRecords(t, b, "error-stream"))
 	})
-	require.NoError(t, err, "CreateDeliveryStream must succeed even when Kinesis polling will fail")
-
-	// Give the goroutine time to attempt and fail.
-	time.Sleep(100 * time.Millisecond)
-
-	// No panic, no records.
-	assert.Equal(t, int64(0), totalRecords(t, b, "error-stream"))
 }

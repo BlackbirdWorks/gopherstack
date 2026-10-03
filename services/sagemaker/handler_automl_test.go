@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -156,6 +159,55 @@ func TestHandler_DescribeAutoMLJob_ModelDeployConfigRoundTrip(t *testing.T) {
 	deployConfig, ok := resp["ModelDeployConfig"].(map[string]any)
 	require.True(t, ok, "DescribeAutoMLJob must return ModelDeployConfig when set")
 	assert.Equal(t, "my-endpoint", deployConfig["EndpointName"])
+}
+
+// TestHandler_CreateAutoMLJob_AutoMLJobConfig_RealClient asserts
+// AutoMLJobConfig's DataSplitConfig/SecurityConfig round-trip through DescribeAutoMLJob.
+func TestHandler_CreateAutoMLJob_AutoMLJobConfig_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateAutoMLJob(t.Context(), &sagemakersdk.CreateAutoMLJobInput{
+		AutoMLJobName: aws.String("automl-job-config"),
+		RoleArn:       aws.String("arn:aws:iam::000000000000:role/test"),
+		InputDataConfig: []smtypes.AutoMLChannel{
+			{
+				TargetAttributeName: aws.String("target"),
+				DataSource: &smtypes.AutoMLDataSource{
+					S3DataSource: &smtypes.AutoMLS3DataSource{
+						S3DataType: smtypes.AutoMLS3DataTypeS3Prefix,
+						S3Uri:      aws.String("s3://bucket/train/"),
+					},
+				},
+			},
+		},
+		OutputDataConfig: &smtypes.AutoMLOutputDataConfig{S3OutputPath: aws.String("s3://bucket/output/")},
+		AutoMLJobConfig: &smtypes.AutoMLJobConfig{
+			DataSplitConfig: &smtypes.AutoMLDataSplitConfig{ValidationFraction: aws.Float32(0.3)},
+			SecurityConfig: &smtypes.AutoMLSecurityConfig{
+				EnableInterContainerTrafficEncryption: aws.Bool(true),
+				VolumeKmsKeyId:                        aws.String("arn:aws:kms:us-east-1:000000000000:key/test"),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeAutoMLJob(t.Context(), &sagemakersdk.DescribeAutoMLJobInput{
+		AutoMLJobName: aws.String("automl-job-config"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.AutoMLJobConfig)
+	require.NotNil(t, out.AutoMLJobConfig.DataSplitConfig)
+	assert.InDelta(t, 0.3, aws.ToFloat32(out.AutoMLJobConfig.DataSplitConfig.ValidationFraction), 0.001)
+	require.NotNil(t, out.AutoMLJobConfig.SecurityConfig)
+	assert.True(t, aws.ToBool(out.AutoMLJobConfig.SecurityConfig.EnableInterContainerTrafficEncryption))
+	assert.Equal(
+		t,
+		"arn:aws:kms:us-east-1:000000000000:key/test",
+		aws.ToString(out.AutoMLJobConfig.SecurityConfig.VolumeKmsKeyId),
+	)
 }
 
 func TestHandler_StopAutoMLJob(t *testing.T) {

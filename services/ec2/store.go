@@ -25,6 +25,8 @@ var (
 	ErrInvalidParameter          = errors.New("InvalidParameterValue")
 	ErrDuplicateSGName           = errors.New("InvalidGroup.Duplicate")
 	ErrInvalidInstanceState      = errors.New("IncorrectInstanceState")
+	ErrUnsupportedHibernation    = errors.New("UnsupportedHibernationConfiguration")
+	ErrDefaultSubnetExists       = errors.New("DefaultSubnetAlreadyExistsInAvailabilityZone")
 	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
 	ErrSubnetCIDRConflict        = errors.New("InvalidSubnet.Conflict")
 	ErrVpcCIDRRange              = errors.New("InvalidVpc.Range")
@@ -188,6 +190,8 @@ type Instance struct {
 	DisableAPITermination bool `json:"disableApiTermination,omitempty"`
 	DisableAPIStop        bool `json:"disableApiStop,omitempty"`
 	EBSOptimized          bool `json:"ebsOptimized,omitempty"`
+	// HibernationConfigured mirrors RunInstances HibernationOptions.Configured.
+	HibernationConfigured bool `json:"hibernationConfigured,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template. ImageID/InstanceType mirror
@@ -313,6 +317,8 @@ type Subnet struct {
 	Arn                 string `json:"arn,omitempty"`
 	IsDefault           bool   `json:"isDefault,omitempty"`
 	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch,omitempty"`
+	// Ipv6Native marks an IPv6-only subnet (no IPv4 CIDR block).
+	Ipv6Native bool `json:"ipv6Native,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
@@ -325,6 +331,8 @@ type InMemoryBackend struct {
 	// comment for why this must be lazy rather than resolved at
 	// construction time.
 	appConfig                           any
+	regionBackend                       func(region string) *InMemoryBackend
+	allBackends                         func() []*InMemoryBackend
 	addressTransfers                    map[string]*AddressTransfer
 	capacityReservations                *store.Table[CapacityReservation]
 	vpcs                                *store.Table[VPC]

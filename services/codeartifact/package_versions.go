@@ -23,16 +23,15 @@ func packageVersionKey(domainName, repoName, format, namespace, name, version st
 	return packageKey(domainName, repoName, format, namespace, name) + "/" + version
 }
 
-// DescribePackageVersion returns a specific version of a package.
-// As with DescribePackage, stub entries are created on demand.
+// DescribePackageVersion returns a published version, or ResourceNotFoundException.
 func (b *InMemoryBackend) DescribePackageVersion(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version string,
 ) (*PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("DescribePackageVersion")
-	defer b.mu.Unlock()
+	b.mu.RLock("DescribePackageVersion")
+	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
@@ -41,34 +40,7 @@ func (b *InMemoryBackend) DescribePackageVersion(
 	vKey := packageVersionKey(domainName, repoName, format, namespace, name, version)
 	pv, ok := b.packageVersions.Get(regionKey(region, vKey))
 	if !ok {
-		// Auto-create a stub version entry.
-		pv = &PackageVersion{
-			DomainName:  domainName,
-			Repository:  repoName,
-			Format:      format,
-			Namespace:   namespace,
-			PackageName: name,
-			Version:     version,
-			Status:      packageVersionStatusPublished,
-			PublishedAt: time.Now().UTC(),
-			Revision:    uuid.NewString()[:8],
-			region:      region,
-		}
-		b.packageVersions.Put(pv)
-
-		// Ensure the parent package record exists too.
-		pKey := packageKey(domainName, repoName, format, namespace, name)
-		if !b.packages.Has(regionKey(region, pKey)) {
-			b.packages.Put(&Package{
-				DomainName:  domainName,
-				DomainOwner: b.accountID,
-				Repository:  repoName,
-				Format:      format,
-				Namespace:   namespace,
-				Name:        name,
-				region:      region,
-			})
-		}
+		return nil, fmt.Errorf("%w: package version %s not found", ErrNotFound, version)
 	}
 	cp := *pv
 
@@ -219,12 +191,10 @@ func (b *InMemoryBackend) DisposePackageVersions(
 // status (real ListPackageVersionsInput.Status, serializers.go's
 // SetQuery("status")) and reordered by publish time (real
 // ListPackageVersionsInput.SortBy, which has exactly one enum value,
-// PUBLISHED_TIME -- serializers.go's SetQuery("sortBy")). OriginType is a
-// real filter member too but this backend has no per-version origin concept
-// to source it from -- disclosed in PARITY.md rather than fabricated.
+// PUBLISHED_TIME -- serializers.go's SetQuery("sortBy")) and originType.
 func (b *InMemoryBackend) ListPackageVersions(
 	ctx context.Context,
-	domainName, repoName, format, namespace, name, status, sortBy string,
+	domainName, repoName, format, namespace, name, status, sortBy, originType string,
 ) ([]*PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
@@ -239,23 +209,7 @@ func (b *InMemoryBackend) ListPackageVersions(
 	result := make([]*PackageVersion, 0, len(entries))
 
 	for _, pv := range entries {
-		if pv.DomainName != domainName || pv.Repository != repoName {
-			continue
-		}
-
-		if format != "" && pv.Format != format {
-			continue
-		}
-
-		if namespace != "" && pv.Namespace != namespace {
-			continue
-		}
-
-		if name != "" && pv.PackageName != name {
-			continue
-		}
-
-		if status != "" && pv.Status != status {
+		if !versionMatchesFilters(pv, domainName, repoName, format, namespace, name, status, originType) {
 			continue
 		}
 
@@ -479,14 +433,8 @@ func (b *InMemoryBackend) GetPackageVersionReadme(
 	return readme, &cp, nil
 }
 
-// PublishPackageVersion creates or updates a package version in the backend and
-// upserts the uploaded asset (by name) into its Assets list. Unlike
-// DescribePackageVersion's auto-create fallback, this is the real entry point AWS
-// clients use to create a version, so it validates the repository exists first.
-// resolvePublishStatus applies PublishPackageVersionInput.Unfinished's documented
-// semantics (api_op_PublishPackageVersion.go:15-19): unfinished=true keeps the
-// version in the Unfinished state until an upload omits the flag, but once a
-// version reaches Published it can never revert to Unfinished.
+// resolvePublishStatus applies PublishPackageVersionInput.Unfinished
+// (api_op_PublishPackageVersion.go:15-19); Published never reverts to Unfinished.
 func resolvePublishStatus(existingStatus string, exists bool, unfinished bool) string {
 	if exists && existingStatus == packageVersionStatusPublished {
 		return packageVersionStatusPublished
@@ -499,6 +447,7 @@ func resolvePublishStatus(existingStatus string, exists bool, unfinished bool) s
 	return packageVersionStatusPublished
 }
 
+// PublishPackageVersion creates or updates a version and upserts its asset by name.
 func (b *InMemoryBackend) PublishPackageVersion(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version string,
@@ -537,6 +486,9 @@ func (b *InMemoryBackend) PublishPackageVersion(
 			Revision:    uuid.NewString()[:8],
 			PublishedAt: time.Now().UTC(),
 			region:      region,
+
+			OriginType:       originTypeInternal,
+			OriginRepository: repoName,
 		}
 		b.packageVersions.Put(pv)
 	} else {
@@ -604,4 +556,45 @@ func (b *InMemoryBackend) UpdatePackageVersionsStatus(
 	}
 
 	return successful, failed, nil
+}
+
+const (
+	originTypeInternal = "INTERNAL"
+	originTypeExternal = "EXTERNAL"
+	originTypeUnknown  = "UNKNOWN"
+)
+
+// validOriginType reports whether v is a PackageVersionOriginType enum value.
+func validOriginType(v string) bool {
+	return v == originTypeInternal || v == originTypeExternal || v == originTypeUnknown
+}
+
+func versionOriginType(pv *PackageVersion) string {
+	if pv.OriginType == "" {
+		return originTypeUnknown
+	}
+
+	return pv.OriginType
+}
+
+func versionMatchesFilters(
+	pv *PackageVersion,
+	domainName, repoName, format, namespace, name, status, originType string,
+) bool {
+	switch {
+	case pv.DomainName != domainName || pv.Repository != repoName:
+		return false
+	case format != "" && pv.Format != format:
+		return false
+	case namespace != "" && pv.Namespace != namespace:
+		return false
+	case name != "" && pv.PackageName != name:
+		return false
+	case status != "" && pv.Status != status:
+		return false
+	case originType != "" && versionOriginType(pv) != originType:
+		return false
+	}
+
+	return true
 }

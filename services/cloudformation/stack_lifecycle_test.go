@@ -881,7 +881,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	// Create instances.
 	accounts := []string{"111111111111", "222222222222"}
 	regions := []string{"us-east-1", "us-west-2"}
-	_, err = b.CreateStackInstances(t.Context(), "my-ss", accounts, nil, regions)
+	_, err = b.CreateStackInstances(t.Context(), "my-ss", accounts, nil, regions, "")
 	require.NoError(t, err)
 
 	instances, err := b.ListStackInstances("my-ss", 0, "", cloudformation.ListStackInstancesFilter{})
@@ -899,7 +899,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "ACTIVE", updated.Status)
 
 	// Delete instances.
-	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, nil, regions, false)
+	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, nil, regions, false, "")
 	require.NoError(t, err)
 
 	remaining, err := b.ListStackInstances("my-ss", 0, "", cloudformation.ListStackInstancesFilter{})
@@ -1120,18 +1120,36 @@ func TestDescribeAccountLimits(t *testing.T) {
 func TestRollbackStack(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
-	_, err := b.CreateStack(
-		t.Context(),
-		"rb-stack",
-		simpleTemplate,
-		nil,
-		cloudformation.StackOptions{},
-	)
-	require.NoError(t, err)
+	tests := []struct {
+		name       string
+		template   string
+		wantStatus string
+		wantErr    bool
+	}{
+		{name: "create_failed", template: cfnCyclicTemplate, wantStatus: "ROLLBACK_COMPLETE"},
+		{name: "create_complete_rejected", template: simpleTemplate, wantErr: true},
+	}
 
-	_, err = b.RollbackStack(t.Context(), "rb-stack")
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.CreateStack(
+				t.Context(), "rb-stack", tt.template, nil, cloudformation.StackOptions{DisableRollback: true},
+			)
+			require.NoError(t, err)
+
+			stack, err := b.RollbackStack(t.Context(), "rb-stack", false)
+			if tt.wantErr {
+				require.ErrorIs(t, err, cloudformation.ErrRollbackStackInvalidState)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, stack.StackStatus)
+		})
+	}
 }
 
 // ---- GetTemplate --------------------------------------------------------------

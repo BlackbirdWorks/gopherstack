@@ -95,10 +95,37 @@ func extractDurableExecPathID(path, prefix string) string {
 	return decoded
 }
 
+// durableExecARNPathSuffixes are the known trailing segments appended after
+// {DurableExecutionArn} under lambdaDurableExecPathPrefix.
+//
+//nolint:gochecknoglobals // static route-suffix table, mirrors lambdaOpRoutes
+var durableExecARNPathSuffixes = []string{"/checkpoint", "/stop", "/history", "/state"}
+
 // extractDurableExecARN extracts the DurableExecutionArn from a
-// /2025-12-01/durable-executions/{encodedARN}[/...] path.
+// /2025-12-01/durable-executions/{encodedARN}[/...] path. Unlike
+// extractDurableExecPathID (used for CallbackId, a simple opaque token), this
+// cannot split on the first "/": a real DurableExecutionArn legitimately
+// contains "/" itself (AWS's own shape is
+// "...:function:name:$LATEST/durable-execution/<uuid>/<uuid>" — verified
+// against a real EventBridge "Durable Execution Status Change" event
+// sample), so only a known trailing suffix may be stripped.
 func extractDurableExecARN(path string) string {
-	return extractDurableExecPathID(path, lambdaDurableExecPathPrefix)
+	rest := strings.TrimPrefix(path, lambdaDurableExecPathPrefix+"/")
+
+	for _, suffix := range durableExecARNPathSuffixes {
+		if trimmed, ok := strings.CutSuffix(rest, suffix); ok {
+			rest = trimmed
+
+			break
+		}
+	}
+
+	decoded, err := url.PathUnescape(rest)
+	if err != nil {
+		return rest
+	}
+
+	return decoded
 }
 
 // extractDurableExecCallbackID extracts the CallbackId from a
@@ -166,6 +193,100 @@ func durableExecFromBackend(h *Handler) *durableExecutionStore {
 	}
 
 	return bk.durableExecs
+}
+
+// resolveDurableFunction resolves name/qualifier to a durable function's
+// config, or ok=false when the qualifier doesn't resolve or the resolved
+// function isn't durable. A resolution failure isn't itself surfaced here:
+// the real invoke path resolves the identical qualifier right after and
+// produces the correct error response for an unknown qualifier on its own.
+func resolveDurableFunction(bk *InMemoryBackend, name, qualifier string) (*FunctionConfiguration, bool) {
+	resolved, err := bk.resolveQualifier(name, qualifier)
+	if err != nil {
+		return nil, false
+	}
+
+	return resolved, resolved.DurableConfig != nil
+}
+
+// startDurableInvokeExecution is Invoke's half of the durable-execution
+// family (PARITY.md durable_execution items_still_open): when name resolves
+// to a function with DurableConfig set, it starts or reuses a
+// DurableExecution per the documented idempotency table and returns its
+// ARN. Returns ("", nil, nil) for a non-durable function or a DryRun
+// invocation (DryRun never executes, so it never starts an execution). A
+// non-nil reused return means the caller must not invoke the function body
+// again (an idempotent-replay hit); a non-nil error is
+// ErrDurableExecutionAlreadyStarted (name reused with a different payload).
+func (h *Handler) startDurableInvokeExecution(
+	name, qualifier, invType, execName string, body []byte,
+) (string, *DurableExecution, error) {
+	if invType == InvocationTypeDryRun {
+		return "", nil, nil
+	}
+
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok || bk.durableExecs == nil {
+		return "", nil, nil
+	}
+
+	resolved, isDurable := resolveDurableFunction(bk, name, qualifier)
+	if !isDurable {
+		return "", nil, nil
+	}
+
+	invokedQualifier := qualifier
+	if invokedQualifier == "" {
+		invokedQualifier = versionLatest
+	}
+
+	invokedARN := buildARN(h.DefaultRegion, h.AccountID, name) + ":" + invokedQualifier
+	functionARN := buildARN(h.DefaultRegion, h.AccountID, name) + ":" + resolved.Version
+
+	ex, isReuse, startErr := bk.durableExecs.startOrReuseExecution(
+		invokedARN, functionARN, resolved.Version, execName, resolved.DurableConfig, body,
+	)
+	if startErr != nil {
+		return "", nil, startErr
+	}
+
+	if isReuse {
+		return ex.ARN, ex, nil
+	}
+
+	return ex.ARN, nil, nil
+}
+
+// completeDurableInvokeExecution records a freshly-completed synchronous
+// invocation's real result against the durable execution arn identifies.
+func (h *Handler) completeDurableInvokeExecution(arn string, succeeded bool, result []byte) {
+	if store := durableExecFromBackend(h); store != nil {
+		store.completeExecution(arn, succeeded, string(result))
+	}
+}
+
+// replayClosedDurableExecution builds the Invoke response for an
+// idempotent-replay hit against an already-closed DurableExecution (real
+// AWS: "the closed execution result is returned" — no re-invocation).
+// InvocationType=Event has no response body regardless of the execution's
+// outcome, matching a fresh async accept.
+func replayClosedDurableExecution(ex *DurableExecution, invType string) ([]byte, string, int) {
+	if invType == InvocationTypeEvent {
+		return nil, "", http.StatusAccepted
+	}
+
+	if ex.Status == DurableExecutionStatusSucceeded {
+		return []byte(ex.Result), "", http.StatusOK
+	}
+
+	msg := ""
+	if ex.Error != nil {
+		msg = ptrconv.String(ex.Error.ErrorMessage)
+	}
+
+	payload, _ := json.Marshal(map[string]string{"errorMessage": msg})
+
+	return payload, "Unhandled", http.StatusOK
 }
 
 // handleCheckpointDurableExecution handles POST /2025-12-01/durable-executions/{arn}/checkpoint.
@@ -268,8 +389,20 @@ func (h *Handler) handleListDurableExecutionsByFunction(c *echo.Context, functio
 	}
 
 	functionARN := buildARN(h.DefaultRegion, h.AccountID, functionName)
+
+	versionFilter := ""
+	if qualifier := q.Get("Qualifier"); qualifier != "" {
+		versionFilter = qualifier
+
+		if bk, ok := h.Backend.(*InMemoryBackend); ok {
+			if resolved, rErr := bk.resolveQualifier(functionName, qualifier); rErr == nil {
+				versionFilter = resolved.Version
+			}
+		}
+	}
+
 	summaries := store.listSummaries(
-		functionARN, q.Get("DurableExecutionName"), statuses,
+		functionARN, q.Get("DurableExecutionName"), versionFilter, statuses,
 		startedAfter, startedBefore, q.Get("ReverseOrder") == "true",
 	)
 

@@ -46,8 +46,10 @@ type sdkField struct {
 // Only top-level Input fields are captured -- a disclosed scope limit, see
 // the package doc.
 type sdkOp struct {
-	Name   string
-	Fields []sdkField
+	WireKeys map[string][]string
+	Payload  map[string]bool
+	Name     string
+	Fields   []sdkField
 }
 
 var fieldNameRe = regexp.MustCompile(`^([A-Z]\w*)\s+(.+)$`)
@@ -144,6 +146,7 @@ func loadSDKOps(modPath string) ([]sdkOp, error) {
 	}
 
 	sort.Slice(ops, func(i, j int) bool { return ops[i].Name < ops[j].Name })
+	attachWireKeys(ops, loadWireKeys(modPath))
 
 	return ops, nil
 }

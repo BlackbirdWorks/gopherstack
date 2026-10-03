@@ -268,7 +268,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	var apiErr *apiError
+
 	switch {
+	case errors.As(err, &apiErr):
+		payload, _ := json.Marshal(map[string]string{keyTypeField: apiErr.code, keyMessageField: apiErr.msg})
+
+		return c.JSONBlob(apiErr.status, payload)
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "TransactionNotFoundException",
@@ -420,6 +426,8 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
+	ctx = withRequestTarget(ctx, req.SecretArn, req.Database)
+
 	if req.ResultSetOptions != nil {
 		ctx = context.WithValue(ctx, resultSetOptionsContextKey{}, resultSetOptions{
 			DecimalReturnType: req.ResultSetOptions.DecimalReturnType,
@@ -499,6 +507,10 @@ func formatRecordsAsJSONString(records [][]Field, columns []ColumnMetadata) (str
 // are base64-encoded, matching how JSON (which has no binary type) must
 // represent them.
 func fieldToJSONValue(f Field) any {
+	if f.ArrayValue != nil {
+		return arrayToJSONValue(f.ArrayValue)
+	}
+
 	if f.BlobValue != nil {
 		return base64.StdEncoding.EncodeToString(f.BlobValue)
 	}
@@ -544,6 +556,8 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		}
 	}
 
+	ctx = withRequestTarget(ctx, req.SecretArn, req.Database)
+
 	results, err := h.Backend.BatchExecuteStatement(ctx, req.ResourceArn, req.SQL, req.TransactionID, req.ParameterSets)
 	if err != nil {
 		return nil, err
@@ -575,6 +589,8 @@ func (h *Handler) handleBeginTransaction(ctx context.Context, body []byte) ([]by
 	); err != nil {
 		return nil, err
 	}
+
+	ctx = withRequestTarget(ctx, req.SecretArn, req.Database)
 
 	txID, err := h.Backend.BeginTransaction(ctx, req.ResourceArn)
 	if err != nil {
@@ -680,4 +696,24 @@ func (h *Handler) handleExecuteSQL(ctx context.Context, body []byte) ([]byte, er
 	}
 
 	return json.Marshal(executeSQLResponse{SQLStatementResults: results})
+}
+
+func arrayToJSONValue(a *ArrayValue) any {
+	switch {
+	case a.LongValues != nil:
+		return a.LongValues
+	case a.DoubleValues != nil:
+		return a.DoubleValues
+	case a.BooleanValues != nil:
+		return a.BooleanValues
+	case a.StringValues != nil:
+		return a.StringValues
+	default:
+		nested := make([]any, len(a.ArrayValues))
+		for i := range a.ArrayValues {
+			nested[i] = arrayToJSONValue(&a.ArrayValues[i])
+		}
+
+		return nested
+	}
 }

@@ -258,7 +258,7 @@ func (h *Handler) handleDescribeCapacityBlocks(vals url.Values, reqID string) (a
 	ids := parseMemberList(vals, "CapacityBlockId")
 	filters := parseEC2Filters(vals)
 
-	blocks := h.Backend.DescribeCapacityBlocks(ids, filters)
+	blocks := applyCapacityBlockDateFilters(h.Backend.DescribeCapacityBlocks(ids, filters), filters)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -360,7 +360,9 @@ func (h *Handler) handleDescribeCapacityBlockExtensionHistory(vals url.Values, r
 	ids := parseMemberList(vals, "CapacityReservationId")
 	filters := parseEC2Filters(vals)
 
-	exts := h.Backend.DescribeCapacityBlockExtensionHistory(ids, filters)
+	exts := applyCapacityBlockExtensionOfferingFilter(
+		h.Backend.DescribeCapacityBlockExtensionHistory(ids, filters), filters,
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

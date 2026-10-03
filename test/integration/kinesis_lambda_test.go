@@ -30,6 +30,7 @@ func TestIntegration_Kinesis_EventSourceMapping(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, kinesisClient, streamName)
 
 	// Get stream ARN
 	descOut, err := kinesisClient.DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
@@ -112,6 +113,7 @@ func TestIntegration_Kinesis_EventSourceMapping_WithRecords(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, kinesisClient, streamName)
 
 	// Get stream ARN
 	descOut, err := kinesisClient.DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{

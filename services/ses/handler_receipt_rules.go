@@ -137,17 +137,22 @@ func parseReceiptActions(vals url.Values, prefix string) []ReceiptAction {
 				S3BucketName: vals.Get(idx + ".S3Action.BucketName"),
 				S3KeyPrefix:  vals.Get(idx + ".S3Action.ObjectKeyPrefix"),
 				S3TopicARN:   vals.Get(idx + ".S3Action.TopicArn"),
+				S3IAMRoleARN: vals.Get(idx + ".S3Action.IamRoleArn"),
+				S3KMSKeyARN:  vals.Get(idx + ".S3Action.KmsKeyArn"),
 			}
 		case hasPrefixedKey(vals, idx+".SNSAction."):
 			action = ReceiptAction{
 				Type:        ReceiptActionTypeSNS,
 				SNSTopicARN: vals.Get(idx + ".SNSAction.TopicArn"),
+				SNSEncoding: vals.Get(idx + ".SNSAction.Encoding"),
 			}
 		case hasPrefixedKey(vals, idx+".LambdaAction."):
 			action = ReceiptAction{
 				Type:              ReceiptActionTypeLambda,
 				LambdaFunctionARN: vals.Get(idx + ".LambdaAction.FunctionArn"),
 				LambdaTopicARN:    vals.Get(idx + ".LambdaAction.TopicArn"),
+
+				LambdaInvocationType: vals.Get(idx + ".LambdaAction.InvocationType"),
 			}
 		case hasPrefixedKey(vals, idx+".AddHeaderAction."):
 			action = ReceiptAction{
@@ -163,6 +168,18 @@ func parseReceiptActions(vals url.Values, prefix string) []ReceiptAction {
 				Message:        vals.Get(idx + ".BounceAction.Message"),
 				Sender:         vals.Get(idx + ".BounceAction.Sender"),
 				BounceTopicARN: vals.Get(idx + ".BounceAction.TopicArn"),
+			}
+		case hasPrefixedKey(vals, idx+".WorkmailAction."):
+			action = ReceiptAction{
+				Type:                    ReceiptActionTypeWorkmail,
+				WorkmailOrganizationARN: vals.Get(idx + ".WorkmailAction.OrganizationArn"),
+				WorkmailTopicARN:        vals.Get(idx + ".WorkmailAction.TopicArn"),
+			}
+		case hasPrefixedKey(vals, idx+".ConnectAction."):
+			action = ReceiptAction{
+				Type:               ReceiptActionTypeConnect,
+				ConnectIAMRoleARN:  vals.Get(idx + ".ConnectAction.IAMRoleARN"),
+				ConnectInstanceARN: vals.Get(idx + ".ConnectAction.InstanceARN"),
 			}
 		case hasPrefixedKey(vals, idx+".StopAction."):
 			action = ReceiptAction{
@@ -211,11 +228,21 @@ func receiptActionToXML(a ReceiptAction) xmlReceiptAction {
 			BucketName:      a.S3BucketName,
 			ObjectKeyPrefix: a.S3KeyPrefix,
 			TopicARN:        a.S3TopicARN,
+			IAMRoleARN:      a.S3IAMRoleARN,
+			KMSKeyARN:       a.S3KMSKeyARN,
 		}
 	case ReceiptActionTypeSNS:
-		x.SNSAction = &xmlSNSAction{TopicARN: a.SNSTopicARN}
+		x.SNSAction = &xmlSNSAction{TopicARN: a.SNSTopicARN, Encoding: a.SNSEncoding}
 	case ReceiptActionTypeLambda:
-		x.LambdaAction = &xmlLambdaAction{FunctionARN: a.LambdaFunctionARN, TopicARN: a.LambdaTopicARN}
+		x.LambdaAction = &xmlLambdaAction{
+			FunctionARN:    a.LambdaFunctionARN,
+			TopicARN:       a.LambdaTopicARN,
+			InvocationType: a.LambdaInvocationType,
+		}
+	case ReceiptActionTypeWorkmail:
+		x.WorkmailAction = &xmlWorkmailAction{OrganizationARN: a.WorkmailOrganizationARN, TopicARN: a.WorkmailTopicARN}
+	case ReceiptActionTypeConnect:
+		x.ConnectAction = &xmlConnectAction{IAMRoleARN: a.ConnectIAMRoleARN, InstanceARN: a.ConnectInstanceARN}
 	case ReceiptActionTypeAddHeader:
 		x.AddHeaderAction = &xmlAddHeaderAction{HeaderName: a.HeaderName, HeaderValue: a.HeaderValue}
 	case ReceiptActionTypeBounce:
@@ -267,15 +294,29 @@ type xmlS3Action struct {
 	BucketName      string `xml:"BucketName"`
 	ObjectKeyPrefix string `xml:"ObjectKeyPrefix,omitempty"`
 	TopicARN        string `xml:"TopicArn,omitempty"`
+	IAMRoleARN      string `xml:"IamRoleArn,omitempty"`
+	KMSKeyARN       string `xml:"KmsKeyArn,omitempty"`
 }
 
 type xmlSNSAction struct {
 	TopicARN string `xml:"TopicArn"`
+	Encoding string `xml:"Encoding,omitempty"`
 }
 
 type xmlLambdaAction struct {
-	FunctionARN string `xml:"FunctionArn"`
-	TopicARN    string `xml:"TopicArn,omitempty"`
+	FunctionARN    string `xml:"FunctionArn"`
+	TopicARN       string `xml:"TopicArn,omitempty"`
+	InvocationType string `xml:"InvocationType,omitempty"`
+}
+
+type xmlWorkmailAction struct {
+	OrganizationARN string `xml:"OrganizationArn"`
+	TopicARN        string `xml:"TopicArn,omitempty"`
+}
+
+type xmlConnectAction struct {
+	IAMRoleARN  string `xml:"IAMRoleARN"`
+	InstanceARN string `xml:"InstanceARN"`
 }
 
 type xmlAddHeaderAction struct {
@@ -303,6 +344,8 @@ type xmlReceiptAction struct {
 	AddHeaderAction *xmlAddHeaderAction `xml:"AddHeaderAction,omitempty"`
 	BounceAction    *xmlBounceAction    `xml:"BounceAction,omitempty"`
 	StopAction      *xmlStopAction      `xml:"StopAction,omitempty"`
+	WorkmailAction  *xmlWorkmailAction  `xml:"WorkmailAction,omitempty"`
+	ConnectAction   *xmlConnectAction   `xml:"ConnectAction,omitempty"`
 }
 
 type xmlReceiptActionList struct {

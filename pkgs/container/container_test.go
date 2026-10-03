@@ -42,6 +42,8 @@ type mockAPI struct {
 	removeErr   error
 	listErr     error
 	pingErr     error
+	lastCfg     *dockercontainer.Config
+	lastHost    *dockercontainer.HostConfig
 	images      []image.Summary
 	counter     int
 	closeCalled bool
@@ -66,14 +68,16 @@ func (m *mockAPI) ImageList(_ context.Context, _ image.ListOptions) ([]image.Sum
 
 func (m *mockAPI) ContainerCreate(
 	_ context.Context,
-	_ *dockercontainer.Config,
-	_ *dockercontainer.HostConfig,
+	cfg *dockercontainer.Config,
+	host *dockercontainer.HostConfig,
 	_ any,
 	_ any,
 	_ string,
 ) (dockercontainer.CreateResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.lastCfg, m.lastHost = cfg, host
 
 	if m.createErr != nil {
 		return dockercontainer.CreateResponse{}, m.createErr
@@ -249,6 +253,83 @@ func TestDockerRuntime_CreateAndStart(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantID, id)
+		})
+	}
+}
+
+func TestDockerRuntime_CreateAndStart_Ports(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantHost string
+		name     string
+		ports    []string
+		wantErr  bool
+	}{
+		{name: "mapped", ports: []string{"19092:9092"}, wantHost: "19092"},
+		{name: "none"},
+		{name: "with_ip", ports: []string{"127.0.0.1:19092:9092"}, wantHost: "19092"},
+		{name: "no_colon", ports: []string{"9092"}, wantErr: true},
+		{name: "bad_ip", ports: []string{"x:1:2"}, wantErr: true},
+		{name: "bad_container_port", ports: []string{"1:x"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := &mockAPI{}
+			rt := newRuntime(api)
+			_, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine", Ports: tt.ports})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, container.ErrInvalidPort)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.wantHost == "" {
+				assert.Empty(t, api.lastHost.PortBindings)
+
+				return
+			}
+
+			require.Len(t, api.lastHost.PortBindings, 1)
+			assert.Len(t, api.lastCfg.ExposedPorts, 1)
+
+			for _, b := range api.lastHost.PortBindings {
+				assert.Equal(t, tt.wantHost, b[0].HostPort)
+			}
+		})
+	}
+}
+
+func TestDockerRuntime_CreateAndStart_PrivilegedTmpfs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		spec  container.Spec
+		priv  bool
+		tmpfs int
+	}{
+		{name: "plain", spec: container.Spec{Image: "alpine"}},
+		{name: "privileged", spec: container.Spec{Image: "alpine", Privileged: true}, priv: true},
+		{name: "tmpfs", spec: container.Spec{Image: "alpine", Tmpfs: []string{"/run", "/var/run"}}, tmpfs: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := &mockAPI{}
+			_, err := newRuntime(api).CreateAndStart(t.Context(), tt.spec)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.priv, api.lastHost.Privileged)
+			assert.Len(t, api.lastHost.Tmpfs, tt.tmpfs)
 		})
 	}
 }

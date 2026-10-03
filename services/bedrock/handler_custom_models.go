@@ -229,6 +229,10 @@ func parseListCustomModelsQuery(c *echo.Context) *ListCustomModelsInput {
 }
 
 func (h *Handler) handleListCustomModels(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	models, outToken := h.Backend.ListCustomModels(parseListCustomModelsQuery(c))
 	summaries := make([]customModelSummaryOutput, 0, len(models))
 

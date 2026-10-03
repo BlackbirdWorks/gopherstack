@@ -35,6 +35,10 @@ func (b *InMemoryBackend) CreateCluster(
 
 	region := getRegion(ctx, b.region)
 
+	var evicted *liveBroker
+
+	defer func() { b.reapDetached(evicted) }()
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
@@ -45,6 +49,7 @@ func (b *InMemoryBackend) CreateCluster(
 	if regionClusters := b.clustersByRegion.Get(region); len(regionClusters) >= maxClustersPerRegion {
 		victim := regionClusters[0]
 		b.clusters.Delete(victim.ClusterArn)
+		evicted = b.detachBrokerLocked(victim.ClusterArn)
 	}
 
 	clusterArn := b.clusterARN(region, name)
@@ -87,6 +92,7 @@ func (b *InMemoryBackend) CreateCluster(
 		cluster.ConfigurationInfo = &ci
 	}
 	b.clusters.Put(cluster)
+	b.launchBrokerLocked(clusterArn, name)
 
 	return cloneCluster(cluster), nil
 }
@@ -142,7 +148,7 @@ func (b *InMemoryBackend) DescribeCluster(_ context.Context, clusterArn string) 
 		return nil, ErrNotFound
 	}
 
-	if c.State == ClusterStateCreating {
+	if _, managed := b.managedBrokerLocked(clusterArn); !managed && c.State == ClusterStateCreating {
 		c.pollCount++
 		if c.pollCount >= 1 {
 			c.State = ClusterStateActive
@@ -187,6 +193,10 @@ func (b *InMemoryBackend) ListClusters(ctx context.Context) []*Cluster {
 // so DescribeVpcConnection/DescribeChannel and the global ListVpcConnections
 // kept returning rows pointing at a deleted cluster.
 func (b *InMemoryBackend) DeleteCluster(_ context.Context, clusterArn string) error {
+	var lb *liveBroker
+
+	defer func() { b.reapDetached(lb) }()
+
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
@@ -195,6 +205,7 @@ func (b *InMemoryBackend) DeleteCluster(_ context.Context, clusterArn string) er
 	}
 
 	b.clusters.Delete(clusterArn)
+	lb = b.detachBrokerLocked(clusterArn)
 	delete(b.scramSecrets, clusterArn)
 	delete(b.clusterPolicies, clusterArn)
 

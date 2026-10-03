@@ -2,6 +2,7 @@ package directoryservice
 
 import (
 	"context"
+	"slices"
 )
 
 // EnableRadius enables RADIUS for a directory.
@@ -26,6 +27,7 @@ func (b *InMemoryBackend) EnableRadius(ctx context.Context, directoryID string, 
 		AuthenticationProtocol: settings.AuthenticationProtocol,
 		DisplayLabel:           settings.DisplayLabel,
 		RadiusServers:          servers,
+		RadiusServersIPv6:      slices.Clone(settings.RadiusServersIPv6),
 		SharedSecret:           settings.SharedSecret,
 		RadiusPort:             settings.RadiusPort,
 		RadiusRetries:          settings.RadiusRetries,
@@ -73,6 +75,7 @@ func (b *InMemoryBackend) UpdateRadius(ctx context.Context, directoryID string, 
 	existing.AuthenticationProtocol = settings.AuthenticationProtocol
 	existing.DisplayLabel = settings.DisplayLabel
 	existing.RadiusServers = servers
+	existing.RadiusServersIPv6 = slices.Clone(settings.RadiusServersIPv6)
 	existing.SharedSecret = settings.SharedSecret
 	existing.RadiusPort = settings.RadiusPort
 	existing.RadiusRetries = settings.RadiusRetries

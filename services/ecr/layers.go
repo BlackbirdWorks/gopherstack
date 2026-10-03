@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -176,15 +177,21 @@ func verifiedUploadDigestLocked(upload *layerUploadState, layerDigests []string)
 	return provided, nil
 }
 
-// recordLayerPullLocked stamps LastRecordedPullTime on every image in
-// repositoryName whose manifest references layerDigest. The backend does not
-// otherwise model a per-image layer list, so this uses a substring match
-// against the raw manifest JSON text: layer digests appear literally in a
-// manifest's "layers[].digest" (and, for the config blob, "config.digest")
-// fields, so this reliably identifies which image(s) a layer pull belongs to
-// without needing full manifest parsing. Caller must hold the write lock.
+// recordLayerPullLocked stamps LastRecordedPullTime on images whose manifest
+// text contains layerDigest, via layerRefs for full digests. Caller holds the write lock.
 func (b *InMemoryBackend) recordLayerPullLocked(repositoryName, layerDigest string) {
 	now := time.Now()
+
+	if isFullSHA256Digest(layerDigest) {
+		for imageDigest := range b.layerRefs.refs[repositoryName][layerDigest] {
+			if img, ok := b.images.Get(imageTableKey(repositoryName, imageDigest)); ok {
+				img.LastRecordedPullTime = now
+			}
+		}
+
+		return
+	}
+
 	for _, img := range b.imagesByRepo.Get(repositoryName) {
 		if strings.Contains(img.ImageManifest, layerDigest) {
 			img.LastRecordedPullTime = now
@@ -305,6 +312,29 @@ func (b *InMemoryBackend) InitiateLayerUpload(
 	b.layerUploadQueue = append(b.layerUploadQueue, layerUploadQueueEntry{id: uploadID})
 
 	return &LayerUploadInitiation{PartSize: layerUploadPartSize, UploadID: uploadID}, nil
+}
+
+// pruneExpiredLayerUploads drops sessions idle longer than layerUploadTTL, so
+// abandoned uploads release their buffered bytes without another Initiate call.
+func (b *InMemoryBackend) pruneExpiredLayerUploads(now time.Time) {
+	b.mu.Lock("PruneExpiredLayerUploads")
+	defer b.mu.Unlock()
+
+	for id, upload := range b.layerUploads {
+		if now.Sub(upload.CreatedAt) > layerUploadTTL {
+			delete(b.layerUploads, id)
+
+			if idx, ok := b.repoUploadIndex[upload.RepositoryName]; ok {
+				delete(idx, id)
+			}
+		}
+	}
+
+	b.layerUploadQueue = slices.DeleteFunc(b.layerUploadQueue, func(e layerUploadQueueEntry) bool {
+		_, live := b.layerUploads[e.id]
+
+		return !live
+	})
 }
 
 // UploadLayerPart records uploaded bytes for an existing upload session.

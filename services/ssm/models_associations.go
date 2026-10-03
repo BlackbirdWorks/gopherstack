@@ -15,9 +15,10 @@ type DeleteAssociationInput struct {
 
 // DescribeAssociationInput is the request for DescribeAssociation.
 type DescribeAssociationInput struct {
-	AssociationID string `json:"AssociationId,omitempty"`
-	Name          string `json:"Name,omitempty"`
-	InstanceID    string `json:"InstanceId,omitempty"`
+	AssociationVersion string `json:"AssociationVersion,omitempty"`
+	AssociationID      string `json:"AssociationId,omitempty"`
+	Name               string `json:"Name,omitempty"`
+	InstanceID         string `json:"InstanceId,omitempty"`
 }
 
 // DescribeAssociationOutput is the response for DescribeAssociation.
@@ -48,7 +49,9 @@ type DescribeAssociationExecutionsOutput struct{}
 
 // ListAssociationVersionsInput is the request payload.
 type ListAssociationVersionsInput struct {
+	MaxResults    *int64 `json:"MaxResults,omitempty"`
 	AssociationID string `json:"AssociationId"`
+	NextToken     string `json:"NextToken,omitempty"`
 }
 
 // ListAssociationVersionsOutput is the response payload.
@@ -275,8 +278,22 @@ type CreateAssociationBatchOutput struct {
 
 // ListAssociationsOutputFull extends the stub list output.
 type ListAssociationsOutputFull struct {
-	NextToken    string        `json:"NextToken,omitempty"`
-	Associations []Association `json:"Associations"`
+	NextToken    string               `json:"NextToken,omitempty"`
+	Associations []AssociationSummary `json:"Associations"`
+}
+
+// AssociationSummary mirrors types.Association (ssm@v1.77.0 types.go:111), the narrow ListAssociations element.
+type AssociationSummary struct {
+	Overview           *AssociationOverview `json:"Overview,omitempty"`
+	Duration           *int32               `json:"Duration,omitempty"`
+	AssociationID      string               `json:"AssociationId"`
+	Name               string               `json:"Name"`
+	ScheduleExpression string               `json:"ScheduleExpression,omitempty"`
+	AssociationName    string               `json:"AssociationName,omitempty"`
+	DocumentVersion    string               `json:"DocumentVersion,omitempty"`
+	InstanceID         string               `json:"InstanceId,omitempty"`
+	AssociationVersion string               `json:"AssociationVersion,omitempty"`
+	Targets            []AssociationTarget  `json:"Targets,omitempty"`
 }
 
 // AssociationVersionInfo is the narrow element type for ListAssociationVersionsOutput.

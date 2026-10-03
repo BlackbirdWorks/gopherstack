@@ -3,6 +3,8 @@ package ec2
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 )
 
@@ -22,29 +24,20 @@ const natGatewayStateDeleted = "deleted"
 
 // NatGateway represents an EC2 NAT Gateway.
 type NatGateway struct {
-	CreateTime time.Time `json:"createTime"`
-	ID         string    `json:"id,omitempty"`
-	SubnetID   string    `json:"subnetID,omitempty"`
-	VPCID      string    `json:"vpcID,omitempty"`
-	// AvailabilityZone is the AZ of the gateway's subnet, matching real AWS's
-	// NatGatewayAddress.AvailabilityZone for the primary (and, in this
-	// single-AZ-only mock, every secondary) address.
-	AvailabilityZone string `json:"availabilityZone,omitempty"`
-	// AllocationID / AssociationID / PublicIP / PrivateIP describe the
-	// gateway's primary (IsPrimary=true) EIP association, set at creation.
-	AllocationID     string `json:"allocationID,omitempty"`
-	AssociationID    string `json:"associationID,omitempty"`
-	PublicIP         string `json:"publicIP,omitempty"`
-	PrivateIP        string `json:"privateIP,omitempty"`
-	State            string `json:"state,omitempty"`
-	ConnectivityType string `json:"connectivityType,omitempty"`
-	// SecondaryAddresses holds additional public IP associations added via
-	// AssociateNatGatewayAddress and removed via DisassociateNatGatewayAddress.
-	SecondaryAddresses []NatGatewayAddress `json:"secondaryAddresses,omitempty"`
-	// SecondaryPrivateIPs holds additional private IPs assigned via
-	// AssignPrivateNatGatewayAddress and removed via
-	// UnassignPrivateNatGatewayAddress.
-	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
+	CreateTime          time.Time            `json:"createTime"`
+	DrainingAddresses   map[string]time.Time `json:"drainingAddresses,omitempty"`
+	AssociationID       string               `json:"associationID,omitempty"`
+	VPCID               string               `json:"vpcID,omitempty"`
+	AvailabilityZone    string               `json:"availabilityZone,omitempty"`
+	AllocationID        string               `json:"allocationID,omitempty"`
+	SubnetID            string               `json:"subnetID,omitempty"`
+	PublicIP            string               `json:"publicIP,omitempty"`
+	PrivateIP           string               `json:"privateIP,omitempty"`
+	State               string               `json:"state,omitempty"`
+	ConnectivityType    string               `json:"connectivityType,omitempty"`
+	ID                  string               `json:"id,omitempty"`
+	SecondaryAddresses  []NatGatewayAddress  `json:"secondaryAddresses,omitempty"`
+	SecondaryPrivateIPs []string             `json:"secondaryPrivateIPs,omitempty"`
 }
 
 // NatGatewayAddress represents one secondary (non-primary) EIP association on
@@ -137,8 +130,10 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 // recently deleted (see DeleteNatGateway); an unfiltered Describe never
 // surfaces tombstones, matching real AWS's list-vs-get behavior.
 func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
-	b.mu.RLock("DescribeNatGateways")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeNatGateways")
+	defer b.mu.Unlock()
+
+	b.purgeDrainedNatAddressesLocked()
 
 	if len(ids) > 0 {
 		return describeWithTombstones(b.natGateways.All(), b.natGatewayTombstones, ids,
@@ -148,8 +143,7 @@ func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 	out := make([]*NatGateway, 0, b.natGateways.Len())
 
 	for _, ngw := range b.natGateways.All() {
-		cp := *ngw
-		out = append(out, &cp)
+		out = append(out, copyNatGateway(ngw))
 	}
 
 	return out
@@ -161,6 +155,18 @@ func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 func (b *InMemoryBackend) DisassociateNatGatewayAddress(
 	natGatewayID string, associationIDs []string,
 ) (*NatGateway, error) {
+	return b.DisassociateNatGatewayAddressDrain(natGatewayID, associationIDs, 0)
+}
+
+// DisassociateNatGatewayAddressDrain adds MaxDrainDurationSeconds: when positive the
+// addresses stay "disassociating" until the drain elapses.
+func (b *InMemoryBackend) DisassociateNatGatewayAddressDrain(
+	natGatewayID string, associationIDs []string, maxDrainSeconds int,
+) (*NatGateway, error) {
+	if maxDrainSeconds < 0 {
+		return nil, fmt.Errorf("%w: MaxDrainDurationSeconds must not be negative", ErrInvalidParameter)
+	}
+
 	if natGatewayID == "" {
 		return nil, fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
 	}
@@ -171,6 +177,8 @@ func (b *InMemoryBackend) DisassociateNatGatewayAddress(
 
 	b.mu.Lock("DisassociateNatGatewayAddress")
 	defer b.mu.Unlock()
+
+	b.purgeDrainedNatAddressesLocked()
 
 	ngw, ok := b.natGateways.Get(natGatewayID)
 	if !ok {
@@ -192,16 +200,71 @@ func (b *InMemoryBackend) DisassociateNatGatewayAddress(
 			return nil, fmt.Errorf("%w: %s", ErrAssociationNotFound, assocID)
 		}
 
+		if maxDrainSeconds > 0 {
+			ngw.markDrainingLocked(assocID, maxDrainSeconds)
+
+			continue
+		}
+
 		b.recycleIPLocked(ngw.SecondaryAddresses[idx].PrivateIP)
 		ngw.SecondaryAddresses = append(
 			ngw.SecondaryAddresses[:idx], ngw.SecondaryAddresses[idx+1:]...,
 		)
 	}
 
-	cp := *ngw
-	cp.SecondaryAddresses = append([]NatGatewayAddress(nil), ngw.SecondaryAddresses...)
+	return copyNatGateway(ngw), nil
+}
 
-	return &cp, nil
+func copyNatGateway(ngw *NatGateway) *NatGateway {
+	cp := *ngw
+	cp.SecondaryAddresses = slices.Clone(ngw.SecondaryAddresses)
+	cp.SecondaryPrivateIPs = slices.Clone(ngw.SecondaryPrivateIPs)
+	cp.DrainingAddresses = maps.Clone(ngw.DrainingAddresses)
+
+	return &cp
+}
+
+func (n *NatGateway) markDrainingLocked(key string, seconds int) {
+	if n.DrainingAddresses == nil {
+		n.DrainingAddresses = make(map[string]time.Time)
+	}
+
+	n.DrainingAddresses[key] = time.Now().Add(time.Duration(seconds) * time.Second)
+}
+
+// purgeDrainedNatAddressesLocked releases secondary addresses whose drain has
+// elapsed. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) purgeDrainedNatAddressesLocked() {
+	now := time.Now()
+
+	for _, ngw := range b.natGateways.All() {
+		if len(ngw.DrainingAddresses) == 0 {
+			continue
+		}
+
+		ngw.SecondaryAddresses = slices.DeleteFunc(ngw.SecondaryAddresses, func(a NatGatewayAddress) bool {
+			due, draining := ngw.DrainingAddresses[a.AssociationID]
+			if !draining || due.After(now) {
+				return false
+			}
+
+			b.recycleIPLocked(a.PrivateIP)
+			delete(ngw.DrainingAddresses, a.AssociationID)
+
+			return true
+		})
+
+		ngw.SecondaryPrivateIPs = slices.DeleteFunc(ngw.SecondaryPrivateIPs, func(ip string) bool {
+			due, draining := ngw.DrainingAddresses[ip]
+			if !draining || due.After(now) {
+				return false
+			}
+
+			delete(ngw.DrainingAddresses, ip)
+
+			return true
+		})
+	}
 }
 
 // AssociateNatGatewayAddress associates one or more additional Elastic IP
@@ -271,7 +334,7 @@ func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(
 	if len(ips) > 0 {
 		ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, ips...)
 
-		return ngw, nil
+		return copyNatGateway(ngw), nil
 	}
 
 	if count < 1 {
@@ -282,7 +345,7 @@ func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(
 		ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, b.allocPrivateIP())
 	}
 
-	return ngw, nil
+	return copyNatGateway(ngw), nil
 }
 
 // ---- NAT gateway address management ----
@@ -293,6 +356,18 @@ func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(
 func (b *InMemoryBackend) UnassignPrivateNatGatewayAddress(
 	natGatewayID string, privateIPs []string,
 ) (*NatGateway, error) {
+	return b.UnassignPrivateNatGatewayAddressDrain(natGatewayID, privateIPs, 0)
+}
+
+// UnassignPrivateNatGatewayAddressDrain adds MaxDrainDurationSeconds: when positive the
+// private IPs stay "unassigning" until the drain elapses.
+func (b *InMemoryBackend) UnassignPrivateNatGatewayAddressDrain(
+	natGatewayID string, privateIPs []string, maxDrainSeconds int,
+) (*NatGateway, error) {
+	if maxDrainSeconds < 0 {
+		return nil, fmt.Errorf("%w: MaxDrainDurationSeconds must not be negative", ErrInvalidParameter)
+	}
+
 	if natGatewayID == "" {
 		return nil, fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
 	}
@@ -304,9 +379,21 @@ func (b *InMemoryBackend) UnassignPrivateNatGatewayAddress(
 	b.mu.Lock("UnassignPrivateNatGatewayAddress")
 	defer b.mu.Unlock()
 
+	b.purgeDrainedNatAddressesLocked()
+
 	ngw, ok := b.natGateways.Get(natGatewayID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNatGatewayNotFound, natGatewayID)
+	}
+
+	if maxDrainSeconds > 0 {
+		for _, ip := range privateIPs {
+			if slices.Contains(ngw.SecondaryPrivateIPs, ip) {
+				ngw.markDrainingLocked(ip, maxDrainSeconds)
+			}
+		}
+
+		return copyNatGateway(ngw), nil
 	}
 
 	remove := make(map[string]bool, len(privateIPs))
@@ -324,7 +411,5 @@ func (b *InMemoryBackend) UnassignPrivateNatGatewayAddress(
 
 	ngw.SecondaryPrivateIPs = kept
 
-	cp := *ngw
-
-	return &cp, nil
+	return copyNatGateway(ngw), nil
 }

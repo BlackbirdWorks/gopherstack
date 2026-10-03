@@ -103,18 +103,28 @@ type Package struct {
 	CreatedAt     time.Time            `json:"createdAt,omitzero"`
 	LastUpdatedAt time.Time            `json:"lastUpdatedAt,omitzero"`
 	ErrorDetails  *PackageErrorDetails `json:"errorDetails,omitempty"`
+	PackageSource PackageSource        `json:"packageSource"`
 	ID            string               `json:"packageID"`
 	Name          string               `json:"packageName"`
 	PackageType   string               `json:"packageType"`
 	Description   string               `json:"packageDescription"`
 	Status        string               `json:"packageStatus"`
-	PackageSource PackageSource        `json:"packageSource"`
-	// region is the store.Table composite-key qualifier (see regionKey in
-	// backend.go); it is unexported so it is never marshaled by a plain
-	// json.Marshal(Package) and is instead carried through persistence via
-	// regionalDTO (see persistence.go).
-	region string
+	region        string
+	Versions      []PackageVersion `json:"versions,omitempty"`
 }
+
+// PackageVersion is one version of a package; Number starts at 1.
+type PackageVersion struct {
+	CreatedAt     time.Time `json:"createdAt"`
+	CommitMessage string    `json:"commitMessage,omitempty"`
+	Number        int       `json:"number"`
+}
+
+// maxPackageVersions caps the retained versions per package.
+const maxPackageVersions = 100
+
+// defaultPackageHistoryPage is the GetPackageVersionHistory page size when MaxResults is omitted.
+const defaultPackageHistoryPage = 100
 
 // CrossClusterDomainInfo holds domain endpoint info used in cross-cluster connections.
 type CrossClusterDomainInfo struct {
@@ -317,6 +327,7 @@ type AutoTuneMaintenanceSchedule struct {
 // schedules for a domain (types.AutoTuneOptionsInput).
 type AutoTuneOptions struct {
 	DesiredState         string                        `json:"desiredState,omitempty"`
+	RollbackOnDisable    string                        `json:"rollbackOnDisable,omitempty"`
 	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"maintenanceSchedules,omitempty"`
 }
 
@@ -341,6 +352,7 @@ type Domain struct {
 	AdvancedSecurityOptions     *AdvancedSecurityOptions       `json:"advancedSecurityOptions,omitempty"`
 	CognitoOptions              *CognitoOptions                `json:"cognitoOptions,omitempty"`
 	DeploymentStrategyOptions   *DeploymentStrategyOptions     `json:"deploymentStrategyOptions,omitempty"`
+	Upgrades                    []UpgradeRecord                `json:"upgrades,omitempty"`
 	ElasticsearchVersion        string                         `json:"elasticsearchVersion"`
 	AccessPolicies              string                         `json:"accessPolicies,omitempty"`
 	Status                      string                         `json:"status"`
@@ -358,6 +370,23 @@ type Domain struct {
 	NodeToNodeEncryptionEnabled bool            `json:"nodeToNodeEncryptionEnabled"`
 	EnforceHTTPS                bool            `json:"enforceHTTPS"`
 }
+
+// UpgradeRecord is one entry in a domain's upgrade history.
+type UpgradeRecord struct {
+	StartTimestamp time.Time `json:"startTimestamp"`
+	Name           string    `json:"name"`
+	Steps          []string  `json:"steps"`
+}
+
+const (
+	upgradeStepPreCheck        = "PRE_UPGRADE_CHECK"
+	upgradeStepSnapshot        = "SNAPSHOT"
+	upgradeStepUpgrade         = "UPGRADE"
+	upgradeStatusSucceeded     = "SUCCEEDED"
+	upgradeProgressComplete    = 100.0
+	maxUpgradeHistoryPerDomain = 100
+	defaultUpgradeHistoryPage  = 100
+)
 
 // CreateDomainInput holds all parameters for CreateDomain.
 type CreateDomainInput struct {

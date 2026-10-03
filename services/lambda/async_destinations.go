@@ -123,16 +123,22 @@ func (b *InMemoryBackend) resolveAsyncTargets(out asyncOutcome) (
 	fn, _ := b.functions.Get(out.functionName)
 	eic := b.eventInvokeConfigs[out.functionName]
 
-	var functionArn, dlqTarget string
+	var functionArn, dlqTarget, destTarget string
 
 	if fn != nil {
 		functionArn = fn.FunctionArn
 		if fn.DeadLetterConfig != nil {
 			dlqTarget = fn.DeadLetterConfig.TargetArn
 		}
+
+		// Durable functions support DLQs but not Lambda destinations; skip delivery.
+		// docs.aws.amazon.com/lambda/latest/dg/durable-invoking.html
+		if fn.DurableConfig == nil {
+			destTarget = resolveDestinationTarget(eic, out.success)
+		}
 	}
 
-	return delivery, functionArn, dlqTarget, resolveDestinationTarget(eic, out.success)
+	return delivery, functionArn, dlqTarget, destTarget
 }
 
 // resolveDestinationTarget returns the OnSuccess or OnFailure destination ARN for

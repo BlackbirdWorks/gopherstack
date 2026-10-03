@@ -23,6 +23,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = sp.GetLambdaSettings()
 	}
 
+	if _, skipped := resolveHotReloadRoots(configuredHotReloadRoots()); len(skipped) > 0 {
+		ctx.Logger.Warn("Lambda: hot-reload roots not found; skipped", "roots", skipped, "env", hotReloadRootsEnv)
+	}
+
 	var runtime container.Runtime
 
 	rt, err := container.NewRuntime(container.Config{

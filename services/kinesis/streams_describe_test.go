@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -110,120 +111,129 @@ func TestDescribeStreamSummary_ByARN(t *testing.T) {
 func TestDescribeStream_EncryptionFields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "enc-describe-stream",
-		"ShardCount": 1,
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "enc-describe-stream",
+			"ShardCount": 1,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
+
+		// Start encryption.
+		rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
+			"StreamName":     "enc-describe-stream",
+			"EncryptionType": "KMS",
+			"KeyId":          "alias/my-key-id",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// DescribeStream should return encryption info.
+		rec = doRequest(t, h, "DescribeStream", map[string]any{
+			"StreamName": "enc-describe-stream",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp struct {
+			StreamDescription struct {
+				EncryptionType string `json:"EncryptionType"`
+				KeyID          string `json:"KeyId"`
+			} `json:"StreamDescription"`
+		}
+
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "KMS", resp.StreamDescription.EncryptionType)
+		assert.Equal(t, "alias/my-key-id", resp.StreamDescription.KeyID)
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Start encryption.
-	rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
-		"StreamName":     "enc-describe-stream",
-		"EncryptionType": "KMS",
-		"KeyId":          "alias/my-key-id",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// DescribeStream should return encryption info.
-	rec = doRequest(t, h, "DescribeStream", map[string]any{
-		"StreamName": "enc-describe-stream",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		StreamDescription struct {
-			EncryptionType string `json:"EncryptionType"`
-			KeyID          string `json:"KeyId"`
-		} `json:"StreamDescription"`
-	}
-
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "KMS", resp.StreamDescription.EncryptionType)
-	assert.Equal(t, "alias/my-key-id", resp.StreamDescription.KeyID)
 }
 
 // TestDescribeStreamSummary_EncryptionFields verifies encryption in summary.
 func TestDescribeStreamSummary_EncryptionFields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "enc-summary-stream",
-		"ShardCount": 1,
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "enc-summary-stream",
+			"ShardCount": 1,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
+
+		rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
+			"StreamName":     "enc-summary-stream",
+			"EncryptionType": "KMS",
+			"KeyId":          "alias/summary-key-id",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = doRequest(t, h, "DescribeStreamSummary", map[string]any{
+			"StreamName": "enc-summary-stream",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp struct {
+			StreamDescriptionSummary struct {
+				EncryptionType string `json:"EncryptionType"`
+				KeyID          string `json:"KeyId"`
+			} `json:"StreamDescriptionSummary"`
+		}
+
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "KMS", resp.StreamDescriptionSummary.EncryptionType)
+		assert.Equal(t, "alias/summary-key-id", resp.StreamDescriptionSummary.KeyID)
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
-		"StreamName":     "enc-summary-stream",
-		"EncryptionType": "KMS",
-		"KeyId":          "alias/summary-key-id",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doRequest(t, h, "DescribeStreamSummary", map[string]any{
-		"StreamName": "enc-summary-stream",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		StreamDescriptionSummary struct {
-			EncryptionType string `json:"EncryptionType"`
-			KeyID          string `json:"KeyId"`
-		} `json:"StreamDescriptionSummary"`
-	}
-
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "KMS", resp.StreamDescriptionSummary.EncryptionType)
-	assert.Equal(t, "alias/summary-key-id", resp.StreamDescriptionSummary.KeyID)
 }
 
 func TestDescribeStreamSummary_OpenShardCountAndConsumerCount(t *testing.T) {
 	t.Parallel()
 
-	h := kinesis.NewHandler(kinesis.NewInMemoryBackend())
+	synctest.Test(t, func(t *testing.T) {
+		h := kinesis.NewHandler(kinesis.NewInMemoryBackend())
 
-	rec := doParityRequest(t, h, "CreateStream",
-		map[string]any{"StreamName": "summary-test", "ShardCount": 3})
-	require.Equal(t, http.StatusOK, rec.Code)
+		rec := doParityRequest(t, h, "CreateStream",
+			map[string]any{"StreamName": "summary-test", "ShardCount": 3})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
 
-	descRec := doParityRequest(t, h, "DescribeStream",
-		map[string]any{"StreamName": "summary-test"})
-	require.Equal(t, http.StatusOK, descRec.Code)
+		descRec := doParityRequest(t, h, "DescribeStream",
+			map[string]any{"StreamName": "summary-test"})
+		require.Equal(t, http.StatusOK, descRec.Code)
 
-	var descResp struct {
-		StreamDescription struct {
-			StreamARN string `json:"StreamARN"`
-		} `json:"StreamDescription"`
-	}
+		var descResp struct {
+			StreamDescription struct {
+				StreamARN string `json:"StreamARN"`
+			} `json:"StreamDescription"`
+		}
 
-	require.NoError(t, json.NewDecoder(strings.NewReader(descRec.Body.String())).Decode(&descResp))
+		require.NoError(t, json.NewDecoder(strings.NewReader(descRec.Body.String())).Decode(&descResp))
 
-	regRec := doParityRequest(t, h, "RegisterStreamConsumer", map[string]any{
-		"StreamARN":    descResp.StreamDescription.StreamARN,
-		"ConsumerName": "c1",
+		regRec := doParityRequest(t, h, "RegisterStreamConsumer", map[string]any{
+			"StreamARN":    descResp.StreamDescription.StreamARN,
+			"ConsumerName": "c1",
+		})
+		require.Equal(t, http.StatusOK, regRec.Code)
+
+		sumRec := doParityRequest(t, h, "DescribeStreamSummary",
+			map[string]any{"StreamName": "summary-test"})
+		require.Equal(t, http.StatusOK, sumRec.Code)
+
+		var sumResp struct {
+			StreamDescriptionSummary struct {
+				StreamStatus   string `json:"StreamStatus"`
+				OpenShardCount int    `json:"OpenShardCount"`
+				ConsumerCount  int    `json:"ConsumerCount"`
+			} `json:"StreamDescriptionSummary"`
+		}
+
+		require.NoError(t, json.NewDecoder(strings.NewReader(sumRec.Body.String())).Decode(&sumResp))
+
+		assert.Equal(t, 3, sumResp.StreamDescriptionSummary.OpenShardCount)
+		assert.Equal(t, 1, sumResp.StreamDescriptionSummary.ConsumerCount)
+		assert.Equal(t, "ACTIVE", sumResp.StreamDescriptionSummary.StreamStatus)
 	})
-	require.Equal(t, http.StatusOK, regRec.Code)
-
-	sumRec := doParityRequest(t, h, "DescribeStreamSummary",
-		map[string]any{"StreamName": "summary-test"})
-	require.Equal(t, http.StatusOK, sumRec.Code)
-
-	var sumResp struct {
-		StreamDescriptionSummary struct {
-			StreamStatus   string `json:"StreamStatus"`
-			OpenShardCount int    `json:"OpenShardCount"`
-			ConsumerCount  int    `json:"ConsumerCount"`
-		} `json:"StreamDescriptionSummary"`
-	}
-
-	require.NoError(t, json.NewDecoder(strings.NewReader(sumRec.Body.String())).Decode(&sumResp))
-
-	assert.Equal(t, 3, sumResp.StreamDescriptionSummary.OpenShardCount)
-	assert.Equal(t, 1, sumResp.StreamDescriptionSummary.ConsumerCount)
-	assert.Equal(t, "ACTIVE", sumResp.StreamDescriptionSummary.StreamStatus)
 }
 
 func TestDescribeStream_StreamCreationTimestamp(t *testing.T) {
@@ -336,47 +346,50 @@ func TestDescribeStreamSummary_OpenShardCount_AfterMerge(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			rec := doRequest(t, h, "CreateStream", map[string]any{
-				"StreamName": tt.streamName,
-				"ShardCount": tt.initialShards,
-			})
-			require.Equal(t, http.StatusOK, rec.Code)
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				rec := doRequest(t, h, "CreateStream", map[string]any{
+					"StreamName": tt.streamName,
+					"ShardCount": tt.initialShards,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				time.Sleep(streamSettleWait)
 
-			if tt.doMerge {
-				rec2 := doRequest(t, h, "ListShards", map[string]any{
+				if tt.doMerge {
+					rec2 := doRequest(t, h, "ListShards", map[string]any{
+						"StreamName": tt.streamName,
+					})
+					require.Equal(t, http.StatusOK, rec2.Code)
+
+					var shardsResp struct {
+						Shards []struct {
+							ShardID string `json:"ShardId"`
+						} `json:"Shards"`
+					}
+					require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &shardsResp))
+					require.Len(t, shardsResp.Shards, 2)
+
+					rec3 := doRequest(t, h, "MergeShards", map[string]any{
+						"StreamName":           tt.streamName,
+						"ShardToMerge":         shardsResp.Shards[0].ShardID,
+						"AdjacentShardToMerge": shardsResp.Shards[1].ShardID,
+					})
+					require.Equal(t, http.StatusOK, rec3.Code)
+				}
+
+				rec4 := doRequest(t, h, "DescribeStreamSummary", map[string]any{
 					"StreamName": tt.streamName,
 				})
-				require.Equal(t, http.StatusOK, rec2.Code)
+				require.Equal(t, http.StatusOK, rec4.Code)
 
-				var shardsResp struct {
-					Shards []struct {
-						ShardID string `json:"ShardId"`
-					} `json:"Shards"`
+				var summaryResp struct {
+					StreamDescriptionSummary struct {
+						OpenShardCount int `json:"OpenShardCount"`
+					} `json:"StreamDescriptionSummary"`
 				}
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &shardsResp))
-				require.Len(t, shardsResp.Shards, 2)
-
-				rec3 := doRequest(t, h, "MergeShards", map[string]any{
-					"StreamName":           tt.streamName,
-					"ShardToMerge":         shardsResp.Shards[0].ShardID,
-					"AdjacentShardToMerge": shardsResp.Shards[1].ShardID,
-				})
-				require.Equal(t, http.StatusOK, rec3.Code)
-			}
-
-			rec4 := doRequest(t, h, "DescribeStreamSummary", map[string]any{
-				"StreamName": tt.streamName,
+				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &summaryResp))
+				assert.Equal(t, tt.wantOpenShards, summaryResp.StreamDescriptionSummary.OpenShardCount)
 			})
-			require.Equal(t, http.StatusOK, rec4.Code)
-
-			var summaryResp struct {
-				StreamDescriptionSummary struct {
-					OpenShardCount int `json:"OpenShardCount"`
-				} `json:"StreamDescriptionSummary"`
-			}
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &summaryResp))
-			assert.Equal(t, tt.wantOpenShards, summaryResp.StreamDescriptionSummary.OpenShardCount)
 		})
 	}
 }
@@ -422,77 +435,83 @@ func TestDescribeStream_EncryptionTypeDefault(t *testing.T) {
 func TestDescribeStream_IncludesClosedShardsAfterMerge(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "describe-closed-merge",
-		"ShardCount": 2,
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "describe-closed-merge",
+			"ShardCount": 2,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
+
+		var descResp struct {
+			StreamDescription struct {
+				Shards []struct {
+					ShardID string `json:"ShardId"`
+				} `json:"Shards"`
+			} `json:"StreamDescription"`
+		}
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-merge"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		s0 := descResp.StreamDescription.Shards[0].ShardID
+		s1 := descResp.StreamDescription.Shards[1].ShardID
+
+		rec = doRequest(t, h, "MergeShards", map[string]any{
+			"StreamName":           "describe-closed-merge",
+			"ShardToMerge":         s0,
+			"AdjacentShardToMerge": s1,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// After merge: 2 closed parents + 1 open merged = 3 total.
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-merge"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		assert.Len(t, descResp.StreamDescription.Shards, 3)
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var descResp struct {
-		StreamDescription struct {
-			Shards []struct {
-				ShardID string `json:"ShardId"`
-			} `json:"Shards"`
-		} `json:"StreamDescription"`
-	}
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-merge"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	s0 := descResp.StreamDescription.Shards[0].ShardID
-	s1 := descResp.StreamDescription.Shards[1].ShardID
-
-	rec = doRequest(t, h, "MergeShards", map[string]any{
-		"StreamName":           "describe-closed-merge",
-		"ShardToMerge":         s0,
-		"AdjacentShardToMerge": s1,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// After merge: 2 closed parents + 1 open merged = 3 total.
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-merge"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Len(t, descResp.StreamDescription.Shards, 3)
 }
 
 func TestDescribeStream_IncludesClosedShardsAfterSplit(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "describe-closed-split",
-		"ShardCount": 1,
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "describe-closed-split",
+			"ShardCount": 1,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
+
+		var descResp struct {
+			StreamDescription struct {
+				Shards []struct {
+					ShardID string `json:"ShardId"`
+				} `json:"Shards"`
+			} `json:"StreamDescription"`
+		}
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-split"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		shardID := descResp.StreamDescription.Shards[0].ShardID
+
+		const splitKey = "170141183460469231731687303715884105728"
+		rec = doRequest(t, h, "SplitShard", map[string]any{
+			"StreamName":         "describe-closed-split",
+			"ShardToSplit":       shardID,
+			"NewStartingHashKey": splitKey,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// After split: 1 closed parent + 2 open children = 3 total.
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-split"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		assert.Len(t, descResp.StreamDescription.Shards, 3)
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var descResp struct {
-		StreamDescription struct {
-			Shards []struct {
-				ShardID string `json:"ShardId"`
-			} `json:"Shards"`
-		} `json:"StreamDescription"`
-	}
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-split"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	shardID := descResp.StreamDescription.Shards[0].ShardID
-
-	const splitKey = "170141183460469231731687303715884105728"
-	rec = doRequest(t, h, "SplitShard", map[string]any{
-		"StreamName":         "describe-closed-split",
-		"ShardToSplit":       shardID,
-		"NewStartingHashKey": splitKey,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// After split: 1 closed parent + 2 open children = 3 total.
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-split"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Len(t, descResp.StreamDescription.Shards, 3)
 }
 
 func TestDescribeStream_OpenShardNoEndingSequenceNumber(t *testing.T) {
@@ -533,76 +552,82 @@ func TestDescribeStream_OpenShardNoEndingSequenceNumber(t *testing.T) {
 func TestDescribeStream_OpenShardWithRecordsNoEndingSeq(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "open-shard-with-records",
-		"ShardCount": 1,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Write several records into the single (still open) shard.
-	for i := range 3 {
-		rec = doRequest(t, h, "PutRecord", map[string]any{
-			"StreamName":   "open-shard-with-records",
-			"PartitionKey": fmt.Sprintf("pk-%d", i),
-			"Data":         []byte("payload"),
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "open-shard-with-records",
+			"ShardCount": 1,
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
-	}
+		time.Sleep(streamSettleWait)
 
-	var descResp struct {
-		StreamDescription struct {
-			Shards []struct {
-				ShardID             string `json:"ShardId"`
-				SequenceNumberRange struct {
-					StartingSequenceNumber string `json:"StartingSequenceNumber"`
-					EndingSequenceNumber   string `json:"EndingSequenceNumber"`
-				} `json:"SequenceNumberRange"`
-			} `json:"Shards"`
-		} `json:"StreamDescription"`
-	}
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "open-shard-with-records"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	require.Len(t, descResp.StreamDescription.Shards, 1)
+		// Write several records into the single (still open) shard.
+		for i := range 3 {
+			rec = doRequest(t, h, "PutRecord", map[string]any{
+				"StreamName":   "open-shard-with-records",
+				"PartitionKey": fmt.Sprintf("pk-%d", i),
+				"Data":         []byte("payload"),
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+		}
 
-	shard := descResp.StreamDescription.Shards[0]
-	// A populated open shard still has a starting sequence number...
-	assert.NotEmpty(t, shard.SequenceNumberRange.StartingSequenceNumber)
-	// ...but must NOT report an ending sequence number while it remains open.
-	assert.Empty(t, shard.SequenceNumberRange.EndingSequenceNumber,
-		"open shard with records must not report EndingSequenceNumber")
+		var descResp struct {
+			StreamDescription struct {
+				Shards []struct {
+					ShardID             string `json:"ShardId"`
+					SequenceNumberRange struct {
+						StartingSequenceNumber string `json:"StartingSequenceNumber"`
+						EndingSequenceNumber   string `json:"EndingSequenceNumber"`
+					} `json:"SequenceNumberRange"`
+				} `json:"Shards"`
+			} `json:"StreamDescription"`
+		}
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "open-shard-with-records"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.Len(t, descResp.StreamDescription.Shards, 1)
+
+		shard := descResp.StreamDescription.Shards[0]
+		// A populated open shard still has a starting sequence number...
+		assert.NotEmpty(t, shard.SequenceNumberRange.StartingSequenceNumber)
+		// ...but must NOT report an ending sequence number while it remains open.
+		assert.Empty(t, shard.SequenceNumberRange.EndingSequenceNumber,
+			"open shard with records must not report EndingSequenceNumber")
+	})
 }
 
 func TestDescribeStream_UpdateShardCount_IncludesOldClosedShards(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "describe-usc-stream",
-		"ShardCount": 3,
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "describe-usc-stream",
+			"ShardCount": 3,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
+
+		rec = doRequest(t, h, "UpdateShardCount", map[string]any{
+			"StreamName":       "describe-usc-stream",
+			"TargetShardCount": 2,
+			"ScalingType":      "UNIFORM_SCALING",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// DescribeStream should include both closed (3 old) and open (2 new) shards.
+		var descResp struct {
+			StreamDescription struct {
+				Shards []any `json:"Shards"`
+			} `json:"StreamDescription"`
+		}
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-usc-stream"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		assert.Len(t, descResp.StreamDescription.Shards, 5, "3 closed + 2 open = 5")
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doRequest(t, h, "UpdateShardCount", map[string]any{
-		"StreamName":       "describe-usc-stream",
-		"TargetShardCount": 2,
-		"ScalingType":      "UNIFORM_SCALING",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// DescribeStream should include both closed (3 old) and open (2 new) shards.
-	var descResp struct {
-		StreamDescription struct {
-			Shards []any `json:"Shards"`
-		} `json:"StreamDescription"`
-	}
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-usc-stream"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Len(t, descResp.StreamDescription.Shards, 5, "3 closed + 2 open = 5")
 }
 
 // TestDescribeStream_ShardPagination verifies that DescribeStream
@@ -679,58 +704,61 @@ func TestDescribeStream_ShardPagination(t *testing.T) {
 func TestDescribeStream_ClosedShardHasEndingSequenceNumber(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "closing-seqnum-stream",
-		"ShardCount": 1,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+		rec := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "closing-seqnum-stream",
+			"ShardCount": 1,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		time.Sleep(streamSettleWait)
 
-	// Put a record so the shard has a non-trivial sequence range.
-	doRequest(t, h, "PutRecord", map[string]any{
-		"StreamName":   "closing-seqnum-stream",
-		"PartitionKey": "pk",
-		"Data":         []byte("data"),
-	})
+		// Put a record so the shard has a non-trivial sequence range.
+		doRequest(t, h, "PutRecord", map[string]any{
+			"StreamName":   "closing-seqnum-stream",
+			"PartitionKey": "pk",
+			"Data":         []byte("data"),
+		})
 
-	var descResp struct {
-		StreamDescription struct {
-			Shards []struct {
-				ShardID             string `json:"ShardId"`
-				SequenceNumberRange struct {
-					EndingSequenceNumber string `json:"EndingSequenceNumber"`
-				} `json:"SequenceNumberRange"`
-			} `json:"Shards"`
-		} `json:"StreamDescription"`
-	}
-
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "closing-seqnum-stream"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	require.Len(t, descResp.StreamDescription.Shards, 1)
-	shardID := descResp.StreamDescription.Shards[0].ShardID
-
-	// Split the shard to close it.
-	const splitKey = "170141183460469231731687303715884105728"
-	rec = doRequest(t, h, "SplitShard", map[string]any{
-		"StreamName":         "closing-seqnum-stream",
-		"ShardToSplit":       shardID,
-		"NewStartingHashKey": splitKey,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Re-describe: closed shard should have a non-empty EndingSequenceNumber.
-	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "closing-seqnum-stream"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	require.Len(t, descResp.StreamDescription.Shards, 3)
-
-	closedCount := 0
-	for _, s := range descResp.StreamDescription.Shards {
-		if s.SequenceNumberRange.EndingSequenceNumber != "" {
-			closedCount++
+		var descResp struct {
+			StreamDescription struct {
+				Shards []struct {
+					ShardID             string `json:"ShardId"`
+					SequenceNumberRange struct {
+						EndingSequenceNumber string `json:"EndingSequenceNumber"`
+					} `json:"SequenceNumberRange"`
+				} `json:"Shards"`
+			} `json:"StreamDescription"`
 		}
-	}
-	assert.Equal(t, 1, closedCount, "exactly one shard should be closed with a non-empty ending seq")
+
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "closing-seqnum-stream"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.Len(t, descResp.StreamDescription.Shards, 1)
+		shardID := descResp.StreamDescription.Shards[0].ShardID
+
+		// Split the shard to close it.
+		const splitKey = "170141183460469231731687303715884105728"
+		rec = doRequest(t, h, "SplitShard", map[string]any{
+			"StreamName":         "closing-seqnum-stream",
+			"ShardToSplit":       shardID,
+			"NewStartingHashKey": splitKey,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// Re-describe: closed shard should have a non-empty EndingSequenceNumber.
+		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "closing-seqnum-stream"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.Len(t, descResp.StreamDescription.Shards, 3)
+
+		closedCount := 0
+		for _, s := range descResp.StreamDescription.Shards {
+			if s.SequenceNumberRange.EndingSequenceNumber != "" {
+				closedCount++
+			}
+		}
+		assert.Equal(t, 1, closedCount, "exactly one shard should be closed with a non-empty ending seq")
+	})
 }

@@ -89,7 +89,8 @@ const (
 // a secondary [store.Index] grouping by parent ID. See store_setup.go's doc
 // comment for the full clean/dirty table split.
 type InMemoryBackend struct {
-	apis                              *store.Table[API]
+	routeResponses                    *store.Table[RouteResponse]
+	routeResponsesByRoute             *store.Index[RouteResponse]
 	stages                            *store.Table[Stage]
 	stagesByAPI                       *store.Index[Stage]
 	routes                            *store.Table[Route]
@@ -98,15 +99,15 @@ type InMemoryBackend struct {
 	integrationsByAPI                 *store.Index[Integration]
 	deployments                       *store.Table[Deployment]
 	deploymentsByAPI                  *store.Index[Deployment]
-	authorizers                       *store.Table[Authorizer]
+	domainNames                       *store.Table[DomainName]
 	authorizersByAPI                  *store.Index[Authorizer]
 	models                            *store.Table[Model]
 	modelsByAPI                       *store.Index[Model]
 	integrationResponses              *store.Table[IntegrationResponse]
 	integrationResponsesByIntegration *store.Index[IntegrationResponse]
-	routeResponses                    *store.Table[RouteResponse]
-	routeResponsesByRoute             *store.Index[RouteResponse]
-	domainNames                       *store.Table[DomainName]
+	apis                              *store.Table[API]
+	mu                                *lockmetrics.RWMutex
+	authorizers                       *store.Table[Authorizer]
 	apiMappings                       *store.Table[APIMapping]
 	apiMappingsByDomain               *store.Index[APIMapping]
 	portals                           *store.Table[Portal]
@@ -127,13 +128,14 @@ type InMemoryBackend struct {
 	// persisted snapshot -- like apigateway v1's usageTracker, it's data-plane
 	// rate-limiter state, not resource configuration.
 	routeThrottleBuckets map[string]*tokenBucket
-	mu                   *lockmetrics.RWMutex
+	region               string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		portalProductSharingPolicies: make(map[string]string),
+		region:                       defaultRegion,
 		routeThrottleBuckets:         make(map[string]*tokenBucket),
 		registry:                     store.NewRegistry(),
 		mu:                           lockmetrics.New("apigatewayv2"),

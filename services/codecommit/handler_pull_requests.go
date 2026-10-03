@@ -47,6 +47,24 @@ type createPullRequestInput struct {
 	Targets            []pullRequestTargetInput `json:"targets"`
 }
 
+func mergeMetadataToMap(m *MergeMetadata) map[string]any {
+	if m == nil {
+		return map[string]any{"isMerged": false}
+	}
+	out := map[string]any{"isMerged": m.IsMerged}
+	if m.MergeCommitID != "" {
+		out["mergeCommitId"] = m.MergeCommitID
+	}
+	if m.MergeOption != "" {
+		out["mergeOption"] = m.MergeOption
+	}
+	if m.MergedBy != "" {
+		out["mergedBy"] = m.MergedBy
+	}
+
+	return out
+}
+
 func pullRequestToMap(pr *PullRequest) map[string]any {
 	targets := make([]map[string]any, 0, len(pr.PullRequestTargets))
 	for _, t := range pr.PullRequestTargets {
@@ -57,6 +75,7 @@ func pullRequestToMap(pr *PullRequest) map[string]any {
 			"sourceCommit":         t.SourceCommit,
 			"destinationCommit":    t.DestinationCommit,
 			"mergeBase":            t.MergeBase,
+			"mergeMetadata":        mergeMetadataToMap(t.MergeMetadata),
 		})
 	}
 
@@ -387,6 +406,7 @@ func (h *Handler) handleCreatePullRequestApprovalRule(body []byte) (any, error) 
 			keyApprovalRuleID:     rule.RuleID,
 			"approvalRuleName":    rule.RuleName,
 			"approvalRuleContent": rule.ApprovalRuleContent,
+			keyRuleContentSha256:  contentSha256(rule.ApprovalRuleContent),
 		},
 	}, nil
 }
@@ -421,6 +441,7 @@ func (h *Handler) handleUpdatePullRequestApprovalRuleContent(body []byte) (any, 
 		PullRequestID    string `json:"pullRequestId"`
 		ApprovalRuleName string `json:"approvalRuleName"`
 		NewRuleContent   string `json:"newRuleContent"`
+		ExistingSha      string `json:"existingRuleContentSha256"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -430,7 +451,7 @@ func (h *Handler) handleUpdatePullRequestApprovalRuleContent(body []byte) (any, 
 	}
 
 	rule, err := h.Backend.UpdatePullRequestApprovalRuleContent(
-		req.PullRequestID, req.ApprovalRuleName, req.NewRuleContent,
+		req.PullRequestID, req.ApprovalRuleName, req.NewRuleContent, req.ExistingSha,
 	)
 	if err != nil {
 		return nil, err
@@ -441,6 +462,7 @@ func (h *Handler) handleUpdatePullRequestApprovalRuleContent(body []byte) (any, 
 			keyApprovalRuleID:     rule.RuleID,
 			"approvalRuleName":    rule.RuleName,
 			"approvalRuleContent": rule.ApprovalRuleContent,
+			keyRuleContentSha256:  contentSha256(rule.ApprovalRuleContent),
 		},
 	}, nil
 }

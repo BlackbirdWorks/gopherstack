@@ -48,6 +48,7 @@ func (b *InMemoryBackend) resolveClusterARN(region, ref string) (string, bool) {
 func (b *InMemoryBackend) CreateGlobalCluster(
 	ctx context.Context,
 	id, sourceDBClusterID, engine, engineVersion string,
+	opts CreateGlobalClusterOptions,
 ) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
@@ -71,6 +72,10 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		Engine:                  engine,
 		EngineVersion:           engineVersion,
 		GlobalClusterArn:        b.globalClusterARN(id),
+		GlobalClusterResourceID: newResourceID("cluster-"),
+		DatabaseName:            opts.DatabaseName,
+		DeletionProtection:      opts.DeletionProtection != nil && *opts.DeletionProtection,
+		StorageEncrypted:        opts.StorageEncrypted != nil && *opts.StorageEncrypted,
 	}
 	if clusterARN, exists := b.resolveClusterARN(region, sourceDBClusterID); exists {
 		gc.GlobalClusterMembers = []GlobalClusterMember{
@@ -87,7 +92,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 }
 
 // DeleteGlobalCluster deletes a global cluster.
-func (b *InMemoryBackend) DeleteGlobalCluster(_ context.Context, id string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) DeleteGlobalCluster(ctx context.Context, id string) (*GlobalCluster, error) {
 	b.mu.Lock("DeleteGlobalCluster")
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters.Get(id)
@@ -111,6 +116,7 @@ func (b *InMemoryBackend) DeleteGlobalCluster(_ context.Context, id string) (*Gl
 
 	cp := copyGlobalCluster(gc)
 	b.globalClusters.Delete(id)
+	delete(b.tagsStore(regionFromARN(gc.GlobalClusterArn, getRegion(ctx, b.region))), gc.GlobalClusterArn)
 
 	return cp, nil
 }

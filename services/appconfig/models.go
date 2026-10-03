@@ -63,13 +63,8 @@ type ConfigurationProfile struct {
 	LocationURI      string    `json:"LocationUri"`
 	Type             string    `json:"Type,omitempty"`
 	RetrievalRoleArn string    `json:"RetrievalRoleArn,omitempty"`
-	// KmsKeyIdentifier is a real Get/Create/UpdateConfigurationProfileOutput
-	// member (appconfig@v1.48.4 api_op_GetConfigurationProfile.go) echoing
-	// back whatever key ID/alias/ARN the caller supplied. KmsKeyArn is the
-	// same output's other KMS member but is left unmodeled: it requires
-	// resolving an identifier to a real KMS key ARN, which this backend has
-	// no honest way to do (same rationale as HostedConfigurationVersionSummary
-	// below).
+	// KmsKeyArn is resolved from KmsKeyIdentifier via KMS on read; never persisted.
+	KmsKeyArn        string      `json:"-"`
 	KmsKeyIdentifier string      `json:"KmsKeyIdentifier,omitempty"`
 	Validators       []Validator `json:"Validators,omitempty"`
 }
@@ -108,6 +103,7 @@ type HostedConfigurationVersion struct {
 	ContentType            string    `json:"ContentType"`
 	Description            string    `json:"Description,omitempty"`
 	VersionLabel           string    `json:"VersionLabel,omitempty"`
+	KmsKeyArn              string    `json:"KmsKeyArn,omitempty"`
 	Content                []byte    `json:"content"`
 	VersionNumber          int32     `json:"VersionNumber"`
 }
@@ -115,18 +111,14 @@ type HostedConfigurationVersion struct {
 // HostedConfigurationVersionSummary is the shape ListHostedConfigurationVersions
 // returns (types.HostedConfigurationVersionSummary, deserializers.go:13825) --
 // a strict subset of HostedConfigurationVersion: no CreatedAt (Get-only).
-// KmsKeyArn is a real Summary member too, but this backend never resolves an
-// identifier to a real KMS key ARN (ConfigurationProfile.KmsKeyIdentifier is
-// modeled and echoed back verbatim; the ARN itself is not) -- so there is no
-// honest value to put here. Left absent rather than fabricated, same
-// rationale as personalize's undocumented FailureReason members
-// (gopherstack-sm02).
+// KmsKeyArn is the key resolved from the profile's KmsKeyIdentifier at creation.
 type HostedConfigurationVersionSummary struct {
 	ApplicationID          string `json:"ApplicationId"`
 	ConfigurationProfileID string `json:"ConfigurationProfileId"`
 	ContentType            string `json:"ContentType"`
 	Description            string `json:"Description,omitempty"`
 	VersionLabel           string `json:"VersionLabel,omitempty"`
+	KmsKeyArn              string `json:"KmsKeyArn,omitempty"`
 	VersionNumber          int32  `json:"VersionNumber"`
 }
 

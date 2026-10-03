@@ -59,6 +59,7 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 	}
 
 	cp := *profile
+	cp.KmsKeyArn = b.resolveKmsKeyArn(cp.KmsKeyIdentifier)
 
 	return &cp, nil
 }
@@ -80,6 +81,7 @@ func (b *InMemoryBackend) GetConfigurationProfile(
 	}
 
 	cp := *profile
+	cp.KmsKeyArn = b.resolveKmsKeyArn(cp.KmsKeyIdentifier)
 
 	return &cp, nil
 }
@@ -139,9 +141,7 @@ func configurationProfileToSummary(p ConfigurationProfile) ConfigurationProfileS
 // api_op_GetConfigurationProfile.go:44-90, checked 2026-09-08) has
 // ApplicationId/Description/Id/KmsKeyArn/KmsKeyIdentifier/LocationUri/Name/
 // RetrievalRoleArn/Type/Validators only, no CreatedAt. KmsKeyArn is a
-// pre-existing, separately disclosed gap (models.go's ConfigurationProfile
-// doc comment); this converter only strips CreatedAt, ConfigurationProfile's
-// own internal-only field (see its doc comment).
+// resolved through KMS at read time; this converter strips CreatedAt, an internal-only field.
 type configurationProfileOutput struct {
 	ApplicationID    string      `json:"ApplicationId"`
 	ID               string      `json:"Id"`
@@ -150,6 +150,7 @@ type configurationProfileOutput struct {
 	LocationURI      string      `json:"LocationUri"`
 	Type             string      `json:"Type,omitempty"`
 	RetrievalRoleArn string      `json:"RetrievalRoleArn,omitempty"`
+	KmsKeyArn        string      `json:"KmsKeyArn,omitempty"`
 	KmsKeyIdentifier string      `json:"KmsKeyIdentifier,omitempty"`
 	Validators       []Validator `json:"Validators,omitempty"`
 }
@@ -163,6 +164,7 @@ func configurationProfileToOutput(p ConfigurationProfile) configurationProfileOu
 		LocationURI:      p.LocationURI,
 		Type:             p.Type,
 		RetrievalRoleArn: p.RetrievalRoleArn,
+		KmsKeyArn:        p.KmsKeyArn,
 		KmsKeyIdentifier: p.KmsKeyIdentifier,
 		Validators:       p.Validators,
 	}
@@ -212,6 +214,7 @@ func (b *InMemoryBackend) UpdateConfigurationProfile(
 
 	b.configProfiles.Put(&updated)
 	cp := updated
+	cp.KmsKeyArn = b.resolveKmsKeyArn(cp.KmsKeyIdentifier)
 
 	return &cp, nil
 }

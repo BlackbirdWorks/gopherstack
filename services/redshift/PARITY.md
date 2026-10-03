@@ -8,7 +8,7 @@ service: redshift
 sdk_module: aws-sdk-go-v2/service/redshift@v1.65.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/redshiftserverless@v1.38.5]  # pinned in go.mod 2026-08-13, bd gopherstack-0w2p; see "Redshift Serverless" family row
 last_audit_commit: 68761ba3a
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-01  # 2026-10-01: serverless ScheduledActionResponse.NextInvocations computed from the {"at"|"cron"} union within StartTime/EndTime (disabled yields none); TestSDKRoundTrip_ServerlessScheduledActionNextInvocations.
 overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherstack-0eyk): the
                        # Create/ModifyRedshiftIdcApplicationResult missing-inner-<RedshiftIdcApplication>
                        # -wrapper bug that caused the prior A- downgrade is now fixed (see
@@ -86,17 +86,9 @@ families:
 gaps: []          # bd gopherstack-0eyk (IdcApplication missing inner <RedshiftIdcApplication>
                    # wrapper) FIXED this pass -- see families.IdcApplication above for detail.
 items_still_open:
-  - "2026-09-12 (typed slice 5, gopherstack-n3zi): GetReservedNodeExchangeConfigurationOptions (fixed this pass from a disguised stub -- see the dated section below) accepts ClusterIdentifier/SnapshotIdentifier/ActionType but does not scope its ReservedNodeConfigurationOptionList by them: this backend does not track which specific cluster/snapshot a reservation applies to, so it returns one configuration option per account-wide reserved node against the static offering catalog, unfiltered. Documented rather than fabricating a cluster/snapshot-to-reservation link that does not exist."
-  - "2026-09-13 (gopherstack-xhu2t tier-1 sweep): RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier remains unread -- this backend never executes queries against a restored table (no SQL engine), so there is no identifier case-sensitivity behavior to gate; left honestly unimplemented rather than accepted-then-discarded with a fabricated effect. SourceSchemaName/TargetSchemaName (same op) were genuinely dropped and are now fixed -- see 2026-09-13 Notes section."
-  - "2026-09-13 (gopherstack-xhu2t tier-1 sweep): GetClusterCredentials.DbGroups remains unread -- the real field adds the temporary user to existing database groups for the session; this backend has no real database/session/group-membership model to add to (GetClusterCredentials only mints a pseudo-password/Expiration pair), so there is nothing observable a test could assert. DurationSeconds (same op, and GetClusterCredentialsWithIAM's) was genuinely dropped and is now fixed -- see 2026-09-13 Notes section."
-  - "2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints (aws-sdk-go-v2/service/redshiftserverless@v1.38.5 types.Workgroup/types.Endpoint) are unmodeled -- they'd need a maintenance-track-upgrade scheduler, a patch-version catalog and real VPC/ENI allocation this backend has nowhere else either (the same judgment call already made for ServerlessEndpointAccess's own VpcEndpoint, see serverless.go). Confirmed absent via structfielddiff; all are optional members, not required-and-zero, so every other Workgroup field name/case was confirmed to match exactly."
-  - "2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): ScheduledActionResponse.NextInvocations is unmodeled for serverless scheduled actions -- classic Redshift's own ScheduledAction.NextInvocations IS computed (schedule.go's nextInvocations, parsing cron(...)/at(...) function-call syntax), but Redshift Serverless's Schedule is a different raw-JSON tagged union ({\"cron\":\"...\"} bare string, or {\"at\":<epoch-seconds>}), so that evaluator doesn't apply as-is; a correct implementation needs its own parser, not a one-line reuse. Optional member, not required-and-zero -- every other ScheduledActionResponse field confirmed correct, including the already-fixed slScheduledActionAssociationWire List-item narrowing (NamespaceName/ScheduledActionName only, no other fields)."
-  - "2026-09-19 (terraform redshift-resources coverage pass): aws_redshift_data_share_authorization
-    and aws_redshift_data_share_consumer_association were left out of terraform coverage --
-    real datashares are created by a `CREATE DATASHARE` SQL statement inside the cluster, not
-    a wire-reachable RDS/Redshift API this backend's AuthorizeDataShare/AssociateDataShareConsumer
-    can seed on their own (AddDataShareInternal exists but is test-only). No provider error was
-    produced because no fixture was attempted; this is a structural gap, not a bug."
+  - "No SQL engine or cluster nodes (2026-10-01): RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier and GetClusterCredentials.DbGroups have no observable effect to gate; the two terraform datashare resources (aws_redshift_data_share_authorization/_consumer_association) need CREATE DATASHARE SQL."
+  - "GetReservedNodeExchangeConfigurationOptions is not scoped by ClusterIdentifier/SnapshotIdentifier: reservations are not tracked per cluster/snapshot (2026-09-12)."
+  - "Serverless Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints are unmodeled: they need a patch catalog, track-upgrade scheduler and real ENI allocation (2026-09-18)."
 deferred: []      # all 17 prior deferred families field-diffed in the 2026-07-22 pass, see families above
 leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines. New Qev2IdcApplication store.Table this pass introduces no goroutines/tickers -- registered through the existing store.Registry the same way every other table is (store_setup.go), snapshotted/restored generically via registry.SnapshotAll/RestoreAll, no bespoke persistence code added."}
 ---
@@ -1468,12 +1460,8 @@ handler doesn't error.
   inconsistency). If you add a new sentinel, verify its exact `ErrorCode()` string
   against `aws-sdk-go-v2/service/redshift@v1.62.3/types/errors.go` individually —
   do not assume the pattern from a neighboring sentinel.
-- `ScheduledAction.TargetAction`'s `NextInvocations`/`StartTime`/`EndTime` are
-  intentionally NOT modeled (empty list / never set) — this backend is
-  synchronous/instant-apply and has no cron/at-expression evaluator to compute
-  real next-invocation times. An empty `NextInvocations` list is valid per the AWS
-  docs (not "must always have up to 5 entries"), so this is a deliberate scope
-  bound, not a bug.
+- `ScheduledAction` `StartTime`/`EndTime` are not modeled; `NextInvocations` is computed
+  (`TestHandler_ScheduledAction_NextInvocations`).
 - `EndpointAccess.VpcEndpoint` (the nested network-interface/address list) is
   intentionally NOT modeled — would require simulating ENI allocation per subnet,
   out of proportion to this backend's fidelity level elsewhere.

@@ -10,9 +10,12 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
 )
 
 const (
@@ -172,6 +175,42 @@ const (
 // Handler is the Echo HTTP handler for SES v2 operations.
 type Handler struct {
 	Backend StorageBackend
+	relay   *smtprelay.Relay
+	peers   *regionpeers.Set[Handler]
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region siblings.
+func (h *Handler) EnableRegions() {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		b := NewInMemoryBackend()
+		b.region = region
+		b.accountID = home.accountID
+		b.relay = home.relay
+
+		return NewHandler(b)
+	})
+}
+
+// MailBackends returns the home backend plus every built regional sibling.
+func (h *Handler) MailBackends() []*InMemoryBackend {
+	var out []*InMemoryBackend
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		out = append(out, b)
+	}
+
+	for _, p := range h.peers.All() {
+		if b, ok := p.Backend.(*InMemoryBackend); ok {
+			out = append(out, b)
+		}
+	}
+
+	return out
 }
 
 // NewHandler creates a new SES v2 handler with the given backend.
@@ -182,6 +221,10 @@ func NewHandler(backend StorageBackend) *Handler {
 // Reset resets the backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -428,6 +471,11 @@ func parseSESv2Path(method, path string) (string, string) {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+
+		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(ctx)
 
 		op, rawResource := parseSESv2Path(c.Request().Method, c.Request().URL.Path)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (any, error) {
@@ -33,6 +34,8 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 	availabilityZones := parseAvailabilityZones(vals)
 	tags := parseTags(vals)
 	opts := &CreateDBClusterOptions{
+		ClusterExtras:                parseClusterExtras(vals),
+		MasterSecretRequest:          parseMasterSecretRequest(vals),
 		KmsKeyID:                     vals.Get("KmsKeyId"),
 		StorageType:                  vals.Get("StorageType"),
 		VpcSecurityGroupIDs:          parseVpcSecurityGroupIDs(vals),
@@ -129,6 +132,8 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 	}
 
 	opts := &ModifyDBClusterOptions{
+		ClusterExtras:          parseClusterExtras(vals),
+		MasterSecretRequest:    parseMasterSecretRequest(vals),
 		EngineVersion:          vals.Get("EngineVersion"),
 		MasterUserPassword:     vals.Get("MasterUserPassword"),
 		NewDBClusterIdentifier: vals.Get("NewDBClusterIdentifier"),
@@ -200,7 +205,8 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(ctx context.Context, vals u
 	clusterID := vals.Get("DBClusterIdentifier")
 	engine := vals.Get("Engine")
 	opts := &RestoreDBClusterOptions{
-		StorageType: vals.Get("StorageType"),
+		ClusterExtras: parseClusterExtras(vals),
+		StorageType:   vals.Get("StorageType"),
 	}
 	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID, engine, opts)
 	if err != nil {
@@ -217,6 +223,7 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(ctx context.Context, vals 
 	sourceClusterID := vals.Get("SourceDBClusterIdentifier")
 	targetClusterID := vals.Get("DBClusterIdentifier")
 	opts := &RestoreDBClusterOptions{
+		ClusterExtras:           parseClusterExtras(vals),
 		StorageType:             vals.Get("StorageType"),
 		RestoreToTime:           vals.Get("RestoreToTime"),
 		UseLatestRestorableTime: vals.Get("UseLatestRestorableTime") == stringTrue,
@@ -273,9 +280,15 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		MultiAZ:                      c.MultiAZ,
 		DeletionProtection:           c.DeletionProtection,
 		ClusterCreateTime:            c.ClusterCreateTime,
+		DBClusterResourceID:          c.DBClusterResourceID,
+		EarliestRestorableTime:       c.ClusterCreateTime,
+		LatestRestorableTime:         time.Now().UTC().Format(time.RFC3339),
 		HostedZoneID:                 c.HostedZoneID,
 		KmsKeyID:                     c.KmsKeyID,
+		MasterUserSecret:             toXMLMasterUserSecret(c),
 		ReplicationSourceIdentifier:  c.ReplicationSourceIdentifier,
+		NetworkType:                  c.NetworkType,
+		ServerlessV2Scaling:          toXMLScaling(c.ServerlessV2Scaling),
 		VpcSecurityGroups:            xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
 		EnabledCloudwatchLogsExports: xmlLogTypeList{Members: logTypes},
 		DBClusterMembers:             xmlDBClusterMemberList{},
@@ -319,6 +332,7 @@ type xmlAvailabilityZoneList struct {
 }
 
 type xmlDBCluster struct {
+	MasterUserSecret             *xmlClusterMasterUserSecret       `xml:"MasterUserSecret,omitempty"`
 	DBClusterIdentifier          string                            `xml:"DBClusterIdentifier"`
 	Engine                       string                            `xml:"Engine"`
 	Status                       string                            `xml:"Status"`
@@ -332,10 +346,15 @@ type xmlDBCluster struct {
 	DBClusterArn                 string                            `xml:"DBClusterArn,omitempty"`
 	EngineVersion                string                            `xml:"EngineVersion,omitempty"`
 	ClusterCreateTime            string                            `xml:"ClusterCreateTime,omitempty"`
+	DBClusterResourceID          string                            `xml:"DbClusterResourceId,omitempty"`
+	EarliestRestorableTime       string                            `xml:"EarliestRestorableTime,omitempty"`
+	LatestRestorableTime         string                            `xml:"LatestRestorableTime,omitempty"`
 	HostedZoneID                 string                            `xml:"HostedZoneId,omitempty"`
 	KmsKeyID                     string                            `xml:"KmsKeyId,omitempty"`
 	StorageType                  string                            `xml:"StorageType,omitempty"`
 	ReplicationSourceIdentifier  string                            `xml:"ReplicationSourceIdentifier,omitempty"`
+	NetworkType                  string                            `xml:"NetworkType,omitempty"`
+	ServerlessV2Scaling          *xmlServerlessV2Scaling           `xml:"ServerlessV2ScalingConfiguration,omitempty"`
 	VpcSecurityGroups            xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups"`
 	EnabledCloudwatchLogsExports xmlLogTypeList                    `xml:"EnabledCloudwatchLogsExports"`
 	DBClusterMembers             xmlDBClusterMemberList            `xml:"DBClusterMembers"`

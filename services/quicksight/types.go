@@ -65,6 +65,16 @@ type DataSet struct {
 	Name             string
 	ImportMode       string
 	Permissions      []ResourcePermission
+	Security         DataSetSecurity
+}
+
+// DataSetSecurity holds a dataset's row-level and column-level security
+// configuration, stored as the opaque wire documents the SDK sends.
+type DataSetSecurity struct {
+	RowLevelPermissionDataSet          map[string]any
+	RowLevelPermissionTagConfiguration map[string]any
+	UseAs                              string
+	ColumnLevelPermissionRules         []any
 }
 
 // InputColumn describes one column of a PhysicalTable's underlying schema
@@ -221,12 +231,13 @@ type Dashboard struct {
 
 // DashboardVersion represents a version of a QuickSight dashboard.
 type DashboardVersion struct {
-	CreatedTime   time.Time
-	Arn           string
-	Status        string
-	ThemeArn      string
-	Description   string
-	VersionNumber int64
+	CreatedTime     time.Time
+	Arn             string
+	Status          string
+	ThemeArn        string
+	Description     string
+	SourceEntityArn string
+	VersionNumber   int64
 }
 
 // Analysis represents a QuickSight analysis.

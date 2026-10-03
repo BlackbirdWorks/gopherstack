@@ -95,6 +95,7 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 		Bcc:                  bcc,
 		Subject:              subject,
 		BodyText:             rawData,
+		RawMessage:           []byte(rawData),
 		ConfigurationSetName: configSetName,
 		Tags:                 tags,
 		ReturnPath:           returnPath,

@@ -128,7 +128,7 @@ func TestTerraform_Ec2DefaultResourcesAndTransitgateway(t *testing.T) {
 
 				peeringOut, err := client.DescribeVpcPeeringConnections(ctx, &ec2svc.DescribeVpcPeeringConnectionsInput{
 					Filters: []ec2types.Filter{
-						{Name: aws.String("tag:Name"), Values: []string{"edtg-peering"}},
+						{Name: aws.String("status-code"), Values: []string{"active"}},
 					},
 				})
 				require.NoError(t, err, "DescribeVpcPeeringConnections should succeed")

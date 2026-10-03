@@ -138,12 +138,8 @@ func TestACMHandler_ExportCertificate_AmazonIssued(t *testing.T) {
 	}
 }
 
-// requestAndAwaitIssued creates an AMAZON_ISSUED certificate (optionally with
-// Options.Export set) and polls DescribeCertificate until it reaches ISSUED
-// (auto-validation fires after acm.autoValidateDelayMS, matching the existing
-// TestACMHandler_GetCertificate_Issued_Succeeds pattern in this file), so
-// tests exercising post-issuance behavior aren't racing the auto-validate
-// timer.
+// requestAndAwaitIssued creates an AMAZON_ISSUED certificate and returns its ARN;
+// without ValidationMethod it issues synchronously.
 func requestAndAwaitIssued(t *testing.T, h *acm.Handler, domainName, exportOption string) string {
 	t.Helper()
 
@@ -163,19 +159,15 @@ func requestAndAwaitIssued(t *testing.T, h *acm.Handler, domainName, exportOptio
 	}
 	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
 
-	require.Eventually(t, func() bool {
-		rec := postACMJSON(t, h, "DescribeCertificate",
-			`{"CertificateArn":"`+reqOut.CertificateArn+`"}`)
+	descRec := postACMJSON(t, h, "DescribeCertificate", `{"CertificateArn":"`+reqOut.CertificateArn+`"}`)
 
-		var out struct {
-			Certificate struct {
-				Status string `json:"Status"`
-			} `json:"Certificate"`
-		}
-		_ = json.Unmarshal(rec.Body.Bytes(), &out)
-
-		return out.Certificate.Status == "ISSUED"
-	}, 2*time.Second, 20*time.Millisecond)
+	var out struct {
+		Certificate struct {
+			Status string `json:"Status"`
+		} `json:"Certificate"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.Equal(t, "ISSUED", out.Certificate.Status)
 
 	return reqOut.CertificateArn
 }
@@ -509,19 +501,16 @@ func TestACMHandler_GetCertificate_Issued_Succeeds(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
 
-			// Wait for ISSUED status (immediate for no-validation certs)
-			require.Eventually(t, func() bool {
-				rec := postACMJSON(t, h, "DescribeCertificate",
-					`{"CertificateArn":"`+reqOut.CertificateArn+`"}`)
-				var out struct {
-					Certificate struct {
-						Status string `json:"Status"`
-					} `json:"Certificate"`
-				}
-				_ = json.Unmarshal(rec.Body.Bytes(), &out)
-
-				return out.Certificate.Status == "ISSUED"
-			}, 2*time.Second, 20*time.Millisecond)
+			// No ValidationMethod is set, so the cert issues synchronously.
+			descRec := postACMJSON(t, h, "DescribeCertificate",
+				`{"CertificateArn":"`+reqOut.CertificateArn+`"}`)
+			var descOut struct {
+				Certificate struct {
+					Status string `json:"Status"`
+				} `json:"Certificate"`
+			}
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.Equal(t, "ISSUED", descOut.Certificate.Status)
 
 			body, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
 			rec := postACMJSON(t, h, "GetCertificate", string(body))

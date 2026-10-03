@@ -81,14 +81,14 @@ func TestServerCertificate_CRUD(t *testing.T) {
 		_, err = b.UploadServerCertificate("list-cert-b", "/prod/", certBody, "")
 		require.NoError(t, err)
 
-		all, err := b.ListServerCertificates("")
+		all, err := b.ListServerCertificates("", "", 0)
 		require.NoError(t, err)
-		assert.Len(t, all, 2)
+		assert.Len(t, all.Data, 2)
 
-		prod, err := b.ListServerCertificates("/prod/")
+		prod, err := b.ListServerCertificates("/prod/", "", 0)
 		require.NoError(t, err)
-		assert.Len(t, prod, 1)
-		assert.Equal(t, "list-cert-b", prod[0].ServerCertificateName)
+		assert.Len(t, prod.Data, 1)
+		assert.Equal(t, "list-cert-b", prod.Data[0].ServerCertificateName)
 	})
 
 	t.Run("Update", func(t *testing.T) {
@@ -270,9 +270,9 @@ func TestUploadServerCertificate_ListReflectsUpload(t *testing.T) {
 	_, _ = b.UploadServerCertificate("cert-list-1", "/", "body", "")
 	_, _ = b.UploadServerCertificate("cert-list-2", "/", "body", "")
 
-	certs, err := b.ListServerCertificates("/")
+	certs, err := b.ListServerCertificates("/", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, certs, 2)
+	assert.Len(t, certs.Data, 2)
 }
 
 func TestServerCertificate_CRUDRoundTrip(t *testing.T) {
@@ -289,9 +289,9 @@ func TestServerCertificate_CRUDRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, certBody, got.CertificateBody)
 
-	certs, err := b.ListServerCertificates("/")
+	certs, err := b.ListServerCertificates("/", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, certs, 1)
+	assert.Len(t, certs.Data, 1)
 
 	require.NoError(t, b.UpdateServerCertificate("MyCert", "NewName", "/new/"))
 

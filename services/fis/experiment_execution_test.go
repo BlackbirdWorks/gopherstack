@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -17,52 +18,54 @@ import (
 func TestFISHandler_ExperimentCompletesAfterDuration(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	// Template with a very short wait action.
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions": map[string]any{
-			"wait": map[string]any{
-				"actionId":   "aws:fis:wait",
-				"parameters": map[string]string{"duration": "PT0.1S"},
+		// Template with a very short wait action.
+		const waitDuration = "PT0.1S"
+
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets":        map[string]any{},
+			"actions": map[string]any{
+				"wait": map[string]any{
+					"actionId":   "aws:fis:wait",
+					"parameters": map[string]string{"duration": waitDuration},
+				},
 			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Wait for the experiment to complete.
-	require.Eventually(t, func() bool {
-		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if rec3.Code != http.StatusOK {
-			return false
 		}
+
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec, &tplResp)
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var expResp struct {
+			Experiment struct {
+				ID string `json:"id"`
+			} `json:"experiment"`
+		}
+
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
+
+		time.Sleep(2*fis.LifecycleDelayForTest + fis.ParseISODurationForTest(waitDuration) + time.Millisecond)
+		synctest.Wait()
+
+		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+		require.Equal(t, http.StatusOK, rec3.Code)
 
 		var resp struct {
 			Experiment struct {
@@ -72,12 +75,9 @@ func TestFISHandler_ExperimentCompletesAfterDuration(t *testing.T) {
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
-			return false
-		}
-
-		return resp.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 100*time.Millisecond)
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+		require.Equal(t, "completed", resp.Experiment.Status.Status)
+	})
 }
 
 // ----------------------------------------
@@ -108,44 +108,45 @@ func TestFISHandler_SetFaultStore(t *testing.T) {
 func TestFISHandler_ExperimentCompletes_NoTimedActions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	// Template with no actions → maxDuration is 0, should complete immediately.
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
+		// Template with no actions → maxDuration is 0, should complete immediately.
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets":        map[string]any{},
+			"actions":        map[string]any{},
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	require.Eventually(t, func() bool {
-		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if rec3.Code != http.StatusOK {
-			return false
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
 		}
+
+		mustJSON(t, rec, &tplResp)
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var expResp struct {
+			Experiment struct {
+				ID string `json:"id"`
+			} `json:"experiment"`
+		}
+
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
+
+		time.Sleep(2*fis.LifecycleDelayForTest + time.Millisecond)
+		synctest.Wait()
+
+		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+		require.Equal(t, http.StatusOK, rec3.Code)
 
 		var resp struct {
 			Experiment struct {
@@ -155,12 +156,9 @@ func TestFISHandler_ExperimentCompletes_NoTimedActions(t *testing.T) {
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
-			return false
-		}
-
-		return resp.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 50*time.Millisecond)
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+		require.Equal(t, "completed", resp.Experiment.Status.Status)
+	})
 }
 
 // ----------------------------------------

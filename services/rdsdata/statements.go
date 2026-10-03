@@ -14,6 +14,14 @@ func (b *InMemoryBackend) ExecuteStatement(
 	resourceARN, sql, transactionID string,
 	parameters ...SQLParameter,
 ) ([][]Field, []ColumnMetadata, int64, []Field, error) {
+	if rr, handled, err := b.executeReal(ctx, resourceARN, sql, transactionID, parameters); handled {
+		if err != nil {
+			return nil, nil, 0, nil, err
+		}
+
+		return rr.Records, rr.Columns, rr.Updated, rr.Generated, nil
+	}
+
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
 
@@ -68,6 +76,10 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	resourceARN, sql, transactionID string,
 	parameterSets [][]SQLParameter,
 ) ([]UpdateResult, error) {
+	if results, handled, err := b.batchReal(ctx, resourceARN, sql, transactionID, parameterSets); handled {
+		return results, err
+	}
+
 	b.mu.Lock("BatchExecuteStatement")
 	defer b.mu.Unlock()
 

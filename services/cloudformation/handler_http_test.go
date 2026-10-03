@@ -627,7 +627,8 @@ func TestHandler_RollbackStack_HTTP(t *testing.T) {
 
 	h := newHandler()
 	postFormValues(t, h, url.Values{
-		"Action": {"CreateStack"}, "StackName": {"rb-http"}, "TemplateBody": {simpleTemplate},
+		"Action": {"CreateStack"}, "StackName": {"rb-http"}, "TemplateBody": {cfnCyclicTemplate},
+		"DisableRollback": {"true"},
 	})
 
 	resp := postFormValues(t, h, url.Values{

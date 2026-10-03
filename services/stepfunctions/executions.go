@@ -8,6 +8,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -58,6 +60,7 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		}
 	}
 
+	b.pruneMapRunsLocked(cutoff)
 	b.sweepOrphanedTombstonesLocked()
 
 	return len(toDelete)
@@ -88,6 +91,8 @@ func (b *InMemoryBackend) StartSyncExecution(
 		)
 	}
 
+	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
+
 	b.mu.RLock("StartSyncExecution")
 	resolved, resolveErr := b.resolveExecutionTarget(stateMachineArn)
 	if resolveErr != nil {
@@ -115,17 +120,23 @@ func (b *InMemoryBackend) StartSyncExecution(
 	}
 
 	smName := sm.Name
-	definition := sm.Definition
+	parsedSM, parseErr := sm.parseDefinition()
 	integrations := b.snapshotIntegrationsLocked()
+	mockRun, mockErr := b.mockRunLocked(smName, testCase, hasTestCase)
 	b.mu.RUnlock()
 
-	parsedSM, parseErr := asl.Parse(definition)
+	if mockErr != nil {
+		return nil, mockErr
+	}
+
+	integrations.mockRun = mockRun
+
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
 
 	if name == "" {
-		name = fmt.Sprintf("sync-%d", time.Now().UnixNano())
+		name = uuid.NewString()
 	}
 
 	// Execution/MapRun ARNs are always keyed off the base (unqualified) state
@@ -276,6 +287,8 @@ type startedExecution struct {
 func (b *InMemoryBackend) startExecutionLocked(
 	stateMachineArn, name, input string,
 ) (*startedExecution, error) {
+	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
+
 	b.mu.Lock("StartExecution")
 	defer b.mu.Unlock()
 
@@ -308,7 +321,16 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// machine ARN, even when stateMachineArn (the caller-supplied argument)
 	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
 	baseSMArn := sm.StateMachineArn
+	if name == "" {
+		name = uuid.NewString()
+	}
+
 	execArn := b.execARN(baseSMArn, sm.Name, name)
+
+	mockRun, mockErr := b.mockRunLocked(sm.Name, testCase, hasTestCase)
+	if mockErr != nil {
+		return nil, mockErr
+	}
 
 	// StartExecution is idempotent for STANDARD workflows: calling it again
 	// with the same name and input against a still-RUNNING execution
@@ -336,7 +358,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// leaves an orphaned RUNNING execution in the store.
 	definition := sm.Definition
 
-	parsedSM, parseErr := asl.Parse(definition)
+	parsedSM, parseErr := sm.parseDefinition()
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
@@ -359,7 +381,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 		exec:            exec,
 		execArn:         execArn,
 		parsedSM:        parsedSM,
-		integrations:    b.snapshotIntegrationsLocked(),
+		integrations:    b.integrationsWithMockLocked(mockRun),
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -791,7 +813,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 
 	definition := sm.Definition
 
-	parsedSM, parseErr := asl.Parse(definition)
+	parsedSM, parseErr := sm.parseDefinition()
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}

@@ -28,6 +28,10 @@ func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordi
 		return fmt.Errorf("%w: ConfigurationRecorder roleARN is required", ErrInvalidRole)
 	}
 
+	if err := validateRecordingGroup(recordingGroup); err != nil {
+		return err
+	}
+
 	b.mu.Lock("PutConfigurationRecorder")
 	defer b.mu.Unlock()
 
@@ -97,14 +101,14 @@ func (b *InMemoryBackend) DescribeConfigurationRecorders(names []string) []Confi
 
 	if len(names) == 0 {
 		for _, r := range b.recorders.All() {
-			cp := *r
+			cp := r.clone()
 			cp.Arn = b.recorderArn(r.Name)
 			out = append(out, cp)
 		}
 	} else {
 		for _, n := range names {
 			if r, ok := b.recorders.Get(n); ok {
-				cp := *r
+				cp := r.clone()
 				cp.Arn = b.recorderArn(r.Name)
 				out = append(out, cp)
 			}
@@ -349,8 +353,7 @@ func (b *InMemoryBackend) AssociateResourceTypes(
 
 	cp := *r
 	cp.Arn = b.recorderArn(r.Name)
-	rgCopy := *r.RecordingGroup
-	cp.RecordingGroup = &rgCopy
+	cp.RecordingGroup = cloneRecordingGroup(r.RecordingGroup)
 
 	return &cp, nil
 }
@@ -607,4 +610,53 @@ func (b *InMemoryBackend) PutThirdPartyServiceLinkedConfigurationRecorder(
 	b.setResourceTagsLocked(arn, tags)
 
 	return name, arn, nil
+}
+
+func (r *ConfigurationRecorder) clone() ConfigurationRecorder {
+	cp := *r
+	if r.RecordingGroup != nil {
+		cp.RecordingGroup = cloneRecordingGroup(r.RecordingGroup)
+	}
+
+	return cp
+}
+
+const (
+	strategyAllSupported = "ALL_SUPPORTED_RESOURCE_TYPES"
+	strategyExclusion    = "EXCLUSION_BY_RESOURCE_TYPES"
+)
+
+// validateRecordingGroup enforces the RecordingGroup rules stated in the
+// configservice v1.68.4 types.RecordingGroup/RecordingStrategy doc comments.
+func validateRecordingGroup(rg *RecordingGroup) error {
+	if rg == nil {
+		return nil
+	}
+
+	excluded := rg.ExclusionByResourceTypes != nil && len(rg.ExclusionByResourceTypes.ResourceTypes) > 0
+	useOnly := ""
+
+	if rg.RecordingStrategy != nil {
+		useOnly = rg.RecordingStrategy.UseOnly
+	}
+
+	switch {
+	case rg.AllSupported && len(rg.ResourceTypes) > 0:
+		return fmt.Errorf("%w: resourceTypes cannot be set when allSupported is true", ErrInvalidRecordingGroup)
+	case rg.AllSupported && excluded:
+		return fmt.Errorf(
+			"%w: exclusionByResourceTypes cannot be set when allSupported is true", ErrInvalidRecordingGroup,
+		)
+	case excluded && useOnly != strategyExclusion:
+		return fmt.Errorf(
+			"%w: exclusionByResourceTypes requires recordingStrategy EXCLUSION_BY_RESOURCE_TYPES",
+			ErrInvalidRecordingGroup,
+		)
+	case useOnly == strategyAllSupported && !rg.AllSupported:
+		return fmt.Errorf(
+			"%w: recordingStrategy ALL_SUPPORTED_RESOURCE_TYPES requires allSupported true", ErrInvalidRecordingGroup,
+		)
+	}
+
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -332,11 +333,10 @@ func TestDeleteStateMachine_DeletingObservableWhileExecutionRunning(t *testing.T
 		_ = b.StopExecution(exec.ExecutionArn, "Test", "cleanup")
 	})
 
-	require.Eventually(t, func() bool {
-		d, dErr := b.DescribeExecution(exec.ExecutionArn)
-
-		return dErr == nil && d.Status == "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+	// StartExecution and StopExecution both set status synchronously; no wait needed.
+	runningDesc, err := b.DescribeExecution(exec.ExecutionArn)
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", runningDesc.Status)
 
 	require.NoError(t, b.DeleteStateMachine(smARN))
 
@@ -348,11 +348,10 @@ func TestDeleteStateMachine_DeletingObservableWhileExecutionRunning(t *testing.T
 	require.ErrorIs(t, err, stepfunctions.ErrStateMachineDeleting)
 
 	require.NoError(t, b.StopExecution(exec.ExecutionArn, "Test", "cleanup"))
-	require.Eventually(t, func() bool {
-		d, dErr := b.DescribeExecution(exec.ExecutionArn)
 
-		return dErr == nil && d.Status != "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+	stoppedDesc, err := b.DescribeExecution(exec.ExecutionArn)
+	require.NoError(t, err)
+	assert.NotEqual(t, "RUNNING", stoppedDesc.Status)
 
 	swept := b.SweepDeletingStateMachines(context.Background())
 	assert.Equal(t, 1, swept)
@@ -401,11 +400,11 @@ func TestStateMachineDeleting_BlocksClientCallableOps(t *testing.T) {
 		_ = b.StopExecution(exec.ExecutionArn, "Test", "cleanup")
 	})
 
-	require.Eventually(t, func() bool {
-		d, dErr := b.DescribeExecution(exec.ExecutionArn)
-
-		return dErr == nil && d.Status == "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+	// StartExecution sets the RUNNING status synchronously before the ASL
+	// interpreter goroutine is launched, so no wait is needed here.
+	runningDesc, err := b.DescribeExecution(exec.ExecutionArn)
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", runningDesc.Status)
 
 	require.NoError(t, b.DeleteStateMachine(smARN))
 
@@ -936,28 +935,30 @@ func TestDeleteStateMachine_TombstoneOnlyRunning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newSFBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "tomb-sm", exprPassDef, "arn:role", "STANDARD")
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := newSFBackend()
+				sm, err := b.CreateStateMachine(context.Background(), "tomb-sm", exprPassDef, "arn:role", "STANDARD")
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "tomb-exec", "{}")
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "tomb-exec", "{}")
+				require.NoError(t, err)
 
-			execARN := exec.ExecutionArn
+				execARN := exec.ExecutionArn
 
-			if tt.waitForCompletion {
-				require.Eventually(t, func() bool {
-					d, e := b.DescribeExecution(execARN)
+				if tt.waitForCompletion {
+					synctest.Wait()
 
-					return e == nil && d.Status != "RUNNING"
-				}, 5*time.Second, 50*time.Millisecond)
-			}
+					d, dErr := b.DescribeExecution(execARN)
+					require.NoError(t, dErr)
+					require.NotEqual(t, "RUNNING", d.Status)
+				}
 
-			err = b.DeleteStateMachine(sm.StateMachineArn)
-			require.NoError(t, err)
+				err = b.DeleteStateMachine(sm.StateMachineArn)
+				require.NoError(t, err)
 
-			hasTombstone := b.HasTombstoneForTest(execARN)
-			assert.Equal(t, tt.wantTombstone, hasTombstone)
+				hasTombstone := b.HasTombstoneForTest(execARN)
+				assert.Equal(t, tt.wantTombstone, hasTombstone)
+			})
 		})
 	}
 }

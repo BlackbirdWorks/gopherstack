@@ -695,6 +695,7 @@ const (
 	attrEnaSupport                        = "enaSupport"
 	attrSriovNetSupport                   = "sriovNetSupport"
 	attrDisableAPIStop                    = "disableApiStop"
+	attrBlockDeviceMapping                = "blockDeviceMapping"
 	attrDisableAPITermination             = "disableApiTermination"
 	attrEBSOptimized                      = "ebsOptimized"
 	attrInstanceInitiatedShutdownBehavior = "instanceInitiatedShutdownBehavior"
@@ -768,11 +769,8 @@ func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value stri
 		if eni := b.primaryNetworkInterfaceLocked(instanceID); eni != nil {
 			eni.SourceDestCheck = value == ec2BooleanTrue
 		}
-	case "groupSet", "blockDeviceMapping":
-		// accepted but not modelled beyond acknowledgment: changing an
-		// instance's security groups / block device mappings via
-		// ModifyInstanceAttribute has no dedicated backend representation
-		// distinct from the SG-membership and volume-attachment ops.
+	case "groupSet", attrBlockDeviceMapping:
+		// Applied by ModifyInstanceBlockDeviceMappings / SetInstanceSecurityGroups.
 	default:
 		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attribute)
 	}

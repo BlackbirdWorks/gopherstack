@@ -252,7 +252,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}

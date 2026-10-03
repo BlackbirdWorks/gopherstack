@@ -182,7 +182,7 @@ func TestHandler_CreateSchema_InvalidTypeReturns400(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusBadRequest {
-				assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+				assert.Contains(t, rec.Body.String(), "ValidationException")
 			}
 		})
 	}
@@ -234,7 +234,7 @@ func TestHandler_DeleteSchemaVersion_LastVersionReturns400(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.Equal(t, "InvalidParameterException", body["__type"])
+	assert.Equal(t, "ValidationException", body["__type"])
 
 	// Schema still exists and is intact.
 	described, descErr := b.DescribeSchema(context.Background(), "dv-reg", "dv-schema", "")

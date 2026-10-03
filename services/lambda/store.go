@@ -276,6 +276,7 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		urlServers []*functionURLServer
 		rts        []*functionRuntime
 		cancel     context.CancelFunc
+		poller     *EventSourcePoller
 	)
 
 	func() {
@@ -293,12 +294,17 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		}
 
 		cancel = b.pollerCancel
+		poller = b.kinesisPoller
 		b.pollerCancel = nil
 	}()
 
 	// Stop the event-source poller goroutine if it was started.
 	if cancel != nil {
 		cancel()
+
+		if poller != nil {
+			poller.WaitStopped(ctx)
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -423,6 +429,22 @@ func (b *InMemoryBackend) SetSQSReader(r SQSReader) {
 
 	if p != nil {
 		p.SetSQSReader(r)
+	}
+}
+
+// SetMSKBrokerResolver sets the resolver that maps MSK cluster ARNs to real broker addresses.
+func (b *InMemoryBackend) SetMSKBrokerResolver(r MSKBrokerResolver) {
+	var p *EventSourcePoller
+
+	func() {
+		b.mu.RLock("SetMSKBrokerResolver")
+		defer b.mu.RUnlock()
+
+		p = b.kinesisPoller
+	}()
+
+	if p != nil {
+		p.SetMSKBrokerResolver(r)
 	}
 }
 

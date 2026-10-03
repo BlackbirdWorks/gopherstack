@@ -153,11 +153,7 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "pvr-domain")
 				setupRepo(t, h, "pvr-domain", "pvr-repo")
-				doRequest(
-					t, h, http.MethodGet,
-					"/v1/package/version?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
-					nil,
-				)
+				seedVersion(t, h, "pvr-domain", "pvr-repo", "npm", "", "lodash", "1.0.0")
 			},
 			path: "/v1/package/version/readme" +
 				"?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
@@ -345,13 +341,7 @@ func TestHandler_ListPackageVersionAssets(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpva-domain")
 				setupRepo(t, h, "lpva-domain", "lpva-repo")
-				doRequest(
-					t,
-					h,
-					http.MethodGet,
-					"/v1/package/version?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
-					nil,
-				)
+				seedVersion(t, h, "lpva-domain", "lpva-repo", "npm", "", "lodash", "1.0.0")
 			},
 			path: "/v1/package/version/assets" +
 				"?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
@@ -426,13 +416,7 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpvd-domain")
 				setupRepo(t, h, "lpvd-domain", "lpvd-repo")
-				doRequest(
-					t,
-					h,
-					http.MethodGet,
-					"/v1/package/version?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
-					nil,
-				)
+				seedVersion(t, h, "lpvd-domain", "lpvd-repo", "npm", "", "lodash", "1.0.0")
 			},
 			path: "/v1/package/version/dependencies" +
 				"?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
@@ -509,20 +493,8 @@ func TestHandler_ListPackageVersions(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpv-domain")
 				setupRepo(t, h, "lpv-domain", "lpv-repo")
-				doRequest(
-					t,
-					h,
-					http.MethodGet,
-					"/v1/package/version?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash&version=4.17.0",
-					nil,
-				)
-				doRequest(
-					t,
-					h,
-					http.MethodGet,
-					"/v1/package/version?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash&version=4.17.21",
-					nil,
-				)
+				seedVersion(t, h, "lpv-domain", "lpv-repo", "npm", "", "lodash", "4.17.0")
+				seedVersion(t, h, "lpv-domain", "lpv-repo", "npm", "", "lodash", "4.17.21")
 			},
 			path:       "/v1/package/versions?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash",
 			wantStatus: http.StatusOK,

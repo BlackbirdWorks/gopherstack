@@ -73,8 +73,10 @@ func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 		b.mu.Lock("SessionSweep")
 		defer b.mu.Unlock()
 
+		now := time.Now()
+
 		b.sessions.Range(func(session *SessionInfo) bool {
-			if isSessionExpired(session) {
+			if sessionExpiredAt(session, now) {
 				expired = append(expired, session.AccessKeyID)
 			}
 

@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -147,6 +148,45 @@ func (b *InMemoryBackend) requireMacInstanceLocked(instanceID string) error {
 func (b *InMemoryBackend) CreateMacSystemIntegrityProtectionModificationTask(
 	instanceID, status string, config *MacSIPConfig, tags map[string]string,
 ) (*MacModificationTask, error) {
+	return b.CreateMacSIPModificationTaskWithCredentials(instanceID, status, "", config, tags)
+}
+
+// macCredentials is the JSON the Apple silicon admin credentials arrive in
+// (api_op_CreateMacSystemIntegrityProtectionModificationTask.go).
+type macCredentials struct {
+	InternalDiskPassword *string `json:"internalDiskPassword"`
+	RootVolumeUsername   string  `json:"rootVolumeUsername"`
+	RootVolumePassword   string  `json:"rootVolumepassword"`
+}
+
+// validateMacCredentials checks the MacCredentials JSON: the root volume
+// username and password are required; the internal disk password may be blank.
+func validateMacCredentials(raw string) error {
+	if raw == "" {
+		return nil
+	}
+
+	var creds macCredentials
+	if err := json.Unmarshal([]byte(raw), &creds); err != nil {
+		return fmt.Errorf("%w: MacCredentials must be a JSON object: %w", ErrInvalidParameter, err)
+	}
+
+	if creds.RootVolumeUsername == "" || creds.RootVolumePassword == "" {
+		return fmt.Errorf("%w: MacCredentials requires rootVolumeUsername and rootVolumepassword", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// CreateMacSIPModificationTaskWithCredentials is the SIP task creator with the
+// optional MacCredentials, validated but never stored.
+func (b *InMemoryBackend) CreateMacSIPModificationTaskWithCredentials(
+	instanceID, status, macCreds string, config *MacSIPConfig, tags map[string]string,
+) (*MacModificationTask, error) {
+	if err := validateMacCredentials(macCreds); err != nil {
+		return nil, err
+	}
+
 	if instanceID == "" {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
 	}

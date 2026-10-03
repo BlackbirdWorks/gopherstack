@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -574,31 +575,9 @@ func validateUpdatePatchBaselineInput(input *UpdatePatchBaselineInput) error {
 	return validateApprovalRules(input.ApprovalRules)
 }
 
-// UpdatePatchBaseline updates a patch baseline.
-func (b *InMemoryBackend) UpdatePatchBaseline(
-	ctx context.Context,
-	input *UpdatePatchBaselineInput,
-) (*UpdatePatchBaselineOutput, error) {
-	if input.BaselineID == "" {
-		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
-	}
-
-	if err := validateUpdatePatchBaselineInput(input); err != nil {
-		return nil, err
-	}
-
-	region := getRegion(ctx)
-	b.mu.Lock("UpdatePatchBaseline")
-	defer b.mu.Unlock()
-
-	baselines := b.patchBaselinesStore(region)
-	blPtr, exists := baselines.Get(input.BaselineID)
-	if !exists {
-		return nil, ErrPatchBaselineNotFound
-	}
-
-	bl := *blPtr
-
+// mergePatchBaselineUpdate applies only the fields present in input (AWS
+// default: "Fields not specified in the request are left unchanged").
+func mergePatchBaselineUpdate(bl *PatchBaseline, input *UpdatePatchBaselineInput) {
 	if input.Name != nil {
 		bl.Name = *input.Name
 	}
@@ -641,6 +620,59 @@ func (b *InMemoryBackend) UpdatePatchBaseline(
 
 	if input.ApprovedPatchesEnableNonSecurity != nil {
 		bl.ApprovedPatchesEnableNonSecurity = input.ApprovedPatchesEnableNonSecurity
+	}
+}
+
+// replacePatchBaselineUpdate applies Replace=true: every optional field is
+// assigned unconditionally, nulling out ones the caller omitted.
+func replacePatchBaselineUpdate(bl *PatchBaseline, input *UpdatePatchBaselineInput) {
+	bl.Name = *input.Name
+	bl.Description = ptrconv.String(input.Description)
+	bl.ApprovedPatches = input.ApprovedPatches
+	bl.RejectedPatches = input.RejectedPatches
+	bl.ApprovedPatchesComplianceLevel = input.ApprovedPatchesComplianceLevel
+	bl.AvailableSecurityUpdatesComplianceStatus = input.AvailableSecurityUpdatesComplianceStatus
+	bl.RejectedPatchesAction = input.RejectedPatchesAction
+	bl.ApprovalRules = input.ApprovalRules
+	bl.GlobalFilters = input.GlobalFilters
+	bl.Sources = input.Sources
+	bl.ApprovedPatchesEnableNonSecurity = input.ApprovedPatchesEnableNonSecurity
+}
+
+// UpdatePatchBaseline updates a patch baseline.
+func (b *InMemoryBackend) UpdatePatchBaseline(
+	ctx context.Context,
+	input *UpdatePatchBaselineInput,
+) (*UpdatePatchBaselineOutput, error) {
+	if input.BaselineID == "" {
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
+	}
+
+	if err := validateUpdatePatchBaselineInput(input); err != nil {
+		return nil, err
+	}
+
+	replace := ptrconv.Bool(input.Replace)
+	if replace && input.Name == nil {
+		return nil, fmt.Errorf("%w: Name is required when Replace is true", ErrValidationException)
+	}
+
+	region := getRegion(ctx)
+	b.mu.Lock("UpdatePatchBaseline")
+	defer b.mu.Unlock()
+
+	baselines := b.patchBaselinesStore(region)
+	blPtr, exists := baselines.Get(input.BaselineID)
+	if !exists {
+		return nil, ErrPatchBaselineNotFound
+	}
+
+	bl := *blPtr
+
+	if replace {
+		replacePatchBaselineUpdate(&bl, input)
+	} else {
+		mergePatchBaselineUpdate(&bl, input)
 	}
 
 	bl.ModifiedDate = UnixTimeFloat(timeNow())

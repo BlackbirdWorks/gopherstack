@@ -271,6 +271,7 @@ func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byt
 			SecondaryStatus:   tj.SecondaryStatus,
 			CreationTime:      epochSeconds(tj.CreationTime),
 			LastModifiedTime:  epochSeconds(tj.LastModifiedTime),
+			TrainingPlanArn:   tj.ResourceConfig.TrainingPlanArn,
 		}
 		if tj.TrainingEndTime != nil {
 			summary.TrainingEndTime = epochSeconds(*tj.TrainingEndTime)
@@ -292,13 +293,13 @@ func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byt
 // ---------------------------------------------------------------------------
 
 // trainingJobSummary mirrors types.TrainingJobSummary (types.go:22613-22656).
-// TrainingPlanArn/WarmPoolStatus are not emitted: neither has a source on
-// the TrainingJob model (see PARITY.md items_still_open).
+// WarmPoolStatus is not emitted: no warm-pool lifecycle is simulated.
 type trainingJobSummary struct {
 	TrainingJobName   string  `json:"TrainingJobName"`
 	TrainingJobArn    string  `json:"TrainingJobArn"`
 	TrainingJobStatus string  `json:"TrainingJobStatus"`
 	SecondaryStatus   string  `json:"SecondaryStatus,omitempty"`
+	TrainingPlanArn   string  `json:"TrainingPlanArn,omitempty"`
 	CreationTime      float64 `json:"CreationTime"`
 	LastModifiedTime  float64 `json:"LastModifiedTime"`
 	TrainingEndTime   float64 `json:"TrainingEndTime,omitempty"`

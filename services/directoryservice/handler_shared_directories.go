@@ -34,6 +34,10 @@ func (h *Handler) handleShareDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
+	if tt := req.ShareTarget.Type; tt != "" && tt != "ACCOUNT" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "ShareTarget.Type must be ACCOUNT"))
+	}
+
 	shareMethod := req.ShareMethod
 	if shareMethod == "" {
 		shareMethod = "HANDSHAKE"
@@ -73,6 +77,10 @@ func (h *Handler) handleUnshareDirectory(c *echo.Context) error {
 
 	if req.DirectoryID == "" {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
+	}
+
+	if tt := req.UnshareTarget.Type; tt != "" && tt != "ACCOUNT" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "UnshareTarget.Type must be ACCOUNT"))
 	}
 
 	sharedDirID, unshareErr := h.Backend.UnshareDirectory(h.contextWithRegion(c), req.DirectoryID, req.UnshareTarget.ID)

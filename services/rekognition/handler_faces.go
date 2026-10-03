@@ -28,8 +28,9 @@ func (h *Handler) faceOps() map[string]service.JSONOpFunc {
 // --- Face requests ---
 
 type indexFacesReq struct {
-	CollectionID    string `json:"CollectionId"`
-	ExternalImageID string `json:"ExternalImageId"`
+	CollectionID    string   `json:"CollectionId"`
+	ExternalImageID string   `json:"ExternalImageId"`
+	Image           imageRef `json:"Image"`
 }
 
 type faceRecord struct {
@@ -46,9 +47,13 @@ type indexFacesResp struct {
 	FaceRecords      []faceRecord `json:"FaceRecords"`
 }
 
-func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*indexFacesResp, error) {
+func (h *Handler) handleIndexFaces(ctx context.Context, req *indexFacesReq) (*indexFacesResp, error) {
 	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
 	}
 
 	faces, err := h.Backend.IndexFaces(req.CollectionID, req.ExternalImageID)

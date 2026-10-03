@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -139,13 +140,35 @@ type autoScalingSettings struct {
 }
 
 // autoScalingThroughput captures the min/max/target settings for one direction
-// (read or write). Mirrors types.AutoScalingSettingsUpdate but stripped to the
-// fields LocalStack and most callers care about.
+// (read or write), plus the scaling-policy fields real DynamoDB carries on
+// AutoScalingSettingsDescription/Update (types.go:314/338): AutoScalingRoleArn
+// and the single TargetTrackingScalingPolicyConfiguration a v1 update accepts
+// (ScalingPolicyUpdate is singular on the update side; DisableScaleIn is captured
+// alongside TargetUtilizPct). These are echoed back exactly as the client sent
+// them, never fabricated -- this emulator has no real IAM-role or scaling-policy
+// engine behind them.
 type autoScalingThroughput struct {
-	MinCapacity     *int64   `json:"MinCapacity,omitempty"`
-	MaxCapacity     *int64   `json:"MaxCapacity,omitempty"`
-	TargetUtilizPct *float64 `json:"TargetUtilizationPct,omitempty"`
-	Disabled        bool     `json:"AutoScalingDisabled,omitempty"`
+	MinCapacity      *int64   `json:"MinCapacity,omitempty"`
+	MaxCapacity      *int64   `json:"MaxCapacity,omitempty"`
+	TargetUtilizPct  *float64 `json:"TargetUtilizationPct,omitempty"`
+	DisableScaleIn   *bool    `json:"DisableScaleIn,omitempty"`
+	ScaleInCooldown  *int32   `json:"ScaleInCooldown,omitempty"`
+	ScaleOutCooldown *int32   `json:"ScaleOutCooldown,omitempty"`
+	RoleArn          *string  `json:"AutoScalingRoleArn,omitempty"`
+	PolicyName       *string  `json:"PolicyName,omitempty"`
+	Disabled         bool     `json:"AutoScalingDisabled,omitempty"`
+}
+
+// replicaAutoScalingSettings records the per-replica read-capacity autoscaling
+// settings from UpdateTableReplicaAutoScaling's ReplicaUpdates
+// (types.ReplicaAutoScalingUpdate). Read capacity is per-replica in the v1
+// global tables API, unlike write capacity, which this emulator applies
+// table-wide via autoScalingSettings.Write and echoes identically to every
+// replica (matches AWS: a v1 global table has one write capacity shared by
+// all replicas).
+type replicaAutoScalingSettings struct {
+	Read                   *autoScalingThroughput            `json:"Read,omitempty"`
+	GlobalSecondaryIndexes map[string]*autoScalingThroughput `json:"GlobalSecondaryIndexes,omitempty"`
 }
 
 // pitrSnapshot captures the items of a PITR-enabled table at a point in time.
@@ -288,37 +311,42 @@ type Table struct {
 	// Table built per-Query call (see snapshotTableForQuery); it holds a
 	// deep copy of the one GSI/LSI index the query targets, same role as
 	// itemsByOffset plays for primary-key queries.
-	activeSecondaryIndex    *secondaryIndex
-	itemsByOffset           map[int]map[string]any
-	mu                      *lockmetrics.RWMutex
-	activateTimer           *time.Timer
-	Tags                    *tags.Tags                    `json:"Tags,omitempty"`
-	AutoScaling             *autoScalingSettings          `json:"AutoScaling,omitempty"`
-	OnDemandMaxWriteRRU     *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
-	OnDemandMaxReadRRU      *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
-	ResourcePolicy          string                        `json:"ResourcePolicy,omitempty"`
-	ResourcePolicyRevision  string                        `json:"ResourcePolicyRevision,omitempty"`
-	TTLAttribute            string                        `json:"TTLAttribute,omitempty"`
-	StreamViewType          string                        `json:"StreamViewType,omitempty"`
-	StreamARN               string                        `json:"StreamARN,omitempty"`
-	GlobalTableName         string                        `json:"GlobalTableName,omitempty"`
-	MultiRegionConsistency  string                        `json:"MultiRegionConsistency,omitempty"`
-	TableArn                string                        `json:"TableArn"`
-	Status                  string                        `json:"Status"`
-	TableID                 string                        `json:"TableID"`
-	SSEType                 string                        `json:"SSEType,omitempty"`
-	TableClass              string                        `json:"TableClass,omitempty"`
-	BillingMode             string                        `json:"BillingMode,omitempty"`
-	Name                    string                        `json:"Name"`
-	SSEKMSMasterKeyArn      string                        `json:"SSEKMSMasterKeyArn,omitempty"`
-	ContributorInsightsMode string                        `json:"ContributorInsightsMode,omitempty"`
-	AttributeDefinitions    []models.AttributeDefinition  `json:"AttributeDefinitions"`
-	GlobalSecondaryIndexes  []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
-	Replicas                []models.ReplicaDescription   `json:"Replicas,omitempty"`
-	LocalSecondaryIndexes   []models.LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
-	KeySchema               []models.KeySchemaElement     `json:"KeySchema"`
-	KinesisDestinations     []KinesisDestinationEntry     `json:"KinesisDestinations,omitempty"`
-	Items                   []map[string]any              `json:"Items"`
+	activeSecondaryIndex *secondaryIndex
+	itemsByOffset        map[int]map[string]any
+	mu                   *lockmetrics.RWMutex
+	activateTimer        *time.Timer
+	scanOrder            atomic.Pointer[scanOrderCache]
+	Tags                 *tags.Tags           `json:"Tags,omitempty"`
+	AutoScaling          *autoScalingSettings `json:"AutoScaling,omitempty"`
+	// ReplicaAutoScaling holds per-replica read-capacity autoscaling settings,
+	// keyed by RegionName (see replicaAutoScalingSettings doc).
+	ReplicaAutoScaling      map[string]*replicaAutoScalingSettings `json:"ReplicaAutoScaling,omitempty"`
+	OnDemandMaxWriteRRU     *int64                                 `json:"OnDemandMaxWriteRRU,omitempty"`
+	OnDemandMaxReadRRU      *int64                                 `json:"OnDemandMaxReadRRU,omitempty"`
+	ResourcePolicy          string                                 `json:"ResourcePolicy,omitempty"`
+	ResourcePolicyRevision  string                                 `json:"ResourcePolicyRevision,omitempty"`
+	TTLAttribute            string                                 `json:"TTLAttribute,omitempty"`
+	StreamViewType          string                                 `json:"StreamViewType,omitempty"`
+	StreamARN               string                                 `json:"StreamARN,omitempty"`
+	GlobalTableName         string                                 `json:"GlobalTableName,omitempty"`
+	MultiRegionConsistency  string                                 `json:"MultiRegionConsistency,omitempty"`
+	TableArn                string                                 `json:"TableArn"`
+	Status                  string                                 `json:"Status"`
+	TableID                 string                                 `json:"TableID"`
+	SSEType                 string                                 `json:"SSEType,omitempty"`
+	TableClass              string                                 `json:"TableClass,omitempty"`
+	BillingMode             string                                 `json:"BillingMode,omitempty"`
+	Name                    string                                 `json:"Name"`
+	SSEKMSMasterKeyArn      string                                 `json:"SSEKMSMasterKeyArn,omitempty"`
+	ContributorInsightsMode string                                 `json:"ContributorInsightsMode,omitempty"`
+	AttributeDefinitions    []models.AttributeDefinition           `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes  []models.GlobalSecondaryIndex          `json:"GlobalSecondaryIndexes,omitempty"`
+	Replicas                []models.ReplicaDescription            `json:"Replicas,omitempty"`
+	LocalSecondaryIndexes   []models.LocalSecondaryIndex           `json:"LocalSecondaryIndexes,omitempty"`
+	KeySchema               []models.KeySchemaElement              `json:"KeySchema"`
+	KinesisDestinations     []KinesisDestinationEntry              `json:"KinesisDestinations,omitempty"`
+	StreamRecords           []models.StreamRecord                  `json:"StreamRecords,omitempty"`
+	Items                   []map[string]any                       `json:"Items"`
 	itemSizes               []int
 	// PITRSnapshots is the per-table PITR ring buffer (see pitrSnapshot). It must be
 	// exported with a json tag -- encoding/json silently skips unexported fields, so an
@@ -328,14 +356,14 @@ type Table struct {
 	// adding this field did not require bumping the snapshot version.
 	PITRSnapshots              []pitrSnapshot                          `json:"PITRSnapshots,omitempty"`
 	StreamShards               []StreamShard                           `json:"StreamShards,omitempty"`
-	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	itemsVersion               uint64
 	totalItemSizeBytes         int64
 	streamSeq                  int64
 	StreamHead                 int `json:"StreamHead,omitempty"`
 	streamTrimSeq              int64
-	PITREnabled                bool  `json:"PITREnabled,omitempty"`
 	RecoveryPeriodInDays       int32 `json:"RecoveryPeriodInDays,omitempty"`
+	PITREnabled                bool  `json:"PITREnabled,omitempty"`
 	SSEEnabled                 bool  `json:"SSEEnabled,omitempty"`
 	StreamsEnabled             bool  `json:"StreamsEnabled"`
 	DeletionProtectionEnabled  bool  `json:"DeletionProtectionEnabled"`
@@ -649,6 +677,7 @@ func (t *Table) initializeIndexes() {
 
 // rebuildIndexes rebuilds all indexes from existing items (used after table creation or batch updates).
 func (t *Table) rebuildIndexes() {
+	t.itemsChanged()
 	t.initializeIndexes()
 
 	// Rebuild the item-size accounting alongside the key indexes. itemSizes has

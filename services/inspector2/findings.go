@@ -797,12 +797,9 @@ func (b *InMemoryBackend) SeedVulnerability(v Vulnerability) (*Vulnerability, er
 		return nil, ErrValidation
 	}
 
-	clone := v
-	b.vulnerabilities.Put(&clone)
+	b.vulnerabilities.Put(cloneVulnerability(&v))
 
-	out := v
-
-	return &out, nil
+	return cloneVulnerability(&v), nil
 }
 
 // SearchVulnerabilities looks up seeded vulnerabilities by ID. Real
@@ -829,8 +826,7 @@ func (b *InMemoryBackend) SearchVulnerabilities(
 		}
 
 		if v, found := b.vulnerabilities.Get(id); found {
-			clone := *v
-			matched = append(matched, &clone)
+			matched = append(matched, cloneVulnerability(v))
 		}
 	}
 

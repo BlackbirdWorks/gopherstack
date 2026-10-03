@@ -129,6 +129,7 @@ type VpcPeeringConnection struct {
 	AccepterVpcID          string    `json:"accepterVpcID,omitempty"`
 	AccepterOwnerID        string    `json:"accepterOwnerID,omitempty"`
 	AccepterRegion         string    `json:"accepterRegion,omitempty"`
+	RequesterRegion        string    `json:"requesterRegion,omitempty"`
 	State                  string    `json:"state,omitempty"`
 }
 
@@ -390,9 +391,9 @@ func (b *InMemoryBackend) AddTGWMulticastDomainAssociationInternal(
 
 // ---- AcceptTransitGatewayPeeringAttachment ----
 
-// AcceptTransitGatewayPeeringAttachment accepts a TGW peering attachment,
+// acceptTransitGatewayPeeringAttachmentLocal accepts a TGW peering attachment,
 // transitioning its state to "available".
-func (b *InMemoryBackend) AcceptTransitGatewayPeeringAttachment(
+func (b *InMemoryBackend) acceptTransitGatewayPeeringAttachmentLocal(
 	transitGatewayAttachmentID string,
 ) (*TransitGatewayPeeringAttachment, error) {
 	if transitGatewayAttachmentID == "" {
@@ -537,9 +538,9 @@ func (b *InMemoryBackend) AddVpcEndpointConnectionInternal(conn *VpcEndpointConn
 
 // ---- AcceptVpcPeeringConnection ----
 
-// AcceptVpcPeeringConnection accepts a VPC peering connection, transitioning
+// acceptVpcPeeringConnectionLocal accepts a VPC peering connection, transitioning
 // its state to "active".
-func (b *InMemoryBackend) AcceptVpcPeeringConnection(
+func (b *InMemoryBackend) acceptVpcPeeringConnectionLocal(
 	vpcPeeringConnectionID string,
 ) (*VpcPeeringConnection, error) {
 	if vpcPeeringConnectionID == "" {
@@ -573,8 +574,8 @@ func (b *InMemoryBackend) AddVpcPeeringConnectionInternal(pc *VpcPeeringConnecti
 	b.vpcPeeringConnections.Put(&cp)
 }
 
-// RejectVpcPeeringConnection rejects a pending VPC peering connection.
-func (b *InMemoryBackend) RejectVpcPeeringConnection(id string) error {
+// rejectVpcPeeringConnectionLocal rejects a pending VPC peering connection.
+func (b *InMemoryBackend) rejectVpcPeeringConnectionLocal(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: VpcPeeringConnectionId is required", ErrInvalidParameter)
 	}

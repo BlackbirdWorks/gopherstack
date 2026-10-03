@@ -134,20 +134,18 @@ func (b *InMemoryBackend) GetCertificates(
 // resolveDistributionOrigin validates that originName names a real Instance,
 // Bucket, or LoadBalancer (Distribution.Origin's own SDK doc comment names
 // exactly these three kinds, PARITY.md 4.7).
-func (b *InMemoryBackend) resolveDistributionOrigin(originName string) (string, bool) {
+func (b *InMemoryBackend) resolveDistributionOrigin(originName string) bool {
 	if _, ok := b.instances.Get(originName); ok {
-		return ResourceTypeInstance, true
+		return true
 	}
 
 	if _, ok := b.buckets.Get(originName); ok {
-		return ResourceTypeBucket, true
+		return true
 	}
 
-	if _, ok := b.loadBalancers.Get(originName); ok {
-		return ResourceTypeLoadBalancer, true
-	}
+	_, ok := b.loadBalancers.Get(originName)
 
-	return "", false
+	return ok
 }
 
 // CreateDistributionRequest holds the parameters for CreateDistribution.
@@ -183,7 +181,7 @@ func (b *InMemoryBackend) CreateDistribution(req CreateDistributionRequest) ([]O
 	b.mu.Lock("CreateDistribution")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resolveDistributionOrigin(req.OriginName); !ok {
+	if !b.resolveDistributionOrigin(req.OriginName) {
 		return nil, notFoundError(
 			"Distribution origin (Instance/Bucket/LoadBalancer)",
 			req.OriginName,
@@ -248,9 +246,8 @@ func (b *InMemoryBackend) CreateDistribution(req CreateDistributionRequest) ([]O
 }
 
 // UpdateDistributionRequest holds the parameters for UpdateDistribution.
-// Origin is deliberately absent: the real UpdateDistributionInput.Origin
-// exists but this backend has no code path exercising it yet -- left as a
-// disclosed gap (PARITY.md) rather than half-wired.
+// OriginName empty means "leave Origin unchanged" -- the real
+// UpdateDistributionInput.Origin is itself optional.
 type UpdateDistributionRequest struct {
 	CacheBehaviorSettings *CacheSettings
 	DefaultCacheBehavior  *CacheBehavior
@@ -258,6 +255,9 @@ type UpdateDistributionRequest struct {
 	Name                  string
 	CertificateName       string
 	ViewerMinTLSVersion   string
+	OriginName            string
+	OriginRegionName      string
+	OriginProtocolPolicy  string
 	CacheBehaviors        []CacheBehaviorPerPath
 	UseDefaultCertificate bool
 }
@@ -304,6 +304,30 @@ func (b *InMemoryBackend) UpdateDistribution(req UpdateDistributionRequest) (*Op
 
 	if req.ViewerMinTLSVersion != "" {
 		d.ViewerMinTLSVersion = req.ViewerMinTLSVersion
+	}
+
+	if req.OriginName != "" {
+		if !b.resolveDistributionOrigin(req.OriginName) {
+			return nil, notFoundError(
+				"Distribution origin (Instance/Bucket/LoadBalancer)",
+				req.OriginName,
+			)
+		}
+
+		originRegion := req.OriginRegionName
+		if originRegion == "" {
+			originRegion = b.region
+		}
+
+		originProtocolPolicy := req.OriginProtocolPolicy
+		if originProtocolPolicy == "" {
+			originProtocolPolicy = "http-only"
+		}
+
+		d.Origin = DistributionOrigin{
+			Name: req.OriginName, RegionName: originRegion, ProtocolPolicy: originProtocolPolicy,
+		}
+		d.OriginPublicDNS = req.OriginName + ".origin.local"
 	}
 
 	ops := b.newOperationsLocked(

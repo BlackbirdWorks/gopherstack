@@ -12,6 +12,14 @@ func (b *InMemoryBackend) terminologyARN(name string) string {
 	return arn.Build("translate", b.region, b.accountID, "terminology/"+name)
 }
 
+// cloneTerminology copies t so callers reading its fields after the lock
+// releases don't race a concurrent re-import mutating the same value.
+func cloneTerminology(t *Terminology) *Terminology {
+	cp := *t
+
+	return &cp
+}
+
 // parseCSVLanguages extracts source/target language codes and term count from CSV bytes.
 // CSV header row is: sourceLang,targetLang1[,targetLang2,...]; subsequent rows are terms.
 func parseCSVLanguages(csvBytes []byte) (string, []string, int) {
@@ -124,7 +132,7 @@ func (b *InMemoryBackend) ImportTerminology(
 			b.tags[resourceARN] = copyMap(tags)
 		}
 
-		return existing, nil
+		return cloneTerminology(existing), nil
 	}
 
 	term := &Terminology{
@@ -149,7 +157,7 @@ func (b *InMemoryBackend) ImportTerminology(
 		b.tags[resourceARN] = copyMap(tags)
 	}
 
-	return term, nil
+	return cloneTerminology(term), nil
 }
 
 // GetTerminology retrieves a terminology by name.
@@ -162,7 +170,7 @@ func (b *InMemoryBackend) GetTerminology(name string) (*Terminology, error) {
 		return nil, fmt.Errorf("%w: terminology %q not found", ErrNotFound, name)
 	}
 
-	return t, nil
+	return cloneTerminology(t), nil
 }
 
 // LookupTerminologies returns terminology entries for the given names. A
@@ -184,7 +192,7 @@ func (b *InMemoryBackend) LookupTerminologies(names []string) ([]*Terminology, e
 			return nil, fmt.Errorf("%w: terminology %q not found", ErrNotFound, name)
 		}
 
-		out = append(out, t)
+		out = append(out, cloneTerminology(t))
 	}
 
 	return out, nil
@@ -213,5 +221,12 @@ func (b *InMemoryBackend) ListTerminologies(maxResults int, nextToken string) ([
 
 	names := sortedNames(b.terminologies.All(), func(t *Terminology) string { return t.Name })
 
-	return paginate(names, func(n string) *Terminology { return tableGet(b.terminologies, n) }, maxResults, nextToken)
+	return paginate(names, func(n string) *Terminology {
+		t := tableGet(b.terminologies, n)
+		if t == nil {
+			return nil
+		}
+
+		return cloneTerminology(t)
+	}, maxResults, nextToken)
 }

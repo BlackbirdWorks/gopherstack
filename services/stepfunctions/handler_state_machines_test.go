@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -160,16 +159,14 @@ func TestHandler_StartExecution_StateMachineDeleting(t *testing.T) {
 		sfnPost(ctx, t, h, e, "StopExecution", `{"executionArn":"`+execArn+`","error":"Test","cause":"cleanup"}`)
 	})
 
-	require.Eventually(t, func() bool {
-		descRec := sfnPost(ctx, t, h, e, "DescribeExecution", `{"executionArn":"`+execArn+`"}`)
-		if descRec.Code != http.StatusOK {
-			return false
-		}
+	// StartExecution's response only returns once the execution's status is
+	// already set to RUNNING, so no wait is needed here.
+	runningRec := sfnPost(ctx, t, h, e, "DescribeExecution", `{"executionArn":"`+execArn+`"}`)
+	require.Equal(t, http.StatusOK, runningRec.Code)
 
-		var desc map[string]any
-
-		return json.Unmarshal(descRec.Body.Bytes(), &desc) == nil && desc["status"] == "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+	var runningDesc map[string]any
+	require.NoError(t, json.Unmarshal(runningRec.Body.Bytes(), &runningDesc))
+	require.Equal(t, "RUNNING", runningDesc["status"])
 
 	delRec := sfnPost(ctx, t, h, e, "DeleteStateMachine", `{"stateMachineArn":"`+smArn+`"}`)
 	require.Equal(t, http.StatusOK, delRec.Code)

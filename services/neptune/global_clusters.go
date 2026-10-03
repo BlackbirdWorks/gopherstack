@@ -26,6 +26,7 @@ func (b *InMemoryBackend) globalClusterARN(id string) string {
 // source DB cluster is looked up in the ctx region where it resides.
 func (b *InMemoryBackend) CreateGlobalCluster(
 	ctx context.Context, globalClusterID, sourceDBClusterID, databaseName string,
+	opts GlobalClusterCreateOptions,
 ) (*GlobalCluster, error) {
 	if globalClusterID == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
@@ -48,6 +49,13 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		Engine:                  neptuneEngine,
 		EngineVersion:           defaultEngineVersion,
 		DatabaseName:            databaseName,
+		DeletionProtection:      opts.DeletionProtection,
+	}
+	if sourceDBClusterID == "" {
+		if opts.EngineVersion != "" {
+			gc.EngineVersion = opts.EngineVersion
+		}
+		gc.StorageEncrypted = opts.StorageEncrypted
 	}
 	if sourceDBClusterID != "" {
 		if cl, exists := b.clusterGet(region, sourceDBClusterID); exists {

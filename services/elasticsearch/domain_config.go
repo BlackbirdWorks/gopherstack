@@ -102,7 +102,16 @@ func applyDomainConfigUpdateExtended(d *Domain, cfg UpdateConfig) bool {
 	}
 
 	if cfg.AutoTuneOptions != nil {
+		prevRollback := ""
+		if d.AutoTuneOptions != nil {
+			prevRollback = d.AutoTuneOptions.RollbackOnDisable
+		}
+
 		d.AutoTuneOptions = cloneAutoTuneOptions(cfg.AutoTuneOptions)
+		if d.AutoTuneOptions.RollbackOnDisable == "" {
+			d.AutoTuneOptions.RollbackOnDisable = prevRollback
+		}
+
 		changed = true
 	}
 

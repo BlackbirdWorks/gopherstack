@@ -11,9 +11,10 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue v1.0.1
 	github.com/alecthomas/kong v1.16.1
 	github.com/alicebob/miniredis/v2 v2.39.0
+	github.com/andybalholm/brotli v1.2.6
 	github.com/aws/aws-dax-go v1.2.15
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/aws/aws-sdk-go-v2 v1.46.0
+	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
@@ -68,10 +69,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/directoryservice v1.41.4
 	github.com/aws/aws-sdk-go-v2/service/dlm v1.39.4
 	github.com/aws/aws-sdk-go-v2/service/docdb v1.51.4
+	github.com/aws/aws-sdk-go-v2/service/dsql v1.22.1
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.67.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.40.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.329.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.64.0
+	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.47.1
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.96.0
 	github.com/aws/aws-sdk-go-v2/service/efs v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/eks v1.98.0
@@ -99,9 +102,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.59.4
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.57.2
+	github.com/aws/aws-sdk-go-v2/service/kafkaconnect v1.39.1
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.53.0
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.33.4
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.41.4
+	github.com/aws/aws-sdk-go-v2/service/kinesisvideo v1.41.1
 	github.com/aws/aws-sdk-go-v2/service/kms v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.107.0
@@ -185,10 +190,13 @@ require (
 	github.com/cedar-policy/cedar-go v1.8.0
 	github.com/distribution/distribution/v3 v3.1.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
+	github.com/go-sql-driver/mysql v1.10.1
+	github.com/go-stomp/stomp/v3 v3.1.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.20.0
 	github.com/labstack/echo/v5 v5.3.1
 	github.com/miekg/dns v1.1.73
@@ -199,8 +207,11 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
+	github.com/rabbitmq/amqp091-go v1.15.0
+	github.com/recolabs/gnata v0.5.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
+	github.com/twmb/franz-go v1.22.1
 	github.com/vektah/gqlparser/v2 v2.5.37
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.56.0
@@ -213,14 +224,15 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.2 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect
@@ -265,6 +277,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.7 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
@@ -281,6 +296,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/palkan/mulint v1.1.0 // indirect
+	github.com/pierrec/lz4/v4 v4.1.30 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/prometheus/common v0.71.0 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
@@ -292,8 +308,12 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.8 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
+	github.com/tidwall/gjson v1.18.0 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.14.0 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

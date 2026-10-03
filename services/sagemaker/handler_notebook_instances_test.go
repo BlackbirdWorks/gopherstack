@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -109,25 +110,28 @@ func TestHandler_DeleteNotebookInstance_NotStopped(t *testing.T) {
 func TestHandler_NotebookInstance_EventuallyInService(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
-		"NotebookInstanceName": "async-notebook",
-		"InstanceType":         "ml.t2.medium",
-		"RoleArn":              "arn:aws:iam::000000000000:role/notebook-role",
+		doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
+			"NotebookInstanceName": "async-notebook",
+			"InstanceType":         "ml.t2.medium",
+			"RoleArn":              "arn:aws:iam::000000000000:role/notebook-role",
+		})
+
+		// Wait for async status transition.
+		time.Sleep(300 * time.Millisecond)
+		synctest.Wait()
+
+		recDesc := doSageMakerRequest(t, h, "DescribeNotebookInstance", map[string]any{
+			"NotebookInstanceName": "async-notebook",
+		})
+		assert.Equal(t, http.StatusOK, recDesc.Code)
+
+		var descOut map[string]any
+		require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+		assert.NotEmpty(t, descOut["NotebookInstanceStatus"])
 	})
-
-	// Wait for async status transition.
-	time.Sleep(300 * time.Millisecond)
-
-	recDesc := doSageMakerRequest(t, h, "DescribeNotebookInstance", map[string]any{
-		"NotebookInstanceName": "async-notebook",
-	})
-	assert.Equal(t, http.StatusOK, recDesc.Code)
-
-	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
-	assert.NotEmpty(t, descOut["NotebookInstanceStatus"])
 }
 
 // TestUpdateNotebookInstance_RequiresStoppedState verifies that updating a notebook

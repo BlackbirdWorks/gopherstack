@@ -52,7 +52,7 @@ type StorageBackend interface {
 	ListTagsForResource(ctx context.Context, resourceID string, limit int32, nextToken string) ([]Tag, string, error)
 
 	AddIpRoutes(ctx context.Context, directoryID string, routes []IpRoute) error
-	RemoveIpRoutes(ctx context.Context, directoryID string, cidrIPs []string) error
+	RemoveIpRoutes(ctx context.Context, directoryID string, cidrIPs, cidrIPv6s []string) error
 	ListIpRoutes(ctx context.Context, directoryID string, limit int32, nextToken string) ([]IpRoute, string, error)
 
 	AddRegion(ctx context.Context, directoryID, regionName string, vpcSettings *DirectoryVpcSettings) error
@@ -414,9 +414,7 @@ type RegionsInfo struct {
 }
 
 // RadiusSettingsDescription mirrors AWS's RadiusSettings type as returned on
-// DirectoryDescription.RadiusSettings. RadiusServersIPv6 is not populated:
-// this backend's RADIUS settings storage does not track IPv6 server
-// addresses (see PARITY.md).
+// DirectoryDescription.RadiusSettings. RadiusServersIPv6 echoes the IPv6 server list given to Enable/UpdateRadius.
 type RadiusSettingsDescription struct {
 	AuthenticationProtocol string
 	DisplayLabel           string
@@ -440,11 +438,8 @@ type HybridSettingsDescription struct {
 }
 
 // OwnerDirectoryDescription mirrors AWS's OwnerDirectoryDescription, present
-// on the directory-consumer's copy of a shared directory. This backend never
-// populates it: shared directories are tracked only via SharedDirInfo
-// (DescribeSharedDirectories) and are not materialized as a separate
-// Directory entry in the consumer's DescribeDirectories view (see
-// PARITY.md).
+// on the consumer's copy of an accepted shared directory, which
+// DescribeDirectories returns when asked for the shared directory ID.
 type OwnerDirectoryDescription struct {
 	RadiusSettings *RadiusSettingsDescription
 	VpcSettings    *DirectoryVpcSettings

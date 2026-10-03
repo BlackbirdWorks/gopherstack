@@ -1,12 +1,17 @@
 package codeartifact
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
 )
+
+const authTokenBytes = 48
 
 type createDomainBody struct {
 	EncryptionKey string           `json:"encryptionKey"`
@@ -152,10 +157,27 @@ func (h *Handler) handleGetAuthorizationToken(c *echo.Context, domainName string
 		return h.handleError(c, err)
 	}
 
-	// Return a plausible stub token.
+	ttl := defaultTokenExpireHours * time.Hour
+	if raw := c.Request().URL.Query().Get("duration"); raw != "" {
+		secs, convErr := strconv.ParseInt(raw, 10, 64)
+		if convErr != nil || (secs != 0 && (secs < minTokenDurationSeconds || secs > maxTokenDurationSeconds)) {
+			return c.JSON(http.StatusBadRequest, errResp(
+				"ValidationException", "durationSeconds must be 0 or between 900 and 43200",
+			))
+		}
+		if secs > 0 {
+			ttl = time.Duration(secs) * time.Second
+		}
+	}
+
+	buf := make([]byte, authTokenBytes)
+	if _, randErr := rand.Read(buf); randErr != nil {
+		return c.JSON(http.StatusInternalServerError, errResp("InternalServerException", "token generation failed"))
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"authorizationToken": "codeartifact-stub-token-" + domainName,
-		"expiration":         epochSeconds(time.Now().Add(stubTokenExpireHours * time.Hour)),
+		"authorizationToken": base64.RawURLEncoding.EncodeToString(buf),
+		"expiration":         epochSeconds(time.Now().Add(ttl)),
 	})
 }
 

@@ -37,16 +37,17 @@ import (
 // wiring -- not just the pipes package's own unit-tested Runner logic against
 // fakes -- delivers end to end.
 type pipesWiringRig struct {
-	pipesBk    *pipesbackend.InMemoryBackend
-	sqsBk      *sqsbackend.InMemoryBackend
-	lambdaBk   *lambdabackend.InMemoryBackend
-	snsBk      *snsbackend.InMemoryBackend
-	kinesisBk  *kinesisbackend.InMemoryBackend
-	ebBk       *ebbackend.InMemoryBackend
-	cwlogsBk   *cwlogsbackend.InMemoryBackend
-	firehoseBk *firehosebackend.InMemoryBackend
-	ddbBk      *ddbbackend.InMemoryDB
-	runner     *pipesbackend.Runner
+	pipesBk      *pipesbackend.InMemoryBackend
+	sqsBk        *sqsbackend.InMemoryBackend
+	lambdaBk     *lambdabackend.InMemoryBackend
+	snsBk        *snsbackend.InMemoryBackend
+	kinesisBk    *kinesisbackend.InMemoryBackend
+	kinesisClock *kinesisFakeClock
+	ebBk         *ebbackend.InMemoryBackend
+	cwlogsBk     *cwlogsbackend.InMemoryBackend
+	firehoseBk   *firehosebackend.InMemoryBackend
+	ddbBk        *ddbbackend.InMemoryDB
+	runner       *pipesbackend.Runner
 }
 
 func newPipesWiringRig(t *testing.T) *pipesWiringRig {
@@ -66,7 +67,8 @@ func newPipesWiringRig(t *testing.T) *pipesWiringRig {
 	snsBk := snsbackend.NewInMemoryBackend()
 	snsH := snsbackend.NewHandler(snsBk)
 
-	kinesisBk := kinesisbackend.NewInMemoryBackend()
+	kinesisClock := newKinesisFakeClock(time.Now())
+	kinesisBk := kinesisbackend.NewInMemoryBackend().WithClock(kinesisClock.Now)
 	kinesisH := kinesisbackend.NewHandler(kinesisBk)
 
 	ebBk := ebbackend.NewInMemoryBackend()
@@ -102,16 +104,17 @@ func newPipesWiringRig(t *testing.T) *pipesWiringRig {
 	})
 
 	return &pipesWiringRig{
-		pipesBk:    pipesBk,
-		sqsBk:      sqsBk,
-		lambdaBk:   lambdaBk,
-		snsBk:      snsBk,
-		kinesisBk:  kinesisBk,
-		ebBk:       ebBk,
-		cwlogsBk:   cwlogsBk,
-		firehoseBk: firehoseBk,
-		ddbBk:      ddbBk,
-		runner:     runner,
+		pipesBk:      pipesBk,
+		sqsBk:        sqsBk,
+		lambdaBk:     lambdaBk,
+		snsBk:        snsBk,
+		kinesisBk:    kinesisBk,
+		kinesisClock: kinesisClock,
+		ebBk:         ebBk,
+		cwlogsBk:     cwlogsBk,
+		firehoseBk:   firehoseBk,
+		ddbBk:        ddbBk,
+		runner:       runner,
 	}
 }
 
@@ -240,6 +243,7 @@ func TestWirePipesRunner_SQSSourceTargets(t *testing.T) {
 			StreamName: "pipes-kinesis-target",
 			ShardCount: 1,
 		}))
+		rig.kinesisClock.Advance(kinesisStreamSettleWait)
 		targetARN := arn.Build("kinesis", config.DefaultRegion, config.DefaultAccountID, "stream/pipes-kinesis-target")
 
 		qURL := rig.createSQSSourcedPipe(t, "kinesis-target-pipe", targetARN)
@@ -377,6 +381,7 @@ func TestWirePipesRunner_KinesisSource(t *testing.T) {
 		StreamName: "pipes-kinesis-source",
 		ShardCount: 1,
 	}))
+	rig.kinesisClock.Advance(kinesisStreamSettleWait)
 	sourceARN := arn.Build("kinesis", config.DefaultRegion, config.DefaultAccountID, "stream/pipes-kinesis-source")
 
 	targetOut, err := rig.sqsBk.CreateQueue(&sqsbackend.CreateQueueInput{QueueName: "pipes-kinesis-source-target"})
@@ -501,6 +506,7 @@ func TestWirePipesRunner_DLQDelivery(t *testing.T) {
 		StreamName: "pipes-dlq-source",
 		ShardCount: 1,
 	}))
+	rig.kinesisClock.Advance(kinesisStreamSettleWait)
 	sourceARN := arn.Build("kinesis", config.DefaultRegion, config.DefaultAccountID, "stream/pipes-dlq-source")
 
 	_, err = rig.pipesBk.CreatePipe(context.Background(), pipesbackend.CreatePipeInput{

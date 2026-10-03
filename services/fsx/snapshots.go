@@ -127,7 +127,7 @@ func (b *InMemoryBackend) DescribeSnapshots(
 		for _, s := range b.snapshots.All() {
 			if matchesFilters(filters, func(name string) (string, bool) {
 				switch name {
-				case "volume-id":
+				case filterNameVolumeID:
 					return s.VolumeID, true
 				case filterNameFileSystemID:
 					if vol, ok := b.volumes.Get(s.VolumeID); ok {

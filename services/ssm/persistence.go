@@ -54,6 +54,7 @@ type backendSnapshot struct {
 	ResourceIDToOpsMetadataArn map[string]map[string]string                       `json:"resource_id_to_ops_metadata_arn"`
 	OpsItemEvents              map[string][]OpsItemEventSummary                   `json:"ops_item_events"`
 	AssociationExecutions      map[string]map[string][]AssociationExecution       `json:"association_executions"`
+	AssociationVersions        map[string]map[string][]Association                `json:"association_versions,omitempty"`
 	AssociationExecTargets     map[string]map[string][]AssociationExecutionTarget `json:"association_exec_targets"`
 	InventoryDeletions         map[string][]InventoryDeletion                     `json:"inventory_deletions"`
 	InstancePatches            map[string]map[string][]PatchComplianceData        `json:"instance_patches"`
@@ -127,6 +128,10 @@ func initSnapshotNewFields(snap *backendSnapshot) {
 		snap.OpsItemEvents = make(map[string][]OpsItemEventSummary)
 	}
 
+	if snap.AssociationVersions == nil {
+		snap.AssociationVersions = make(map[string]map[string][]Association)
+	}
+
 	if snap.AssociationExecutions == nil {
 		snap.AssociationExecutions = make(map[string]map[string][]AssociationExecution)
 	}
@@ -196,6 +201,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ResourceIDToOpsMetadataArn: b.resourceIDToOpsMetadataArn,
 		OpsItemEvents:              b.opsItemEvents,
 		AssociationExecutions:      b.associationExecutions,
+		AssociationVersions:        b.associationVersions,
 		AssociationExecTargets:     b.associationExecTargets,
 		InventoryDeletions:         b.inventoryDeletions,
 		InstancePatches:            b.instancePatches,
@@ -305,6 +311,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.resourceIDToOpsMetadataArn = snap.ResourceIDToOpsMetadataArn
 	b.opsItemEvents = snap.OpsItemEvents
 	b.associationExecutions = snap.AssociationExecutions
+	b.associationVersions = snap.AssociationVersions
 	b.associationExecTargets = snap.AssociationExecTargets
 	b.inventoryDeletions = snap.InventoryDeletions
 	b.instancePatches = snap.InstancePatches

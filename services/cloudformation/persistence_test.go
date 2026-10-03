@@ -97,7 +97,7 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	require.NoError(t, err)
 
 	opID, err := original.CreateStackInstances(
-		ctx, "test-set", []string{"111111111111"}, nil, []string{"us-east-1"},
+		ctx, "test-set", []string{"111111111111"}, nil, []string{"us-east-1"}, "",
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, opID)

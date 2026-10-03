@@ -2,68 +2,86 @@ package sqs
 
 import "time"
 
-// checkFIFOPerGroupRateLimit enforces the 300 TPS per-message-group AWS limit
-// for FIFO queues running with FifoThroughputLimit=perMessageGroupId.
-//
-// Maintains a sliding 1-second window per group, pruning timestamps older
-// than the window on each call. Returns ErrOverLimit when the window is
-// already full; otherwise appends the new send and returns nil.
-//
-// Caller must hold b.mu (write). Allocates the per-queue map lazily.
-func checkFIFOPerGroupRateLimit(q *Queue, group string, now time.Time) error {
-	if group == "" {
-		return nil
-	}
+// fifoAPIMethod is one of the three FIFO API actions AWS meters
+// independently: SendMessage, ReceiveMessage, DeleteMessage.
+type fifoAPIMethod int
 
-	if q.fifoSendTimes == nil {
-		q.fifoSendTimes = make(map[string][]time.Time)
-	}
+const (
+	fifoMethodSend fifoAPIMethod = iota
+	fifoMethodReceive
+	fifoMethodDelete
+)
 
-	cutoff := now.Add(-time.Second)
-	prev := q.fifoSendTimes[group]
-	kept := prev[:0]
-	for _, t := range prev {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-
-	if len(kept) >= fifoPerGroupTPS {
-		q.fifoSendTimes[group] = kept
-
-		return ErrOverLimit
-	}
-
-	q.fifoSendTimes[group] = append(kept, now)
-
-	return nil
+// fifoThroughputKey is one independent budget: an API method plus a scope
+// ("" for queue-wide, or a MessageGroupId under perMessageGroupId).
+type fifoThroughputKey struct {
+	scopeKey string
+	method   fifoAPIMethod
 }
 
-// checkFIFOPerQueueRateLimit enforces the AWS-documented queue-wide 300 TPS
-// send rate for FIFO queues at FifoThroughputLimit=perQueue — the AWS
-// default, applied whenever the attribute is unset or explicitly "perQueue".
-// Same sliding-1s-window mechanism as checkFIFOPerGroupRateLimit, keyed by
-// the queue as a whole instead of by message group.
-//
-// Caller must hold q.mu (write). now must come from the backend's clock
-// (InMemoryBackend.now), not time.Now() directly, so tests can drive the
-// window deterministically without real sleeps.
-func checkFIFOPerQueueRateLimit(q *Queue, now time.Time) error {
-	cutoff := now.Add(-time.Second)
-	prev := q.fifoSendTimesQueue
-	kept := prev[:0]
-	for _, t := range prev {
+// fifoRateWindow is a 1-second sliding window of call and message timestamps
+// for one fifoThroughputKey (AWS: 300 calls/sec, 3,000 messages/sec batched).
+type fifoRateWindow struct {
+	calls    []time.Time
+	messages []time.Time
+}
+
+const (
+	fifoCallsPerSecond    = 300
+	fifoMessagesPerSecond = 3000
+)
+
+// fifoThroughputScopeKey returns groupID under perMessageGroupId, else "" for
+// the AWS-default queue-wide scope (unset attribute included).
+func fifoThroughputScopeKey(q *Queue, groupID string) string {
+	if q.Attributes[attrFifoThroughputLimit] == fifoThroughputLimitPerMessageGroupID {
+		return groupID
+	}
+
+	return ""
+}
+
+// pruneRateWindow drops timestamps at or before cutoff, reusing times'
+// backing array.
+func pruneRateWindow(times []time.Time, cutoff time.Time) []time.Time {
+	kept := times[:0]
+	for _, t := range times {
 		if t.After(cutoff) {
 			kept = append(kept, t)
 		}
 	}
-	q.fifoSendTimesQueue = kept
 
-	if len(q.fifoSendTimesQueue) >= fifoPerQueueTPS {
+	return kept
+}
+
+// checkFIFOThroughput consumes one call slot + msgCount message slots for
+// (method, scopeKey), or returns ErrRequestThrottled leaving both unchanged.
+// Caller must hold q.mu; now must be b.now(), not time.Now(), for determinism.
+func checkFIFOThroughput(q *Queue, method fifoAPIMethod, scopeKey string, msgCount int, now time.Time) error {
+	if q.fifoThroughput == nil {
+		q.fifoThroughput = make(map[fifoThroughputKey]*fifoRateWindow)
+	}
+
+	key := fifoThroughputKey{method: method, scopeKey: scopeKey}
+
+	w := q.fifoThroughput[key]
+	if w == nil {
+		w = &fifoRateWindow{}
+		q.fifoThroughput[key] = w
+	}
+
+	cutoff := now.Add(-time.Second)
+	w.calls = pruneRateWindow(w.calls, cutoff)
+	w.messages = pruneRateWindow(w.messages, cutoff)
+
+	if len(w.calls) >= fifoCallsPerSecond || len(w.messages)+msgCount > fifoMessagesPerSecond {
 		return ErrRequestThrottled
 	}
 
-	q.fifoSendTimesQueue = append(q.fifoSendTimesQueue, now)
+	w.calls = append(w.calls, now)
+	for range msgCount {
+		w.messages = append(w.messages, now)
+	}
 
 	return nil
 }
@@ -102,31 +120,25 @@ type fifoPreflight struct {
 	Handled bool
 }
 
-// preflightFIFOSend runs the FIFO-only preconditions a SendMessage must
-// satisfy before the message is constructed: parameter validation, per-group
-// throughput limiting, and content-based deduplication.
-//
-// Caller must already hold b.mu (write).
+// preflightFIFOSend validates FIFO params, throughput-limits, then dedups.
+// checkThroughput is false when the batch caller already reserved the
+// budget (computeFIFOSendThrottling). Caller must hold q.mu.
 func preflightFIFOSend(
 	q *Queue,
 	input *SendMessageInput,
 	md5Body, sha256Body string,
+	checkThroughput bool,
 	now time.Time,
 ) fifoPreflight {
 	if err := validateFIFOParams(input, q); err != nil {
 		return fifoPreflight{Err: err, Handled: true}
 	}
 
-	// Unset FifoThroughputLimit defaults to perQueue (models.go's
-	// buildDefaultAttributes never stamps it), so only the explicit
-	// perMessageGroupId value takes the per-group path; everything else
-	// (including "") gets the queue-wide limiter.
-	if q.Attributes[attrFifoThroughputLimit] == fifoThroughputLimitPerMessageGroupID {
-		if err := checkFIFOPerGroupRateLimit(q, input.MessageGroupID, now); err != nil {
+	if checkThroughput {
+		scopeKey := fifoThroughputScopeKey(q, input.MessageGroupID)
+		if err := checkFIFOThroughput(q, fifoMethodSend, scopeKey, 1, now); err != nil {
 			return fifoPreflight{Err: err, Handled: true}
 		}
-	} else if err := checkFIFOPerQueueRateLimit(q, now); err != nil {
-		return fifoPreflight{Err: err, Handled: true}
 	}
 
 	if out, dup := checkDedup(
@@ -163,6 +175,66 @@ func validateFIFOParams(input *SendMessageInput, q *Queue) error {
 	}
 
 	return nil
+}
+
+// computeFIFOSendThrottling groups entries by throughput scope, consuming each
+// scope's budget once per group (not per entry). Caller must hold q.mu.
+func computeFIFOSendThrottling(q *Queue, entries []SendMessageBatchEntry, now time.Time) []bool {
+	groups := make(map[string][]int)
+
+	for i, entry := range entries {
+		params := &SendMessageInput{
+			MessageGroupID:         entry.MessageGroupID,
+			MessageDeduplicationID: entry.MessageDeduplicationID,
+			DelaySeconds:           entry.DelaySeconds,
+		}
+		if validateFIFOParams(params, q) != nil {
+			continue
+		}
+
+		key := fifoThroughputScopeKey(q, entry.MessageGroupID)
+		groups[key] = append(groups[key], i)
+	}
+
+	throttled := make([]bool, len(entries))
+
+	for key, idxs := range groups {
+		if checkFIFOThroughput(q, fifoMethodSend, key, len(idxs), now) != nil {
+			for _, i := range idxs {
+				throttled[i] = true
+			}
+		}
+	}
+
+	return throttled
+}
+
+// computeFIFODeleteThrottling is DeleteMessageBatch's analog of
+// computeFIFOSendThrottling, scoping by each handle's in-flight MessageGroupId.
+func computeFIFODeleteThrottling(q *Queue, entries []DeleteMessageBatchEntry, now time.Time) []bool {
+	groups := make(map[string][]int)
+
+	for i, entry := range entries {
+		inf, found := q.inFlightByHandle[entry.ReceiptHandle]
+		if !found {
+			continue
+		}
+
+		key := fifoThroughputScopeKey(q, inf.Msg.MessageGroupID)
+		groups[key] = append(groups[key], i)
+	}
+
+	throttled := make([]bool, len(entries))
+
+	for key, idxs := range groups {
+		if checkFIFOThroughput(q, fifoMethodDelete, key, len(idxs), now) != nil {
+			for _, i := range idxs {
+				throttled[i] = true
+			}
+		}
+	}
+
+	return throttled
 }
 
 // dedupKey returns the deduplication map key, respecting the queue's

@@ -397,17 +397,28 @@ func epochPtr(t time.Time) *float64 {
 	return &ts
 }
 
+// newDurableExecutionARN synthesizes a DurableExecutionArn the way real AWS
+// does (verified against a real EventBridge "Durable Execution Status
+// Change" event sample: durableExecutionArn
+// "...:function:my-function:$LATEST/durable-execution/<uuid>/<uuid>"):
+// the function ARN AS INVOKED (with its qualifier) plus a
+// "/durable-execution/<uuid>/<uuid>" suffix.
+func newDurableExecutionARN(invokedFunctionARN string) string {
+	return invokedFunctionARN + "/durable-execution/" + uuid.New().String() + "/" + uuid.New().String()
+}
+
 // newDurableExecution creates a fresh execution record, seeding its
 // history/operations with the implicit ExecutionStarted event and root
 // Type=EXECUTION operation every durable execution has.
-func newDurableExecution(arn string) *DurableExecution {
+func newDurableExecution(arn, inputPayload string) *DurableExecution {
 	now := time.Now().UTC()
 	ex := &DurableExecution{
-		ARN:       arn,
-		Name:      deriveDurableExecutionName(arn),
-		Status:    DurableExecutionStatusRunning,
-		StartTime: now,
-		opIndex:   make(map[string]int),
+		ARN:          arn,
+		Name:         deriveDurableExecutionName(arn),
+		Status:       DurableExecutionStatusRunning,
+		StartTime:    now,
+		InputPayload: inputPayload,
+		opIndex:      make(map[string]int),
 	}
 
 	ex.appendEvent(DurableExecutionEvent{
@@ -628,6 +639,7 @@ type durableExecutionStore struct {
 	mu            *lockmetrics.RWMutex
 	executions    map[string]*DurableExecution // key: DurableExecutionArn
 	callbackOwner map[string]string            // key: CallbackId (== a CALLBACK operation's Id) -> DurableExecutionArn
+	byName        map[string]string            // key: DurableExecutionName -> DurableExecutionArn (Invoke-started only)
 }
 
 func newDurableExecutionStore() *durableExecutionStore {
@@ -635,6 +647,7 @@ func newDurableExecutionStore() *durableExecutionStore {
 		mu:            lockmetrics.New("lambda.durable_executions"),
 		executions:    make(map[string]*DurableExecution),
 		callbackOwner: make(map[string]string),
+		byName:        make(map[string]string),
 	}
 }
 
@@ -712,7 +725,7 @@ func (s *durableExecutionStore) stateOutput(arn, marker string, maxItems int) (*
 // internally by tests; the wire-facing handler always resolves a concrete
 // function ARN from the {FunctionName} URI segment first).
 func (s *durableExecutionStore) listSummaries(
-	functionARN, nameFilter string,
+	functionARN, nameFilter, versionFilter string,
 	statuses []DurableExecutionStatus,
 	startedAfter, startedBefore time.Time,
 	reverseOrder bool,
@@ -728,7 +741,7 @@ func (s *durableExecutionStore) listSummaries(
 	var matched []*DurableExecution
 
 	for _, ex := range s.executions {
-		if !matchesListFilter(ex, functionARN, nameFilter, statusSet, startedAfter, startedBefore) {
+		if !matchesListFilter(ex, functionARN, nameFilter, versionFilter, statusSet, startedAfter, startedBefore) {
 			continue
 		}
 
@@ -751,17 +764,39 @@ func (s *durableExecutionStore) listSummaries(
 	return out
 }
 
+// durableExecutionMatchesFunction reports whether ex's FunctionARN (always
+// qualified with the resolved version, e.g. "...:function:my-fn:2") belongs
+// to filterARN, a bare function ARN (or "" to match any function — used
+// internally by tests; the wire-facing handler always resolves a concrete
+// filter first). ListDurableExecutionsByFunction filters by FunctionName
+// alone; the separate Qualifier filter is versionFilter above.
+func durableExecutionMatchesFunction(exFunctionARN, filterARN string) bool {
+	if filterARN == "" {
+		return true
+	}
+
+	return exFunctionARN == filterARN || strings.HasPrefix(exFunctionARN, filterARN+":")
+}
+
 func matchesListFilter(
 	ex *DurableExecution,
-	functionARN, nameFilter string,
+	functionARN, nameFilter, versionFilter string,
 	statusSet map[DurableExecutionStatus]bool,
 	startedAfter, startedBefore time.Time,
 ) bool {
-	if functionARN != "" && ex.FunctionARN != functionARN {
+	if !durableExecutionMatchesFunction(ex.FunctionARN, functionARN) {
 		return false
 	}
 
 	if nameFilter != "" && ex.Name != nameFilter {
+		return false
+	}
+
+	// Qualifier ("the function version to filter executions by"): absent means
+	// every version (verified against the ListDurableExecutionsByFunction API
+	// reference, not the aws-sdk-go-v2 Go doc comment, which incorrectly
+	// implies a $LATEST default).
+	if versionFilter != "" && ex.Version != versionFilter {
 		return false
 	}
 
@@ -795,7 +830,7 @@ func (s *durableExecutionStore) checkpoint(
 
 	ex, ok := s.executions[arn]
 	if !ok {
-		ex = newDurableExecution(arn)
+		ex = newDurableExecution(arn, "")
 		s.executions[arn] = ex
 	}
 
@@ -918,4 +953,132 @@ func (s *durableExecutionStore) reset() {
 
 	s.executions = make(map[string]*DurableExecution)
 	s.callbackOwner = make(map[string]string)
+	s.byName = make(map[string]string)
+}
+
+// findReusableExecution looks up name in the by-name index (a no-op when
+// name is "") and returns the SAME execution when its stored payload
+// matches the new one, or ErrDurableExecutionAlreadyStarted when it doesn't.
+// found is false for no name, an unknown name, or the defensive case of a
+// name whose execution the store has since forgotten (byName and executions
+// are always written together, so this never happens in practice). Callers
+// must hold the store's write lock.
+func (s *durableExecutionStore) findReusableExecution(name, payload string) (*DurableExecution, bool, error) {
+	if name == "" {
+		return nil, false, nil
+	}
+
+	existingARN, ok := s.byName[name]
+	if !ok {
+		return nil, false, nil
+	}
+
+	existing, ok := s.executions[existingARN]
+	if !ok {
+		return nil, false, nil
+	}
+
+	if existing.InputPayload != payload {
+		return nil, false, ErrDurableExecutionAlreadyStarted
+	}
+
+	return existing, true, nil
+}
+
+// startOrReuseExecution implements Invoke's durable-execution start
+// semantics per docs.aws.amazon.com/lambda/latest/dg/
+// durable-execution-idempotency.html's "Idempotency behavior" table: no name
+// always starts a fresh execution; a name never seen before starts a fresh
+// execution under that name; a name whose existing execution has an
+// IDENTICAL InputPayload returns that SAME execution (reused=true — the
+// caller must not invoke the function body again, matching "Lambda returns
+// the existing execution instead of creating a duplicate"); a name whose
+// existing execution has a DIFFERENT payload returns
+// ErrDurableExecutionAlreadyStarted. Execution names are scoped per the
+// store (this backend's account+region), matching "Execution names must be
+// unique within your account and region.".
+func (s *durableExecutionStore) startOrReuseExecution(
+	invokedFunctionARN, functionARN, version, name string, durableConfig *DurableConfig, inputPayload []byte,
+) (*DurableExecution, bool, error) {
+	s.mu.Lock("StartOrReuseExecution")
+	defer s.mu.Unlock()
+
+	payload := string(inputPayload)
+
+	existing, found, err := s.findReusableExecution(name, payload)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if found {
+		return existing, true, nil
+	}
+
+	newARN := newDurableExecutionARN(invokedFunctionARN)
+	ex := newDurableExecution(newARN, payload)
+	ex.FunctionARN = functionARN
+	ex.Version = version
+	ex.DurableConfig = durableConfig
+
+	if name != "" {
+		ex.Name = name
+		s.byName[name] = newARN
+	}
+
+	s.executions[newARN] = ex
+
+	return ex, false, nil
+}
+
+// completeExecution records a synchronous Invoke's real outcome as the
+// execution's completion. This is not a fabricated replay result: it is the
+// verbatim outcome of the one invocation this backend actually performed,
+// matching the documented "the durable execution completes" behavior when a
+// durable function's invocation "returns a final result or throws an
+// unhandled error." Only transitions an execution still RUNNING — a no-op
+// for an unknown ARN or an already-closed execution (an idempotent-replay
+// reuse never invokes the function again, so never reaches this call).
+func (s *durableExecutionStore) completeExecution(arn string, succeeded bool, result string) {
+	s.mu.Lock("CompleteExecution")
+	defer s.mu.Unlock()
+
+	ex, ok := s.executions[arn]
+	if !ok || ex.Status != DurableExecutionStatusRunning {
+		return
+	}
+
+	now := time.Now().UTC()
+	ex.EndTime = now
+
+	if succeeded {
+		ex.Status = DurableExecutionStatusSucceeded
+		ex.Result = result
+		ex.appendEvent(DurableExecutionEvent{
+			EventType: eventTypeExecutionSucceeded,
+			ID:        ptrconv.NilIfEmpty(durableExecutionRootOperationID),
+			ExecutionSucceededDetails: &ExecutionSucceededDetails{
+				Result: &EventResult{Payload: ptrconv.NilIfEmpty(result)},
+			},
+		})
+	} else {
+		ex.Error = &ErrorObject{ErrorMessage: ptrconv.NilIfEmpty(result)}
+		ex.Status = DurableExecutionStatusFailed
+		ex.appendEvent(DurableExecutionEvent{
+			EventType: eventTypeExecutionFailed,
+			ID:        ptrconv.NilIfEmpty(durableExecutionRootOperationID),
+			ExecutionFailedDetails: &ExecutionFailedDetails{
+				Error: &EventError{Payload: ex.Error},
+			},
+		})
+	}
+
+	if idx, found := ex.opIndex[durableExecutionRootOperationID]; found {
+		st := DurableOperationStatusSucceeded
+		if !succeeded {
+			st = DurableOperationStatusFailed
+		}
+
+		ex.Operations[idx].Status = st
+		ex.Operations[idx].EndTimestamp = epochPtr(now)
+	}
 }

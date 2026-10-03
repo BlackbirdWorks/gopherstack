@@ -1,15 +1,22 @@
 ---
 service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
-last_audit_commit: cd027034c  # 2026-09-20 autoscaling-dynamodb-kms-and-cloudwatch terraform sweep: DisableKinesisStreamingDestination DISABLED-not-removed fix; prior: 176ddc764
-last_audit_date: 2026-09-20  # prior: 2026-09-19 -- manifest-harvest pass: fixed UpdateGlobalTableSettings autoscaling
-  # accept-and-drop gap and DisableKinesisStreamingDestination's never-echoed
-  # EnableKinesisStreamingConfiguration -- see global_table_settings_autoscaling/
-  # kinesis_streaming_disable_echo families below. Did not re-litigate
-  # ConfirmRemoveSelfResourceAccess (no IAM evaluator, gopherstack-cu4g) or
-  # UpdateTableReplicaAutoScaling's ReplicaUpdates (no per-replica field to
-  # route into) -- both re-verified genuine in a prior pass.
-overall: A   # gopherstack-rkmp deep pass (this audit, 2026-08-14): struct-field-diffed every wire model against the pinned SDK (see Notes) and fixed 3 more wire drops -- Query/Scan AttributesToGet (undeclared, and even where declared elsewhere the projection resolver never consulted it for these two ops), GSI/LSI IndexArn (+GSI IndexSizeBytes/Backfilling), ListBackups BackupSummary.BackupSizeBytes. PARITY.md itself was stale by 6 commits (7a2189b06..bc2e6285a) before this update -- see Notes. CONFIRMED FIXED, previously an open gap here: GSI/LSI Query full-scan (17c0ac7a7 added real per-GSI/LSI indexes; gopherstack-anlc verified 4.8-5.0us flat vs 1.82-28.0ms before). gopherstack-lze5 (2026-08-14, follow-up pass): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator/AttributeUpdates parameters -- the conditional-check-bypass and no-op-write bugs -- are now FIXED by translation into the existing expr evaluator. gopherstack-yvs8 (2026-08-14, follow-up to lze5): Query/Scan's legacy KeyConditions/QueryFilter/ScanFilter -- the "ScanFilter/QueryFilter silently returns every item" and "KeyConditions silently dropped" failure modes -- are now FIXED the same way (translation into KeyConditionExpression/FilterExpression, reusing the existing evaluator paths); see gaps for the KeySchema-reordering writeup. ReturnConsumedCapacity=INDEXES dead code (gopherstack-glfv) also still open -- see gaps.
+last_audit_commit: e1e3f187f  # 2026-09-26 global-tables-v2-autoscaling pass: ReplicaUpdates + AutoScalingRoleArn/ScalingPolicies; prior: cd027034c
+last_audit_date: 2026-09-26  # prior: 2026-09-20 -- autoscaling-dynamodb-kms-and-cloudwatch terraform sweep: DisableKinesisStreamingDestination DISABLED-not-removed fix
+  # 2026-09-26 (this audit): UpdateTableReplicaAutoScaling's ReplicaUpdates
+  # (per-replica read-capacity + per-replica-per-GSI read-capacity) is now
+  # wired end to end (wire, backend, Describe echo) -- previously accepted
+  # nowhere on the wire, the exact "no per-replica field to route into" gap
+  # the 2026-09-20 audit re-verified genuine. AutoScalingRoleArn and
+  # ScalingPolicies (TargetTrackingScalingPolicyConfiguration) are now
+  # accepted, stored, and echoed back exactly as the caller supplied them
+  # (not fabricated -- no IAM/policy engine backs them). Also found and fixed
+  # PARITY.md staleness: the gopherstack-1vv2 items_still_open entry claiming
+  # ReplicaAutoScalingDescription.GlobalSecondaryIndexes was "never populated"
+  # was already false by the time of this audit -- a prior commit had already
+  # wired the per-GSI write-capacity echo into replicaAutoScalingDescriptionsRLocked
+  # without updating items_still_open (see autoscaling family below).
+overall: A   # gopherstack-rkmp deep pass (this audit, 2026-08-14): struct-field-diffed every wire model against the pinned SDK (see Notes) and fixed 3 more wire drops -- Query/Scan AttributesToGet (undeclared, and even where declared elsewhere the projection resolver never consulted it for these two ops), GSI/LSI IndexArn (+GSI IndexSizeBytes/Backfilling), ListBackups BackupSummary.BackupSizeBytes. PARITY.md itself was stale by 6 commits (7a2189b06..bc2e6285a) before this update -- see Notes. CONFIRMED FIXED, previously an open gap here: GSI/LSI Query full-scan (17c0ac7a7 added real per-GSI/LSI indexes; gopherstack-anlc verified 4.8-5.0us flat vs 1.82-28.0ms before). gopherstack-lze5 (2026-08-14, follow-up pass): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator/AttributeUpdates parameters -- the conditional-check-bypass and no-op-write bugs -- are now FIXED by translation into the existing expr evaluator. gopherstack-yvs8 (2026-08-14, follow-up to lze5): Query/Scan's legacy KeyConditions/QueryFilter/ScanFilter -- the "ScanFilter/QueryFilter silently returns every item" and "KeyConditions silently dropped" failure modes -- are now FIXED the same way (translation into KeyConditionExpression/FilterExpression, reusing the existing evaluator paths); see gaps for the KeySchema-reordering writeup. ReturnConsumedCapacity=INDEXES (gopherstack-glfv) is fixed -- see the 2026-10-01 note.
 protocol: json-1.0 (DynamoDB_20120810 targets)
 families:
   item_crud:    {status: ok, note: PROVEN — condition eval, all ReturnValues, ItemCollectionMetrics/LSI 10GB, WCU/RCU formulas. 2026-08-13: GetItem's wire model (models.GetItemInput/GetItemOutput) was silently dropping ReturnConsumedCapacity, ConsistentRead, AttributesToGet on input and ConsumedCapacity on output even though the backend computed everything correctly -- fixed at the wire boundary in models/convert_ops.go, not the backend. Same day, separately: CreateTable dropped SSESpecification/OnDemandThroughput on input (7a2189b06); UpdateTable dropped DeletionProtectionEnabled/TableClass/BillingMode/SSESpecification (7a2189b06); DescribeBackup/DeleteBackup dropped two required SourceTableDetails members (bc2e6285a). 2026-08-14 (this audit): ListBackups' BackupSummary had no BackupSizeBytes field at all, even though CreateBackup/DescribeBackup's BackupDetails already carried it for the same backup via the real per-backup b.SizeBytes -- fixed in models/types.go + backup_ops.go's collectBackupSummaries. 2026-08-14 (gopherstack-lze5): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator (conditional-write) and UpdateItem's AttributeUpdates (legacy update) parameters were wire-serialized (confirmed against serializers.go) but declared nowhere in models/types.go, so a legacy client's conditional check or update silently never happened -- 200 OK either way. Fixed by translating them into an equivalent ConditionExpression/UpdateExpression (synthesized #name/:value placeholders) and reusing the exact same evaluator path PutItem/UpdateItem/DeleteItem already use for the modern expression API, rather than a second evaluation engine -- see gaps for the full writeup and citations. legacy_conditional_params_test.go drives the real aws-sdk-go-v2 client and asserts behaviour (blocked writes stay unchanged, ADD/DELETE/PUT actually mutate the item), each hand-verified to fail against unfixed code.}
@@ -20,7 +27,7 @@ families:
   janitor_ttl:  {status: ok, note: PROVEN batched-lock, ctx-cancel, quickselect eviction, ring-buffer compaction}
   datalayer:    {status: ok, note: RE-AUDITED — ce30166a converted db.Tables/Backups/GlobalTables/exports/imports/streamARNIndex from raw maps to pkgs/store.Table+Index (composite key tableKey(region,name), region derived by parsing TableArn via tableRegion()). Verified every insertion site (CreateTable, RestoreTable, CreateGlobalTable replicas, cloneTableSchema, applyOneReplicaTableEntry) builds TableArn with the same region string used as the store key *before* Put, so tableRegion(t) round-trips correctly; TableArn is never mutated post-insert. No stale map-key leaks (tablesByRegion Index auto-empties groups on last delete, unlike the old per-region submap). Persistence snapshot reshaped map->sorted slice + added a schema version gate (old snapshots discarded cleanly on upgrade, matching the sqs/ec2 precedent) — intentional, not a parity bug.}
   admin_lists:  {status: ok, note: gopherstack-6flj (2026-08-15) wrapper-key sweep of all 22 List+Describe+Get ops (ListBackups/ListContributorInsights/ListExports/ListGlobalTables/ListImports/ListTables/ListTagsOfResource, the 13 Describe* ops, GetItem, GetResourcePolicy) — every top-level wrapper key diffed field-by-field against its own api_op_*.go Output struct in the pinned aws-sdk-go-v2/service/dynamodb@v1.63.1 module cache; all correct, no wrong/silent-empty key found, no shared-converter cross-op mismatch (exportTableToPointInTimeOutput is legitimately shared by ExportTableToPointInTime/DescribeExport — both real Outputs are ExportDescription-only). One real gap found and fixed: DescribeContributorInsightsOutput.LastUpdateDateTime (deserializers.go:18441, epoch-seconds) was entirely unmodeled — the backend never tracked when contributor insights was last toggled. Fixed by adding Table.ContributorInsightsLastUpdate (set in setContributorInsightsLocked on every UpdateContributorInsights call) and emitting it only once non-zero (a never-toggled table reports it absent, matching AWS's own "populated once an action has occurred" behavior, not a fabricated zero time). See gaps for FailureException (same struct, correctly left unmodeled). Re-verified 2026-09-19 (over-wide-response sweep, gopherstack): this prior pass only diffed top-level wrapper keys; this pass diffed each List op's item shape member-by-member against dynamodb@v1.67.0 and confirmed all four already exact -- ListBackups' BackupSummary (backup_ops.go:187-198; BackupExpiryDateTime correctly absent, genuinely inapplicable since CreateBackup only ever produces BackupTypeUser backups, per the real API's own "applicable ... for backups created by AWS Backup" doc), ListContributorInsights' ContributorInsightsSummary (contributor_insights.go:164-168; IndexName correctly absent -- table-level summaries only, matching this backend's documented GSI-mirrors-table design), ListExports' ExportSummary (import_export_s3.go:995-1000), ListImports' ImportSummary (import_export_s3.go:700-709). Proven via TestListSummaryShapes (list_summary_shapes_test.go, real client, all four ops).}
-  autoscaling:  {status: fixed, note: "2026-08-21 (gopherstack-1vv2, InMemoryDB receiver-scope sweep): UpdateTableReplicaAutoScaling built a brand-new autoScalingSettings from only the current call's fields and assigned it wholesale over table.AutoScaling. GlobalSecondaryIndexUpdates and ProvisionedWriteCapacityAutoScalingUpdate are independently optional on the real input (api_op_UpdateTableReplicaAutoScaling.go) -- a call updating only one GSI's auto scaling settings silently wiped a previously-set table-level write-capacity autoscaling config, and vice versa. Fixed: autoScalingSettingsFromInput -> mergeAutoScalingSettingsFromInput, which merges into the existing table.AutoScaling (creating one only if nil) instead of replacing it. TestUpdateTableReplicaAutoScaling_WriteAndGSIUpdatesDontClobberEachOther (autoscaling_status_agreement_internal_test.go), hand-verified to fail against unfixed code. Other InMemoryDB Update* methods checked in the same sweep (UpdateContinuousBackups/UpdateContributorInsights/UpdateGlobalTable/UpdateGlobalTableSettings/UpdateItem/UpdateKinesisStreamingDestination/UpdateTable/UpdateTimeToLive) already merge field-by-field or are single-scalar toggles -- no further bugs of this shape found. See gaps: GlobalSecondaryIndexes autoscaling settings are stored but never echoed back on ReplicaAutoScalingDescription (a separate, pre-existing accept-and-drop gap, not touched by this fix)."}
+  autoscaling:  {status: fixed, note: "2026-08-21 (gopherstack-1vv2, InMemoryDB receiver-scope sweep): UpdateTableReplicaAutoScaling built a brand-new autoScalingSettings from only the current call's fields and assigned it wholesale over table.AutoScaling. GlobalSecondaryIndexUpdates and ProvisionedWriteCapacityAutoScalingUpdate are independently optional on the real input (api_op_UpdateTableReplicaAutoScaling.go) -- a call updating only one GSI's auto scaling settings silently wiped a previously-set table-level write-capacity autoscaling config, and vice versa. Fixed: autoScalingSettingsFromInput -> mergeAutoScalingSettingsFromInput, which merges into the existing table.AutoScaling (creating one only if nil) instead of replacing it. TestUpdateTableReplicaAutoScaling_WriteAndGSIUpdatesDontClobberEachOther (autoscaling_status_agreement_internal_test.go), hand-verified to fail against unfixed code. Other InMemoryDB Update* methods checked in the same sweep (UpdateContinuousBackups/UpdateContributorInsights/UpdateGlobalTable/UpdateGlobalTableSettings/UpdateItem/UpdateKinesisStreamingDestination/UpdateTable/UpdateTimeToLive) already merge field-by-field or are single-scalar toggles -- no further bugs of this shape found. GlobalSecondaryIndexes autoscaling settings being stored but never echoed on ReplicaAutoScalingDescription was fixed in a later, undated commit (confirmed by reading replicaAutoScalingDescriptionsRLocked, which already builds gsiDescriptions from table.AutoScaling.GlobalSecondaryIndexes) -- items_still_open still listed it as open until this audit corrected the staleness. 2026-09-26 (this pass, global-tables-v2-autoscaling): (1) ReplicaUpdates ([]types.ReplicaAutoScalingUpdate, RegionName + ReplicaProvisionedReadCapacityAutoScalingUpdate + ReplicaGlobalSecondaryIndexUpdates) is now accepted on the wire (handler_autoscaling.go's replicaAutoScalingUpdateWire), merged per-replica without clobbering other replicas (mergeReplicaAutoScalingFromUpdates, store.go's new Table.ReplicaAutoScaling map keyed by RegionName), validated (ResourceNotFoundException if the named region isn't one of the table's replicas, ValidationException if MinimumUnits>MaximumUnits), and echoed back as ReplicaProvisionedReadCapacityAutoScalingSettings + per-GSI ProvisionedReadCapacityAutoScalingSettings on both Update and Describe. (2) AutoScalingRoleArn and ScalingPolicyUpdate/ScalingPolicies (TargetTrackingScalingPolicyConfiguration: TargetValue/DisableScaleIn/ScaleInCooldown/ScaleOutCooldown) are now accepted, stored on autoScalingThroughput, and echoed back exactly as the caller supplied them on every AutoScalingSettingsDescription this package emits (table-level write, per-GSI write, per-replica read, per-replica-per-GSI read) -- an honest echo of the caller's own input, not fabrication: this backend still has no IAM-role or scaling-policy evaluation engine behind these values. (3) UpdateTableReplicaAutoScaling now validates BillingMode==PROVISIONED before accepting any actual settings change (ValidationException on a PAY_PER_REQUEST table; a bare TableName-only call, as used to refresh replica status, is exempt) -- own wording, disclosed: no verbatim AWS rejection string was found (see AutoScalingSettingsUpdate docs + Terraform/CDK issue reports establishing the underlying PROVISIONED-only constraint). Tests: autoscaling_replica_updates_test.go (real aws-sdk-go-v2 client, table-driven validation cases, ReplicaUpdates round-trip, unknown-region ResourceNotFoundException). 2026-09-26 (gopherstack-101r, applicationautoscaling cross-service wiring): the deferred cross-service decision above is now wired. services/applicationautoscaling (source: itself, not this package -- avoids the dynamodb<->applicationautoscaling import cycle) pushes RegisterScalableTarget/PutScalingPolicy(ServiceNamespace=dynamodb) straight into this table's own AutoScaling/ReplicaAutoScaling state via this package's own UpdateTableReplicaAutoScaling/DescribeTableReplicaAutoScaling (dynamodb remains the single source of truth; applicationautoscaling keeps no separate copy for the dynamodb namespace), so a target/policy registered through either API is immediately visible through the other. Also required here, found while making that wiring actually usable for the common case: DescribeTableReplicaAutoScaling/UpdateTableReplicaAutoScaling's Replicas list was empty for a plain (non-global-table) table -- table.Replicas (see buildReplicasExcluding in global_tables.go) intentionally excludes a table's own home region once real Global Tables replicas exist elsewhere, but was never populated with anything for a table that has no Global Tables replication at all, even though real DynamoDB reports exactly one Replicas entry (its own region) for a single-region table -- the dominant real-world case for Application Auto Scaling against DynamoDB, per Terraform's aws_appautoscaling_target/aws_appautoscaling_policy needing zero Global Tables involvement. Fixed with autoScalingReplicaEntries (autoscaling.go): synthesizes one virtual replica entry for the table's own home region (tableRegion(table)) when table.Replicas is empty, used by both replicaAutoScalingDescriptionsRLocked (Describe/Update's response) and tableHasReplicaRegion (ReplicaUpdates' region validation) -- confined to this file, does not touch table.Replicas itself or any other consumer (DescribeTable, ListGlobalTables, etc.). TestDescribeTableReplicaAutoScaling/DescribeTableReplicaAutoScaling_NoReplicas (backup_replica_test.go), which had asserted the old empty-Replicas behavior as correct, was updated to assert the single home-region entry instead. Not wired, disclosed (matches real AWS, confirmed via Application Auto Scaling's own docs + a real-account error transcript, not guessed): DeregisterScalableTarget does not clear this table's AutoScaling/ReplicaAutoScaling state, and deleting a table does not deregister its Application Auto Scaling scalable targets -- real AWS leaves both orphaned the same way (Application Auto Scaling's RegisterScalableTarget/DeregisterScalableTarget docs describe cleanup as the caller's own responsibility; see services/applicationautoscaling/PARITY.md for the full writeup and citations)."}
   global_table_settings_autoscaling: {status: fixed, note: "2026-08-23 (manifest-harvest pass): UpdateGlobalTableSettingsInput's GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate, GlobalTableGlobalSecondaryIndexSettingsUpdate (global, not per-replica, per-GSI write autoscaling), ReplicaSettingsUpdate[].ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate, and ReplicaGlobalSecondaryIndexSettingsUpdate[].ProvisionedReadCapacityAutoScalingSettingsUpdate (api_op_UpdateGlobalTableSettings.go, types.go:2891/2962/1881) were all accepted on the wire (handler_global_tables.go's updateGlobalTableSettingsInput had no struct fields for any of them) then silently dropped -- an accept-and-drop wire gap, same class as UpdateTableReplicaAutoScaling's pre-1vv2-fix clobber bug but never wired at all rather than clobbered. Fixed: StoredGlobalTable gained WriteCapacityAutoScaling/GSIWriteCapacityAutoScaling, StoredReplicaSettings/StoredReplicaGSISettings gained ReadCapacityAutoScaling, all reusing the existing autoScalingThroughput persisted shape and throughputFromUpdate/sdkAutoScalingSettingsDescription converters UpdateTableReplicaAutoScaling already has (autoscaling.go) -- no new evaluator. Both UpdateGlobalTableSettings and DescribeGlobalTableSettings now echo the same stored settings (global write-capacity autoscaling applies uniformly across replicas, matching how WriteCapacityUnits already does, since it is a global-table-level setting in the v1 API, not per-replica). Verified via TestGlobalTableSettings_AutoScaling, driven through the real aws-sdk-go-v2 client, hand-reverted (services/dynamodb/{global_tables,handler_global_tables,store}.go) to confirm it fails against unfixed code (nil ReplicaProvisionedWriteCapacityAutoScalingSettings), restored, md5sum identical. Additive-only struct fields; pkgs/persistence snapshot-version guard confirmed no bump needed."}
   kinesis_streaming_disable_echo: {status: fixed, note: "2026-08-23 (manifest-harvest pass): DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration (deserializers.go:18931 -- a real modeled response member on Disable despite its SDK doc comment reading 'the destination for the Kinesis streaming information that is being enabled', a codegen doc-comment artifact shared with Enable/Update, not evidence the field is request-only) was never populated; DisableKinesisStreamingDestination always returned it as nil/absent even though the backend already tracked the destination's precision (KinesisDestinationEntry.Precision) right up until deleting it. Fixed: removeKinesisDestinationLocked now returns the removed entry's precision, echoed back as EnableKinesisStreamingConfiguration (defaulting to MILLISECOND, matching Enable/Describe's existing default). Verified via TestDisableKinesisStreamingDestination_EchoesConfig, hand-reverted (kinesis_streaming.go, handler_kinesis_streaming.go) to confirm nil response before the fix, restored, md5sum identical."}
   pagination_sweep: {status: fixed, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): audited every List/Describe/Query/Scan op with a page-size + continuation member against the pinned SDK. ListGlobalTables' applyGlobalTableLimit only capped the page when the caller supplied an explicit Limit; an omitted Limit (ListGlobalTablesInput.Limit doc, api_op_ListGlobalTables.go:35, 'if the parameter is not specified, DynamoDB defaults to 100') returned every global table uncapped with no LastEvaluatedGlobalTableName. Fixed: applyGlobalTableLimit now falls back to defaultListGlobalTablesLimit=100. TestListGlobalTables_DefaultLimitPagination (wire_field_fixes_test.go) creates 105 global tables, drives the real SDK client through the full pagination loop with no Limit set, and asserts each page is <=100 and the union is exactly the 105 names with no duplicates; hand-reverted to confirm it fails against unfixed code (page of 105), restored. Everything else audited CORRECT: Query/Scan's Limit-as-items-examined + post-limit-filter + ExclusiveStartKey/LastEvaluatedKey semantics (item_ops_query.go/item_ops_scan.go) match AWS's own documented 'LastEvaluatedKey may be non-nil with nothing left to return' behavior -- collectQueryPage emits LastEvaluatedKey whenever the Limit boundary is hit, including on the true last item (no i<len-1 guard, unlike scanPage's), which is correct-but-surprising, not a bug: a client resuming from that key gets an empty page with a nil LastEvaluatedKey next call, one harmless extra round trip, exactly the documented AWS gotcha. ListBackups/ListContributorInsights/ListExports/ListImports/ListTables all correctly consume+truncate+emit. ListTagsOfResource ignores NextToken/returns everything in one call by design: the real op has no MaxResults input member at all and no documented default page size to impose (DO-NOT-INVENT-A-PAGE-SIZE), so returning the full <=50-tag set in one page is the only non-fabricated implementation."}
@@ -109,133 +116,8 @@ gaps: []
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
 items_still_open:
-  - "2026-09-11 (gopherstack-l3vv part c, disclosed, not modeled): ReplicaProvisionedReadCapacityAutoScalingSettings/
-    ReplicaProvisionedWriteCapacityAutoScalingSettings (both top-level, via
-    GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate/
-    ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate, and per-GSI) DO echo real
-    MinimumUnits/MaximumUnits/AutoScalingDisabled (fixed 2026-08-23, see
-    global_table_settings_autoscaling above, reusing autoscaling.go's
-    autoScalingThroughput/sdkAutoScalingSettingsDescription), but the real
-    AutoScalingSettingsDescription (dynamodb@v1.67.0 types.go) also carries
-    AutoScalingRoleArn *string and ScalingPolicies []AutoScalingPolicyDescription
-    (each a TargetTrackingScalingPolicyConfiguration with
-    PredefinedMetricSpecification/TargetValue/Scale{In,Out}Cooldown/
-    DisableScaleIn) -- a real IAM-role-backed autoscaling policy object, not
-    a throughput range. This backend tracks no such policy state anywhere for
-    legacy v1 global tables (nor does the separate v2 UpdateTableReplicaAutoScaling
-    path on Table.AutoScaling): AutoScalingRoleArn and ScalingPolicies are always
-    left nil/empty on every AutoScalingSettingsDescription this package emits.
-    Fabricating a role ARN or a policy list with no real policy engine behind it
-    would violate the no-fabricated-data rule; left honestly absent, same category
-    as the already-documented incremental-export and per-replica-autoscaling-via-
-    ReplicaUpdates gaps -- a genuine feature gap, not a wire drop."
-  - "2026-08-21 (gopherstack-1vv2): ReplicaAutoScalingDescription.GlobalSecondaryIndexes (types.go:2642) is
-    never populated by UpdateTableReplicaAutoScaling or DescribeTableReplicaAutoScaling --
-    replicaAutoScalingDescriptionsRLocked only ever echoes table-level Write settings per
-    replica. Per-GSI autoscaling settings ARE stored (autoScalingSettings.GlobalSecondaryIndexes,
-    now correctly merged rather than clobbered -- see autoscaling family) but a real client
-    reading them back via Update or Describe always sees an empty list regardless of what was
-    configured. Pre-existing, found while fixing the clobber bug above; not fixed here since it's
-    an accept-and-drop wire gap, a different bug class from this pass's scope."
-  - "2026-08-15 (gopherstack-6flj, disclosed, not fixed): DescribeContributorInsightsOutput.FailureException
-    (types.FailureException{ExceptionName, ExceptionDescription}, api_op_DescribeContributorInsights.go)
-    remains unmodeled. This backend's UpdateContributorInsights/DescribeContributorInsights
-    never fail to enable/disable contributor insights (no IAM/service-limit failure
-    model exists anywhere in this service), so there is no honest non-nil value to
-    populate this field with -- always leaving it nil is the accurate representation,
-    not a gap being papered over. LastUpdateDateTime (same struct) was the real,
-    fixable gap and is now fixed -- see admin_lists family above."
-  - "2026-08-14 (gopherstack-lze5, CORRECTNESS, PARTIALLY FIXED): Expected,
-    ConditionalOperator, and AttributeUpdates (PutItem/UpdateItem/DeleteItem's
-    legacy pre-expression parameters) are now implemented -- the
-    conditional-check-bypass and no-op-write failure modes this issue was filed
-    for. Fixed by translation, not a second evaluator: legacy_conditions.go
-    converts each legacy Expected/Condition into an equivalent
-    ConditionExpression fragment (aliased #name/:value placeholders synthesized
-    per attribute, joined by ConditionalOperator's AND/OR, default AND -- see
-    legacyConditionalJoiner) and each AttributeUpdates entry into an equivalent
-    UpdateExpression fragment (PUT -> SET, DELETE w/o Value -> REMOVE, DELETE
-    w/ a set Value -> DELETE, ADD -> ADD; action-semantics citations:
-    types/types.go:197-269 AttributeValueUpdate doc), then hands the rewritten
-    request to the SAME evaluator (services/dynamodb/expr, via the existing
-    checkPutCondition/checkUpdateCondition/checkDeleteCondition/doUpdate) real
-    PutItem/UpdateItem/DeleteItem already used for ConditionExpression/
-    UpdateExpression. ComparisonOperator set: EQ/NE/LE/LT/GE/GT/NOT_NULL/NULL/
-    CONTAINS/NOT_CONTAINS/BEGINS_WITH/IN/BETWEEN, all implemented (renderComparison,
-    citing types/types.go:1279-1391 for operator semantics and arg counts).
-    Expected's old Value/Exists style and its Value/Exists-vs-ComparisonOperator
-    mutual exclusion cite types/types.go:1240-1256 verbatim. Mutual exclusion
-    between legacy and expression parameters is enforced per-operation (any of
-    Expected/ConditionalOperator/AttributeUpdates set alongside any of
-    ConditionExpression/UpdateExpression -> ValidationException) -- this specific
-    rejection is well-established real DynamoDB behavior but has no client-side
-    SDK validation to cite a line number against, so the error wording is our
-    own, not a verified verbatim AWS string. Tested driving the real
-    aws-sdk-go-v2 client and asserting behaviour (ConditionalCheckFailedException
-    + item unchanged on a failing Expected, ADD-on-number increments,
-    ADD-on-set unions, DELETE-with-set-value subtracts, DELETE-without-value
-    removes), not just call success -- legacy_conditional_params_test.go; each
-    covered case was hand-verified to fail with unfixed code (e.g. 'An error is
-    expected but got nil... expected: *types.ConditionalCheckFailedException').
-  - "2026-08-14 (gopherstack-rkmp/gopherstack-glfv, CORRECTNESS, flagged not fixed):
-    ReturnConsumedCapacity=INDEXES never returns a per-index breakdown on any
-    operation. capacity.go's buildConsumedCapacityWithIndexes/applyIndexBreakdowns
-    correctly build types.ConsumedCapacity.Table/GlobalSecondaryIndexes/
-    LocalSecondaryIndexes and are unit-tested in isolation, but grep confirms they
-    are called from nowhere except export_test.go -- every real operation
-    (PutItem/UpdateItem/DeleteItem/Query/Scan/BatchGetItem/BatchWriteItem/
-    TransactGetItems/TransactWriteItems) builds a bare ConsumedCapacity{TableName,
-    CapacityUnits, Read/WriteCapacityUnits} literal directly, so INDEXES and TOTAL
-    produce byte-identical output everywhere. TestConsumedCapacityIndexes_PutItem
-    is misleadingly named: despite the name and a GSI fixture, it actually requests
-    TOTAL and never exercises the INDEXES path -- the same 'test looked like
-    coverage and wasn't' pattern noted below for the pre-53cfd590b tests. Read-side
-    fix (100% of RCU to the queried index) is straightforward; write-side fix
-    (attributing WCU across every GSI/LSI a written item's key populates) needs
-    AWS billing semantics not verified against a real account this pass, so it's
-    flagged rather than guessed, per the no-fabrication rule."
-  - "2026-08-14 (gopherstack-rkmp, minor/structural, not filed individually):
-    struct-field-diffing every wire model against dynamodb@v1.63.1 turned up a
-    long tail of fields absent because the underlying AWS feature has no backend
-    model at all (same category as the SearchVectors gap below, not a wire drop):
-    WarmThroughput and VectorIndexes on CreateTable/UpdateTable/GSI actions;
-    GlobalTableWitnesses and MultiRegionConsistency (MRSC witness regions) on
-    CreateTable/TableDescription; ResourcePolicy on CreateTableInput (resource-based
-    policy IS modeled via the separate Put/GetResourcePolicy ops, just not the
-    at-creation shortcut); VectorIndexOverride/LocalSecondaryIndexOverride on
-    RestoreTableFromBackup/RestoreTableToPointInTime; several ReplicaDescription
-    v2-global-table fields (ReplicaArn, KMSMasterKeyId, OnDemand/ProvisionedThroughputOverride,
-    ReplicaStatusDescription/PercentProgress, ReplicaTableClassSummary,
-    ReplicaInaccessibleDateTime); ProvisionedThroughputDescription's
-    LastIncrease/DecreaseDateTime and NumberOfDecreasesToday (AWS itself rarely
-    populates the latter post-2018 throttling changes); SSEDescription's
-    InaccessibleEncryptionDateTime (only set when a KMS key becomes unreachable,
-    a failure mode this backend doesn't model); BackupSummary/BackupDetails'
-    BackupExpiryDateTime (only set on the SYSTEM auto-backups DynamoDB creates on
-    table deletion with PITR enabled -- this backend only ever creates USER
-    backups via CreateBackup, so there's genuinely no SYSTEM-backup expiry to
-    report). None fabricated; all are honest absences, listed here so a future
-    pass doesn't have to rediscover them by re-running the same diff."
-  - "2026-08-05: SearchVectors (new in SDK v1.63.1) — DynamoDB vector indexes have no
-    backend model here: CreateTable/UpdateTable have no field or code path that attaches a
-    vector index to a table, so no vector index can ever exist in this backend. Fabricating
-    similarity scores for a search against an index that was never created would violate
-    the no-fabricated-data rule. search_vectors.go implements full request validation
-    (TableName/IndexName/SearchVector/TopK required, matching the SDK's
-    validateOpSearchVectorsInput) and a real table-existence check, then honestly returns
-    ResourceNotFoundException for the named index — the same response real DynamoDB gives
-    for any index name on a table with no vector indexes. Wire types/converters
-    (SearchVectorsInput/Output, VectorCapacity, SearchResultItem) are implemented in full
-    for shape-correctness even though the success path is never reached. Full vector-index
-    support (CreateTable VectorIndex, index storage, real similarity scoring) is out of
-    scope for this pass — tracked as a follow-up if vector search ever becomes a priority."
-  - "2026-09-12 (reqfielddiff, gopherstack-xhu2t): RestoreTableFromBackup and
-    RestoreTableToPointInTime both accept VectorIndexOverride ([]types.VectorIndex) to
-    select which vector indexes carry over into the restored table. Same root cause as
-    the 2026-08-05 SearchVectors entry above -- this backend has no vector-index model
-    at all (no field on a table ever represents one), so there is nothing for an override
-    list to filter and no honest way to apply it. Not fabricated; recorded rather than
-    wired to a no-op."
+  - "No vector-index model: SearchVectors always ResourceNotFoundException for the index; VectorIndexes on CreateTable/UpdateTable/GSI actions and VectorIndexOverride on both restore ops are absent (search_vectors.go validates the request shape)."
+  - "Other unmodeled-subsystem fields, left nil rather than fabricated: WarmThroughput (AWS default values unverified), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime, BackupExpiryDateTime (SYSTEM backups only), DescribeContributorInsights FailureException (no failure model)."
 deferred:
   - expr/ lexer/parser/evaluator subpackage (has own aws_spec_test.go/evaluator_test.go) — not line-by-line re-audited this sweep; genuinely large surface, out of scope for this streams/transactions-focused follow-up pass. No known bugs, just not freshly field-diffed against the SDK this cycle.
   - PartiQL execution (partiql.go, ~37KB) — not re-audited this sweep, same reason as above.
@@ -243,6 +125,14 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 ---
 
 ## Notes
+
+### 2026-10-01 on-demand ProvisionedThroughput
+
+Create/Update/Delete/DescribeTable now return ProvisionedThroughput (and per-GSI) with RCU=WCU=NumberOfDecreasesToday=0 for PAY_PER_REQUEST (types.ProvisionedThroughputDescription: "0, because on-demand mode does not use provisioned throughput"); GSI create output honours the requested throughput. Proved by realclient_ondemand_throughput_test.go.
+
+### 2026-10-01 items_still_open burn-down
+
+Already fixed, entries removed: ReturnConsumedCapacity=INDEXES (TestConsumedCapacity_Indexes_TableDriven); legacy Expected/AttributeUpdates (legacy_conditional_params_test.go). Fixed with typed-client tests (table_wire_fields_test.go): CreateTable ResourcePolicy (20 KB cap per SDK doc), ProvisionedThroughputDescription LastIncrease/LastDecreaseDateTime and per-UTC-day NumberOfDecreasesToday (omitted when 0), RestoreTableFromBackup/ToPointInTime LocalSecondaryIndexOverride (subset by name), ReplicaDescription.ReplicaArn (table ARN with the replica region).
 
 ### 2026-09-24 TransactWriteItems prepare/commit split (gopherstack-wdapu)
 

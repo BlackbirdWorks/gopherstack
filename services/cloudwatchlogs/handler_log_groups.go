@@ -83,10 +83,11 @@ type getLogGroupFieldsOutput struct {
 // previous revision read "logGroupNamePrefix" here, so a real client's
 // filter was always silently ignored regardless of what it sent.
 type listLogGroupsInput struct {
-	LogGroupNamePattern string `json:"logGroupNamePattern"`
-	NextToken           string `json:"nextToken"`
-	LogGroupClass       string `json:"logGroupClass,omitempty"`
-	Limit               int    `json:"limit"`
+	LogGroupNamePattern string      `json:"logGroupNamePattern"`
+	NextToken           string      `json:"nextToken"`
+	LogGroupClass       string      `json:"logGroupClass,omitempty"`
+	LogGroupTags        []tagFilter `json:"logGroupTags"`
+	Limit               int         `json:"limit"`
 }
 
 // logGroupSummaryView is the real ListLogGroupsOutput.LogGroups item shape
@@ -263,8 +264,14 @@ func (h *Handler) handleListLogGroups(ctx context.Context, b []byte) (any, error
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	groups, next, err := h.Backend.ListLogGroups(
+	for _, f := range input.LogGroupTags {
+		if f.Key == "" {
+			return nil, fmt.Errorf("%w: logGroupTags key is required", ErrValidation)
+		}
+	}
+	groups, next, err := h.Backend.ListLogGroupsFiltered(
 		ctx, input.LogGroupNamePattern, input.NextToken, input.LogGroupClass, input.Limit,
+		h.logGroupTagKeeper(input.LogGroupTags),
 	)
 	if err != nil {
 		return nil, err

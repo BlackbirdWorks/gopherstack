@@ -2,6 +2,7 @@ package efs
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -43,7 +44,16 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
 	// AccessPointId is a mutually exclusive filter: resolve it to the file system
 	// the access point belongs to, then list mount targets for that file system.
-	if apID := c.Request().URL.Query().Get("AccessPointId"); apID != "" {
+	q := c.Request().URL.Query()
+	if mountTargetID == "" && q.Get(keyFileSystemID) == "" && q.Get("AccessPointId") == "" &&
+		q.Get("MountTargetId") == "" {
+		return h.handleError(
+			c,
+			fmt.Errorf("%w: FileSystemId, MountTargetId or AccessPointId is required", ErrBadRequest),
+		)
+	}
+
+	if apID := idFromARN(q.Get("AccessPointId")); apID != "" {
 		ctx := h.contextWithRegion(c)
 		aps, _, err := h.Backend.DescribeAccessPoints(ctx, "", apID, "", 1)
 		if err != nil {
@@ -53,7 +63,7 @@ func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID stri
 			return h.handleError(c, ErrAccessPointNotFound)
 		}
 		fsID := aps[0].FileSystemID
-		marker := c.Request().URL.Query().Get("Marker")
+		marker := q.Get("Marker")
 		maxItems := queryInt(c, "MaxItems")
 		results, nextMarker, err := h.Backend.DescribeMountTargets(ctx, fsID, "", marker, maxItems)
 		if err != nil {

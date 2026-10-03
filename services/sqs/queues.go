@@ -76,8 +76,8 @@ func validateQueueName(name string) error {
 }
 
 // buildDefaultAttributes initialises the attribute map for a new queue.
-func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) map[string]string {
-	now := strconv.FormatInt(time.Now().Unix(), 10)
+func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool, nowTime time.Time) map[string]string {
+	now := strconv.FormatInt(nowTime.Unix(), 10)
 	queueARN := arn.Build("sqs", region, accountID, queueName)
 
 	attrs := map[string]string{
@@ -139,11 +139,13 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		return &CreateQueueOutput{QueueURL: q.URL}, nil
 	}
 
-	if err := b.checkQueueDeletedRecently(region, input.QueueName, time.Now()); err != nil {
+	now := b.now()
+
+	if err := b.checkQueueDeletedRecently(region, input.QueueName, now); err != nil {
 		return nil, err
 	}
 
-	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO)
+	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO, now)
 
 	mergeQueueAttributes(attrs, input.Attributes)
 
@@ -220,7 +222,7 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 		q.Tags.Close()
 	}
 
-	b.recentlyDeleted[queueKey(q.Region, q.Name)] = time.Now()
+	b.recentlyDeleted[queueKey(q.Region, q.Name)] = b.now()
 
 	b.queues.Delete(queueKey(q.Region, q.Name))
 
@@ -284,9 +286,11 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 		return ErrQueueNotFound
 	}
 
+	now := b.now()
+
 	// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
 	// b.mu is already held (write-locked above), so this read is safe.
-	if !q.lastPurgedAt.IsZero() && time.Since(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
+	if !q.lastPurgedAt.IsZero() && now.Sub(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
 		return ErrPurgeQueueInProgress
 	}
 
@@ -294,7 +298,7 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	q.inFlightMessages = nil
 	q.inFlightByHandle = make(map[string]*InFlightMessage)
 	q.delayedCount = 0
-	q.lastPurgedAt = time.Now()
+	q.lastPurgedAt = now
 
 	// For FIFO queues, purging messages also resets the deduplication state so
 	// that producers can re-send messages with the same deduplication IDs.

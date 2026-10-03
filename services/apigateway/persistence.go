@@ -75,11 +75,14 @@ func fromResourceSnapshot(v *resourceSnapshot) *Resource {
 }
 
 type deploymentSnapshot struct {
-	APISummary  map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
-	CreatedDate unixEpochTime                        `json:"createdDate"`
-	ID          string                               `json:"id"`
-	RestAPIID   string                               `json:"restApiId"`
-	Description string                               `json:"description,omitempty"`
+	APISummary map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
+	// Config is additive: an older snapshot without it simply restores a
+	// deployment with a nil Config, same as any pre-this-feature deployment.
+	Config      *DeploymentConfig `json:"config,omitempty"`
+	CreatedDate unixEpochTime     `json:"createdDate"`
+	ID          string            `json:"id"`
+	RestAPIID   string            `json:"restApiId"`
+	Description string            `json:"description,omitempty"`
 }
 
 func deploymentSnapshotKey(v *deploymentSnapshot) string { return deploymentKey(v.RestAPIID, v.ID) }
@@ -91,6 +94,7 @@ func toDeploymentSnapshot(v *Deployment) *deploymentSnapshot {
 		Description: v.Description,
 		CreatedDate: v.CreatedDate,
 		APISummary:  v.APISummary,
+		Config:      v.Config,
 	}
 }
 
@@ -101,6 +105,7 @@ func fromDeploymentSnapshot(v *deploymentSnapshot) *Deployment {
 		Description: v.Description,
 		CreatedDate: v.CreatedDate,
 		APISummary:  v.APISummary,
+		Config:      v.Config,
 	}
 }
 
@@ -646,26 +651,40 @@ func restoreDirtyTables(
 	b.usagePlanKeys.Restore(usagePlanKeys)
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
 	type snapshotter interface {
 		Snapshot(ctx context.Context) []byte
 	}
-	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot(ctx)
+
+	s, ok := h.Backend.(snapshotter)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return h.peers.Snapshot(s.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	type restorer interface {
 		Restore(context.Context, []byte) error
 	}
-	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(ctx, data)
+
+	h.clearTrieCache()
+
+	r, ok := h.Backend.(restorer)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	if err := r.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+		func(p *Handler) { p.Reset() },
+	)
 }

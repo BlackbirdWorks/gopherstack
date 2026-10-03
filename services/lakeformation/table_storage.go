@@ -2,6 +2,8 @@ package lakeformation
 
 import (
 	"fmt"
+	"maps"
+	"sort"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -93,10 +95,10 @@ func tableStorageKey(catalogID, databaseName, tableName string) string {
 	return catalogID + "|" + databaseName + "|" + tableName
 }
 
-// ListTableStorageOptimizers returns the storage optimizers for a table, filtered by type if specified.
+// ListTableStorageOptimizers returns one page of a table's optimizers, ordered by type and optionally filtered.
 func (b *InMemoryBackend) ListTableStorageOptimizers(
-	catalogID, databaseName, tableName, storageOptimizerType string,
-) []StorageOptimizer {
+	catalogID, databaseName, tableName, storageOptimizerType string, maxResults int, nextToken string,
+) ([]StorageOptimizer, string) {
 	b.mu.RLock("ListTableStorageOptimizers")
 	defer b.mu.RUnlock()
 	key := tableStorageKey(catalogID, databaseName, tableName)
@@ -105,11 +107,17 @@ func (b *InMemoryBackend) ListTableStorageOptimizers(
 
 	for _, o := range opts {
 		if storageOptimizerType == "" || o.StorageOptimizerType == storageOptimizerType {
-			result = append(result, o)
+			result = append(result, StorageOptimizer{
+				StorageOptimizerType: o.StorageOptimizerType,
+				Config:               maps.Clone(o.Config),
+				ErrorMessage:         o.ErrorMessage,
+			})
 		}
 	}
 
-	return result
+	sort.Slice(result, func(i, j int) bool { return result[i].StorageOptimizerType < result[j].StorageOptimizerType })
+
+	return paginate(result, maxResults, nextToken, defaultMaxResults)
 }
 
 // UpdateTableStorageOptimizer replaces the storage optimizer config for a table.

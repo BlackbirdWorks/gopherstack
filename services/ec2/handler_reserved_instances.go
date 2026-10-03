@@ -466,7 +466,12 @@ func (h *Handler) handleDescribeReservedInstancesListings(
 		ids = []string{id}
 	}
 
-	listings := h.Backend.DescribeReservedInstancesListings(ids)
+	filters := parseEC2Filters(vals)
+	if id := vals.Get("ReservedInstancesId"); id != "" {
+		filters["reserved-instances-id"] = []string{id}
+	}
+
+	listings := applyReservedInstancesListingFilters(h.Backend.DescribeReservedInstancesListings(ids), filters)
 
 	resp := &describeReservedInstancesListingsResponse{RequestID: reqID}
 	for _, l := range listings {
@@ -484,7 +489,9 @@ func (h *Handler) handleDescribeReservedInstancesModifications(
 	reqID string,
 ) (any, error) {
 	ids := parseMemberList(vals, "ReservedInstancesModificationId")
-	mods := h.Backend.DescribeReservedInstancesModifications(ids)
+	mods := applyReservedInstancesModificationFilters(
+		h.Backend.DescribeReservedInstancesModifications(ids), parseEC2Filters(vals),
+	)
 
 	resp := &describeReservedInstancesModificationsResponse{RequestID: reqID}
 	for _, m := range mods {

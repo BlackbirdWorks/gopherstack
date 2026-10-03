@@ -247,22 +247,31 @@ func (b *InMemoryBackend) DescribeCapacityProviders(
 func (b *InMemoryBackend) validateCapacityProviderStrategyLocked(
 	strategy []CapacityProviderStrategyItem,
 ) error {
+	names := make([]string, 0, len(strategy))
 	for _, item := range strategy {
-		if item.CapacityProvider == "" {
+		names = append(names, item.CapacityProvider)
+	}
+
+	return b.validateCapacityProviderNamesLocked(names)
+}
+
+// validateCapacityProviderNamesLocked returns ErrClient if any non-empty name
+// is neither a created nor a built-in capacity provider.
+func (b *InMemoryBackend) validateCapacityProviderNamesLocked(names []string) error {
+	for _, name := range names {
+		if name == "" {
 			continue
 		}
 
-		if _, cp := b.findCapacityProviderLocked(item.CapacityProvider); cp != nil {
+		if _, cp := b.findCapacityProviderLocked(name); cp != nil {
 			continue
 		}
 
-		if builtinCapacityProvider(item.CapacityProvider) != nil {
+		if builtinCapacityProvider(name) != nil {
 			continue
 		}
 
-		return fmt.Errorf(
-			"%w: capacity provider %s does not exist", ErrClient, item.CapacityProvider,
-		)
+		return fmt.Errorf("%w: capacity provider %s does not exist", ErrClient, name)
 	}
 
 	return nil

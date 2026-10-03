@@ -31,6 +31,7 @@ func TestIntegration_Kinesis_StreamLifecycle(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	// ListStreams
 	listOut, err := client.ListStreams(ctx, &kinesis.ListStreamsInput{})
@@ -59,6 +60,7 @@ func TestIntegration_Kinesis_StreamLifecycle(t *testing.T) {
 		StreamName: aws.String(streamName),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamGone(ctx, t, client, streamName)
 
 	// Verify gone
 	listOut2, err := client.ListStreams(ctx, &kinesis.ListStreamsInput{})
@@ -81,6 +83,7 @@ func TestIntegration_Kinesis_PutAndGetRecords(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	// Get shard ID from DescribeStream
 	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{
@@ -201,6 +204,7 @@ func TestIntegration_Kinesis_ListShards(t *testing.T) {
 		ShardCount: aws.Int32(3),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	listShardsOut, err := client.ListShards(ctx, &kinesis.ListShardsInput{
 		StreamName: aws.String(streamName),
@@ -232,6 +236,7 @@ func TestIntegration_Kinesis_DataIntegrity(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{
 		StreamName: aws.String(streamName),
@@ -293,6 +298,7 @@ func TestIntegration_Kinesis_EnhancedFanOut(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	// Get stream ARN
 	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{
@@ -407,6 +413,7 @@ func TestIntegration_Kinesis_UpdateShardCount(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	reshardOut, err := client.UpdateShardCount(ctx, &kinesis.UpdateShardCountInput{
 		StreamName:       aws.String(streamName),
@@ -423,6 +430,9 @@ func TestIntegration_Kinesis_UpdateShardCount(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, listShardsOut.Shards, 2)
+
+	// UpdateShardCount leaves the stream UPDATING; DeleteStream requires ACTIVE.
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	_, err = client.DeleteStream(ctx, &kinesis.DeleteStreamInput{
 		StreamName: aws.String(streamName),
@@ -444,6 +454,7 @@ func TestIntegration_Kinesis_EnhancedMonitoring(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	// Enable monitoring
 	enableOut, err := client.EnableEnhancedMonitoring(ctx, &kinesis.EnableEnhancedMonitoringInput{
@@ -487,6 +498,7 @@ func TestIntegration_Kinesis_GetShardIteratorAtTimestamp(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{
 		StreamName: aws.String(streamName),
@@ -549,6 +561,7 @@ func TestIntegration_Kinesis_SplitShard_RoundTrip(t *testing.T) {
 
 		_, _ = client.DeleteStream(cleanupCtx, &kinesis.DeleteStreamInput{StreamName: aws.String(streamName)})
 	})
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -620,6 +633,7 @@ func TestIntegration_Kinesis_MergeShards_RoundTrip(t *testing.T) {
 
 		_, _ = client.DeleteStream(cleanupCtx, &kinesis.DeleteStreamInput{StreamName: aws.String(streamName)})
 	})
+	waitKinesisStreamActive(ctx, t, client, streamName)
 
 	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)

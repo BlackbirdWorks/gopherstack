@@ -19,6 +19,8 @@ type NodegroupInput struct {
 	RemoteAccess   *RemoteAccess
 	LaunchTemplate *LaunchTemplate
 	UpdateConfig   *NodegroupUpdateConfig
+	NodeRepair     *NodeRepairConfig
+	WarmPool       *WarmPoolConfig
 	Subnets        []string
 	Taints         []NodegroupTaint
 	DiskSize       int32
@@ -106,6 +108,8 @@ func (b *InMemoryBackend) newNodegroupLocked(
 		RemoteAccess:   cloneRemoteAccess(input.RemoteAccess),
 		LaunchTemplate: cloneLaunchTemplate(input.LaunchTemplate),
 		UpdateConfig:   updateCfg,
+		NodeRepair:     cloneNodeRepair(input.NodeRepair),
+		WarmPool:       cloneWarmPool(input.WarmPool),
 		Resources: &NodegroupResources{
 			AutoScalingGroups: []AutoScalingGroup{{Name: asgName}},
 		},
@@ -159,6 +163,10 @@ func (b *InMemoryBackend) CreateNodegroup(
 			"%w: diskSize %d is out of range [%d, %d]",
 			ErrValidation, input.DiskSize, nodegroupDiskSizeMin, nodegroupDiskSizeMax,
 		)
+	}
+
+	if err = validateNodeRepair(input.NodeRepair); err != nil {
+		return nil, err
 	}
 
 	ng := b.newNodegroupLocked(
@@ -248,6 +256,8 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 type NodegroupConfigUpdate struct {
 	AddOrUpdateLabels map[string]string
 	UpdateConfig      *NodegroupUpdateConfig
+	NodeRepair        *NodeRepairConfig
+	WarmPool          *WarmPoolConfig
 	DesiredSize       *int32
 	MinSize           *int32
 	MaxSize           *int32
@@ -262,6 +272,10 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 	clusterName, nodegroupName string,
 	upd NodegroupConfigUpdate,
 ) (*Nodegroup, error) {
+	if err := validateNodeRepair(upd.NodeRepair); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateNodegroupConfig")
 	defer b.mu.Unlock()
 
@@ -311,9 +325,71 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 		ng.UpdateConfig = &uc
 	}
 
+	applyRepairAndWarmPool(ng, upd)
+
 	ng.ModifiedAt = time.Now().UTC()
 
 	return deepCopyNodegroup(ng), nil
+}
+
+// applyRepairAndWarmPool replaces the repair config; a warm pool update keeps the prior Enabled when omitted.
+func applyRepairAndWarmPool(ng *Nodegroup, upd NodegroupConfigUpdate) {
+	if upd.NodeRepair != nil {
+		ng.NodeRepair = cloneNodeRepair(upd.NodeRepair)
+	}
+
+	if upd.WarmPool != nil {
+		wp := cloneWarmPool(upd.WarmPool)
+		if wp.Enabled == nil && ng.WarmPool != nil {
+			wp.Enabled = ng.WarmPool.Enabled
+		}
+
+		ng.WarmPool = wp
+	}
+}
+
+// validateNodeRepair enforces the documented count/percentage mutual exclusions.
+func validateNodeRepair(c *NodeRepairConfig) error {
+	if c == nil {
+		return nil
+	}
+
+	if c.MaxParallelNodesRepairedCount != nil && c.MaxParallelNodesRepairedPercentage != nil {
+		return fmt.Errorf(
+			"%w: maxParallelNodesRepairedCount and maxParallelNodesRepairedPercentage are mutually exclusive",
+			ErrValidation,
+		)
+	}
+
+	if c.MaxUnhealthyNodeThresholdCount != nil && c.MaxUnhealthyNodeThresholdPercentage != nil {
+		return fmt.Errorf(
+			"%w: maxUnhealthyNodeThresholdCount and maxUnhealthyNodeThresholdPercentage are mutually exclusive",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
+
+func cloneNodeRepair(c *NodeRepairConfig) *NodeRepairConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+	cp.NodeRepairConfigOverrides = append([]NodeRepairOverride(nil), c.NodeRepairConfigOverrides...)
+
+	return &cp
+}
+
+func cloneWarmPool(c *WarmPoolConfig) *WarmPoolConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+
+	return &cp
 }
 
 // mergeTaints adds or updates taints in the existing slice.
@@ -455,6 +531,8 @@ func deepCopyNodegroup(ng *Nodegroup) *Nodegroup {
 	cp.Taints = cloneTaints(ng.Taints)
 	cp.RemoteAccess = cloneRemoteAccess(ng.RemoteAccess)
 	cp.LaunchTemplate = cloneLaunchTemplate(ng.LaunchTemplate)
+	cp.NodeRepair = cloneNodeRepair(ng.NodeRepair)
+	cp.WarmPool = cloneWarmPool(ng.WarmPool)
 
 	if ng.Resources != nil {
 		resCp := *ng.Resources

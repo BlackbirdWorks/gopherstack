@@ -596,7 +596,9 @@ func (b *InMemoryBackend) ListApplications(
 	regionApps := b.appsByRegion.Get(region)
 
 	all := make([]*Application, 0, len(regionApps))
-	all = append(all, regionApps...)
+	for _, app := range regionApps {
+		all = append(all, appCopy(app))
+	}
 
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].ApplicationName < all[j].ApplicationName

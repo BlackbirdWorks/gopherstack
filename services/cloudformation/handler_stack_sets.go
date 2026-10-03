@@ -487,20 +487,50 @@ func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
 	)
 }
 
-// unsupportedAccountFilterType returns the requested
-// DeploymentTargets.AccountFilterType value if it's one this backend doesn't
-// implement, or "" if the request should proceed. Only NONE (the union of
-// Accounts and resolved OrganizationalUnitIds, this backend's only supported
-// mode) passes; INTERSECTION/DIFFERENCE/UNION are rejected explicitly rather
-// than silently computed as NONE (botocore cloudformation service-2.json
-// AccountFilterType enum, botocore 1.43.56).
-func unsupportedAccountFilterType(form url.Values) string {
-	switch ft := form.Get("DeploymentTargets.AccountFilterType"); ft {
-	case "", valueNone:
-		return ""
-	default:
-		return ft
+// validAccountFilterTypes is the documented DeploymentTargets.AccountFilterType
+// enum (API_DeploymentTargets.html; "" is the wire default, equivalent to UNION).
+var validAccountFilterTypes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup
+	"":                        true,
+	valueNone:                 true,
+	accountFilterIntersection: true,
+	accountFilterDifference:   true,
+	accountFilterUnion:        true,
+}
+
+// parseAccountFilterType validates DeploymentTargets.AccountFilterType and
+// returns it, or the ValidationError message text CloudFormation returns for
+// an invalid or unsupported combination
+// (docs.aws.amazon.com/AWSCloudFormation/latest/APIReference/
+// API_DeploymentTargets.html). isCreate gates the two rules the API
+// reference documents as specific to CreateStackInstances: UNION is not
+// supported there, and specifying both OrganizationalUnitIds and Accounts
+// requires an explicit AccountFilterType.
+func parseAccountFilterType(form url.Values, isCreate bool) (string, string) {
+	filterType := form.Get("DeploymentTargets.AccountFilterType")
+	if !validAccountFilterTypes[filterType] {
+		return "", fmt.Sprintf(
+			"DeploymentTargets.AccountFilterType %s is not a valid value; must be one of "+
+				"NONE, INTERSECTION, DIFFERENCE, UNION", filterType,
+		)
 	}
+
+	if !isCreate {
+		return filterType, ""
+	}
+
+	if filterType == accountFilterUnion {
+		return "", "AccountFilterType UNION is not supported for CreateStackInstances operations"
+	}
+
+	hasAccounts := len(parseStackInstanceAccounts(form)) > 0
+	hasOUs := len(parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")) > 0
+
+	if filterType == "" && hasAccounts && hasOUs {
+		return "", "you must specify DeploymentTargets.AccountFilterType when specifying " +
+			"both Accounts and OrganizationalUnitIds"
+	}
+
+	return filterType, ""
 }
 
 // parseStackInstanceAccounts returns the union of the legacy top-level
@@ -514,16 +544,18 @@ func parseStackInstanceAccounts(form url.Values) []string {
 }
 
 // stackInstancesOp is CreateStackInstances or DeleteStackInstances -- same
-// request shape (accounts/OU targets/regions in, an operation ID out).
+// request shape (accounts/OU targets/regions/filter type in, an operation ID out).
 type stackInstancesOp func(
-	ctx context.Context, stackSetName string, accounts, ouIDs, regions []string,
+	ctx context.Context, stackSetName string, accounts, ouIDs, regions []string, filterType string,
 ) (string, error)
 
 // handleStackInstancesOp parses the shared CreateStackInstances/
 // DeleteStackInstances request shape, invokes op, and writes the shared
-// {OperationId} response envelope under responseElem/resultElem.
+// {OperationId} response envelope under responseElem/resultElem. isCreate
+// gates the CreateStackInstances-only AccountFilterType validation rules
+// (see parseAccountFilterType).
 func (h *Handler) handleStackInstancesOp(
-	form url.Values, c *echo.Context, responseElem, resultElem string, op stackInstancesOp,
+	form url.Values, c *echo.Context, responseElem, resultElem string, isCreate bool, op stackInstancesOp,
 ) error {
 	name := form.Get("StackSetName")
 	if name == "" {
@@ -534,14 +566,15 @@ func (h *Handler) handleStackInstancesOp(
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
-	if ft := unsupportedAccountFilterType(form); ft != "" {
-		return h.xmlError(c, "ValidationError",
-			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
+	filterType, filterErrMsg := parseAccountFilterType(form, isCreate)
+	if filterErrMsg != "" {
+		return h.xmlError(c, "ValidationError", filterErrMsg)
 	}
+
 	accounts := parseStackInstanceAccounts(form)
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := op(c.Request().Context(), name, accounts, ouIDs, regions)
+	opID, err := op(c.Request().Context(), name, accounts, ouIDs, regions, filterType)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
@@ -566,7 +599,7 @@ func (h *Handler) handleStackInstancesOp(
 
 func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) error {
 	return h.handleStackInstancesOp(
-		form, c, "CreateStackInstancesResponse", "CreateStackInstancesResult", h.Backend.CreateStackInstances,
+		form, c, "CreateStackInstancesResponse", "CreateStackInstancesResult", true, h.Backend.CreateStackInstances,
 	)
 }
 
@@ -576,11 +609,13 @@ func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) e
 		return h.xmlError(c, "ValidationError", "RetainStacks is required")
 	}
 	retainStacks := retainStr == boolTrue
-	op := func(ctx context.Context, stackSetName string, accounts, ouIDs, regions []string) (string, error) {
-		return h.Backend.DeleteStackInstances(ctx, stackSetName, accounts, ouIDs, regions, retainStacks)
+	op := func(
+		ctx context.Context, stackSetName string, accounts, ouIDs, regions []string, filterType string,
+	) (string, error) {
+		return h.Backend.DeleteStackInstances(ctx, stackSetName, accounts, ouIDs, regions, retainStacks, filterType)
 	}
 
-	return h.handleStackInstancesOp(form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", op)
+	return h.handleStackInstancesOp(form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", false, op)
 }
 
 func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) error {
@@ -593,14 +628,15 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
-	if ft := unsupportedAccountFilterType(form); ft != "" {
-		return h.xmlError(c, "ValidationError",
-			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
+	filterType, filterErrMsg := parseAccountFilterType(form, false)
+	if filterErrMsg != "" {
+		return h.xmlError(c, "ValidationError", filterErrMsg)
 	}
+
 	accounts := parseStackInstanceAccounts(form)
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := h.Backend.UpdateStackInstances(name, accounts, ouIDs, regions)
+	opID, err := h.Backend.UpdateStackInstances(name, accounts, ouIDs, regions, filterType)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}

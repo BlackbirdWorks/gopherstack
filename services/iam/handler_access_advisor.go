@@ -3,6 +3,8 @@ package iam
 import (
 	"net/url"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // iamAccessAdvisorDispatch wires real GenerateServiceLastAccessedDetails and GetServiceLastAccessedDetails.
@@ -31,9 +33,10 @@ func (h *Handler) iamAccessAdvisorDispatch() map[string]iamActionFn {
 			}
 
 			now := isoTime(time.Now().UTC())
-			xmlDetails := make([]ServiceLastAccessedDetailXML, 0, len(details))
+			pg := page.New(details, vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")), iamDefaultMaxItems)
+			xmlDetails := make([]ServiceLastAccessedDetailXML, 0, len(pg.Data))
 
-			for _, d := range details {
+			for _, d := range pg.Data {
 				entry := ServiceLastAccessedDetailXML{
 					ServiceName:                d.ServiceName,
 					ServiceNamespace:           d.ServiceNamespace,
@@ -55,7 +58,8 @@ func (h *Handler) iamAccessAdvisorDispatch() map[string]iamActionFn {
 					JobCreationDate:      now,
 					JobCompletionDate:    now,
 					ServicesLastAccessed: xmlDetails,
-					IsTruncated:          false,
+					IsTruncated:          pg.Next != "",
+					Marker:               pg.Next,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

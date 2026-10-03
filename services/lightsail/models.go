@@ -705,10 +705,50 @@ type Bucket struct {
 	Name                     string
 	SupportCode              string
 	Arn                      string
+	CORS                     *BucketCORS
 	ReadonlyAccessAccounts   []string
 	AccessKeys               []AccessKey
 	ResourcesReceivingAccess []ResourceReceivingAccess
 	AbleToUpdateBundle       bool
+}
+
+// BucketCORS mirrors types.BucketCorsConfig.
+type BucketCORS struct {
+	Rules []BucketCORSRule
+}
+
+// BucketCORSRule mirrors types.BucketCorsRule.
+type BucketCORSRule struct {
+	MaxAgeSeconds  *int32
+	ID             string
+	AllowedMethods []string
+	AllowedOrigins []string
+	AllowedHeaders []string
+	ExposeHeaders  []string
+}
+
+func (c *BucketCORS) clone() *BucketCORS {
+	if c == nil {
+		return nil
+	}
+
+	out := &BucketCORS{Rules: make([]BucketCORSRule, len(c.Rules))}
+
+	for i, r := range c.Rules {
+		r.AllowedMethods = cloneStrings(r.AllowedMethods)
+		r.AllowedOrigins = cloneStrings(r.AllowedOrigins)
+		r.AllowedHeaders = cloneStrings(r.AllowedHeaders)
+		r.ExposeHeaders = cloneStrings(r.ExposeHeaders)
+
+		if r.MaxAgeSeconds != nil {
+			v := *r.MaxAgeSeconds
+			r.MaxAgeSeconds = &v
+		}
+
+		out.Rules[i] = r
+	}
+
+	return out
 }
 
 // ResourceReceivingAccess mirrors types.ResourceReceivingAccess -- an
@@ -733,6 +773,7 @@ type AccessKey struct {
 
 func (b *Bucket) clone() *Bucket {
 	cp := *b
+	cp.CORS = b.CORS.clone()
 	cp.ReadonlyAccessAccounts = cloneStrings(b.ReadonlyAccessAccounts)
 	cp.AccessKeys = append([]AccessKey(nil), b.AccessKeys...)
 	cp.ResourcesReceivingAccess = append([]ResourceReceivingAccess(nil), b.ResourcesReceivingAccess...)

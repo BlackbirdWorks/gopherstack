@@ -73,25 +73,83 @@ const (
 // Deleted checks are kept indefinitely rather than purged after real AWS's
 // undocumented grace period — see PARITY.md gaps.
 type ApplicationStatusCheck struct {
-	CreationTime                     time.Time `json:"creationTime"`
-	LastUpdatedAt                    time.Time `json:"lastUpdatedAt"`
-	ModifyTime                       time.Time `json:"modifyTime"`
-	DeletionTime                     time.Time `json:"deletionTime"`
-	ApplicationStatusCheckID         string    `json:"applicationStatusCheckID,omitempty"`
-	Protocol                         string    `json:"protocol,omitempty"`
-	Aggregation                      string    `json:"aggregation,omitempty"`
-	IPScope                          string    `json:"ipScope,omitempty"`
-	IPVersion                        string    `json:"ipVersion,omitempty"`
-	Path                             string    `json:"path,omitempty"`
-	StatusCodeMatcher                string    `json:"statusCodeMatcher,omitempty"`
-	Port                             int       `json:"port,omitempty"`
-	DeviceIndex                      int       `json:"deviceIndex,omitempty"`
-	FailureThreshold                 int       `json:"failureThreshold,omitempty"`
-	InitializationGracePeriodSeconds int       `json:"initializationGracePeriodSeconds,omitempty"`
-	Interval                         int       `json:"interval,omitempty"`
-	SuccessThreshold                 int       `json:"successThreshold,omitempty"`
-	Timeout                          int       `json:"timeout,omitempty"`
-	Deleted                          bool      `json:"deleted,omitempty"`
+	CreationTime                     time.Time         `json:"creationTime"`
+	LastUpdatedAt                    time.Time         `json:"lastUpdatedAt"`
+	ModifyTime                       time.Time         `json:"modifyTime"`
+	DeletionTime                     time.Time         `json:"deletionTime"`
+	StatusCodeMatcher                string            `json:"statusCodeMatcher,omitempty"`
+	Aggregation                      string            `json:"aggregation,omitempty"`
+	IPScope                          string            `json:"ipScope,omitempty"`
+	IPVersion                        string            `json:"ipVersion,omitempty"`
+	Path                             string            `json:"path,omitempty"`
+	ApplicationStatusCheckID         string            `json:"applicationStatusCheckID,omitempty"`
+	Protocol                         string            `json:"protocol,omitempty"`
+	HealthCheckPaths                 []HealthCheckPath `json:"healthCheckPaths,omitempty"`
+	Port                             int               `json:"port,omitempty"`
+	FailureThreshold                 int               `json:"failureThreshold,omitempty"`
+	InitializationGracePeriodSeconds int               `json:"initializationGracePeriodSeconds,omitempty"`
+	Interval                         int               `json:"interval,omitempty"`
+	SuccessThreshold                 int               `json:"successThreshold,omitempty"`
+	Timeout                          int               `json:"timeout,omitempty"`
+	DeviceIndex                      int               `json:"deviceIndex,omitempty"`
+	Deleted                          bool              `json:"deleted,omitempty"`
+}
+
+// HealthCheckPathEndpoint is one end of a health check path: a subnet or a security group.
+type HealthCheckPathEndpoint struct {
+	SecurityGroupID string `json:"securityGroupID,omitempty"`
+	SubnetID        string `json:"subnetID,omitempty"`
+}
+
+// HealthCheckPath mirrors types.HealthCheckPathRequestObject.
+type HealthCheckPath struct {
+	Source       HealthCheckPathEndpoint   `json:"source"`
+	Destinations []HealthCheckPathEndpoint `json:"destinations,omitempty"`
+}
+
+func cloneAppStatusCheck(c *ApplicationStatusCheck) *ApplicationStatusCheck {
+	cp := *c
+	cp.HealthCheckPaths = make([]HealthCheckPath, len(c.HealthCheckPaths))
+
+	for i, p := range c.HealthCheckPaths {
+		cp.HealthCheckPaths[i] = HealthCheckPath{Source: p.Source, Destinations: slices.Clone(p.Destinations)}
+	}
+
+	return &cp
+}
+
+// validateHealthCheckPathsLocked requires each path to name a source and at
+// least one destination, all of which must exist. Must be called with b.mu held.
+func (b *InMemoryBackend) validateHealthCheckPathsLocked(paths []HealthCheckPath) error {
+	for _, path := range paths {
+		if len(path.Destinations) == 0 {
+			return fmt.Errorf("%w: each health check path needs a source and a destination", ErrInvalidParameter)
+		}
+
+		for _, ep := range append([]HealthCheckPathEndpoint{path.Source}, path.Destinations...) {
+			if err := b.validateHealthCheckEndpointLocked(ep); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) validateHealthCheckEndpointLocked(ep HealthCheckPathEndpoint) error {
+	if ep.SubnetID == "" && ep.SecurityGroupID == "" {
+		return fmt.Errorf("%w: health check path endpoints need a SubnetId or SecurityGroupId", ErrInvalidParameter)
+	}
+
+	if ep.SubnetID != "" && !b.subnets.Has(ep.SubnetID) {
+		return fmt.Errorf("%w: %s", ErrSubnetNotFound, ep.SubnetID)
+	}
+
+	if ep.SecurityGroupID != "" && !b.securityGroups.Has(ep.SecurityGroupID) {
+		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, ep.SecurityGroupID)
+	}
+
+	return nil
 }
 
 // ApplicationStatusCheckParams carries the optional fields shared by
@@ -112,6 +170,8 @@ type ApplicationStatusCheckParams struct {
 	Interval                         *int
 	SuccessThreshold                 *int
 	Timeout                          *int
+	// HealthCheckPaths replaces the check's paths when non-empty.
+	HealthCheckPaths []HealthCheckPath
 }
 
 // CustomTagKeyValue is a tag key/value pair, used for
@@ -344,11 +404,14 @@ func (b *InMemoryBackend) CreateApplicationStatusCheck(
 		return nil, err
 	}
 
+	if err := b.validateHealthCheckPathsLocked(p.HealthCheckPaths); err != nil {
+		return nil, err
+	}
+
+	check.HealthCheckPaths = p.HealthCheckPaths
 	b.applicationStatusChecks.Put(check)
 
-	cp := *check
-
-	return &cp, nil
+	return cloneAppStatusCheck(check), nil
 }
 
 // ModifyApplicationStatusCheck updates an existing application status check.
@@ -374,14 +437,20 @@ func (b *InMemoryBackend) ModifyApplicationStatusCheck(
 		return nil, err
 	}
 
+	if len(p.HealthCheckPaths) > 0 {
+		if err := b.validateHealthCheckPathsLocked(p.HealthCheckPaths); err != nil {
+			return nil, err
+		}
+
+		updated.HealthCheckPaths = p.HealthCheckPaths
+	}
+
 	updated.LastUpdatedAt = time.Now().UTC()
 	updated.ModifyTime = updated.LastUpdatedAt
 
 	b.applicationStatusChecks.Put(&updated)
 
-	cp := updated
-
-	return &cp, nil
+	return cloneAppStatusCheck(&updated), nil
 }
 
 // DescribeApplicationStatusChecks returns application status checks,
@@ -415,8 +484,7 @@ func (b *InMemoryBackend) DescribeApplicationStatusChecks(
 			continue
 		}
 
-		cp := *c
-		out = append(out, &cp)
+		out = append(out, cloneAppStatusCheck(c))
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -464,9 +532,7 @@ func (b *InMemoryBackend) DeleteApplicationStatusCheck(id string) (*ApplicationS
 		}
 	}
 
-	cp := *check
-
-	return &cp, nil
+	return cloneAppStatusCheck(check), nil
 }
 
 func appStatusCheckAssociationKeyFn(a *ApplicationStatusCheckAssociation) string {

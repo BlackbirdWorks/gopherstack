@@ -232,7 +232,11 @@ func (b *InMemoryBackend) CreateCluster(
 	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
 	b.encryptionConfigs[name] = nil
 
-	b.scheduleClusterActivation(name)
+	if b.clusterEng != nil {
+		b.launchClusterLocked(name, version)
+	} else {
+		b.scheduleClusterActivation(name)
+	}
 
 	return c.clone(), nil
 }
@@ -262,7 +266,10 @@ func (b *InMemoryBackend) DescribeCluster(name string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
 
-	return c.clone(), nil
+	cp := c.clone()
+	b.applyLiveEndpoint(cp)
+
+	return cp, nil
 }
 
 // ListClusters returns cluster names sorted alphabetically. Connected
@@ -332,6 +339,19 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
+	cp, err := b.deleteClusterLocked(name)
+	if err != nil {
+		return nil, err
+	}
+
+	if b.clusterEng != nil {
+		b.clusterEng.reap([]*liveCluster{b.detachClusterLocked(name)})
+	}
+
+	return cp, nil
+}
+
+func (b *InMemoryBackend) deleteClusterLocked(name string) (*Cluster, error) {
 	c, ok := b.clusters.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)

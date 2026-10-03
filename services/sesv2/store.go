@@ -3,6 +3,7 @@ package sesv2
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -28,6 +29,7 @@ type InMemoryBackend struct {
 	// store_setup.go's file doc comment for why every table here is
 	// "clean" (registered directly, no DTO-registry needed).
 	registry          *store.Registry
+	relay             *smtprelay.Relay
 	identities        *store.Table[EmailIdentity]
 	configurationSets *store.Table[ConfigurationSet]
 	eventDestinations *store.Table[EventDestination]

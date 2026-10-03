@@ -49,6 +49,7 @@ type EventSourceMapping struct {
 	Topics                              []string                             `json:"topics,omitempty"`
 	Queues                              []string                             `json:"queues,omitempty"`
 	FunctionResponseTypes               []string                             `json:"functionResponseTypes,omitempty"`
+	StartingPositionTimestamp           float64                              `json:"startingPositionTimestamp,omitempty"`
 	BatchSize                           int                                  `json:"batchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"maxBatchingWindowSecs,omitempty"`
 	TumblingWindowInSeconds             int                                  `json:"tumblingWindowInSeconds,omitempty"`
@@ -126,6 +127,7 @@ type CreateEventSourceMappingInput struct {
 	Topics                              []string
 	Queues                              []string
 	FunctionResponseTypes               []string
+	StartingPositionTimestamp           float64
 	BatchSize                           int
 	MaximumBatchingWindowInSeconds      int
 	TumblingWindowInSeconds             int
@@ -169,13 +171,14 @@ type jsonESMResponse struct {
 	FunctionARN                         string                               `json:"FunctionArn"`
 	KMSKeyArn                           string                               `json:"KMSKeyArn,omitempty"`
 	State                               string                               `json:"State"`
-	EventSourceARN                      string                               `json:"EventSourceArn"`
+	EventSourceARN                      string                               `json:"EventSourceArn,omitempty"`
 	StartingPosition                    string                               `json:"StartingPosition,omitempty"`
 	Queues                              []string                             `json:"Queues,omitempty"`
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations,omitempty"`
 	Topics                              []string                             `json:"Topics,omitempty"`
 	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes,omitempty"`
 	LastModified                        float64                              `json:"LastModified"`
+	StartingPositionTimestamp           float64                              `json:"StartingPositionTimestamp,omitempty"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds,omitempty"` //nolint:lll // AWS field name
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds,omitempty"`
@@ -202,6 +205,7 @@ func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 		LastModified:                        awstime.Epoch(m.LastModified),
 		BatchSize:                           m.BatchSize,
 		StartingPosition:                    m.StartingPosition,
+		StartingPositionTimestamp:           m.StartingPositionTimestamp,
 		LastProcessingResult:                m.LastProcessingResult,
 		FilterCriteria:                      m.FilterCriteria,
 		DestinationConfig:                   m.DestinationConfig,
@@ -251,8 +255,11 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 	b.mu.Lock("CreateEventSourceMapping")
 	defer b.mu.Unlock()
 
-	if input.EventSourceARN == "" {
-		return nil, fmt.Errorf("%w: EventSourceARN must not be empty", ErrInvalidParameterValue)
+	if input.EventSourceARN == "" && len(kafkaSourceBootstrap(input.SelfManagedEventSource)) == 0 {
+		return nil, fmt.Errorf(
+			"%w: EventSourceArn or SelfManagedEventSource with KAFKA_BOOTSTRAP_SERVERS is required",
+			ErrInvalidParameterValue,
+		)
 	}
 
 	id := uuid.New().String()
@@ -288,6 +295,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		State:                               state,
 		BatchSize:                           batchSize,
 		StartingPosition:                    startingPosition,
+		StartingPositionTimestamp:           input.StartingPositionTimestamp,
 		LastProcessingResult:                "No records processed",
 		LastModified:                        time.Now(),
 		FilterCriteria:                      input.FilterCriteria,
@@ -319,7 +327,15 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		b.kinesisPoller.Notify()
 	}
 
-	return m, nil
+	return cloneESM(m), nil
+}
+
+// cloneESM stops a caller from racing UpdateEventSourceMapping or the
+// janitor's sweepESMs, which mutate m's fields under the lock.
+func cloneESM(m *EventSourceMapping) *EventSourceMapping {
+	cp := *m
+
+	return &cp
 }
 
 // GetEventSourceMapping retrieves an event source mapping by UUID.
@@ -332,7 +348,7 @@ func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMappin
 		return nil, ErrESMNotFound
 	}
 
-	return m, nil
+	return cloneESM(m), nil
 }
 
 // ListEventSourceMappings returns a page of event source mappings, optionally filtered by function name.
@@ -356,11 +372,16 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 		result = make([]*EventSourceMapping, 0, len(ids))
 		for id := range ids {
 			if m, ok := b.eventSourceMappings.Get(id); ok {
-				result = append(result, m)
+				result = append(result, cloneESM(m))
 			}
 		}
 	} else {
-		result = b.eventSourceMappings.All()
+		stored := b.eventSourceMappings.All()
+		result = make([]*EventSourceMapping, len(stored))
+
+		for i, m := range stored {
+			result[i] = cloneESM(m)
+		}
 	}
 
 	// Apply optional EventSourceArn filter.
@@ -402,18 +423,14 @@ func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMappi
 		b.kinesisPoller.RemoveMapping(id)
 	}
 
-	return m, nil
+	return cloneESM(m), nil
 }
 
 // applyESMUpdate patches esm fields from input (non-zero / non-nil values only).
-// Returns true if the mapping was enabled by this update.
-func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) bool {
-	var nowEnabled bool
-
+func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
 	if input.Enabled != nil {
 		if *input.Enabled {
 			esm.State = ESMStateEnabled
-			nowEnabled = true
 		} else {
 			esm.State = ESMStateDisabled
 		}
@@ -443,8 +460,6 @@ func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInpu
 	applyESMSourceFields(esm, input)
 
 	esm.LastModified = time.Now()
-
-	return nowEnabled
 }
 
 // applyESMWindowFields applies the windowing / retry fields from input.
@@ -495,35 +510,43 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	input *UpdateEventSourceMappingInput,
 ) (*EventSourceMapping, error) {
 	var (
-		esm        *EventSourceMapping
-		found      bool
-		nowEnabled bool
-		poller     *EventSourcePoller
+		result *EventSourceMapping
+		found  bool
+		poller *EventSourcePoller
 	)
 
 	func() {
 		b.mu.Lock("UpdateEventSourceMapping")
 		defer b.mu.Unlock()
 
-		var ok bool
-
-		esm, ok = b.eventSourceMappings.Get(id)
+		esm, ok := b.eventSourceMappings.Get(id)
 		if !ok {
 			return
 		}
 
 		found = true
-		nowEnabled = applyESMUpdate(esm, input)
+		applyESMUpdate(esm, input)
 		poller = b.kinesisPoller
+		result = cloneESM(esm)
 	}()
 
 	if !found {
 		return nil, ErrESMNotFound
 	}
 
-	if nowEnabled && poller != nil {
+	if poller != nil {
 		poller.Notify()
 	}
 
-	return esm, nil
+	return result, nil
+}
+
+// setESMLastProcessingResult records the last poller outcome on a mapping.
+func (b *InMemoryBackend) setESMLastProcessingResult(id, result string) {
+	b.mu.Lock("setESMLastProcessingResult")
+	defer b.mu.Unlock()
+
+	if m, ok := b.eventSourceMappings.Get(id); ok {
+		m.LastProcessingResult = result
+	}
 }

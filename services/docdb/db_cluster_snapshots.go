@@ -49,6 +49,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		AvailabilityZones:           azs,
 		DBClusterArn:                b.clusterARN(region, clusterID),
 		DBClusterSnapshotArn:        snapArn,
+		StorageType:                 c.StorageType,
 		Tags:                        copyTags(tags),
 	}
 	b.clusterSnapshotPut(snap)
@@ -189,6 +190,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		MasterUsername:              src.MasterUsername,
 		Port:                        src.Port,
 		AvailabilityZones:           azs,
+		StorageType:                 src.StorageType,
 		Tags:                        copyTags(snapTags),
 		// SnapshotCreateTime is stamped fresh at copy time, not copied from
 		// src: real AWS's CopyDBClusterSnapshot creates a genuinely new

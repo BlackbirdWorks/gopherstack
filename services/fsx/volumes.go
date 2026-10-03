@@ -229,17 +229,39 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 }
 
 // DeleteVolume removes a volume.
-func (b *InMemoryBackend) DeleteVolume(volumeID string) error {
+func (b *InMemoryBackend) DeleteVolume(in *deleteVolumeInput) (*deleteVolumeOutput, error) {
+	var cfg deleteVolumeOntapConfig
+	if in.OntapConfiguration != nil {
+		cfg = *in.OntapConfiguration
+	}
+
+	if err := validateCreateTags(cfg.FinalBackupTags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("DeleteVolume")
 	defer b.mu.Unlock()
 
-	if !b.volumes.Has(volumeID) {
-		return ErrVolumeNotFound
+	v, ok := b.volumes.Get(in.VolumeID)
+	if !ok {
+		return nil, ErrVolumeNotFound
 	}
 
-	b.deleteVolumeLocked(volumeID)
+	out := &deleteVolumeOutput{VolumeID: in.VolumeID, Lifecycle: lifecycleDeleting}
 
-	return nil
+	if v.VolumeType == fileSystemTypeONTAP && (cfg.SkipFinalBackup == nil || !*cfg.SkipFinalBackup) {
+		if fs, found := b.fileSystems.Get(v.FileSystemID); found {
+			bk := b.takeFinalBackupLocked(fs, v, cfg.FinalBackupTags)
+			out.OntapResponse = &deleteFinalBackup{
+				FinalBackupID:   bk.BackupID,
+				FinalBackupTags: tagsMapToSlice(bk.Tags),
+			}
+		}
+	}
+
+	b.deleteVolumeLocked(in.VolumeID)
+
+	return out, nil
 }
 
 // deleteVolumeLocked removes a volume and cascades to its snapshots, so no

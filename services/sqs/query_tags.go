@@ -1,7 +1,6 @@
 package sqs
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -18,12 +17,12 @@ func parseQueryTagMembers(vals url.Values) map[string]string {
 	tagMap := make(map[string]string)
 
 	for i := 1; i <= maxParseIterations; i++ {
-		key := vals.Get(fmt.Sprintf("Tag.%d.Key", i))
+		key := numberedParam(vals, "Tag", i, "Key")
 		if key == "" {
 			break
 		}
 
-		tagMap[key] = vals.Get(fmt.Sprintf("Tag.%d.Value", i))
+		tagMap[key] = numberedParam(vals, "Tag", i, "Value")
 	}
 
 	if len(tagMap) == 0 {

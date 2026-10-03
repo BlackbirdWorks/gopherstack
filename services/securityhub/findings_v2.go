@@ -47,12 +47,9 @@ var ocsfStringFieldMap = map[string]string{ //nolint:gochecknoglobals // read-on
 // field (AwsSecurityFinding.Confidence, an int 0-100) -- a genuine scalar
 // match, not a guess. Every other documented OcsfNumberField (activity_id,
 // compliance.status_id, finding_info.related_events_count, and the
-// evidences.*/resources.image.*/vulnerabilities.cve.cvss.base_score/
-// vendor_attributes.severity_id fields) has no scalar top-level ASFF
-// equivalent: several exist only nested inside arrays this simple map can't
-// address (e.g. Vulnerabilities[].Cvss[].BaseScore), and others reference
-// concepts ASFF findings never carry at all (evidences, vendor_attributes).
-// Left unmapped rather than fabricated.
+// evidences.*/resources.image.*/vendor_attributes.severity_id fields) has no
+// scalar top-level ASFF equivalent and is left unmapped rather than
+// fabricated; cvss base_score is handled by matchesCvssBaseScore.
 var ocsfNumberFieldMap = map[string]string{ //nolint:gochecknoglobals // read-only lookup data
 	"severity_id":      "SeverityId",
 	"status_id":        "StatusId",
@@ -340,6 +337,15 @@ func matchesOcsfStringFilter(finding, m map[string]any) bool {
 func matchesOcsfNumberFilter(finding, m map[string]any) bool {
 	fieldName, _ := m["FieldName"].(string)
 
+	if fieldName == "vulnerabilities.cve.cvss.base_score" {
+		filter, _ := m["Filter"].(map[string]any)
+		if filter == nil {
+			return true
+		}
+
+		return matchesCvssBaseScore(finding, filter)
+	}
+
 	asffField, ok := ocsfNumberFieldMap[fieldName]
 	if !ok {
 		return true
@@ -355,6 +361,12 @@ func matchesOcsfNumberFilter(finding, m map[string]any) bool {
 		return false
 	}
 
+	return numberFilterMatches(fv, filter)
+}
+
+// numberFilterMatches reports whether fv satisfies every Eq/Gt/Gte/Lt/Lte
+// bound present in filter.
+func numberFilterMatches(fv float64, filter map[string]any) bool {
 	if eq, hasEq := filter["Eq"].(float64); hasEq && fv != eq {
 		return false
 	}
@@ -376,6 +388,25 @@ func matchesOcsfNumberFilter(finding, m map[string]any) bool {
 	}
 
 	return true
+}
+
+// matchesCvssBaseScore matches when any Vulnerabilities[].Cvss[].BaseScore
+// satisfies filter; a finding with no scores cannot satisfy a bound.
+func matchesCvssBaseScore(finding, filter map[string]any) bool {
+	vulns, _ := finding["Vulnerabilities"].([]any)
+	for _, v := range vulns {
+		vm, _ := v.(map[string]any)
+		scores, _ := vm["Cvss"].([]any)
+
+		for _, c := range scores {
+			cm, _ := c.(map[string]any)
+			if score, ok := cm["BaseScore"].(float64); ok && numberFilterMatches(score, filter) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // findingNumberValue reads field off finding as a float64, accepting both

@@ -3,6 +3,7 @@ package acm_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -45,24 +46,28 @@ func TestJanitor_TimesOutAbandonedPendingValidation(t *testing.T) {
 func TestJanitor_ExpiresPastNotAfter(t *testing.T) {
 	t.Parallel()
 
-	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+	synctest.Test(t, func(t *testing.T) {
+		b := acm.NewInMemoryBackend("000000000000", "us-east-1")
 
-	cert, err := b.RequestCertificate(context.Background(), "expiring.example.com", "", "DNS", "", "", "", "", nil)
-	require.NoError(t, err)
+		cert, err := b.RequestCertificate(context.Background(), "expiring.example.com", "", "DNS", "", "", "", "", nil)
+		require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		c, descErr := b.DescribeCertificate(context.Background(), cert.ARN)
+		// autoValidateDelayMS is 100ms; cross it so the cert auto-validates.
+		time.Sleep(150 * time.Millisecond)
+		synctest.Wait()
 
-		return descErr == nil && c.Status == "ISSUED"
-	}, 2*time.Second, 50*time.Millisecond, "certificate must auto-validate to ISSUED")
+		c, err := b.DescribeCertificate(context.Background(), cert.ARN)
+		require.NoError(t, err)
+		require.Equal(t, "ISSUED", c.Status, "certificate must auto-validate to ISSUED")
 
-	b.BackdateCertForTest("us-east-1", cert.ARN, cert.CreatedAt, time.Now().UTC().Add(-time.Hour))
+		b.BackdateCertForTest("us-east-1", cert.ARN, cert.CreatedAt, time.Now().UTC().Add(-time.Hour))
 
-	b.SweepJanitorOnceForTest()
+		b.SweepJanitorOnceForTest()
 
-	got, err := b.DescribeCertificate(context.Background(), cert.ARN)
-	require.NoError(t, err)
-	require.Equal(t, "EXPIRED", got.Status)
+		got, err := b.DescribeCertificate(context.Background(), cert.ARN)
+		require.NoError(t, err)
+		require.Equal(t, "EXPIRED", got.Status)
+	})
 }
 
 // TestJanitor_TimeoutDoesNotSetFailureReason is a regression test: the

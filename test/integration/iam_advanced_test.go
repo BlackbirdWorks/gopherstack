@@ -66,9 +66,11 @@ func TestIntegration_IAM_SimulatePrincipalPolicy(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Expect len(actions) × len(resources) results.
-	assert.Len(t, simOut.EvaluationResults, len(actions)*len(resources),
-		"should return one result per action×resource pair")
+	assert.Len(t, simOut.EvaluationResults, len(actions), "one aggregated result per action")
+
+	for _, r := range simOut.EvaluationResults {
+		assert.Len(t, r.ResourceSpecificResults, len(resources), "per-resource decisions")
+	}
 
 	// Every result must have the essential fields set.
 	for _, r := range simOut.EvaluationResults {

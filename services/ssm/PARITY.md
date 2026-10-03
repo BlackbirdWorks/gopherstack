@@ -392,11 +392,7 @@ items_still_open:
     remains round-trip-only, same class."
   - "ServiceSetting.LastModifiedUser (the ARN of the last-writing caller) can't be populated
     -- this emulator has no caller-identity/SigV4-principal tracking."
-  - "GetInventory's Aggregators/Filters/ResultAttributes and ListInventoryEntries/
-    ListComplianceItems/ListComplianceSummaries/ListResourceComplianceSummaries' Filters
-    (InventoryFilter/ComplianceStringFilter's Equal/NotEqual/BeginWith/GreaterThan/
-    LessThan/Exists operators) are unmodeled -- needs a generic filter-operator evaluator
-    shared across 5 ops, a real feature not yet built."
+  - "GetInventory's Aggregators/ResultAttributes are unmodeled (aggregation engine); Filters on it, ListInventoryEntries, ListComplianceItems, ListComplianceSummaries and ListResourceComplianceSummaries are real (2026-09-30)."
   - "GetInventorySchema's real per-type Attributes ([]InventoryItemAttribute) aren't
     modeled -- AWS hasn't published the exact attribute list for the 13 built-in types
     outside web docs, so fabricating names would invent wire content rather than verify it."
@@ -417,11 +413,8 @@ items_still_open:
     DescribeMaintenanceWindowSchedule/Executions synthesize a single always-on execution
     and don't even honor Enabled, so factoring in a date range needs a real scheduler this
     backend doesn't have."
-  - "CreateResourceDataSync's S3Destination.DestinationDataSharing and
-    SyncSource.AwsOrganizationsSource (Organizations cross-account config) remain
-    unmodeled, matching this backend's shallow-scalar convention; DeleteResourceDataSync's
-    SyncType is unobservable since resourceDataSyncsStore keys solely by SyncName.
-    ListResourceDataSync's ResourceDataSyncItem.LastSuccessfulSyncTime/
+  - "DeleteResourceDataSync's SyncType is unobservable since resourceDataSyncsStore keys
+    solely by SyncName. ListResourceDataSync's ResourceDataSyncItem.LastSuccessfulSyncTime/
     LastSyncStatusMessage/SyncLastModifiedTime and SyncSource.State (found 2026-09-18,
     structfielddiff) are also unmodeled -- a sync is created once at LastStatus
     'InProgress' and never advances (no sync-completion janitor/reconciler), so there is
@@ -431,19 +424,12 @@ items_still_open:
     synchronous unit) -- CommandPlugins/PluginName/ResponseCode,
     AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/TriggeredAlarms (no
     CloudWatch-alarm/notification infra), and DocumentHash/DocumentHashType remain
-    unmodeled. ListCommands/ListCommandInvocations' CommandFilter-based Filters (fixed
-    2026-09-24, filters-silently-ignored sweep) now apply Status, DocumentName,
-    InvokedAfter, InvokedBefore -- ExecutionStage (ListCommands-only) remains unmodeled:
-    it requires deriving a Pending/Executing/Complete stage this backend doesn't track
-    separately from Status."
+    unmodeled. ListCommands/ListCommandInvocations' CommandFilter-based Filters (Status,
+    DocumentName, InvokedAfter, InvokedBefore, ExecutionStage) are real."
   - "GetParameter/GetParameters/GetParametersByPath's SourceResult (advanced-parameter
     source resolution) and GetParameterHistory/DescribeParameters' LastModifiedUser (no
     caller-identity infra) remain unmodeled; the deprecated ParametersFilter (superseded by
     ParameterFilters, already modeled) is also unmodeled."
-  - "DocumentVersionInfo.VersionName is modeled but never populated -- resolving it needs a
-    resolveDocumentVersionSelector-style lookup-by-name path threaded through
-    Create/Update/GetDocument/DescribeDocument and ListDocumentMetadataHistory, a feature
-    of its own."
   - "DocumentDescription's review-approval workflow (ApprovedVersion/PendingReviewVersion/
     ReviewInformation/ReviewStatus) and Category/CategoryEnum remain entirely unmodeled --
     no review state machine exists in this backend. Author/Owner need the same
@@ -454,27 +440,15 @@ items_still_open:
     multi-account/key-value targeting schemes this backend's Targets-only model doesn't
     support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real
     scheduler (associations run synchronously on demand, not on a cron loop)."
-  - "DescribeAssociationInput.AssociationVersion is accepted-and-ignored -- this backend
-    keeps only the current version of an association (no version-history store)."
-  - "ListAssociations marshals the same internal Association record every other op in this
-    family uses, over-projecting fields real AWS's narrower types.Association response
-    never carries -- not a wire break (a real client discards unknown keys), disclosed
-    rather than hand-syncing a second narrower type against the same store."
-  - "UpdateAssociation merges omitted fields instead of nulling them per its own doc
-    comment's replace semantics -- fixing this needs UpdateAssociationInput's scalar fields
-    switched to pointers to distinguish omitted from explicitly-cleared, which would ripple
-    through every existing merge-semantics test in associations_test.go."
   - "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/Tags/TargetLocations/
     TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one
     synchronous single-account/region execution, nothing for multi-target fan-out to plug
     into); SendAutomationSignal's Payload is stored but not consulted since this backend
     has no per-step Waiting/InProgress state (every step goes straight to Success)."
   - "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput's
-    AlarmConfiguration/ClientToken/LoggingInfo/TaskInvocationParameters/TaskParameters
-    remain unmodeled -- TaskInvocationParameters is a real 4-variant union
-    (RunCommand/Automation/StepFunctions/Lambda) this backend's shallow task model has
-    nothing to plug into. UpdateMaintenanceWindowTaskInput.Replace is also unmodeled --
-    this backend always merges, same class as UpdateAssociation's replace-semantics gap."
+    AlarmConfiguration (no CloudWatch-alarm infra) and ClientToken (also on CreatePatchBaseline/
+    StartAutomationExecution; idempotency/reuse semantics undocumented) remain unmodeled. LoggingInfo/TaskInvocationParameters/
+    TaskParameters round-trip (2026-10-01)."
   - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual
     command/automation parameters used for one invocation) is unmodeled -- this backend has
     no per-invocation parameter snapshot, only task-level defaults."
@@ -483,9 +457,6 @@ items_still_open:
     the real per-Property map-key convention for the untyped []map[string]string output
     can't be verified from the pinned SDK source, so fixing it risks fabricating a
     differently-wrong shape."
-  - "UpdatePatchBaselineInput.Replace is unmodeled, same class as UpdateAssociation's
-    replace-semantics gap (needs pointer fields, would ripple through merge-semantics
-    tests); CreatePatchBaselineInput.ClientToken (idempotency) is low-value and unmodeled."
   - "GetDeployablePatchSnapshotForInstanceInput.BaselineOverride is unmodeled -- this
     backend's snapshot response is already synthetic, so honoring a second, non-registered
     baseline needs real effective-patch computation this backend doesn't have."
@@ -507,20 +478,6 @@ items_still_open:
     execution preview never resolves document content by version, and neither preview
     output type echoes the version back on the real wire either, so there is no observable
     point to prove this against."
-  - "Commands/command invocations (SendCommand) are evicted via the janitor's
-    existing sweepExpiredCommands, but its window (commandExpirySecs, default 1h)
-    ties to the real, wire-visible ExpiresAfter/Timeout field (aws-sdk-go-v2/
-    service/ssm@v1.77.0 types/types.go:1221-1226: 'ExpiresAfter is calculated
-    based on the total timeout for the overall command'), not to AWS's separately-
-    documented 30-day command-history retention (docs.aws.amazon.com/systems-
-    manager/latest/userguide/running-commands.html, 'Execution history
-    retention': 'The history of each command is available for up to 30 days').
-    Raising commandExpirySecs to 30 days would fix retention but would also
-    silently wrong the ExpiresAfter wire value (no test currently locks in its
-    Timeout-derived semantics, but it is a real, client-visible field); the two
-    concepts need decoupling (a separate terminal-status-gated history sweep,
-    independent of ExpiresAfter) rather than reusing one field for both. Found
-    2026-09-24, bd 1x2u0-adjacent sweep; not fixed this pass."
   - "ListOpsItemEvents' OpsItemEventSummary.DetailType and ListOpsItemRelatedItems'
     OpsItemRelatedItem.CreatedBy/LastModifiedBy/LastModifiedTime (found 2026-09-18,
     list-summary-shapes sweep) remain unmodeled -- DetailType has no real backing concept
@@ -544,6 +501,86 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-10-01: items_still_open burn-down (task parameters, list shapes, command stage)
+
+Fixed, each proven with a typed aws-sdk-go-v2 client (mw_task_params_test.go): (1)
+Register/UpdateMaintenanceWindowTask's LoggingInfo, TaskParameters and
+TaskInvocationParameters (4-variant union) are stored and returned by Get/Describe/Update,
+with merge and Replace=true null-out semantics; (2) ListAssociations returns the narrow
+types.Association shape instead of the full AssociationDescription record; (3)
+CreateResourceDataSync's DestinationDataSharing and SyncSource.AwsOrganizationsSource
+round-trip through ListResourceDataSync; (4) ListCommands' ExecutionStage filter derives
+Executing/Complete from command status (CommandFilter doc). Remaining items need unmodeled
+subsystems or undocumented AWS behaviour.
+
+### 2026-09-30: items_still_open burn-down (query filters, association versions, VersionName)
+
+Fixed, each proven with a typed aws-sdk-go-v2 client: (1) Filters on GetInventory/
+ListInventoryEntries (InventoryFilter, Equal/NotEqual/BeginWith/LessThan/GreaterThan/Exists)
+and ListComplianceItems/ListComplianceSummaries/ListResourceComplianceSummaries
+(ComplianceStringFilter), query_filters_test.go; (2) UpdateAssociation now bumps
+AssociationVersion, ListAssociationVersions returns the real history (paginated, capped at
+1000 per association, oldest dropped) and DescribeAssociation honours AssociationVersion/
+$LATEST with InvalidAssociationVersion, association_versions_test.go; (3) document
+VersionName on Create/Update/Get/Describe/List/DeleteDocument with
+DuplicateDocumentVersionName, document_version_name_test.go. Remaining items are unmodeled
+subsystems (caller identity, scheduler, CloudWatch alarms, per-plugin command execution).
+
+### 2026-09-26: items_still_open burn-down (merge-vs-replace + command history retention)
+
+Three items closed. (1) UpdateAssociation merged omitted optional fields instead of
+nulling them; api_op_UpdateAssociation.go states the opposite verbatim ("the system
+removes all optional parameters from the request and overwrites the association with
+null values for those parameters. This is by design."). No signature change was needed
+-- UpdateAssociationInput's fields were already pointers/nilable except
+ComplianceSeverity/SyncCompliance/ApplyOnlyAtCronInterval, which the real SDK also
+models as non-pointer (AWS itself can't distinguish "omitted" from "explicit zero
+value" for those three either), so an unconditional assign in
+applyAssociationCoreUpdates/applyAssociationExtendedUpdates (associations.go) matches
+AWS's own limitation exactly. TestUpdateAssociation_ReplacesOmittedFields_RealClient
+(replace_semantics_test.go) proves the null-out via a real client;
+testAssociationMaxConcurrencyPreserved (update_omitted_members_preserve_state_test.go)
+had ratified the old merge behavior and was removed, since UpdateAssociation is the one
+op in that file's suite that does NOT preserve omitted fields. (2) UpdatePatchBaseline's
+Replace field was entirely unmodeled -- added (models_patch_baselines.go), with
+replacePatchBaselineUpdate (patch_baselines.go) implementing "If True, then all fields
+that are required by the CreatePatchBaseline operation are also required for this API
+request. Optional fields that aren't specified are set to null" (BaselineId is already
+required; CreatePatchBaseline's only other required field is Name, so Replace=true now
+requires Name too). Default (Replace unset/false) behavior is unchanged (merge, matching
+"Fields not specified in the request are left unchanged"). Proven by
+TestUpdatePatchBaseline_Replace_RealClient. (3) Command-history retention: commands were
+only ever evicted via ExpiresAfter (commandExpirySecs, default 1h, tied to the real
+Timeout-derived wire field), never via AWS's separately-documented 30-day command-history
+retention (running-commands.html). Added a `terminalAt` field on Command (set by
+completeCommand/CancelCommand, not a wire member, same non-persisted-across-restore
+convention as the existing `completeAfter`) and a new, independent janitor sweep
+(sweepExpiredCommandHistory, janitor.go) gated on it via a new
+commandHistoryRetentionSecs backend field (default 30 days, overridable via
+WithCommandHistoryRetention like the existing WithCommandTTL). Proven by
+TestJanitor_SweepsExpiredCommandHistory_RealClient. Not fixed, left with a reason: the
+generic Filters/Aggregators/caller-identity/scheduler/CloudWatch-alarm items, which need
+unmodeled subsystems.
+
+### 2026-09-26 (follow-up): UpdateMaintenanceWindowTask/-Target Replace semantics
+
+Closed the remaining UpdateMaintenanceWindowTaskInput.Replace item. Per
+api_op_UpdateMaintenanceWindowTask.go: "If you set Replace to true, then all fields
+required by the RegisterTaskWithMaintenanceWindow operation are required for this
+request. Optional fields that aren't specified are set to null." WindowId/WindowTaskId
+are already always-required; of Register's other required fields (TaskArn, TaskType,
+WindowId), only TaskArn also appears on UpdateMaintenanceWindowTaskInput (TaskType can't
+be changed per the op's own doc comment), so Replace=true now requires TaskArn.
+replaceMaintenanceWindowTaskUpdate (maintenance_window.go) nulls every other unspecified
+optional field. Also implemented the sibling UpdateMaintenanceWindowTargetInput.Replace
+(same doc pattern, sourced from RegisterTargetWithMaintenanceWindow's required fields:
+Targets is the only one also present on Update, so Replace=true requires Targets).
+Default (Replace unset/false) merge behavior is unchanged. Neither op documents an error
+code for a missing required field under Replace (checked
+API_UpdateMaintenanceWindowTask.html/API_UpdateMaintenanceWindowTarget.html -- both list
+only DoesNotExistException/InternalServerError); ValidationException used, consistent
+with UpdatePatchBaseline's Replace path.
 
 ### 2026-09-19 (terraform-coverage sweep, ssm-and-backup)
 
@@ -1623,3 +1660,29 @@ additive-only.
 
 Added `leak_main_test.go`. Janitor StartWorker test call sites already
 cancel their ctx via `context.WithCancel(t.Context())`. `go test -race -count=2` clean.
+
+## 2026-09-26 de-stub sweep: fake-success "stub compat" paths
+
+`UpdateMaintenanceWindowTarget`/`UpdateMaintenanceWindowTask` fabricated a
+200 success (echoing the request IDs back) for a non-existent
+`WindowTargetId`/`WindowTaskId` instead of the real `DoesNotExistException`
+both ops' own deserializers model. `DisassociateOpsItemRelatedItem` did the
+same for an unknown `OpsItemId`/`AssociationId`, now `OpsItemNotFoundException`
+/ new `OpsItemRelatedItemAssociationNotFoundException` (`errors.go`). All
+three also now reject an empty required ID with `ValidationException`
+instead of silently proceeding. `GetMaintenanceWindowTask`'s doc comment
+was stale (code already validated/errored correctly) -- corrected, no
+behavior change.
+
+Test coverage: `error_path_sweep_test.go` -- two new table-driven real
+`aws-sdk-go-v2` client tests for the maintenance-window ops (not-found via
+`errors.As(*ssmtypes.DoesNotExistException)`, empty-ID via
+`smithy.APIError.ErrorCode() == "ValidationException"`), one for
+`DisassociateOpsItemRelatedItem`. Updated `maintenance_window_test.go`'s
+two stub-ratifying tests to assert the new 400/DoesNotExistException
+instead of 200.
+
+Gates: `gofmt -l`, `go build ./...`, `go vet ./services/ssm/...`,
+`go test -race -count=1 ./services/ssm/...`, `golangci-lint run
+./services/ssm/...` (0 issues), `go run ./cmd/parityfmtcheck -dir services`
+all clean.

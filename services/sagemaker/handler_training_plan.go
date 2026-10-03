@@ -65,7 +65,7 @@ func trainingPlanTotalUltraServerCount(t *TrainingPlan) int32 {
 	var n int32
 
 	for _, rc := range t.ReservedCapacitySummaries {
-		if rc.ReservedCapacityType == "UltraServer" {
+		if rc.ReservedCapacityType == reservedCapacityTypeUltraServer {
 			n++
 		}
 	}

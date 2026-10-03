@@ -3,6 +3,7 @@ package autoscaling
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -288,73 +289,59 @@ func TestApplyDueScheduledActions_InvalidCapacityDoesNotPanic(t *testing.T) {
 func TestScheduledActionScheduler_RunFiresAndStopsCleanly(t *testing.T) {
 	t.Parallel()
 
-	b := NewInMemoryBackend()
-	t.Cleanup(b.Close)
+	synctest.Test(t, func(t *testing.T) {
+		b := NewInMemoryBackend()
+		t.Cleanup(b.Close)
 
-	_, err := b.CreateAutoScalingGroup(CreateAutoScalingGroupInput{
-		AutoScalingGroupName: "sched-run-asg",
-		MinSize:              0,
-		MaxSize:              10,
-		DesiredCapacity:      1,
-	})
-	if err != nil {
-		t.Fatalf("CreateAutoScalingGroup: %v", err)
-	}
-
-	desired := int32(4)
-
-	err = b.PutScheduledUpdateGroupAction("sched-run-asg", ScheduledUpdateGroupAction{
-		ScheduledActionName: "scale-run",
-		StartTime:           time.Now().UTC().Add(-time.Minute),
-		DesiredCapacity:     &desired,
-	})
-	if err != nil {
-		t.Fatalf("PutScheduledUpdateGroupAction: %v", err)
-	}
-
-	const tickInterval = 10 * time.Millisecond
-
-	sched := NewScheduledActionScheduler(b, tickInterval)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		sched.Run(ctx)
-	}()
-
-	deadline := time.Now().Add(2 * time.Second)
-
-	for time.Now().Before(deadline) {
-		groups, describeErr := b.DescribeAutoScalingGroups([]string{"sched-run-asg"}, nil)
-		if describeErr != nil {
-			t.Fatalf("DescribeAutoScalingGroups: %v", describeErr)
+		_, err := b.CreateAutoScalingGroup(CreateAutoScalingGroupInput{
+			AutoScalingGroupName: "sched-run-asg",
+			MinSize:              0,
+			MaxSize:              10,
+			DesiredCapacity:      1,
+		})
+		if err != nil {
+			t.Fatalf("CreateAutoScalingGroup: %v", err)
 		}
 
-		if groups[0].DesiredCapacity == desired {
-			break
+		desired := int32(4)
+
+		err = b.PutScheduledUpdateGroupAction("sched-run-asg", ScheduledUpdateGroupAction{
+			ScheduledActionName: "scale-run",
+			StartTime:           time.Now().UTC().Add(-time.Minute),
+			DesiredCapacity:     &desired,
+		})
+		if err != nil {
+			t.Fatalf("PutScheduledUpdateGroupAction: %v", err)
 		}
 
-		time.Sleep(tickInterval)
-	}
+		const tickInterval = 10 * time.Millisecond
 
-	groups, err := b.DescribeAutoScalingGroups([]string{"sched-run-asg"}, nil)
-	if err != nil {
-		t.Fatalf("DescribeAutoScalingGroups: %v", err)
-	}
+		sched := NewScheduledActionScheduler(b, tickInterval)
 
-	if got := groups[0].DesiredCapacity; got != desired {
-		t.Fatalf("DesiredCapacity = %d, want %d (Run() never applied the due action)", got, desired)
-	}
+		ctx, cancel := context.WithCancel(context.Background())
 
-	cancel()
+		done := make(chan struct{})
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run() did not return within 2s of context cancellation")
-	}
+		go func() {
+			defer close(done)
+
+			sched.Run(ctx)
+		}()
+
+		// tickInterval is 10ms; cross a tick so Run applies the due action.
+		time.Sleep(20 * time.Millisecond)
+		synctest.Wait()
+
+		groups, err := b.DescribeAutoScalingGroups([]string{"sched-run-asg"}, nil)
+		if err != nil {
+			t.Fatalf("DescribeAutoScalingGroups: %v", err)
+		}
+
+		if got := groups[0].DesiredCapacity; got != desired {
+			t.Fatalf("DesiredCapacity = %d, want %d (Run() never applied the due action)", got, desired)
+		}
+
+		cancel()
+		<-done
+	})
 }

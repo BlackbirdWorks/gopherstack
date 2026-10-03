@@ -256,6 +256,69 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, vpcLink.Name, gotVpcLink.Name)
 }
 
+// TestInMemoryBackend_SnapshotRestore_DeploymentConfig proves a deployment's
+// invoke-time configuration snapshot (DeploymentConfig) survives a
+// Snapshot/Restore round trip and a restored backend can still serve real
+// stage traffic from it -- not just that the field decodes.
+func TestInMemoryBackend_SnapshotRestore_DeploymentConfig(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+
+	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "snapshot-config-api"})
+	require.NoError(t, err)
+
+	resource, err := b.CreateResource(api.ID, api.RootResourceID, "widgets")
+	require.NoError(t, err)
+
+	_, err = b.PutMethod(apigateway.PutMethodInput{
+		RestAPIID: api.ID, ResourceID: resource.ID, HTTPMethod: http.MethodGet, AuthorizationType: "NONE",
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutIntegration(api.ID, resource.ID, http.MethodGet, apigateway.PutIntegrationInput{Type: "MOCK"})
+	require.NoError(t, err)
+
+	_, err = b.PutIntegrationResponse(
+		api.ID, resource.ID, http.MethodGet, "200",
+		apigateway.PutIntegrationResponseInput{
+			ResponseTemplates: map[string]string{"application/json": "snapshotted"},
+		},
+	)
+	require.NoError(t, err)
+
+	depl, err := b.CreateDeployment(api.ID, "prod", "")
+	require.NoError(t, err)
+
+	// Editing the integration live after the snapshot must not leak into it.
+	_, err = b.PutIntegrationResponse(
+		api.ID, resource.ID, http.MethodGet, "200",
+		apigateway.PutIntegrationResponseInput{
+			ResponseTemplates: map[string]string{"application/json": "live-edit"},
+		},
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := apigateway.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	cfg, err := fresh.DeploymentConfig(api.ID, depl.ID)
+	require.NoError(t, err)
+	require.Len(t, cfg.Resources, 2) // root + widgets
+
+	h := apigateway.NewHandler(fresh)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/restapis/"+api.ID+"/prod/_user_request_/widgets", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "snapshotted", rec.Body.String())
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 

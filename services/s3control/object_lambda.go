@@ -25,6 +25,13 @@ func (b *InMemoryBackend) SetObjectLambdaConfigSink(sink ObjectLambdaConfigSink)
 	b.objectLambdaSink = sink
 }
 
+func (b *InMemoryBackend) currentObjectLambdaSink() ObjectLambdaConfigSink {
+	b.mu.RLock("currentObjectLambdaSink")
+	defer b.mu.RUnlock()
+
+	return b.objectLambdaSink
+}
+
 // CreateAccessPointForObjectLambda creates an Object Lambda access point.
 func (b *InMemoryBackend) CreateAccessPointForObjectLambda(accountID, name string) *ObjectLambdaAccessPoint {
 	b.mu.Lock("CreateAccessPointForObjectLambda")

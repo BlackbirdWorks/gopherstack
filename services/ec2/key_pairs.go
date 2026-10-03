@@ -1,10 +1,13 @@
 package ec2
 
 import (
-	"crypto/md5" //nolint:gosec // MD5 used for fingerprint display only, not security
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // SHA-1 is the real AWS-documented RSA key-fingerprint algorithm, not used for security
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -26,6 +29,7 @@ const (
 	// a stub fingerprint for ImportKeyPair (no actual public key is parsed).
 	stubFingerprintUUIDLen = 11
 	keyTypeRSA             = "rsa"
+	keyTypeED25519         = "ed25519"
 )
 
 // KeyPair represents an EC2 key pair.
@@ -43,28 +47,91 @@ type KeyPair struct {
 	PublicKey string `json:"publicKey,omitempty"`
 }
 
-// keyFingerprint computes the MD5 fingerprint of an RSA public key in DER form.
-func keyFingerprint(pubKey *rsa.PublicKey) (string, error) {
-	der, err := x509.MarshalPKIXPublicKey(pubKey)
-	if err != nil {
-		return "", err
-	}
-
-	sum := md5.Sum(der) //nolint:gosec // MD5 used for fingerprint display only, not security
+// rsaFingerprint is real AWS's RSA algorithm: the SHA-1 digest of the DER
+// encoded private key.
+func rsaFingerprint(privDER []byte) string {
+	sum := sha1.Sum(privDER) //nolint:gosec // real AWS-documented algorithm, not used for security
 	parts := make([]string, len(sum))
 
 	for i, by := range sum {
 		parts[i] = fmt.Sprintf("%02x", by)
 	}
 
-	return strings.Join(parts, ":"), nil
+	return strings.Join(parts, ":")
 }
 
-// CreateKeyPair generates a new RSA key pair. Real AWS also supports
-// ED25519 (CreateKeyPairInput.KeyType); not modeled — see PARITY.md gaps.
+// ed25519Fingerprint is real AWS's ED25519 algorithm: the base64 SHA-256
+// digest of the OpenSSH wire-format public key blob.
+func ed25519Fingerprint(pub ssh.PublicKey) string {
+	sum := sha256.Sum256(pub.Marshal())
+
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+// generateRSAKeyMaterial creates a new 2048-bit RSA key pair.
+func generateRSAKeyMaterial() (string, ssh.PublicKey, string, error) {
+	privKey, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to generate key: %w", err)
+	}
+
+	privDER := x509.MarshalPKCS1PrivateKey(privKey)
+	privPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER}))
+
+	pub, err := ssh.NewPublicKey(&privKey.PublicKey)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to derive ssh public key: %w", err)
+	}
+
+	return privPEM, pub, rsaFingerprint(privDER), nil
+}
+
+// generateED25519KeyMaterial creates a new ED25519 key pair, PEM-encoded in
+// the OpenSSH private-key format real AWS also uses for this KeyType.
+func generateED25519KeyMaterial() (string, ssh.PublicKey, string, error) {
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to generate key: %w", err)
+	}
+
+	block, err := ssh.MarshalPrivateKey(privKey, "")
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to marshal key: %w", err)
+	}
+
+	pub, err := ssh.NewPublicKey(pubKey)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to derive ssh public key: %w", err)
+	}
+
+	return string(pem.EncodeToMemory(block)), pub, ed25519Fingerprint(pub), nil
+}
+
+// CreateKeyPair generates a new RSA key pair (the default KeyType). Use
+// CreateKeyPairWithType to request ED25519.
 func (b *InMemoryBackend) CreateKeyPair(name string, tags map[string]string) (*KeyPair, error) {
+	return b.CreateKeyPairWithType(name, keyTypeRSA, tags)
+}
+
+// CreateKeyPairWithType generates a key pair of keyType (rsa or ed25519) in PEM format.
+func (b *InMemoryBackend) CreateKeyPairWithType(name, keyType string, tags map[string]string) (*KeyPair, error) {
+	return b.CreateKeyPairWithFormat(name, keyType, keyFormatPEM, tags)
+}
+
+// CreateKeyPairWithFormat is CreateKeyPairWithType plus KeyFormat (pem or ppk).
+func (b *InMemoryBackend) CreateKeyPairWithFormat(
+	name, keyType, keyFormat string, tags map[string]string,
+) (*KeyPair, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
+	}
+
+	if keyFormat == "" {
+		keyFormat = keyFormatPEM
+	}
+
+	if keyFormat != keyFormatPEM && keyFormat != keyFormatPPK {
+		return nil, fmt.Errorf("%w: KeyFormat must be pem or ppk, got %q", ErrInvalidParameter, keyFormat)
 	}
 
 	b.mu.Lock("CreateKeyPair")
@@ -74,22 +141,23 @@ func (b *InMemoryBackend) CreateKeyPair(name string, tags map[string]string) (*K
 		return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
 	}
 
-	privKey, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate key: %w", err)
+	generate := generateRSAKeyMaterial
+
+	if keyType == keyTypeED25519 {
+		generate = generateED25519KeyMaterial
+	} else {
+		keyType = keyTypeRSA
 	}
 
-	fp, err := keyFingerprint(&privKey.PublicKey)
+	privPEM, pub, fp, err := generate()
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute fingerprint: %w", err)
+		return nil, err
 	}
 
-	privDER := x509.MarshalPKCS1PrivateKey(privKey)
-	privPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER})
-
-	pub, sshErr := ssh.NewPublicKey(&privKey.PublicKey)
-	if sshErr != nil {
-		return nil, fmt.Errorf("failed to derive ssh public key: %w", sshErr)
+	if keyFormat == keyFormatPPK {
+		if privPEM, err = pemToPPK(privPEM, name); err != nil {
+			return nil, err
+		}
 	}
 
 	authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) +
@@ -99,8 +167,8 @@ func (b *InMemoryBackend) CreateKeyPair(name string, tags map[string]string) (*K
 		Name:        name,
 		KeyPairID:   newKeyPairID(),
 		Fingerprint: fp,
-		Material:    string(privPEM),
-		KeyType:     keyTypeRSA, // the only type this backend ever generates
+		Material:    privPEM,
+		KeyType:     keyType,
 		CreateTime:  time.Now().UTC(),
 		PublicKey:   authorized,
 	}

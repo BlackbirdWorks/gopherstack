@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"sync"
 )
 
 // Registry is a lifecycle registry for a backend's [Table]s. A backend
@@ -12,12 +14,20 @@ import (
 // typed tables the backend owns. This is what eliminates the
 // per-map Init/Reset/Snapshot/Restore boilerplate described in the package doc.
 //
-// Registry performs no locking of its own, matching [Table] and [Index]: it
-// is meant to be driven from within the backend's own coarse lock.
+// Registry locks only its name map (lazy per-region Register races Snapshot);
+// table contents still rely on the backend's coarse lock, like [Table] and [Index].
 //
 // The zero value is not usable; always create via [NewRegistry].
 type Registry struct {
 	tables map[string]tableSnapshotter
+	mu     sync.RWMutex
+}
+
+func (r *Registry) all() map[string]tableSnapshotter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return maps.Clone(r.tables)
 }
 
 // NewRegistry creates an empty [Registry].
@@ -43,6 +53,9 @@ func NewRegistry() *Registry {
 // (e.g. a copy-pasted registration) rather than a runtime condition a backend
 // could reasonably recover from.
 func Register[V any](r *Registry, name string, t *Table[V]) *Table[V] {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if _, exists := r.tables[name]; exists {
 		panic(fmt.Sprintf("store: table %q already registered", name))
 	}
@@ -55,7 +68,7 @@ func Register[V any](r *Registry, name string, t *Table[V]) *Table[V] {
 // ResetAll clears every registered table (and every index on it), returning
 // each to the empty state it was in immediately after [New].
 func (r *Registry) ResetAll() {
-	for _, t := range r.tables {
+	for _, t := range r.all() {
 		t.reset()
 	}
 }
@@ -66,9 +79,10 @@ func (r *Registry) ResetAll() {
 // additionally sorts those keys, so the overall result — and any JSON built
 // from it — is byte-for-byte stable across calls for the same backend state.
 func (r *Registry) SnapshotAll() (map[string]json.RawMessage, error) {
-	out := make(map[string]json.RawMessage, len(r.tables))
+	tables := r.all()
+	out := make(map[string]json.RawMessage, len(tables))
 
-	for name, t := range r.tables {
+	for name, t := range tables {
 		data, err := t.snapshotJSON()
 		if err != nil {
 			return nil, fmt.Errorf("store: snapshot table %q: %w", name, err)
@@ -86,7 +100,7 @@ func (r *Registry) SnapshotAll() (map[string]json.RawMessage, error) {
 // produces the same backend state a fresh [NewRegistry] plus SnapshotAll's
 // input would — never a stale mix of old and new state.
 func (r *Registry) RestoreAll(data map[string]json.RawMessage) error {
-	for name, t := range r.tables {
+	for name, t := range r.all() {
 		raw, ok := data[name]
 		if !ok {
 			t.reset()

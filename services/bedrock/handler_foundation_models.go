@@ -1,7 +1,10 @@
 package bedrock
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -50,8 +53,19 @@ type listFoundationModelsOutput struct {
 }
 
 func (h *Handler) handleListFoundationModels(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	models, outToken := h.Backend.ListFoundationModels(nextToken)
+	q := c.Request().URL.Query()
+
+	if err := validateListFoundationModelsEnums(q); err != nil {
+		return h.writeError(c, err)
+	}
+
+	models, outToken := h.Backend.ListFoundationModels(ListFoundationModelsFilter{
+		ByCustomizationType: q.Get("byCustomizationType"),
+		ByInferenceType:     q.Get("byInferenceType"),
+		ByOutputModality:    q.Get("byOutputModality"),
+		ByProvider:          q.Get("byProvider"),
+		NextToken:           q.Get("nextToken"),
+	})
 	summaries := make([]foundationModelSummaryOutput, 0, len(models))
 
 	for _, m := range models {
@@ -62,6 +76,27 @@ func (h *Handler) handleListFoundationModels(c *echo.Context) error {
 		http.StatusOK,
 		listFoundationModelsOutput{ModelSummaries: summaries, NextToken: outToken},
 	)
+}
+
+// validateListFoundationModelsEnums rejects values outside the SDK enums
+// (types/enums.go ModelCustomization, InferenceType, ModelModality).
+func validateListFoundationModelsEnums(q url.Values) error {
+	checks := []struct {
+		param   string
+		allowed []string
+	}{
+		{"byCustomizationType", []string{"FINE_TUNING", "CONTINUED_PRE_TRAINING", "DISTILLATION"}},
+		{"byInferenceType", []string{"ON_DEMAND", "PROVISIONED"}},
+		{"byOutputModality", []string{"TEXT", "IMAGE", "EMBEDDING"}},
+	}
+
+	for _, c := range checks {
+		if v := q.Get(c.param); v != "" && !slices.Contains(c.allowed, v) {
+			return fmt.Errorf("%w: invalid %s %q", ErrValidation, c.param, v)
+		}
+	}
+
+	return nil
 }
 
 type getFoundationModelOutput struct {
@@ -92,4 +127,18 @@ func foundationModelToOutput(m *FoundationModelSummary) foundationModelSummaryOu
 		ResponseStreamingSupported: m.ResponseStreamingSupported,
 		ModelLifecycle:             m.ModelLifecycle,
 	}
+}
+
+// validateListSortParams rejects sortBy/sortOrder outside the SDK enums; every List
+// sortBy enum has only CreationTime (types/enums.go).
+func validateListSortParams(q url.Values) error {
+	if v := q.Get("sortBy"); v != "" && v != "CreationTime" {
+		return fmt.Errorf("%w: invalid sortBy %q", ErrValidation, v)
+	}
+
+	if v := q.Get("sortOrder"); v != "" && v != "Ascending" && v != sortOrderDescending {
+		return fmt.Errorf("%w: invalid sortOrder %q", ErrValidation, v)
+	}
+
+	return nil
 }

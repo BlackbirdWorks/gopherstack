@@ -327,7 +327,7 @@ func (h *Handler) dispatchReportJobOps(
 
 		return true, c.JSON(http.StatusOK, resp)
 	case opListScanJobSummaries:
-		summaries := h.Backend.ListScanJobSummaries()
+		summaries := h.Backend.ListScanJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
 
 		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobSummaries": summaries})
 	case opStartScanJob:

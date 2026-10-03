@@ -311,6 +311,11 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 			opts.DBParameterGroupName = "default." + snap.Engine
 		}
 
+		var secret MasterSecret
+		if secret, err = b.createMasterSecret("db", opts.MasterSecretRequest, ""); err != nil {
+			return
+		}
+
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 		port := snap.Port
 		if port == 0 {
@@ -318,6 +323,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		}
 
 		inst := &DBInstance{
+			MasterSecret:                     secret,
 			DBInstanceIdentifier:             id,
 			DBInstanceArn:                    b.rdsARN("db", id),
 			DbiResourceID:                    id,

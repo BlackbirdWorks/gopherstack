@@ -3,7 +3,6 @@ package service
 import (
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 )
@@ -14,8 +13,8 @@ const amzTargetHeader = "X-Amz-Target"
 // first matching service. Implements centralized routing logic that replaces
 // scattered pre-middleware and manual routing checks.
 type Router struct {
-	targetCache sync.Map
-	services    []*Entry
+	services []*Entry
+	gates    [][]string
 }
 
 // NewServiceRouter creates a router from the registered services.
@@ -33,7 +32,18 @@ func NewServiceRouter(registry *Registry) *Router {
 
 	return &Router{
 		services: services,
+		gates:    make([][]string, len(services)),
 	}
+}
+
+// WithTargetGates declares, by service name, X-Amz-Target prefixes outside which that
+// service's matcher is known to return false, so the scan can skip it without calling it.
+func (r *Router) WithTargetGates(gates map[string][]string) *Router {
+	for i, entry := range r.services {
+		r.gates[i] = gates[entry.Registerable.Name()]
+	}
+
+	return r
 }
 
 // RouteHandler returns an Echo middleware that evaluates all registered
@@ -42,17 +52,8 @@ func NewServiceRouter(registry *Registry) *Router {
 func (r *Router) RouteHandler() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if entry := r.matchFastPath(c); entry != nil {
+			if entry := r.Lookup(c); entry != nil {
 				return entry.WrappedHandler(c)
-			}
-
-			// Evaluate matchers in priority order (highest priority first)
-			for _, entry := range r.services {
-				if entry.Matcher(c) {
-					r.recordTargetFastPath(c, entry)
-
-					return entry.WrappedHandler(c)
-				}
 			}
 
 			// No service matched, fall back to standard Echo routing
@@ -61,42 +62,31 @@ func (r *Router) RouteHandler() echo.MiddlewareFunc {
 	}
 }
 
-func (r *Router) matchFastPath(c *echo.Context) *Entry {
+// Lookup returns the service entry the router selects for c, or nil if none matches.
+func (r *Router) Lookup(c *echo.Context) *Entry {
 	target := extractTargetHeader(c)
-	if target == "" {
-		return nil
+
+	for i, entry := range r.services {
+		if gate := r.gates[i]; gate != nil && !hasAnyPrefix(target, gate) {
+			continue
+		}
+
+		if entry.Matcher(c) {
+			return entry
+		}
 	}
 
-	prefix := extractTargetPrefix(target)
-	if prefix == "" {
-		return nil
-	}
-
-	val, ok := r.targetCache.Load(prefix)
-	if !ok {
-		return nil
-	}
-
-	entry, ok := val.(*Entry)
-	if !ok || !entry.Matcher(c) {
-		return nil
-	}
-
-	return entry
+	return nil
 }
 
-func (r *Router) recordTargetFastPath(c *echo.Context, entry *Entry) {
-	target := extractTargetHeader(c)
-	if target == "" {
-		return
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
 	}
 
-	prefix := extractTargetPrefix(target)
-	if prefix == "" {
-		return
-	}
-
-	r.targetCache.Store(prefix, entry)
+	return false
 }
 
 func extractTargetHeader(c *echo.Context) string {
@@ -106,13 +96,4 @@ func extractTargetHeader(c *echo.Context) string {
 	}
 
 	return req.Header.Get(amzTargetHeader)
-}
-
-func extractTargetPrefix(target string) string {
-	dot := strings.IndexByte(target, '.')
-	if dot <= 0 {
-		return ""
-	}
-
-	return target[:dot+1]
 }

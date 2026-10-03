@@ -44,6 +44,7 @@ type InMemoryBackend struct {
 	registry                         *store.Registry
 	mu                               *lockmetrics.RWMutex
 	work                             *worker.Group
+	clusterEng                       *clusterEngine
 	accountID                        string
 	region                           string
 
@@ -89,7 +90,10 @@ func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend 
 
 // Close stops all scheduled state-transition timers so none outlives the
 // backend. It is safe to call multiple times.
-func (b *InMemoryBackend) Close() { b.work.Stop() }
+func (b *InMemoryBackend) Close() {
+	b.work.Stop()
+	b.closeClusters()
+}
 
 // closeClusterTagsLocked closes tag objects for clusters and nodegroups.
 // Must be called with b.mu held.
@@ -194,6 +198,7 @@ func (b *InMemoryBackend) Reset() {
 	// per-map make() calls this used to be (Phase 3.3 pkgs/store conversion).
 	// See registerAllTables in store_setup.go for the full list of tables.
 	b.registry.ResetAll()
+	b.reapClustersLocked()
 	b.limits = b.configuredLimits
 
 	b.accessPolicies = make(map[string]map[string][]*AccessPolicyAssociation)

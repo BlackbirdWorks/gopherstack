@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -44,38 +45,39 @@ func TestStartExecutionASL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			sm, err := b.CreateStateMachine(context.Background(), "asl-"+tt.name, tt.definition, "arn:role", "STANDARD")
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "asl-exec", tt.input)
-			require.NoError(t, err)
+				sm, err := b.CreateStateMachine(
+					context.Background(), "asl-"+tt.name, tt.definition, "arn:role", "STANDARD",
+				)
+				require.NoError(t, err)
 
-			if tt.checkInitStatus {
-				// Use DescribeExecution (returns a copy) to safely read status — avoids a data race
-				// with the goroutine launched inside StartExecution that also writes to the execution struct.
-				initialDesc, initDescErr := b.DescribeExecution(exec.ExecutionArn)
-				require.NoError(t, initDescErr)
-				assert.Contains(t, []string{"RUNNING", "SUCCEEDED"}, initialDesc.Status)
-			}
+				exec, err := b.StartExecution(sm.StateMachineArn, "asl-exec", tt.input)
+				require.NoError(t, err)
 
-			require.Eventually(t, func() bool {
-				desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+				if tt.checkInitStatus {
+					// Use DescribeExecution (returns a copy) to safely read status — avoids a data race
+					// with the goroutine launched inside StartExecution that also writes to the execution struct.
+					initialDesc, initDescErr := b.DescribeExecution(exec.ExecutionArn)
+					require.NoError(t, initDescErr)
+					assert.Contains(t, []string{"RUNNING", "SUCCEEDED"}, initialDesc.Status)
+				}
 
-				return descErr == nil && desc.Status == tt.wantStatus
-			}, 5*time.Second, 50*time.Millisecond, "execution should reach "+tt.wantStatus)
+				synctest.Wait()
 
-			desc, err := b.DescribeExecution(exec.ExecutionArn)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, desc.Status)
+				desc, err := b.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantStatus, desc.Status)
 
-			if tt.wantOutputKey != "" {
-				assert.Contains(t, desc.Output, tt.wantOutputKey)
-			}
-			if tt.wantError != "" {
-				assert.Equal(t, tt.wantError, desc.Error)
-			}
+				if tt.wantOutputKey != "" {
+					assert.Contains(t, desc.Output, tt.wantOutputKey)
+				}
+				if tt.wantError != "" {
+					assert.Equal(t, tt.wantError, desc.Error)
+				}
+			})
 		})
 	}
 }
@@ -83,61 +85,55 @@ func TestStartExecutionASL(t *testing.T) {
 func TestExecution_SucceedsAfterPass(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"succ-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"succ-sm",
+			minimalDefinition,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "succ-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "succ-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
-
-		return e == nil && d.Status == "SUCCEEDED"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	desc, err := b.DescribeExecution(exec.ExecutionArn)
-	require.NoError(t, err)
-	assert.Equal(t, "SUCCEEDED", desc.Status)
-	assert.NotNil(t, desc.StopDate)
+		desc, err := b.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		assert.Equal(t, "SUCCEEDED", desc.Status)
+		assert.NotNil(t, desc.StopDate)
+	})
 }
 
 func TestExecution_FailStateProducesFailedStatus(t *testing.T) {
 	t.Parallel()
 
-	failDef := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"ErrFoo","Cause":"test cause","End":true}}}`
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"fail-sm",
-		failDef,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		failDef := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"ErrFoo","Cause":"test cause","End":true}}}`
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"fail-sm",
+			failDef,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "fail-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "fail-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
-
-		return e == nil && d.Status == "FAILED"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	desc, err := b.DescribeExecution(exec.ExecutionArn)
-	require.NoError(t, err)
-	assert.Equal(t, "FAILED", desc.Status)
-	assert.Equal(t, "ErrFoo", desc.Error)
-	assert.Equal(t, "test cause", desc.Cause)
+		desc, err := b.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		assert.Equal(t, "FAILED", desc.Status)
+		assert.Equal(t, "ErrFoo", desc.Error)
+		assert.Equal(t, "test cause", desc.Cause)
+	})
 }
 
 // TestAudit_StartExecution_ExpressMachineSucceeds verifies that
@@ -362,53 +358,46 @@ func TestStartExecution_WaitForTaskToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newSFBackend()
-			sqsMock := &mockStepFunctionsSQS{}
-			b.SetSQSIntegration(sqsMock)
+			synctest.Test(t, func(t *testing.T) {
+				b := newSFBackend()
+				sqsMock := &mockStepFunctionsSQS{}
+				b.SetSQSIntegration(sqsMock)
 
-			sm, err := b.CreateStateMachine(context.Background(), "wait-token-sm-"+tt.name, def, "arn:role", "STANDARD")
-			require.NoError(t, err)
+				sm, err := b.CreateStateMachine(
+					context.Background(), "wait-token-sm-"+tt.name, def, "arn:role", "STANDARD",
+				)
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "wait-token-exec-"+tt.name, `{}`)
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "wait-token-exec-"+tt.name, `{}`)
+				require.NoError(t, err)
 
-			var taskToken string
-			require.Eventually(t, func() bool {
+				// The executor durably blocks awaiting the callback once it
+				// registers the task token.
+				synctest.Wait()
+
 				tokens := b.TaskTokensForTest()
-				if len(tokens) == 0 {
-					return false
+				require.NotEmpty(t, tokens)
+
+				err = tt.sendResult(b, tokens[0])
+				require.NoError(t, err)
+				synctest.Wait()
+
+				described, err := b.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, err)
+
+				assert.Equal(t, tt.wantStatus, described.Status)
+				if tt.wantOutput != "" {
+					assert.JSONEq(t, tt.wantOutput, described.Output)
 				}
-				taskToken = tokens[0]
-
-				return taskToken != ""
-			}, 5*time.Second, 25*time.Millisecond)
-
-			err = tt.sendResult(b, taskToken)
-			require.NoError(t, err)
-
-			var described *stepfunctions.Execution
-			require.Eventually(t, func() bool {
-				execution, describeErr := b.DescribeExecution(exec.ExecutionArn)
-				if describeErr != nil {
-					return false
+				if tt.wantError != "" {
+					assert.Equal(t, tt.wantError, described.Error)
 				}
-				described = execution
+				if tt.wantCauseSubstr != "" {
+					assert.Contains(t, described.Cause, tt.wantCauseSubstr)
+				}
 
-				return described.Status != "RUNNING"
-			}, 5*time.Second, 25*time.Millisecond)
-
-			assert.Equal(t, tt.wantStatus, described.Status)
-			if tt.wantOutput != "" {
-				assert.JSONEq(t, tt.wantOutput, described.Output)
-			}
-			if tt.wantError != "" {
-				assert.Equal(t, tt.wantError, described.Error)
-			}
-			if tt.wantCauseSubstr != "" {
-				assert.Contains(t, described.Cause, tt.wantCauseSubstr)
-			}
-
-			assert.Equal(t, 1, sqsMock.callCount)
+				assert.Equal(t, 1, sqsMock.callCount)
+			})
 		})
 	}
 }
@@ -437,28 +426,25 @@ func TestBackend_RunParsedExecution_FailState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine(
-				context.Background(),
-				"run-sm-"+tt.name,
-				tt.definition,
-				"arn:role",
-				"STANDARD",
-			)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackend()
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"run-sm-"+tt.name,
+					tt.definition,
+					"arn:role",
+					"STANDARD",
+				)
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "run-exec", `{}`)
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "run-exec", `{}`)
+				require.NoError(t, err)
+				synctest.Wait()
 
-			require.Eventually(t, func() bool {
-				desc, descErr := b.DescribeExecution(exec.ExecutionArn)
-
-				return descErr == nil && desc.Status == tt.wantStatus
-			}, 5*time.Second, 50*time.Millisecond)
-
-			desc, err := b.DescribeExecution(exec.ExecutionArn)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, desc.Status)
+				desc, err := b.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantStatus, desc.Status)
+			})
 		})
 	}
 }
@@ -494,32 +480,31 @@ func TestParallelState_WithCatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newSFBackend()
-			sm, err := b.CreateStateMachine(
-				context.Background(),
-				"parallel-catch-"+tt.name,
-				tt.definition,
-				"arn:role",
-				"STANDARD",
-			)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := newSFBackend()
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"parallel-catch-"+tt.name,
+					tt.definition,
+					"arn:role",
+					"STANDARD",
+				)
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "exec-"+tt.name, tt.input)
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "exec-"+tt.name, tt.input)
+				require.NoError(t, err)
+				synctest.Wait()
 
-			require.Eventually(t, func() bool {
-				d, e := b.DescribeExecution(exec.ExecutionArn)
-
-				return e == nil && d.Status != "RUNNING"
-			}, 10*time.Second, 25*time.Millisecond)
-
-			d, err := b.DescribeExecution(exec.ExecutionArn)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, d.Status, "unexpected execution status")
+				d, err := b.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantStatus, d.Status, "unexpected execution status")
+			})
 		})
 	}
 }
 
+// Not synctest-wrapped: the bubble clock starts at 2000-01-01, so the "past"
+// 2020 timestamp would be 20 virtual years ahead.
 func TestWaitState_TimestampPast(t *testing.T) {
 	t.Parallel()
 

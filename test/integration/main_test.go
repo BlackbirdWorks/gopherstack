@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/test/internal/buildcheck"
 
@@ -513,6 +514,7 @@ func createS3Client(t *testing.T) *s3.Client {
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String(endpoint)
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 
@@ -794,6 +796,7 @@ func createKinesisClient(t *testing.T) *kinesissdk.Client {
 
 	return kinesissdk.NewFromConfig(cfg, func(o *kinesissdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 
@@ -814,6 +817,7 @@ func createLambdaClient(t *testing.T) *lambdaclientsdk.Client {
 
 	return lambdaclientsdk.NewFromConfig(cfg, func(o *lambdaclientsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 

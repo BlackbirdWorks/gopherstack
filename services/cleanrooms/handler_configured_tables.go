@@ -9,12 +9,13 @@ import (
 
 func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		TableReference map[string]any    `json:"tableReference"`
-		Tags           map[string]string `json:"tags"`
-		Name           string            `json:"name"`
-		Description    string            `json:"description"`
-		AnalysisMethod string            `json:"analysisMethod"`
-		AllowedColumns []string          `json:"allowedColumns"`
+		TableReference  map[string]any    `json:"tableReference"`
+		Tags            map[string]string `json:"tags"`
+		Name            string            `json:"name"`
+		Description     string            `json:"description"`
+		AnalysisMethod  string            `json:"analysisMethod"`
+		AllowedColumns  []string          `json:"allowedColumns"`
+		SelectedMethods []string          `json:"selectedAnalysisMethods"`
 	}
 	_ = json.Unmarshal(body, &req)
 	ct, err := h.Backend.CreateConfiguredTable(
@@ -24,6 +25,7 @@ func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([
 		req.AllowedColumns,
 		req.AnalysisMethod,
 		req.Tags,
+		ConfiguredTableSettings{SelectedAnalysisMethods: req.SelectedMethods},
 	)
 	if err != nil {
 		return nil, err
@@ -60,15 +62,17 @@ func (h *Handler) handleListConfiguredTables(
 
 func (h *Handler) handleUpdateConfiguredTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ConfiguredTableIdentifier string `json:"configuredTableIdentifier"`
-		Name                      string `json:"name"`
-		Description               string `json:"description"`
+		ConfiguredTableIdentifier string   `json:"configuredTableIdentifier"`
+		Name                      string   `json:"name"`
+		Description               string   `json:"description"`
+		SelectedMethods           []string `json:"selectedAnalysisMethods"`
 	}
 	_ = json.Unmarshal(body, &req)
 	ct, err := h.Backend.UpdateConfiguredTable(
 		req.ConfiguredTableIdentifier,
 		req.Name,
 		req.Description,
+		ConfiguredTableSettings{SelectedAnalysisMethods: req.SelectedMethods},
 	)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"crypto/md5" //nolint:gosec // MD5 used as a non-cryptographic hash key for Kinesis shard routing, matching the AWS API contract
 	"fmt"
 	"math/big"
+	"strconv"
 	"time"
 )
 
@@ -109,12 +110,32 @@ func (s *Shard) nextSequenceNumber() string {
 	const shardIDModulus = 10000
 
 	// AWS sequence numbers encode time and shard info. We use a 49-prefix, timestamp, shard index, and seq.
-	return fmt.Sprintf(
-		"49%014d%04d%020d",
-		time.Now().UnixNano()/int64(time.Millisecond),
-		s.shardIndex()%shardIDModulus,
-		s.NextSeq,
-	)
+	var scratch [seqCounterWidth]byte
+
+	buf := make([]byte, 0, len(seqPrefix)+seqTimestampWidth+seqShardWidth+seqCounterWidth)
+	buf = append(buf, seqPrefix...)
+	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], time.Now().UnixMilli(), decimalBase), seqTimestampWidth)
+	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], s.shardIndex()%shardIDModulus, decimalBase), seqShardWidth)
+	buf = appendPadded(buf, strconv.AppendUint(scratch[:0], s.NextSeq, decimalBase), seqCounterWidth)
+
+	return string(buf)
+}
+
+const (
+	seqPrefix         = "49"
+	seqTimestampWidth = 14
+	seqShardWidth     = 4
+	seqCounterWidth   = 20
+	decimalBase       = 10
+)
+
+// appendPadded appends digits left-padded with zeros to width (like %0*d).
+func appendPadded(buf, digits []byte, width int) []byte {
+	for i := len(digits); i < width; i++ {
+		buf = append(buf, '0')
+	}
+
+	return append(buf, digits...)
 }
 
 func checkOnDemandLimit(streams []*Stream, limit int) error {

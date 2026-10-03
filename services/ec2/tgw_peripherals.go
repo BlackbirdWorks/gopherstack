@@ -968,9 +968,9 @@ func (b *InMemoryBackend) RejectTransitGatewayVpcAttachment(
 	return &cp, nil
 }
 
-// RejectTransitGatewayPeeringAttachment rejects a pending TGW peering
+// rejectTransitGatewayPeeringAttachmentLocal rejects a pending TGW peering
 // attachment, transitioning its state to "rejected".
-func (b *InMemoryBackend) RejectTransitGatewayPeeringAttachment(
+func (b *InMemoryBackend) rejectTransitGatewayPeeringAttachmentLocal(
 	attachmentID string,
 ) (*TransitGatewayPeeringAttachment, error) {
 	if attachmentID == "" {

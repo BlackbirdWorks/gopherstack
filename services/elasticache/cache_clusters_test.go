@@ -139,6 +139,7 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 			t.Parallel()
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "123456789012", "us-east-1", nil)
+			t.Cleanup(backend.Reset)
 
 			_, err := backend.CreateClusterWithOptions(context.Background(),
 				"my-cache",

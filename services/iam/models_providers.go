@@ -246,6 +246,7 @@ type GetServiceLastAccessedDetailsResult struct {
 	JobStatus            string                         `xml:"JobStatus"`
 	JobCreationDate      string                         `xml:"JobCreationDate"`
 	JobCompletionDate    string                         `xml:"JobCompletionDate"`
+	Marker               string                         `xml:"Marker,omitempty"`
 	ServicesLastAccessed []ServiceLastAccessedDetailXML `xml:"ServicesLastAccessed>member"`
 	IsTruncated          bool                           `xml:"IsTruncated"`
 }

@@ -2,6 +2,7 @@ package appconfig_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -51,64 +52,57 @@ func TestBackend_StartDeployment_ZeroDurationCompletesSynchronously(t *testing.T
 func TestBackend_StartDeployment_ProgressesThroughGrowthAndBake(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
+	synctest.Test(t, func(t *testing.T) {
+		b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("progress-app", "", nil)
-	require.NoError(t, err)
-
-	env, err := b.CreateEnvironment(app.ID, "progress-env", "", nil, nil)
-	require.NoError(t, err)
-
-	profile, err := b.CreateConfigurationProfile(
-		app.ID, "progress-profile", "", "hosted", "AWS.Freeform", "", "", nil,
-		nil,
-	)
-	require.NoError(t, err)
-
-	_, err = b.CreateHostedConfigurationVersion(app.ID, profile.ID, "application/json", "", "", []byte(`{}`), nil)
-	require.NoError(t, err)
-
-	strategy, err := b.CreateDeploymentStrategy("progress-strat", "", 10, 5, 10, "LINEAR", "NONE", nil)
-	require.NoError(t, err)
-
-	dep, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, "DEPLOYING", dep.State, "a non-zero-duration strategy must not complete synchronously")
-	require.Len(t, dep.EventLog, 1)
-	assert.Equal(t, "DEPLOYMENT_STARTED", dep.EventLog[0].EventType)
-
-	deadline := time.Now().Add(2 * time.Second)
-
-	var final *appconfig.Deployment
-
-	for time.Now().Before(deadline) {
-		final, err = b.GetDeployment(app.ID, env.ID, dep.DeploymentNumber)
+		app, err := b.CreateApplication("progress-app", "", nil)
 		require.NoError(t, err)
 
-		if final.State == "COMPLETE" {
-			break
+		env, err := b.CreateEnvironment(app.ID, "progress-env", "", nil, nil)
+		require.NoError(t, err)
+
+		profile, err := b.CreateConfigurationProfile(
+			app.ID, "progress-profile", "", "hosted", "AWS.Freeform", "", "", nil,
+			nil,
+		)
+		require.NoError(t, err)
+
+		_, err = b.CreateHostedConfigurationVersion(app.ID, profile.ID, "application/json", "", "", []byte(`{}`), nil)
+		require.NoError(t, err)
+
+		strategy, err := b.CreateDeploymentStrategy("progress-strat", "", 10, 5, 10, "LINEAR", "NONE", nil)
+		require.NoError(t, err)
+
+		dep, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "DEPLOYING", dep.State, "a non-zero-duration strategy must not complete synchronously")
+		require.Len(t, dep.EventLog, 1)
+		assert.Equal(t, "DEPLOYMENT_STARTED", dep.EventLog[0].EventType)
+
+		// growthFactor 10 needs 10 steps (8ms each) to reach 100%, then an
+		// 8ms bake; cross all of it plus a reconcile tick.
+		time.Sleep(150 * time.Millisecond)
+		synctest.Wait()
+
+		final, err := b.GetDeployment(app.ID, env.ID, dep.DeploymentNumber)
+		require.NoError(t, err)
+		assert.Equal(t, "COMPLETE", final.State)
+		assert.InDelta(t, float32(100), final.PercentageComplete, 0.001)
+		assert.Equal(
+			t, "DEPLOYMENT_COMPLETED", final.EventLog[0].EventType,
+			"EventLog must be ordered most-recent-first",
+		)
+
+		var sawStarted bool
+
+		for _, e := range final.EventLog {
+			if e.EventType == "DEPLOYMENT_STARTED" {
+				sawStarted = true
+			}
 		}
 
-		time.Sleep(time.Millisecond)
-	}
-
-	require.NotNil(t, final)
-	assert.Equal(t, "COMPLETE", final.State)
-	assert.InDelta(t, float32(100), final.PercentageComplete, 0.001)
-	assert.Equal(
-		t, "DEPLOYMENT_COMPLETED", final.EventLog[0].EventType,
-		"EventLog must be ordered most-recent-first",
-	)
-
-	var sawStarted bool
-
-	for _, e := range final.EventLog {
-		if e.EventType == "DEPLOYMENT_STARTED" {
-			sawStarted = true
-		}
-	}
-
-	assert.True(t, sawStarted, "the original DEPLOYMENT_STARTED event must be preserved in history")
+		assert.True(t, sawStarted, "the original DEPLOYMENT_STARTED event must be preserved in history")
+	})
 }
 
 // TestBackend_StartDeployment_UnknownHostedVersion_NotFound verifies the

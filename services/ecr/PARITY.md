@@ -952,3 +952,7 @@ since this registry isn't a proxy.Closer, but the correct hook). Added
 leak_main_test.go (testleak.VerifyTestMain); 4 test call sites in
 docker_registry_test.go retrofitted via a shared initWithLocalRegistry
 helper with t.Cleanup. No persisted struct fields changed; no version bump.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+ECR is region-isolated: per-region sibling handlers: a request signed for another region is served by a lazily built sibling Handler (own repositories, images, layers, policies, lifecycle janitor, region-correct ARNs) via `pkgs/regionpeers`. `Handler.BackendFor(region)` lets the Lambda image resolver check the region named in `<acct>.dkr.ecr.<region>.amazonaws.com` image URIs. Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/ecr`, `TestInitializeServices_RegionAwareCrossServiceWiring`. Limitation: Non-home regions are not visible to the tagging-API bridge, the IAM policy provider, the dashboard, or the embedded Docker registry (home region only).

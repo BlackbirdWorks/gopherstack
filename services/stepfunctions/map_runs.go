@@ -238,3 +238,34 @@ func (b *InMemoryBackend) ListMapRuns(
 
 	return page, token, nil
 }
+
+// pruneMapRunsLocked drops finished Map Runs older than cutoff whose execution
+// is gone (pruned, or an EXPRESS sync run that never had a record).
+func (b *InMemoryBackend) pruneMapRunsLocked(cutoff float64) {
+	var stale []string
+
+	for _, mr := range b.mapRuns.All() {
+		if mr.StopDate != nil && *mr.StopDate < cutoff && !b.executions.Has(mr.ExecutionArn) {
+			stale = append(stale, mr.MapRunArn)
+		}
+	}
+
+	for _, arn := range stale {
+		b.mapRuns.Delete(arn)
+	}
+}
+
+// deleteMapRunsForStateMachineLocked drops every Map Run of a deleted state machine.
+func (b *InMemoryBackend) deleteMapRunsForStateMachineLocked(smARN string) {
+	var owned []string
+
+	for _, mr := range b.mapRuns.All() {
+		if mr.StateMachineArn == smARN {
+			owned = append(owned, mr.MapRunArn)
+		}
+	}
+
+	for _, arn := range owned {
+		b.mapRuns.Delete(arn)
+	}
+}

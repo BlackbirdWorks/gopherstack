@@ -43,7 +43,17 @@ func (b *InMemoryBackend) CreateWebACL(
 		b.tags[acl.WebACLArn] = maps.Clone(tags)
 	}
 
-	return acl, nil
+	return cloneWebACL(acl), nil
+}
+
+// cloneWebACL stops a caller from racing UpdateWebACL. A shallow copy is not
+// enough: its delete path reuses Rules's backing array via "acl.Rules[:0]".
+func cloneWebACL(acl *WebACL) *WebACL {
+	cp := *acl
+	cp.Rules = make([]ActivatedRule, len(acl.Rules))
+	copy(cp.Rules, acl.Rules)
+
+	return &cp
 }
 
 // GetWebACL retrieves a WebACL by ID.
@@ -56,7 +66,7 @@ func (b *InMemoryBackend) GetWebACL(id string) (*WebACL, error) {
 		return nil, ErrNotFound
 	}
 
-	return acl, nil
+	return cloneWebACL(acl), nil
 }
 
 // UpdateWebACL updates a WebACL's default action and rules.

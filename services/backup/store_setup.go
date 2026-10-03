@@ -49,6 +49,8 @@ func vaultKeyFn(v *Vault) string { return v.BackupVaultName }
 
 func planKeyFn(v *Plan) string { return v.BackupPlanName }
 
+func deletedPlanKeyFn(v *DeletedPlan) string { return v.BackupPlanID }
+
 func jobKeyFn(v *Job) string { return v.BackupJobID }
 
 // selectionKey builds the composite "<planID>#<selectionID>" key shared by
@@ -115,6 +117,7 @@ func backupAccessPointKeyFn(v *AccessPoint) string { return v.AccessPointArn }
 func registerAllTables(b *InMemoryBackend) {
 	b.vaults = store.Register(b.registry, "vaults", store.New(vaultKeyFn))
 	b.plans = store.Register(b.registry, "plans", store.New(planKeyFn))
+	b.deletedPlans = store.Register(b.registry, "deletedPlans", store.New(deletedPlanKeyFn))
 	b.jobs = store.Register(b.registry, "jobs", store.New(jobKeyFn))
 
 	b.selections = store.Register(b.registry, "selections", store.New(selectionKeyFn))

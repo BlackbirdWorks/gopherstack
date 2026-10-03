@@ -8,23 +8,19 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 60 (49 ok, 11 partial) |
-| Known gaps | 11 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
-- gopherstack-xhu2t: ListInsightsData/ListInsightsMetricData/ListPublicKeys/SearchSampleQueries always return an empty list (Insights anomaly detection, legacy digest public keys, and the AWS sample-query catalog are none of them modeled), so their filter/page-size/time-range parameters are correctly inert -- wiring them without real backing data would be plumbing with nothing to test.
-- gopherstack-53eh: GetQueryResults' Lake SQL subset omits JOINs/set-ops across event data stores, SUM/AVG/MIN/MAX, subqueries, HAVING, ORDER BY, and DISTINCT (a statement using any of these reaches QueryStatus FAILED with an ErrorMessage, never a silent empty FINISHED); an unaliased COUNT(*)/COUNT(col) is named "_col<N>" by SELECT-list position, inferred from Trino's convention since CloudTrail Lake's own SQL reference doesn't document it.
-- RegisterOrganizationDelegatedAdmin/DeregisterOrganizationDelegatedAdmin validate input but track no org-admin state, since no read-back op exists in the real upstream API either.
-- gopherstack-53eh: wrapCloudTrailCapture's error-body extraction handles JSON-RPC's {__type,message} and REST-JSON's {Code,Message} shapes but not query-protocol XML <Error> or CBOR's error header; that chokepoint lives in pkgs/service, outside services/cloudtrail's own directory.
-- gopherstack-6flj: GetChannel's real output has IngestionStatus/SourceConfig; this backend models no per-channel ingestion tracking or AWS-service-linked source config to source them from.
-- gopherstack-6flj: GetEventDataStore's real output has PartitionKeys, an AWS-computed value with no corresponding field on CreateEventDataStoreInput anywhere in the SDK and no documented default content beyond a changelog example -- fabricating one would be unverified, so left unmodeled.
-- gopherstack-6flj: GetResourcePolicy's real output has DelegatedAdminResourcePolicy, unreachable without org-admin state modeling (same root cause as RegisterOrganizationDelegatedAdmin above).
-- gopherstack-2wvq: StartQuery's QueryParameters is decoded then discarded (used only to populate CloudTrail Lake's own dashboard queries, an internal mechanism with no further spec) -- no real output member (StartQueryOutput/DescribeQueryOutput/GetQueryResultsOutput) ever echoes it, so there's no observable effect to fix against. EventDataStoreOwnerAccountId, the sibling field flagged alongside it, is now stored and echoed by DescribeQuery -- see StartQuery/DescribeQuery ops rows.
-- gopherstack-2wvq: DescribeQuery's RefreshId (disambiguates a QueryAlias lookup to one dashboard refresh) isn't modeled since StartDashboardRefresh doesn't create linked Query records to disambiguate by.
-- gopherstack-6flj: StartImport's StartEventTime/EndEventTime and GetImport's ImportStatistics aren't modeled, consistent with import execution itself not being real in this backend.
-- gopherstack-g9b4: log file delivery writes one gzipped file per recorded event rather than AWS's real ~5-minute batched delivery -- real batching needs a background flush timer with its own goroutine-lifecycle/Reset() cleanup, a bigger architectural change than a per-op fix, so left a disclosed simplification.
+- ListInsightsData/ListInsightsMetricData/ListPublicKeys/SearchSampleQueries return empty lists: Insights anomaly detection, legacy digest public keys and the sample-query catalog are unmodeled; their StartTime/EndTime/DataType/Period/MaxResults filters (reqfielddiff tier-1, 2026-10-01) have no data to apply to.
+- gopherstack-53eh: Lake SQL subset omits cross-store JOIN/set-ops, SUM/AVG/MIN/MAX, subqueries and HAVING (such statements reach FAILED with an ErrorMessage); unaliased COUNT is named _col<N> by position, inferred from Trino, not AWS-documented.
+- Org delegated-admin state is unmodeled (no read-back op upstream), so GetResourcePolicy's DelegatedAdminResourcePolicy is never populated.
+- gopherstack-53eh: wrapCloudTrailCapture's error-body extraction lacks query-protocol XML and CBOR shapes; it lives in pkgs/service, outside this directory.
+- gopherstack-6flj: GetChannel IngestionStatus/SourceConfig and GetEventDataStore PartitionKeys are AWS-computed with no modeled source or documented content; GetImport ImportStatistics needs real import execution.
+- gopherstack-2wvq: StartQuery QueryParameters and DescribeQuery RefreshId are dashboard-internal; no output echoes the former and StartDashboardRefresh creates no linked Query for the latter.
+- gopherstack-g9b4: log delivery writes one gzipped file per event instead of ~5-minute batches; batching needs a flush timer with goroutine lifecycle, a larger change.
 
 ## More
 

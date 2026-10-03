@@ -224,10 +224,7 @@ type InMemoryBackend struct {
 	accountID              string
 	region                 string
 	endpoint               string
-	// sigv4Secret is the secret AWS_IAM auth verifies GraphQL request
-	// signatures against. Empty defers to httputils.SigV4Validator's own
-	// "test" default -- see SetSigV4Secret's doc comment for the gap this
-	// leaves when a non-default --sigv4-secret is configured.
+	// sigv4Secret is the AWS_IAM verification secret; empty uses the validator default.
 	sigv4Secret string
 }
 
@@ -275,14 +272,7 @@ func (b *InMemoryBackend) SetLambdaInvoker(fn LambdaInvoker) {
 	b.lambdaFn = fn
 }
 
-// SetSigV4Secret configures the secret AWS_IAM GraphQL auth verifies request
-// signatures against. Not wired from cli.go as of this writing: cli.go's
-// global --sigv4-secret flag (default "test", opt-in via --validate-sigv4)
-// is never passed here, so AWS_IAM-authenticated APIs always verify against
-// httputils.SigV4Validator's built-in "test" default regardless of a
-// non-default --sigv4-secret. Harmless under the (extremely common) default
-// configuration; a caller relying on a custom secret would need cli.go
-// updated to call this, e.g. appSyncBk.SetSigV4Secret(cli.SigV4Secret).
+// SetSigV4Secret sets the secret AWS_IAM GraphQL auth verifies request signatures against.
 func (b *InMemoryBackend) SetSigV4Secret(secret string) {
 	b.sigv4Secret = secret
 }

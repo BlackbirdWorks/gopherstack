@@ -675,10 +675,12 @@ func describeListResponse[T any](
 	toResp func(*T) map[string]any,
 	itemID, idQueryKey, markerKey, maxKey, respListKey, nextKey string,
 ) error {
-	fsID := c.Request().URL.Query().Get(keyFileSystemID)
+	fsID := idFromARN(c.Request().URL.Query().Get(keyFileSystemID))
 	if itemID == "" {
 		itemID = c.Request().URL.Query().Get(idQueryKey)
 	}
+
+	itemID = idFromARN(itemID)
 
 	marker := c.Request().URL.Query().Get(markerKey)
 	maxItems := queryInt(c, maxKey)
@@ -701,6 +703,15 @@ func describeListResponse[T any](
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// idFromARN reduces an ARN to its trailing resource ID; the Describe* inputs document "either an ID or ARN".
+func idFromARN(v string) string {
+	if strings.HasPrefix(v, "arn:") {
+		return v[strings.LastIndex(v, "/")+1:]
+	}
+
+	return v
 }
 
 // queryInt reads a query parameter as an int, returning defaultMaxItems if absent or

@@ -373,6 +373,7 @@ func TestBackend(t *testing.T) {
 			t.Parallel()
 
 			backend := elasticache.NewInMemoryBackend(tt.engineMode, "000000000000", "us-east-1", nil)
+			t.Cleanup(backend.Reset)
 
 			var firstCluster *elasticache.Cluster
 			for _, id := range tt.clusterIDs {

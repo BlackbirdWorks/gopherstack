@@ -20,7 +20,7 @@ import (
 func TestDeleteDynamoDBGlobalTable_RemovesReplicaTables(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{

@@ -33,7 +33,17 @@ func toOfferingOutput(o *Offering) map[string]any {
 
 func (h *Handler) handleListOfferings(c *echo.Context) error {
 	maxResults, nextTokenParam := paginationParams(c)
-	items, nextToken, err := h.Backend.ListOfferings(maxResults, nextTokenParam)
+	filter := OfferingFilter{
+		Duration:         c.QueryParam("duration"),
+		Codec:            c.QueryParam("codec"),
+		MaximumBitrate:   c.QueryParam("maximumBitrate"),
+		MaximumFramerate: c.QueryParam("maximumFramerate"),
+		Resolution:       c.QueryParam("resolution"),
+		ResourceType:     c.QueryParam("resourceType"),
+		SpecialFeature:   c.QueryParam("specialFeature"),
+		VideoQuality:     c.QueryParam("videoQuality"),
+	}
+	items, nextToken, err := h.Backend.ListOfferings(maxResults, nextTokenParam, filter)
 	if err != nil {
 		return respondErr(c, err)
 	}

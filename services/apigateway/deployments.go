@@ -25,6 +25,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 		Description: description,
 		CreatedDate: now,
 		APISummary:  b.apiSummary(restAPIID),
+		Config:      b.snapshotDeploymentConfig(restAPIID),
 	}
 	b.deployments.Put(depl)
 

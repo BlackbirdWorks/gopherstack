@@ -3,7 +3,9 @@ package ssm
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -281,9 +283,98 @@ func (b *InMemoryBackend) ListAssociationVersions(
 		return &ListAssociationVersionsOutputFull{AssociationVersions: []AssociationVersionInfo{}}, nil
 	}
 
-	return &ListAssociationVersionsOutputFull{
-		AssociationVersions: []AssociationVersionInfo{associationToVersionInfo(assoc)},
-	}, nil
+	history := b.associationVersions[region][input.AssociationID]
+	if len(history) == 0 {
+		history = []Association{*assoc}
+	}
+
+	infos := make([]AssociationVersionInfo, 0, len(history))
+	for i := range history {
+		infos = append(infos, associationToVersionInfo(&history[i]))
+	}
+
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(infos, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &ListAssociationVersionsOutputFull{AssociationVersions: page, NextToken: next}, nil
+}
+
+// maxAssociationVersions bounds the per-association version history; the oldest versions are dropped first.
+const maxAssociationVersions = 1000
+
+func associationVersionNumber(a *Association) int {
+	n, err := strconv.Atoi(a.AssociationVersion)
+	if err != nil || n < 1 {
+		return 1
+	}
+
+	return n
+}
+
+func snapshotAssociation(a *Association) Association {
+	cp := *a
+	cp.Parameters = copyAssocParameters(a.Parameters)
+	cp.Targets = copyAssocTargets(a.Targets)
+	cp.CalendarNames = append([]string(nil), a.CalendarNames...)
+	cp.OutputLocation = copyAssocOutputLocation(a.OutputLocation)
+	cp.Overview = nil
+	cp.Status = nil
+
+	if cp.AssociationVersion == "" {
+		cp.AssociationVersion = "1"
+	}
+
+	return cp
+}
+
+func (b *InMemoryBackend) appendAssociationVersionLocked(region string, a *Association) {
+	if b.associationVersions[region] == nil {
+		b.associationVersions[region] = make(map[string][]Association)
+	}
+
+	hist := slices.Concat(b.associationVersions[region][a.AssociationID], []Association{snapshotAssociation(a)})
+	if len(hist) > maxAssociationVersions {
+		hist = hist[len(hist)-maxAssociationVersions:]
+	}
+
+	b.associationVersions[region][a.AssociationID] = hist
+}
+
+// seedAssociationVersionLocked records the current version before its first update, so older state still lists.
+func (b *InMemoryBackend) seedAssociationVersionLocked(region string, a *Association) {
+	if len(b.associationVersions[region][a.AssociationID]) == 0 {
+		b.appendAssociationVersionLocked(region, a)
+	}
+}
+
+// associationAtVersionLocked resolves a DescribeAssociation AssociationVersion; empty and "$LATEST" mean current.
+func (b *InMemoryBackend) associationAtVersionLocked(
+	region string,
+	current Association,
+	version string,
+) (Association, error) {
+	if version == "" || version == selectorLatest {
+		return current, nil
+	}
+
+	if version == current.AssociationVersion || (version == "1" && current.AssociationVersion == "") {
+		return current, nil
+	}
+
+	for _, snap := range b.associationVersions[region][current.AssociationID] {
+		if snap.AssociationVersion == version {
+			snap.Overview = current.Overview
+			snap.Status = current.Status
+
+			return snap, nil
+		}
+	}
+
+	return Association{}, fmt.Errorf("%w: %q", ErrInvalidAssociationVersion, version)
 }
 
 func associationToVersionInfo(a *Association) AssociationVersionInfo {
@@ -291,7 +382,7 @@ func associationToVersionInfo(a *Association) AssociationVersionInfo {
 		return AssociationVersionInfo{}
 	}
 
-	version := a.DocumentVersion
+	version := a.AssociationVersion
 	if version == "" {
 		version = "1"
 	}
@@ -527,8 +618,10 @@ func (b *InMemoryBackend) DeleteAssociation(
 		delete(execs, input.AssociationID)
 	}
 
+	delete(b.associationVersions[region], input.AssociationID)
 	delete(b.miscResourceTagsStore(region), input.AssociationID)
 
+	cleanupEmptyInnerMap(b.associationVersions, region)
 	cleanupEmptyInnerMap(b.associationExecutions, region)
 	cleanupEmptyInnerMap(b.associationExecTargets, region)
 	cleanupEmptyInnerMap(b.miscResourceTags, region)
@@ -549,7 +642,12 @@ func (b *InMemoryBackend) DescribeAssociation(
 		assoc := *assocPtr
 		if (input.AssociationID != "" && assoc.AssociationID == input.AssociationID) ||
 			(input.Name != "" && assoc.Name == input.Name && (input.InstanceID == "" || assoc.InstanceID == input.InstanceID)) {
-			return &DescribeAssociationOutput{AssociationDescription: assoc}, nil
+			described, err := b.associationAtVersionLocked(region, assoc, input.AssociationVersion)
+			if err != nil {
+				return nil, err
+			}
+
+			return &DescribeAssociationOutput{AssociationDescription: described}, nil
 		}
 	}
 
@@ -608,7 +706,7 @@ func (b *InMemoryBackend) ListAssociations(
 	defer b.mu.RUnlock()
 
 	associations := b.associationsStore(region)
-	list := make([]Association, 0, associations.Len())
+	list := make([]AssociationSummary, 0, associations.Len())
 
 	for _, a := range associations.All() {
 		matched := true
@@ -622,7 +720,7 @@ func (b *InMemoryBackend) ListAssociations(
 		}
 
 		if matched {
-			list = append(list, *a)
+			list = append(list, summarizeAssociation(a))
 		}
 	}
 
@@ -638,77 +736,54 @@ func (b *InMemoryBackend) ListAssociations(
 	return &ListAssociationsOutputFull{Associations: page, NextToken: next}, nil
 }
 
-// applyAssociationCoreUpdates applies UpdateAssociationInput's original
-// (pre-extended-fields) settable properties to assoc in place.
-func applyAssociationCoreUpdates(assoc *Association, input *UpdateAssociationInput) {
-	if input.AssociationName != nil {
-		assoc.AssociationName = *input.AssociationName
+func summarizeAssociation(a *Association) AssociationSummary {
+	s := AssociationSummary{
+		AssociationID:      a.AssociationID,
+		Name:               a.Name,
+		ScheduleExpression: a.ScheduleExpression,
+		AssociationName:    a.AssociationName,
+		DocumentVersion:    a.DocumentVersion,
+		InstanceID:         a.InstanceID,
+		AssociationVersion: a.AssociationVersion,
+		Targets:            append([]AssociationTarget(nil), a.Targets...),
 	}
 
-	if input.DocumentVersion != nil {
-		assoc.DocumentVersion = *input.DocumentVersion
+	if a.Duration != nil {
+		d := *a.Duration
+		s.Duration = &d
 	}
 
-	if input.Parameters != nil {
-		assoc.Parameters = copyAssocParameters(input.Parameters)
+	if a.Overview != nil {
+		o := *a.Overview
+		s.Overview = &o
 	}
 
-	if input.Targets != nil {
-		assoc.Targets = copyAssocTargets(input.Targets)
-	}
+	return s
 }
 
-// applyAssociationExtendedUpdates applies the State Manager fields added
-// alongside CreateAssociationInput (ApplyOnlyAtCronInterval/
-// AssociationDispatchAssumeRole/AutomationTargetParameterName/CalendarNames/
-// ComplianceSeverity/Duration/MaxConcurrency/MaxErrors/OutputLocation/
-// ScheduleExpression/SyncCompliance) to assoc in place. Split out of
-// UpdateAssociation to keep its cyclomatic complexity under the package
-// limit.
+// applyAssociationCoreUpdates replaces (not merges) assoc's original
+// settable properties: AWS nulls every omitted optional field (api_op_UpdateAssociation.go).
+func applyAssociationCoreUpdates(assoc *Association, input *UpdateAssociationInput) {
+	assoc.AssociationName = ptrconv.String(input.AssociationName)
+	assoc.DocumentVersion = ptrconv.String(input.DocumentVersion)
+	assoc.Parameters = copyAssocParameters(input.Parameters)
+	assoc.Targets = copyAssocTargets(input.Targets)
+}
+
+// applyAssociationExtendedUpdates applies the State Manager fields the same
+// way: replace, not merge -- see applyAssociationCoreUpdates.
 func applyAssociationExtendedUpdates(assoc *Association, input *UpdateAssociationInput) {
-	if input.ApplyOnlyAtCronInterval {
-		assoc.ApplyOnlyAtCronInterval = input.ApplyOnlyAtCronInterval
-	}
-
-	if input.AssociationDispatchAssumeRole != nil {
-		assoc.AssociationDispatchAssumeRole = *input.AssociationDispatchAssumeRole
-	}
-
-	if input.AutomationTargetParameterName != nil {
-		assoc.AutomationTargetParameterName = *input.AutomationTargetParameterName
-	}
-
-	if input.CalendarNames != nil {
-		assoc.CalendarNames = append([]string(nil), input.CalendarNames...)
-	}
-
-	if input.ComplianceSeverity != "" {
-		assoc.ComplianceSeverity = input.ComplianceSeverity
-	}
-
-	if input.Duration != nil {
-		assoc.Duration = input.Duration
-	}
-
-	if input.MaxConcurrency != nil {
-		assoc.MaxConcurrency = *input.MaxConcurrency
-	}
-
-	if input.MaxErrors != nil {
-		assoc.MaxErrors = *input.MaxErrors
-	}
-
-	if input.OutputLocation != nil {
-		assoc.OutputLocation = copyAssocOutputLocation(input.OutputLocation)
-	}
-
-	if input.ScheduleExpression != nil {
-		assoc.ScheduleExpression = *input.ScheduleExpression
-	}
-
-	if input.SyncCompliance != "" {
-		assoc.SyncCompliance = input.SyncCompliance
-	}
+	assoc.ApplyOnlyAtCronInterval = input.ApplyOnlyAtCronInterval
+	assoc.AssociationDispatchAssumeRole = ptrconv.String(input.AssociationDispatchAssumeRole)
+	assoc.AutomationTargetParameterName = ptrconv.String(input.AutomationTargetParameterName)
+	assoc.CalendarNames = append([]string(nil), input.CalendarNames...)
+	assoc.ComplianceSeverity = input.ComplianceSeverity
+	assoc.Duration = input.Duration
+	assoc.MaxConcurrency = ptrconv.String(input.MaxConcurrency)
+	assoc.MaxErrors = ptrconv.String(input.MaxErrors)
+	assoc.OutputLocation = copyAssocOutputLocation(input.OutputLocation)
+	assoc.ScheduleExpression = ptrconv.String(input.ScheduleExpression)
+	assoc.SyncCompliance = input.SyncCompliance
 }
 
 // UpdateAssociation updates an existing association.
@@ -736,11 +811,15 @@ func (b *InMemoryBackend) UpdateAssociation(
 
 	assoc := *assocPtr
 
+	b.seedAssociationVersionLocked(region, assocPtr)
+
 	applyAssociationCoreUpdates(&assoc, input)
 	applyAssociationExtendedUpdates(&assoc, input)
 
 	assoc.LastUpdateAssociationDate = UnixTimeFloat(timeNow())
+	assoc.AssociationVersion = strconv.Itoa(associationVersionNumber(assocPtr) + 1)
 	associations.Put(&assoc)
+	b.appendAssociationVersionLocked(region, &assoc)
 
 	return &UpdateAssociationOutput{AssociationDescription: assoc}, nil
 }

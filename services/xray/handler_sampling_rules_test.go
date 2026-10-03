@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -293,42 +294,44 @@ func TestSamplingRuleAttributes(t *testing.T) {
 func TestSamplingRuleModifiedAtInRecord(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: "time-rule", FixedRate: 0.1, Priority: 1})
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+		_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: "time-rule", FixedRate: 0.1, Priority: 1})
+		require.NoError(t, err)
 
-	// Small sleep so Modified and Created timestamps will differ after update.
-	time.Sleep(time.Millisecond * 2)
+		// Small sleep so Modified and Created timestamps will differ after update.
+		time.Sleep(time.Millisecond * 2)
 
-	_, err = b.UpdateSamplingRule("time-rule", xray.SamplingRule{ServiceName: "updated"})
-	require.NoError(t, err)
+		_, err = b.UpdateSamplingRule("time-rule", xray.SamplingRule{ServiceName: "updated"})
+		require.NoError(t, err)
 
-	h := xray.NewHandler(b)
-	rec := doXrayRequest(t, h, "/GetSamplingRules", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+		h := xray.NewHandler(b)
+		rec := doXrayRequest(t, h, "/GetSamplingRules", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	records, ok := resp["SamplingRuleRecords"].([]any)
-	require.True(t, ok)
-	// 2 rules: time-rule + Default.
-	require.Len(t, records, 2)
+		records, ok := resp["SamplingRuleRecords"].([]any)
+		require.True(t, ok)
+		// 2 rules: time-rule + Default.
+		require.Len(t, records, 2)
 
-	// The first record (sorted by priority=1) should be time-rule.
-	record, ok := records[0].(map[string]any)
-	require.True(t, ok)
+		// The first record (sorted by priority=1) should be time-rule.
+		record, ok := records[0].(map[string]any)
+		require.True(t, ok)
 
-	samplingRule, ok := record["SamplingRule"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "time-rule", samplingRule["RuleName"])
+		samplingRule, ok := record["SamplingRule"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "time-rule", samplingRule["RuleName"])
 
-	createdAt, ok1 := record["CreatedAt"].(float64)
-	modifiedAt, ok2 := record["ModifiedAt"].(float64)
+		createdAt, ok1 := record["CreatedAt"].(float64)
+		modifiedAt, ok2 := record["ModifiedAt"].(float64)
 
-	require.True(t, ok1)
-	require.True(t, ok2)
-	assert.GreaterOrEqual(t, modifiedAt, createdAt)
+		require.True(t, ok1)
+		require.True(t, ok2)
+		assert.GreaterOrEqual(t, modifiedAt, createdAt)
+	})
 }
 
 // TestDefaultSamplingRuleUndeletable verifies the Default rule cannot be deleted via handler.

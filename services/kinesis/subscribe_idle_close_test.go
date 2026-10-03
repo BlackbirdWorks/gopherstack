@@ -36,7 +36,8 @@ func TestSubscribeToShard_IdleCloseIsGraceful(t *testing.T) {
 		heartbeatInterval = 40 * time.Millisecond
 	)
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(
 		t,
 		kinesis.NewHandler(backend).WithSubscribeToShardTiming(streamDuration, pollInterval, heartbeatInterval),
@@ -48,6 +49,7 @@ func TestSubscribeToShard_IdleCloseIsGraceful(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 		StreamName: aws.String(streamName),

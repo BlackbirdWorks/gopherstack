@@ -265,39 +265,32 @@ type JobSample struct {
 // Dataset's AccountID doc comment; DescribeJobOutput
 // (api_op_DescribeJob.go:39+) has no AccountId member either.
 type Job struct {
-	// ProfileConfiguration is left untyped: it nests 4 levels deep
-	// (ProfileConfiguration -> ColumnStatisticsConfigurations ->
-	// Statistics(StatisticsConfiguration) -> Overrides([]StatisticOverride)),
-	// spans 6 distinct struct shapes, and carries two independent
-	// list-of-struct branches (column overrides and entity-detector
-	// AllowedStatistics) -- deep enough that a partial model risks silently
-	// dropping fields a client can't tell were never implemented.
-	ProfileConfiguration     map[string]any      `json:"ProfileConfiguration,omitempty"`
-	JobSample                *JobSample          `json:"JobSample,omitempty"`
-	Tags                     map[string]string   `json:"Tags,omitempty"`
-	RecipeReference          *RecipeRef          `json:"RecipeReference,omitempty"`
-	EncryptionMode           string              `json:"EncryptionMode,omitempty"`
-	EncryptionKeyArn         string              `json:"EncryptionKeyArn,omitempty"`
-	DatasetName              string              `json:"DatasetName,omitempty"`
-	ProjectName              string              `json:"ProjectName,omitempty"`
-	Name                     string              `json:"Name"`
-	CreatedBy                string              `json:"CreatedBy,omitempty"`
-	AccountID                string              `json:"AccountId,omitempty"`
-	RecipeName               string              `json:"-"`
-	RoleArn                  string              `json:"RoleArn,omitempty"`
-	LogSubscription          string              `json:"LogSubscription,omitempty"`
-	Type                     string              `json:"Type,omitempty"`
-	LastModifiedBy           string              `json:"LastModifiedBy,omitempty"`
-	Arn                      string              `json:"ResourceArn"`
-	ValidationConfigurations []map[string]any    `json:"ValidationConfigurations,omitempty"`
-	DataCatalogOutputs       []DataCatalogOutput `json:"DataCatalogOutputs,omitempty"`
-	DatabaseOutputs          []DatabaseOutput    `json:"DatabaseOutputs,omitempty"`
-	Outputs                  []Output            `json:"Outputs,omitempty"`
-	Timeout                  int                 `json:"Timeout,omitempty"`
-	MaxRetries               int                 `json:"MaxRetries,omitempty"`
-	MaxCapacity              int                 `json:"MaxCapacity,omitempty"`
-	LastModifiedDate         float64             `json:"LastModifiedDate,omitempty"`
-	CreateDate               float64             `json:"CreateDate,omitempty"`
+	ProfileConfiguration     *ProfileConfiguration     `json:"ProfileConfiguration,omitempty"`
+	JobSample                *JobSample                `json:"JobSample,omitempty"`
+	Tags                     map[string]string         `json:"Tags,omitempty"`
+	RecipeReference          *RecipeRef                `json:"RecipeReference,omitempty"`
+	EncryptionMode           string                    `json:"EncryptionMode,omitempty"`
+	EncryptionKeyArn         string                    `json:"EncryptionKeyArn,omitempty"`
+	DatasetName              string                    `json:"DatasetName,omitempty"`
+	ProjectName              string                    `json:"ProjectName,omitempty"`
+	Name                     string                    `json:"Name"`
+	CreatedBy                string                    `json:"CreatedBy,omitempty"`
+	AccountID                string                    `json:"AccountId,omitempty"`
+	RecipeName               string                    `json:"-"`
+	RoleArn                  string                    `json:"RoleArn,omitempty"`
+	LogSubscription          string                    `json:"LogSubscription,omitempty"`
+	Type                     string                    `json:"Type,omitempty"`
+	LastModifiedBy           string                    `json:"LastModifiedBy,omitempty"`
+	Arn                      string                    `json:"ResourceArn"`
+	ValidationConfigurations []ValidationConfiguration `json:"ValidationConfigurations,omitempty"`
+	DataCatalogOutputs       []DataCatalogOutput       `json:"DataCatalogOutputs,omitempty"`
+	DatabaseOutputs          []DatabaseOutput          `json:"DatabaseOutputs,omitempty"`
+	Outputs                  []Output                  `json:"Outputs,omitempty"`
+	Timeout                  int                       `json:"Timeout,omitempty"`
+	MaxRetries               int                       `json:"MaxRetries,omitempty"`
+	MaxCapacity              int                       `json:"MaxCapacity,omitempty"`
+	LastModifiedDate         float64                   `json:"LastModifiedDate,omitempty"`
+	CreateDate               float64                   `json:"CreateDate,omitempty"`
 }
 
 // JobExtras bundles the optional job fields that are specific to one of the
@@ -313,9 +306,7 @@ type Job struct {
 // CreateProfileJobInput/CreateRecipeJobInput both accept all three but the
 // pre-existing CreateJob signature silently dropped them.
 type JobExtras struct {
-	// ProfileConfiguration stays untyped -- see Job.ProfileConfiguration's
-	// doc comment.
-	ProfileConfiguration map[string]any
+	ProfileConfiguration *ProfileConfiguration
 	JobSample            *JobSample
 	// RecipeVersion is the caller-specified CreateRecipeJobInput.RecipeReference.RecipeVersion.
 	// Empty means the recipe's LATEST_WORKING draft, matching real
@@ -327,7 +318,7 @@ type JobExtras struct {
 	LogSubscription          string
 	DataCatalogOutputs       []DataCatalogOutput
 	DatabaseOutputs          []DatabaseOutput
-	ValidationConfigurations []map[string]any
+	ValidationConfigurations []ValidationConfiguration
 	MaxCapacity              int
 	MaxRetries               int
 	Timeout                  int
@@ -345,34 +336,47 @@ type JobExtras struct {
 // from, and, like CreatedBy/LastModifiedBy elsewhere in this package, there
 // is no caller-identity infrastructure to derive StartedBy from.
 type JobRun struct {
-	RecipeReference          *RecipeRef          `json:"RecipeReference,omitempty"`
-	JobSample                *JobSample          `json:"JobSample,omitempty"`
-	DatasetName              string              `json:"DatasetName,omitempty"`
-	JobName                  string              `json:"JobName"`
-	RunID                    string              `json:"RunId"`
-	State                    string              `json:"State"`
-	LogGroupName             string              `json:"LogGroupName,omitempty"`
-	LogSubscription          string              `json:"LogSubscription,omitempty"`
-	ErrorMessage             string              `json:"ErrorMessage,omitempty"`
-	StartedBy                string              `json:"StartedBy,omitempty"`
-	DataCatalogOutputs       []DataCatalogOutput `json:"DataCatalogOutputs,omitempty"`
-	DatabaseOutputs          []DatabaseOutput    `json:"DatabaseOutputs,omitempty"`
-	Outputs                  []Output            `json:"Outputs,omitempty"`
-	ValidationConfigurations []map[string]any    `json:"ValidationConfigurations,omitempty"`
-	StartedOn                float64             `json:"StartedOn,omitempty"`
-	CompletedOn              float64             `json:"CompletedOn,omitempty"`
-	ExecutionTime            int                 `json:"ExecutionTime,omitempty"`
-	Attempt                  int                 `json:"Attempt,omitempty"`
+	RecipeReference          *RecipeRef                `json:"RecipeReference,omitempty"`
+	JobSample                *JobSample                `json:"JobSample,omitempty"`
+	DatasetName              string                    `json:"DatasetName,omitempty"`
+	JobName                  string                    `json:"JobName"`
+	RunID                    string                    `json:"RunId"`
+	State                    string                    `json:"State"`
+	LogGroupName             string                    `json:"LogGroupName,omitempty"`
+	LogSubscription          string                    `json:"LogSubscription,omitempty"`
+	ErrorMessage             string                    `json:"ErrorMessage,omitempty"`
+	StartedBy                string                    `json:"StartedBy,omitempty"`
+	DataCatalogOutputs       []DataCatalogOutput       `json:"DataCatalogOutputs,omitempty"`
+	DatabaseOutputs          []DatabaseOutput          `json:"DatabaseOutputs,omitempty"`
+	Outputs                  []Output                  `json:"Outputs,omitempty"`
+	ValidationConfigurations []ValidationConfiguration `json:"ValidationConfigurations,omitempty"`
+	StartedOn                float64                   `json:"StartedOn,omitempty"`
+	CompletedOn              float64                   `json:"CompletedOn,omitempty"`
+	ExecutionTime            int                       `json:"ExecutionTime,omitempty"`
+	Attempt                  int                       `json:"Attempt,omitempty"`
 }
 
 // Rule represents a data quality rule.
 type Rule struct {
 	SubstitutionMap map[string]string `json:"SubstitutionMap,omitempty"`
-	Threshold       map[string]any    `json:"Threshold,omitempty"`
+	Threshold       *Threshold        `json:"Threshold,omitempty"`
 	Name            string            `json:"Name"`
 	CheckExpression string            `json:"CheckExpression"`
-	ColumnSelectors []map[string]any  `json:"ColumnSelectors,omitempty"`
+	ColumnSelectors []ColumnSelector  `json:"ColumnSelectors,omitempty"`
 	Disabled        bool              `json:"Disabled,omitempty"`
+}
+
+// Threshold is types.Threshold (databrew@v1.42.4); Value is required, so never omitted.
+type Threshold struct {
+	Type  string  `json:"Type,omitempty"`
+	Unit  string  `json:"Unit,omitempty"`
+	Value float64 `json:"Value"`
+}
+
+// ColumnSelector is types.ColumnSelector (databrew@v1.42.4).
+type ColumnSelector struct {
+	Name  string `json:"Name,omitempty"`
+	Regex string `json:"Regex,omitempty"`
 }
 
 // Ruleset is the internal storage representation of a DataBrew data quality
@@ -472,4 +476,47 @@ type Schedule struct {
 	JobNames         []string          `json:"JobNames,omitempty"`
 	CreateDate       float64           `json:"CreateDate,omitempty"`
 	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
+}
+
+// ProfileConfiguration is types.ProfileConfiguration (databrew@v1.42.4).
+type ProfileConfiguration struct {
+	DatasetStatisticsConfiguration *StatisticsConfiguration        `json:"DatasetStatisticsConfiguration,omitempty"`
+	EntityDetectorConfiguration    *EntityDetectorConfiguration    `json:"EntityDetectorConfiguration,omitempty"`
+	ColumnStatisticsConfigurations []ColumnStatisticsConfiguration `json:"ColumnStatisticsConfigurations,omitempty"`
+	ProfileColumns                 []ColumnSelector                `json:"ProfileColumns,omitempty"`
+}
+
+// ColumnStatisticsConfiguration is types.ColumnStatisticsConfiguration; Statistics is required.
+type ColumnStatisticsConfiguration struct {
+	Statistics *StatisticsConfiguration `json:"Statistics"`
+	Selectors  []ColumnSelector         `json:"Selectors,omitempty"`
+}
+
+// StatisticsConfiguration is types.StatisticsConfiguration.
+type StatisticsConfiguration struct {
+	IncludedStatistics []string            `json:"IncludedStatistics,omitempty"`
+	Overrides          []StatisticOverride `json:"Overrides,omitempty"`
+}
+
+// StatisticOverride is types.StatisticOverride; Statistic and Parameters are required.
+type StatisticOverride struct {
+	Parameters map[string]string `json:"Parameters"`
+	Statistic  string            `json:"Statistic"`
+}
+
+// EntityDetectorConfiguration is types.EntityDetectorConfiguration; EntityTypes is required.
+type EntityDetectorConfiguration struct {
+	EntityTypes       []string            `json:"EntityTypes"`
+	AllowedStatistics []AllowedStatistics `json:"AllowedStatistics,omitempty"`
+}
+
+// AllowedStatistics is types.AllowedStatistics; Statistics is required.
+type AllowedStatistics struct {
+	Statistics []string `json:"Statistics"`
+}
+
+// ValidationConfiguration is types.ValidationConfiguration; RulesetArn is required.
+type ValidationConfiguration struct {
+	RulesetArn     string `json:"RulesetArn"`
+	ValidationMode string `json:"ValidationMode,omitempty"`
 }

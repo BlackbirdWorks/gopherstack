@@ -76,11 +76,8 @@ func validateFilterAction(action string) error {
 // rule, not a one-off action -- the finding-creation-time half of that rule
 // (newly seeded findings matching an already-active SUPPRESS filter) is
 // handled by matchesSuppressFilter, called from findings.go's
-// SeedFinding/AddFinding. Reverting a finding to ACTIVE when a filter is
-// later deleted or its action changed away from SUPPRESS is not modeled:
-// neither the SDK doc comments nor the API Reference say whether real
-// Inspector2 does this, and guessing wrong would trade a disclosed gap for a
-// fabricated behavior. Caller must already hold b.mu.
+// SeedFinding/AddFinding. Reversal on delete is reactivateUnsuppressedFindings;
+// reversal on an action change is undocumented and not modeled. Caller must hold b.mu.
 func (b *InMemoryBackend) suppressMatchingFindings(f *Filter) {
 	if f.Action != filterActionSuppress {
 		return
@@ -227,16 +224,38 @@ func (b *InMemoryBackend) UpdateFilter(
 	return f, nil
 }
 
+// reactivateUnsuppressedFindings reactivates findings a deleted SUPPRESS filter matched
+// unless another SUPPRESS filter still matches. Caller must hold b.mu.
+func (b *InMemoryBackend) reactivateUnsuppressedFindings(deleted *Filter) {
+	if deleted.Action != filterActionSuppress {
+		return
+	}
+
+	fc := parseFindingFilterCriteria(deleted.Criteria)
+
+	b.findings.Range(func(sf *storedFinding) bool {
+		if sf.Status == findingStatusSuppressed && fc.matches(&sf.Finding) && !b.matchesSuppressFilter(&sf.Finding) {
+			sf.Status = findingStatusActive
+		}
+
+		return true
+	})
+}
+
 // DeleteFilter deletes a filter by ARN.
 func (b *InMemoryBackend) DeleteFilter(filterARN string) error {
 	b.mu.Lock("DeleteFilter")
 	defer b.mu.Unlock()
 
-	if !b.filters.Delete(filterARN) {
+	deleted, ok := b.filters.Get(filterARN)
+	if !ok {
 		return ErrFilterNotFound
 	}
 
+	deletedCopy := *deleted
+	b.filters.Delete(filterARN)
 	delete(b.tags, filterARN)
+	b.reactivateUnsuppressedFindings(&deletedCopy)
 
 	return nil
 }
@@ -271,6 +290,7 @@ func (b *InMemoryBackend) ListFilters(
 		}
 
 		clone := *f
+		clone.Tags = maps.Clone(f.Tags)
 		matched = append(matched, &clone)
 	}
 

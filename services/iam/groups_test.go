@@ -362,7 +362,7 @@ func TestListGroupsForUser(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 			tt.setup(b)
 
-			groups, err := b.ListGroupsForUser(tt.userName)
+			p, err := b.ListGroupsForUser(tt.userName, "", 0)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -370,7 +370,7 @@ func TestListGroupsForUser(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Len(t, groups, tt.wantGroups)
+			assert.Len(t, p.Data, tt.wantGroups)
 		})
 	}
 }

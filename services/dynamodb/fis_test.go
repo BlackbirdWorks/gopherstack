@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -74,34 +75,37 @@ func TestDynamoDB_ExecuteFISAction_PauseReplication(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db := dynamodb.NewInMemoryDB()
-			h := dynamodb.NewHandler(db)
+			synctest.Test(t, func(t *testing.T) {
+				db := dynamodb.NewInMemoryDB()
+				h := dynamodb.NewHandler(db)
 
-			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
-				ActionID: "aws:dynamodb:global-table-pause-replication",
-				Targets:  tt.targets,
-				Duration: tt.duration,
+				err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
+					ActionID: "aws:dynamodb:global-table-pause-replication",
+					Targets:  tt.targets,
+					Duration: tt.duration,
+				})
+
+				if tt.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+
+				// Verify replication pause state is recorded.
+				if len(tt.targets) > 0 {
+					assert.True(t, db.IsReplicationPaused(tt.targets[0]),
+						"replication should be marked as paused for target %s", tt.targets[0])
+				}
+
+				// Verify the pause clears after the duration.
+				if tt.duration > 0 && len(tt.targets) > 0 {
+					time.Sleep(tt.duration + 50*time.Millisecond)
+					synctest.Wait()
+
+					assert.False(t, db.IsReplicationPaused(tt.targets[0]),
+						"replication pause should have expired after duration")
+				}
 			})
-
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-
-			// Verify replication pause state is recorded.
-			if len(tt.targets) > 0 {
-				assert.True(t, db.IsReplicationPaused(tt.targets[0]),
-					"replication should be marked as paused for target %s", tt.targets[0])
-			}
-
-			// Verify the pause clears after the duration.
-			if tt.duration > 0 && len(tt.targets) > 0 {
-				time.Sleep(tt.duration + 50*time.Millisecond)
-
-				assert.False(t, db.IsReplicationPaused(tt.targets[0]),
-					"replication pause should have expired after duration")
-			}
 		})
 	}
 }
@@ -122,29 +126,30 @@ func TestDynamoDB_ExecuteFISAction_Unknown(t *testing.T) {
 func TestDynamoDB_ExecuteFISAction_PauseReplication_CtxCancel(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	h := dynamodb.NewHandler(db)
+	synctest.Test(t, func(t *testing.T) {
+		db := dynamodb.NewInMemoryDB()
+		h := dynamodb.NewHandler(db)
 
-	const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/CancelTable"
+		const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/CancelTable"
 
-	ctx, cancel := context.WithCancel(t.Context())
+		ctx, cancel := context.WithCancel(t.Context())
 
-	// Activate indefinite pause (dur==0).
-	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
-		ActionID: "aws:dynamodb:global-table-pause-replication",
-		Targets:  []string{tableARN},
-		Duration: 0,
+		// Activate indefinite pause (dur==0).
+		err := h.ExecuteFISAction(ctx, service.FISActionExecution{
+			ActionID: "aws:dynamodb:global-table-pause-replication",
+			Targets:  []string{tableARN},
+			Duration: 0,
+		})
+		require.NoError(t, err)
+
+		assert.True(t, db.IsReplicationPaused(tableARN), "pause should be active")
+
+		// Cancel ctx (simulates StopExperiment).
+		cancel()
+		synctest.Wait()
+
+		assert.False(t, db.IsReplicationPaused(tableARN), "pause should clear after ctx cancel")
 	})
-	require.NoError(t, err)
-
-	assert.True(t, db.IsReplicationPaused(tableARN), "pause should be active")
-
-	// Cancel ctx (simulates StopExperiment).
-	cancel()
-
-	require.Eventually(t, func() bool {
-		return !db.IsReplicationPaused(tableARN)
-	}, 2*time.Second, 20*time.Millisecond, "pause should clear after ctx cancel")
 }
 
 func TestDynamoDB_IsReplicationPaused_LazyEviction(t *testing.T) {

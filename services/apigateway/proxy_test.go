@@ -56,55 +56,55 @@ func (c *captureInvoker) InvokeFunction(_ context.Context, _, _ string, payload 
 // setupProxyAPIViaHandler creates a full API setup using HTTP handler calls.
 // Returns (handler, echoEngine, apiID).
 func setupProxyAPIViaHandler(
-	t *testing.T,
+	tb testing.TB,
 	integrationType, uri string,
 ) (*apigateway.Handler, *echo.Echo, string) {
-	t.Helper()
+	tb.Helper()
 
 	backend := apigateway.NewInMemoryBackend()
 	h := apigateway.NewHandler(backend)
 	e := echo.New()
 
 	// Create REST API.
-	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"proxy-api","description":"test"}`)
-	require.Equal(t, http.StatusCreated, createRec.Code)
+	createRec := postWithHandler(tb, h, e, "CreateRestApi", `{"name":"proxy-api","description":"test"}`)
+	require.Equal(tb, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(tb, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	apiID := createResp["id"].(string)
 
 	// Get root resource.
-	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
-	require.Equal(t, http.StatusOK, listRec.Code)
+	listRec := postWithHandler(tb, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
+	require.Equal(tb, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(tb, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create child resource.
-	childRec := postWithHandler(t, h, e, "CreateResource",
+	childRec := postWithHandler(tb, h, e, "CreateResource",
 		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"items"}`)
-	require.Equal(t, http.StatusCreated, childRec.Code)
+	require.Equal(tb, http.StatusCreated, childRec.Code)
 
 	var childResp map[string]any
-	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+	require.NoError(tb, json.Unmarshal(childRec.Body.Bytes(), &childResp))
 	childID := childResp["id"].(string)
 
 	// PutMethod.
-	methodRec := postWithHandler(t, h, e, "PutMethod",
+	methodRec := postWithHandler(tb, h, e, "PutMethod",
 		`{"restApiId":"`+apiID+`","resourceId":"`+childID+`","httpMethod":"POST","authorizationType":"NONE"}`)
-	require.Equal(t, http.StatusCreated, methodRec.Code)
+	require.Equal(tb, http.StatusCreated, methodRec.Code)
 
 	// PutIntegration.
 	integBody := `{"restApiId":"` + apiID + `","resourceId":"` + childID + `","httpMethod":"POST","type":"` +
 		integrationType + `","uri":"` + uri + `"}`
-	integRec := postWithHandler(t, h, e, "PutIntegration", integBody)
-	require.Equal(t, http.StatusCreated, integRec.Code)
+	integRec := postWithHandler(tb, h, e, "PutIntegration", integBody)
+	require.Equal(tb, http.StatusCreated, integRec.Code)
 
 	// CreateDeployment.
-	deplRec := postWithHandler(t, h, e, "CreateDeployment",
+	deplRec := postWithHandler(tb, h, e, "CreateDeployment",
 		`{"restApiId":"`+apiID+`","stageName":"prod","description":"v1"}`)
-	require.Equal(t, http.StatusCreated, deplRec.Code)
+	require.Equal(tb, http.StatusCreated, deplRec.Code)
 
 	return h, e, apiID
 }
@@ -113,12 +113,12 @@ const testStageName = "prod"
 
 // proxyReq makes a POST request via the /proxy/{apiId}/prod/{path} endpoint.
 func proxyReq(
-	t *testing.T,
+	tb testing.TB,
 	h *apigateway.Handler,
 	e *echo.Echo,
 	apiID, path, body string,
 ) *httptest.ResponseRecorder {
-	t.Helper()
+	tb.Helper()
 
 	url := "/proxy/" + apiID + "/" + testStageName + path
 	var req *http.Request
@@ -133,7 +133,7 @@ func proxyReq(
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	err := h.Handler()(c)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	return rec
 }

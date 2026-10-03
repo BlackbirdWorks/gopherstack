@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -122,11 +123,13 @@ import (
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
+	dsqlbackend "github.com/blackbirdworks/gopherstack/services/dsql"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
@@ -154,9 +157,11 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -259,6 +264,7 @@ const (
 	emrServerlessRoleARN = "arn:aws:iam::000000000000:role/EMRServerlessRole"
 	envProduction        = "production"
 	kinesisServiceName   = "kinesis"
+	compressionOff       = "off"
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -358,8 +364,10 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
+	dsqlHandler                   service.Registerable
 	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
+	ecrPublicHandler              service.Registerable
 	ecsHandler                    service.Registerable
 	efsHandler                    service.Registerable
 	eksHandler                    service.Registerable
@@ -381,7 +389,9 @@ type CLI struct {
 	inspector2Handler             service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
+	kafkaconnectHandler           service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
+	kinesisvideoHandler           service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
 	mqHandler                     service.Registerable
@@ -422,25 +432,30 @@ type CLI struct {
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
 	shutdownDeadline              time.Time
-	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
-	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`             //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                               //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`             //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"  default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                 //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                            `                                       name:"port"                    env:"PORT"                    default:"8000"          help:"HTTP server port."`                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"    default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`         //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                     //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"               default:"info"          help:"Log level (debug|info|warn|error)."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                            `                                       name:"region"                  env:"REGION"                  default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                       //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"       default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                    //nolint:lll // config struct tags are intentionally verbose
-	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`   //nolint:lll // config struct tags are intentionally verbose
-	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                           //nolint:lll // config struct tags are intentionally verbose
-	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`           //nolint:lll // config struct tags are intentionally verbose
-	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
-	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"            default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"               default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"              default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"              default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"  default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                            `                                       name:"port"                    env:"PORT"                    default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"    default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"               default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Region                        string                            `                                       name:"region"                  env:"REGION"                  default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"       default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"             default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
+	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
@@ -1179,6 +1194,18 @@ func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticach
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
 
+// GetEKSEngine returns the EKS engine mode (eks.EngineConfig).
+func (c *CLI) GetEKSEngine() string { return c.EKSEngine }
+
+// GetMQEngine returns the Amazon MQ engine mode (mq.EngineConfig).
+func (c *CLI) GetMQEngine() string { return c.MQEngine }
+
+// GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
+func (c *CLI) GetRDSEngine() string { return c.RDSEngine }
+
+// GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
+func (c *CLI) GetKafkaEngine() string { return c.KafkaEngine }
+
 // GetRoute53Handler returns the Route 53 handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1302,6 +1329,11 @@ func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 
+// GetECRPublicHandler returns the ECR Public handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetECRPublicHandler() service.Registerable { return c.ecrPublicHandler }
+
 // GetECSHandler returns the ECS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1367,12 +1399,22 @@ func (c *CLI) GetInspector2Handler() service.Registerable { return c.inspector2H
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 
+// GetKafkaConnectHandler returns the MSK Connect handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKafkaConnectHandler() service.Registerable { return c.kafkaconnectHandler }
+
 // GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
 	return c.kinesisanalyticsv2Handler
 }
+
+// GetKinesisVideoHandler returns the Kinesis Video Streams handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisVideoHandler() service.Registerable { return c.kinesisvideoHandler }
 
 // GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
 //
@@ -1735,6 +1777,11 @@ func (c *CLI) GetElasticbeanstalkHandler() service.Registerable { return c.elast
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetDocDBHandler() service.Registerable { return c.docdbHandler }
+
+// GetDSQLHandler returns the Aurora DSQL handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDSQLHandler() service.Registerable { return c.dsqlHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -2362,6 +2409,7 @@ func buildEchoServer(
 	e.GET("/_localstack/init/ready", buildLocalstackInitHandler())
 	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
+	registerLocalstackDevEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 
@@ -2778,6 +2826,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.bedrockHandler = byName["Bedrock"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
+	cli.ecrPublicHandler = byName["ECRPublic"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
@@ -2819,7 +2868,9 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.inspector2Handler = byName["Inspector2"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.kafkaconnectHandler = byName["KafkaConnect"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
+	cli.kinesisvideoHandler = byName["KinesisVideo"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mqHandler = byName["MQ"]
@@ -2835,6 +2886,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mwaaHandler = byName["MWAA"]
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
+	cli.dsqlHandler = byName["DSQL"]
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.rdsdataHandler = byName["RDSData"]
@@ -2945,7 +2997,7 @@ func wireCrossServiceDependencies(
 	wireComputeAndObservabilityIntegrations(appCtx, byName)
 	wireCWLogsMetricEmitters(byName)
 	wireStorageAndSecretsIntegrations(byName)
-	wireAppSyncAndStreamsIntegrations(byName)
+	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
 }
@@ -3062,6 +3114,8 @@ func wireEventSourcePollers(byName map[string]service.Registerable) {
 
 	// Wire SQS → Lambda event source mapping poller.
 	wireSQSLambda(byName["SQS"], byName["Lambda"])
+	wireMSKLambda(byName["Kafka"], byName["Lambda"])
+	wireMQLambda(byName["MQ"], byName["SecretsManager"], byName["Lambda"])
 
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
@@ -3189,26 +3243,45 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireEFSCrossService(byName["EFS"], byName["EC2"])
 }
 
+// ec2Regions gives services that are not region-aware themselves a view over
+// every region's EC2 backend, home region first.
+type ec2Regions struct {
+	handler *ec2backend.Handler
+}
+
+// any reports whether fn holds for some region's backend.
+func (r ec2Regions) any(fn func(ec2backend.Backend) bool) bool {
+	return slices.ContainsFunc(r.handler.RegionBackends(), fn)
+}
+
+// forARN returns the backend for the region named by arn, or the home backend.
+func (r ec2Regions) forARN(arn string) *ec2backend.InMemoryBackend {
+	bk, _ := r.handler.BackendFor(arnRegion(arn)).(*ec2backend.InMemoryBackend)
+
+	return bk
+}
+
 // directConnectEC2ResolverAdapter adapts the EC2 backend to the
 // directconnect.EC2GatewayResolver interface.
 type directConnectEC2ResolverAdapter struct {
-	backend *ec2backend.InMemoryBackend
+	regions ec2Regions
 }
 
 func (a *directConnectEC2ResolverAdapter) ResolveVpnGateway(id string) bool {
-	return len(a.backend.DescribeVpnGateways([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeVpnGateways([]string{id})) > 0 })
 }
 
 func (a *directConnectEC2ResolverAdapter) ResolveTransitGateway(id string) bool {
-	return len(a.backend.DescribeTransitGateways([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeTransitGateways([]string{id})) > 0 })
 }
 
 func (a *directConnectEC2ResolverAdapter) VirtualGateways() []string {
-	vgws := a.backend.DescribeVpnGateways(nil)
-	ids := make([]string, 0, len(vgws))
+	var ids []string
 
-	for _, v := range vgws {
-		ids = append(ids, v.VpnGatewayID)
+	for _, b := range a.regions.handler.RegionBackends() {
+		for _, v := range b.DescribeVpnGateways(nil) {
+			ids = append(ids, v.VpnGatewayID)
+		}
 	}
 
 	return ids
@@ -3227,12 +3300,7 @@ func wireDirectConnectEC2(directconnectReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{backend: ec2Bk})
+	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // arnResourceID extracts the trailing resource-id segment of an ARN's
@@ -3251,37 +3319,44 @@ func arnResourceID(arnStr string) string {
 // networkManagerEC2ResolverAdapter adapts the EC2 backend to the
 // networkmanager.EC2Resolver interface.
 type networkManagerEC2ResolverAdapter struct {
-	backend *ec2backend.InMemoryBackend
+	regions ec2Regions
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveVpc(vpcArn string) bool {
-	return len(a.backend.DescribeVpcs([]string{arnResourceID(vpcArn)})) > 0
+	return len(a.regions.forARN(vpcArn).DescribeVpcs([]string{arnResourceID(vpcArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveSubnet(subnetArn string) bool {
-	return len(a.backend.DescribeSubnets([]string{arnResourceID(subnetArn)})) > 0
+	return len(a.regions.forARN(subnetArn).DescribeSubnets([]string{arnResourceID(subnetArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveCustomerGateway(customerGatewayArn string) bool {
-	cgws, err := a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
+	cgws, err := a.regions.forARN(customerGatewayArn).
+		DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
 
 	return err == nil && len(cgws) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGateway(transitGatewayArn string) bool {
-	return len(a.backend.DescribeTransitGateways([]string{arnResourceID(transitGatewayArn)})) > 0
+	bk := a.regions.forARN(transitGatewayArn)
+
+	return len(bk.DescribeTransitGateways([]string{arnResourceID(transitGatewayArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveVpnConnection(vpnConnectionArn string) bool {
-	return len(a.backend.DescribeVpnConnections([]string{arnResourceID(vpnConnectionArn)})) > 0
+	return len(a.regions.forARN(vpnConnectionArn).DescribeVpnConnections([]string{arnResourceID(vpnConnectionArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayConnectPeer(transitGatewayConnectPeerArn string) bool {
-	return len(a.backend.DescribeTransitGatewayConnectPeers([]string{arnResourceID(transitGatewayConnectPeerArn)})) > 0
+	bk := a.regions.forARN(transitGatewayConnectPeerArn)
+
+	return len(bk.DescribeTransitGatewayConnectPeers([]string{arnResourceID(transitGatewayConnectPeerArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayRouteTable(transitGatewayRouteTableArn string) bool {
-	return len(a.backend.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
+	bk := a.regions.forARN(transitGatewayRouteTableArn)
+
+	return len(bk.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
 }
 
 // TransitGatewayRouteTableForAttachment resolves a TGW VPC attachment to
@@ -3293,18 +3368,19 @@ func (a *networkManagerEC2ResolverAdapter) TransitGatewayRouteTableForAttachment
 	transitGatewayAttachmentArn string,
 ) (string, bool) {
 	attachmentID := arnResourceID(transitGatewayAttachmentArn)
+	backend := a.regions.forARN(transitGatewayAttachmentArn)
 
-	atts := a.backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
+	atts := backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
 	if len(atts) == 0 || atts[0].State != "available" {
 		return "", false
 	}
 
-	for _, rt := range a.backend.DescribeTransitGatewayRouteTables(nil) {
+	for _, rt := range backend.DescribeTransitGatewayRouteTables(nil) {
 		if rt.TransitGatewayID != atts[0].TransitGatewayID {
 			continue
 		}
 
-		assocs, err := a.backend.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
+		assocs, err := backend.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
 		if err != nil {
 			continue
 		}
@@ -3328,15 +3404,16 @@ func (a *networkManagerEC2ResolverAdapter) CustomerGatewayArnsForTransitGateway(
 	transitGatewayArn string,
 ) []string {
 	tgwID := arnResourceID(transitGatewayArn)
+	backend := a.regions.forARN(transitGatewayArn)
 
 	var out []string
 
-	for _, vc := range a.backend.DescribeVpnConnections(nil) {
+	for _, vc := range backend.DescribeVpnConnections(nil) {
 		if vc.TransitGatewayID != tgwID || vc.CustomerGatewayID == "" {
 			continue
 		}
 
-		out = append(out, "arn:aws:ec2:"+a.backend.Region+":"+a.backend.AccountID+
+		out = append(out, "arn:aws:ec2:"+backend.Region+":"+backend.AccountID+
 			":customer-gateway/"+vc.CustomerGatewayID)
 	}
 
@@ -3346,9 +3423,14 @@ func (a *networkManagerEC2ResolverAdapter) CustomerGatewayArnsForTransitGateway(
 func (a *networkManagerEC2ResolverAdapter) TransitGatewayRoutes(
 	routeTableID string,
 ) []networkmanagerbackend.EC2TransitGatewayRoute {
-	routes, err := a.backend.SearchTransitGatewayRoutes(routeTableID, nil)
-	if err != nil {
-		return nil
+	var routes []*ec2backend.TransitGatewayRoute
+
+	for _, b := range a.regions.handler.RegionBackends() {
+		if found, err := b.SearchTransitGatewayRoutes(routeTableID, nil); err == nil {
+			routes = found
+
+			break
+		}
 	}
 
 	out := make([]networkmanagerbackend.EC2TransitGatewayRoute, 0, len(routes))
@@ -3381,12 +3463,7 @@ func wireNetworkManagerEC2(networkmanagerReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	networkmanagerH.Backend.SetEC2Resolver(&networkManagerEC2ResolverAdapter{backend: ec2Bk})
+	networkmanagerH.Backend.SetEC2Resolver(&networkManagerEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // networkManagerDirectConnectResolverAdapter adapts the DirectConnect
@@ -3423,19 +3500,19 @@ func wireNetworkManagerDirectConnect(networkmanagerReg, directconnectReg service
 
 // elbEC2ResolverAdapter adapts the EC2 backend to the elb.EC2Resolver interface.
 type elbEC2ResolverAdapter struct {
-	backend ec2backend.Backend
+	regions ec2Regions
 }
 
 func (a *elbEC2ResolverAdapter) SecurityGroupExists(id string) bool {
-	return len(a.backend.DescribeSecurityGroups([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeSecurityGroups([]string{id})) > 0 })
 }
 
 func (a *elbEC2ResolverAdapter) SubnetExists(id string) bool {
-	return len(a.backend.DescribeSubnets([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeSubnets([]string{id})) > 0 })
 }
 
 func (a *elbEC2ResolverAdapter) InstanceExists(id string) bool {
-	return len(a.backend.DescribeInstances([]string{id}, "")) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeInstances([]string{id}, "")) > 0 })
 }
 
 // elbCertificateResolverAdapter adapts the ACM and IAM backends to the
@@ -3448,6 +3525,30 @@ type elbCertificateResolverAdapter struct {
 	iamBackend *iambackend.InMemoryBackend
 }
 
+// elbResolverServerCertMatches walks every page of IAM server certificates
+// looking for certARN, since ListServerCertificates now paginates.
+func elbResolverServerCertMatches(b *iambackend.InMemoryBackend, certARN string) bool {
+	marker := ""
+	for {
+		p, err := b.ListServerCertificates("", marker, 0)
+		if err != nil {
+			return false
+		}
+
+		for _, c := range p.Data {
+			if c.Arn == certARN {
+				return true
+			}
+		}
+
+		if p.Next == "" {
+			return false
+		}
+
+		marker = p.Next
+	}
+}
+
 func (a *elbCertificateResolverAdapter) ResolveCertificate(ctx context.Context, certARN string) bool {
 	if a.acmBackend != nil {
 		if _, err := a.acmBackend.DescribeCertificate(ctx, certARN); err == nil {
@@ -3455,15 +3556,8 @@ func (a *elbCertificateResolverAdapter) ResolveCertificate(ctx context.Context, 
 		}
 	}
 
-	if a.iamBackend != nil {
-		certs, err := a.iamBackend.ListServerCertificates("")
-		if err == nil {
-			for _, c := range certs {
-				if c.Arn == certARN {
-					return true
-				}
-			}
-		}
+	if a.iamBackend != nil && elbResolverServerCertMatches(a.iamBackend, certARN) {
+		return true
 	}
 
 	return false
@@ -3484,7 +3578,7 @@ func wireELBCrossService(elbReg, ec2Reg, acmReg, iamReg service.Registerable) {
 	}
 
 	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
-		elbBk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+		elbBk.SetEC2Resolver(&elbEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 	}
 
 	var acmBk *acmbackend.InMemoryBackend
@@ -3519,15 +3613,8 @@ func (a *elbv2CertificateResolverAdapter) ResolveCertificate(certARN string) boo
 		}
 	}
 
-	if a.iamBackend != nil {
-		certs, err := a.iamBackend.ListServerCertificates("")
-		if err == nil {
-			for _, c := range certs {
-				if c.Arn == certARN {
-					return true
-				}
-			}
-		}
+	if a.iamBackend != nil && elbResolverServerCertMatches(a.iamBackend, certARN) {
+		return true
 	}
 
 	return false
@@ -3561,7 +3648,7 @@ func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable
 	}
 
 	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
-		elbv2Bk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+		elbv2Bk.SetEC2Resolver(&elbEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 	}
 
 	var acmBk *acmbackend.InMemoryBackend
@@ -3581,29 +3668,35 @@ func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable
 
 // efsEC2ResolverAdapter adapts the EC2 backend to the efs.EC2Resolver interface.
 type efsEC2ResolverAdapter struct {
-	backend ec2backend.Backend
+	regions ec2Regions
 }
 
-func (a *efsEC2ResolverAdapter) SubnetExists(id string) bool {
-	return len(a.backend.DescribeSubnets([]string{id})) > 0
-}
-
-func (a *efsEC2ResolverAdapter) SubnetVPC(id string) string {
-	subnets := a.backend.DescribeSubnets([]string{id})
-	if len(subnets) == 0 {
-		return ""
+func (a *efsEC2ResolverAdapter) subnet(id string) *ec2backend.Subnet {
+	for _, b := range a.regions.handler.RegionBackends() {
+		if subnets := b.DescribeSubnets([]string{id}); len(subnets) > 0 {
+			return subnets[0]
+		}
 	}
 
-	return subnets[0].VPCID
+	return nil
+}
+
+func (a *efsEC2ResolverAdapter) SubnetExists(id string) bool { return a.subnet(id) != nil }
+
+func (a *efsEC2ResolverAdapter) SubnetVPC(id string) string {
+	if sn := a.subnet(id); sn != nil {
+		return sn.VPCID
+	}
+
+	return ""
 }
 
 func (a *efsEC2ResolverAdapter) SubnetAZ(id string) string {
-	subnets := a.backend.DescribeSubnets([]string{id})
-	if len(subnets) == 0 {
-		return ""
+	if sn := a.subnet(id); sn != nil {
+		return sn.AvailabilityZone
 	}
 
-	return subnets[0].AvailabilityZone
+	return ""
 }
 
 // wireEFSCrossService wires the EFS backend to EC2 so CreateMountTarget
@@ -3621,7 +3714,7 @@ func wireEFSCrossService(efsReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{backend: ec2H.Backend})
+	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit
@@ -3749,6 +3842,9 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// the real KMS backend instead of stored opaquely.
 	wireSecretsManagerKMS(byName["SecretsManager"], byName["KMS"])
 
+	// Route RDS Data API calls for docker-backed Aurora clusters to their real database.
+	wireRDSData(byName["RDSData"], byName["RDS"], byName["SecretsManager"])
+
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
 
@@ -3825,7 +3921,7 @@ func wireAppConfigDeployments(appconfigReg, appconfigdataReg service.Registerabl
 // wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB
 // resolvers, AppSync's Cognito/OIDC JWT verification, DynamoDB Streams to the
 // DynamoDB backend, and CloudFront KeyValueStore to the CloudFront backend.
-func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
+func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, sigV4Secret string) {
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
@@ -3834,6 +3930,8 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire AppSync → Cognito for AMAZON_COGNITO_USER_POOLS/OPENID_CONNECT JWT signature verification.
 	wireAppSyncCognito(byName["AppSync"], byName["CognitoIDP"])
+
+	wireAppSyncSigV4(byName["AppSync"], sigV4Secret)
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
@@ -4052,12 +4150,16 @@ func getRemainingServiceProviders() []service.Provider {
 		&guarddutybackend.Provider{},
 		&inspector2backend.Provider{},
 		&docdbbackend.Provider{},
+		&dsqlbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&kafkaconnectbackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
+		&kinesisvideobackend.Provider{},
+		&ecrpublicbackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
@@ -4487,7 +4589,7 @@ func wireEventBridgeExtendedTargets(
 
 	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
 		if ecsBk, bkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); bkOk {
-			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk}
+			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk, handler: ecsH}
 		}
 	}
 
@@ -4585,6 +4687,19 @@ func (a *ebFirehoseAdapter) PutRecord(ctx context.Context, deliveryStreamARN, da
 // and eventbridge.ECSTaskRunnerWithParams interfaces.
 type ebECSTaskRunnerAdapter struct {
 	backend *ecsbackend.InMemoryBackend
+	handler *ecsbackend.Handler
+}
+
+const arnFieldCount = 6
+
+// arnRegion returns the region field of an ARN, or "" when s is not an ARN.
+func arnRegion(s string) string {
+	parts := strings.SplitN(s, ":", arnFieldCount)
+	if len(parts) < arnFieldCount || parts[0] != "arn" {
+		return ""
+	}
+
+	return parts[3]
 }
 
 func (a *ebECSTaskRunnerAdapter) RunTask(ctx context.Context, clusterARN string, payload []byte) error {
@@ -4723,7 +4838,15 @@ func (a *ebECSTaskRunnerAdapter) RunTaskWithParams(
 	payload []byte,
 ) error {
 	runInput := buildECSRunInput(clusterARN, params, payload)
-	_, _, err := a.backend.RunTask(runInput)
+	bk := a.backend
+
+	if a.handler != nil {
+		if regional, ok := a.handler.BackendFor(arnRegion(clusterARN)).(*ecsbackend.InMemoryBackend); ok {
+			bk = regional
+		}
+	}
+
+	_, _, err := bk.RunTask(runInput)
 
 	return err
 }
@@ -5204,14 +5327,12 @@ func wireAPIGatewayCognito(apigwReg, apigwv2Reg, cognitoReg service.Registerable
 		return
 	}
 
-	cognitoBk := cognitoH.Backend
-
 	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
-		apigwH.SetJWKSProvider(cognitoBk)
+		apigwH.SetJWKSProvider(cognitoH)
 	}
 
 	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
-		apigwv2H.SetJWKSProvider(cognitoBk)
+		apigwv2H.SetJWKSProvider(cognitoH)
 	}
 }
 
@@ -5484,6 +5605,50 @@ func wireSQSLambda(sqsReg, lambdaReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			lambdaBk.SetSQSReader(&sqsReaderAdapter{backend: sqsBk})
+		}
+	}
+}
+
+// wireMSKLambda lets Lambda MSK event source mappings resolve the real brokers of docker-backed MSK clusters.
+func wireMSKLambda(kafkaReg, lambdaReg service.Registerable) {
+	kafkaH, ok := kafkaReg.(*kafkabackend.Handler)
+	if !ok {
+		return
+	}
+
+	kafkaBk, bkOk := kafkaH.Backend.(*kafkabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			lambdaBk.SetMSKBrokerResolver(kafkaBk)
+		}
+	}
+}
+
+// wireMQLambda lets Lambda MQ event source mappings reach docker-backed brokers and BASIC_AUTH secrets.
+func wireMQLambda(mqReg, smReg, lambdaReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if mqH, mqOk := mqReg.(*mqbackend.Handler); mqOk {
+		if mqBk, bkOk := mqH.Backend.(*mqbackend.InMemoryBackend); bkOk {
+			lambdaBk.SetMQBrokerResolver(mqBk)
+		}
+	}
+
+	if smH, smOk := smReg.(*secretsmanagerbackend.Handler); smOk {
+		if smBk, bkOk := smH.Backend.(*secretsmanagerbackend.InMemoryBackend); bkOk {
+			lambdaBk.SetMQSecretResolver(smBk)
 		}
 	}
 }
@@ -5856,6 +6021,13 @@ func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
 	if ec2H, okEC2 := ec2Reg.(*ec2backend.Handler); okEC2 {
 		if ec2Bk, isEC2 := ec2H.Backend.(*ec2backend.InMemoryBackend); isEC2 {
 			cwBk.SetEC2Actioner(&cwEC2ActionerAdapter{backend: ec2Bk})
+			cwH.SetEC2ActionerFactory(func(region string) cwbackend.EC2InstanceActioner {
+				if bk, regionOK := ec2H.BackendFor(region).(*ec2backend.InMemoryBackend); regionOK {
+					return &cwEC2ActionerAdapter{backend: bk}
+				}
+
+				return nil
+			})
 		}
 	}
 
@@ -5867,10 +6039,10 @@ func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
 }
 
 // fisAlarmStateSubscriber pins the compile-time check that CloudWatch's
-// InMemoryBackend satisfies fisbackend.AlarmStateSubscriber structurally, with
+// Handler satisfies fisbackend.AlarmStateSubscriber structurally, with
 // no adapter needed: both sides of the interface are designed in this repo, so
 // their SubscribeAlarmStateChange signatures are kept identical on purpose.
-var _ fisbackend.AlarmStateSubscriber = (*cwbackend.InMemoryBackend)(nil)
+var _ fisbackend.AlarmStateSubscriber = (*cwbackend.Handler)(nil)
 
 // wireFISStopConditions connects FIS experiment stop conditions to CloudWatch's
 // alarm-state-change subscription, so an experiment stops when the alarm named
@@ -5892,12 +6064,7 @@ func wireFISStopConditions(fisReg, cwReg service.Registerable) {
 		return
 	}
 
-	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	setter.SetAlarmStateSubscriber(cwBk)
+	setter.SetAlarmStateSubscriber(cwH)
 }
 
 // cwEC2ActionerAdapter adapts the EC2 backend to the cloudwatch.EC2InstanceActioner interface.
@@ -6430,6 +6597,9 @@ func wireEcsCWLogs(ecsReg, cwlogsReg service.Registerable) {
 	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
 		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
 			ecsBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
+			ecsH.SetCWLogsFactory(func(region string) ecsbackend.CWLogsBackend {
+				return &cwLogsAdapter{backend: cwlogsBk, region: region}
+			})
 		}
 	}
 }
@@ -6458,6 +6628,13 @@ func wireAthenaGlue(athenaReg, glueReg service.Registerable) {
 	}
 
 	athenaBk.SetGlueMetadataSource(&athenaGlueAdapter{backend: glueBk})
+	athenaH.SetGlueSourceFactory(func(region string) athenabackend.GlueMetadataSource {
+		if bk, regionOK := glueH.BackendFor(region).(*gluebackend.InMemoryBackend); regionOK {
+			return &athenaGlueAdapter{backend: bk}
+		}
+
+		return nil
+	})
 }
 
 // wireAthenaS3 connects the Athena backend to S3 so a succeeded query execution's
@@ -6824,12 +7001,11 @@ func wireLambdaECR(lambdaReg, ecrReg service.Registerable) {
 		return
 	}
 
-	ecrBk, ecrBkOk := ecrH.Backend.(*ecrbackend.InMemoryBackend)
-	if !ecrBkOk {
+	if _, ecrBkOk := ecrH.Backend.(*ecrbackend.InMemoryBackend); !ecrBkOk {
 		return
 	}
 
-	lambdaBk.SetECRResolver(&lambdaECRResolverAdapter{backend: ecrBk})
+	lambdaBk.SetECRResolver(&lambdaECRResolverAdapter{handler: ecrH})
 }
 
 // lambdaECRResolverAdapter adapts the ECR backend to the lambda.ECRResolver
@@ -6838,7 +7014,7 @@ func wireLambdaECR(lambdaReg, ecrReg service.Registerable) {
 // public Docker Hub image) is accepted unvalidated: real AWS only validates
 // Code.ImageUri against ECR when it is in fact an ECR reference.
 type lambdaECRResolverAdapter struct {
-	backend *ecrbackend.InMemoryBackend
+	handler *ecrbackend.Handler
 }
 
 func (a *lambdaECRResolverAdapter) ResolveImage(imageURI string) bool {
@@ -6847,9 +7023,28 @@ func (a *lambdaECRResolverAdapter) ResolveImage(imageURI string) bool {
 		return true
 	}
 
-	_, err := a.backend.DescribeImages(context.Background(), repo, []ecrbackend.ImageIdentifier{id})
+	bk, ok := a.handler.BackendFor(ecrImageURIRegion(imageURI)).(*ecrbackend.InMemoryBackend)
+	if !ok {
+		return true
+	}
+
+	_, err := bk.DescribeImages(context.Background(), repo, []ecrbackend.ImageIdentifier{id})
 
 	return err == nil
+}
+
+// ecrImageURIRegion returns the region in <acct>.dkr.ecr.<region>.amazonaws.com, or "" for the home region.
+func ecrImageURIRegion(imageURI string) string {
+	host, _, _ := strings.Cut(imageURI, "/")
+	_, rest, found := strings.Cut(host, ".dkr.ecr.")
+
+	if !found {
+		return ""
+	}
+
+	region, _, _ := strings.Cut(rest, ".")
+
+	return region
 }
 
 // parseECRImageURI splits an ECR-style image URI
@@ -6898,15 +7093,24 @@ func wireTimestreamQueryTags(tsqReg, tswReg service.Registerable) {
 // cwLogsAdapter adapts the CloudWatch Logs InMemoryBackend to the lambda.CWLogsBackend interface.
 type cwLogsAdapter struct {
 	backend *cwlogsbackend.InMemoryBackend
+	region  string
+}
+
+func (a *cwLogsAdapter) ctx() context.Context {
+	if a.region == "" {
+		return context.Background()
+	}
+
+	return cwlogsbackend.WithRegion(context.Background(), a.region)
 }
 
 func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	if _, err := a.backend.CreateLogGroup(context.Background(), groupName, "", ""); err != nil &&
+	if _, err := a.backend.CreateLogGroup(a.ctx(), groupName, "", ""); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogGroupAlreadyExists) {
 		return err
 	}
 
-	if _, err := a.backend.CreateLogStream(context.Background(), groupName, streamName); err != nil &&
+	if _, err := a.backend.CreateLogStream(a.ctx(), groupName, streamName); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
 		return err
 	}
@@ -6922,7 +7126,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 		events[i] = cwlogsbackend.InputLogEvent{Message: msg, Timestamp: now}
 	}
 
-	_, err := a.backend.PutLogEvents(context.Background(), groupName, streamName, "", events)
+	_, err := a.backend.PutLogEvents(a.ctx(), groupName, streamName, "", events)
 
 	return err
 }
@@ -7206,7 +7410,28 @@ func wireAppSyncCognito(appSyncReg, cognitoReg service.Registerable) {
 	}
 
 	if cognitoH, cogOk := cognitoReg.(*cognitoidpbackend.Handler); cogOk {
-		appSyncBk.SetJWKSProvider(cognitoH.Backend)
+		appSyncBk.SetJWKSProvider(cognitoH)
+	}
+}
+
+// sigV4SecretOf returns the configured --sigv4-secret, or empty when appCtx carries no CLI.
+func sigV4SecretOf(appCtx *service.AppContext) string {
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		return cli.SigV4Secret
+	}
+
+	return ""
+}
+
+// wireAppSyncSigV4 passes --sigv4-secret to AppSync so AWS_IAM GraphQL auth verifies against it.
+func wireAppSyncSigV4(appSyncReg service.Registerable, secret string) {
+	appSyncH, ok := appSyncReg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if appSyncBk, bkOk := appSyncH.Backend.(*appsyncbackend.InMemoryBackend); bkOk {
+		appSyncBk.SetSigV4Secret(secret)
 	}
 }
 
@@ -12087,14 +12312,82 @@ func setupChaosAndRegistry(
 		cli.EnforceIAM,
 		cli.GetGlobalConfig(),
 		faultStore,
+		cli.Compression != compressionOff,
 	)
 	if err != nil {
 		return err
 	}
 
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
+	wireStepFunctionsSDKIntegration(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
 
 	return nil
+}
+
+// wireStepFunctionsSDKIntegration lets Step Functions Task states call every
+// registered service in-process; with IAM enforcement on, calls run as the execution role.
+func wireStepFunctionsSDKIntegration(e http.Handler, services []service.Registerable, region string, enforceIAM bool) {
+	byName := serviceByName(services)
+
+	sfnH, ok := byName["StepFunctions"].(*sfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	bk, ok := sfnH.Backend.(*sfnbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	var roles sfnbackend.RoleAssumer
+
+	if stsH, stsOk := byName["STS"].(*stsbackend.Handler); stsOk && enforceIAM {
+		if stsBk, bkOk := stsH.Backend.(*stsbackend.InMemoryBackend); bkOk {
+			roles = &sfnRoleAssumer{sts: stsBk}
+		}
+	}
+
+	bk.SetSDKIntegration(sfnbackend.NewSDKIntegrationWithRoles(e, region, roles))
+}
+
+// sfnRoleAssumer issues execution-role credentials to states.amazonaws.com via STS.
+type sfnRoleAssumer struct {
+	sts *stsbackend.InMemoryBackend
+}
+
+func (r *sfnRoleAssumer) AssumeExecutionRole(roleArn string) (sfnbackend.RoleCredentials, error) {
+	out, err := r.sts.AssumeRoleForService("states.amazonaws.com", roleArn, "states-execution")
+	if err != nil {
+		return sfnbackend.RoleCredentials{}, err
+	}
+
+	c := out.AssumeRoleResult.Credentials
+
+	exp, parseErr := time.Parse(time.RFC3339, c.Expiration)
+	if parseErr != nil {
+		return sfnbackend.RoleCredentials{}, parseErr
+	}
+
+	return sfnbackend.RoleCredentials{
+		AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken, Expires: exp,
+	}, nil
+}
+
+// compressionMiddleware returns the runtime response-compression middleware for
+// the only two services where it applies: the dashboard and DynamoDB (opt-in gzip).
+func compressionMiddleware(name string, enabled bool) []service.Middleware {
+	if !enabled {
+		return nil
+	}
+
+	switch name {
+	case "Dashboard":
+		return []service.Middleware{dashboard.CompressionMiddleware()}
+	case "DynamoDB":
+		return []service.Middleware{ddbbackend.CompressionMiddleware()}
+	default:
+		return nil
+	}
 }
 
 func setupRegistry(
@@ -12105,6 +12398,7 @@ func setupRegistry(
 	enforceIAM bool,
 	globalCfg *config.GlobalConfig,
 	faultStore *chaos.FaultStore,
+	compression bool,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
 
@@ -12153,14 +12447,14 @@ func setupRegistry(
 	}
 
 	for _, svc := range services {
-		if err := registry.Register(svc); err != nil {
+		if err := registry.Register(svc, compressionMiddleware(svc.Name(), compression)...); err != nil {
 			log.Error("Failed to register service", "service", svc.Name(), "error", err)
 
 			return nil, err
 		}
 	}
 
-	router := service.NewServiceRouter(registry)
+	router := service.NewServiceRouter(registry).WithTargetGates(routeTargetGates())
 	e.Use(router.RouteHandler())
 
 	return registry, nil
@@ -12711,6 +13005,30 @@ func wireRDSDNS(rdsReg service.Registerable, dns rdsbackend.DNSRegistrar) {
 	rdsH.Backend.SetDNSRegistrar(dns)
 }
 
+// wireRDSData lets the RDS Data API reach docker-backed Aurora clusters, using
+// Secrets Manager secrets for the database login.
+func wireRDSData(dataReg, rdsReg, smReg service.Registerable) {
+	dataH, dataOK := dataReg.(*rdsdatabackend.Handler)
+	rdsH, rdsOK := rdsReg.(*rdsbackend.Handler)
+	smH, smOK := smReg.(*secretsmanagerbackend.Handler)
+
+	if !dataOK || !rdsOK || !smOK {
+		return
+	}
+
+	dataBk, ok := dataH.Backend.(*rdsdatabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	smBk, ok := smH.Backend.(*secretsmanagerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	dataBk.WithRealEngine(rdsH.Backend, smBk)
+}
+
 // wireRedshiftDNS sets the DNS registrar on the Redshift backend so that cluster
 // hostnames are automatically registered with the embedded DNS server.
 func wireRedshiftDNS(redshiftReg service.Registerable, dns redshiftbackend.DNSRegistrar) {
@@ -12791,8 +13109,10 @@ func wireEC2DNS(ec2Reg service.Registerable, dns ec2backend.DNSRegistrar) {
 		return
 	}
 
-	if ec2Bk, bkOk := ec2H.Backend.(*ec2backend.InMemoryBackend); bkOk {
-		ec2Bk.SetDNSRegistrar(dns)
+	for _, bk := range ec2H.RegionBackends() {
+		if ec2Bk, bkOk := bk.(*ec2backend.InMemoryBackend); bkOk {
+			ec2Bk.SetDNSRegistrar(dns)
+		}
 	}
 }
 

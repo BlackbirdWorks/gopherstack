@@ -42,6 +42,7 @@ type CreateTableInput struct {
 	OnDemandThroughput        *OnDemandThroughput    `json:"OnDemandThroughput,omitempty"`
 	DeletionProtectionEnabled *bool                  `json:"DeletionProtectionEnabled,omitempty"`
 	TableName                 string                 `json:"TableName"`
+	ResourcePolicy            string                 `json:"ResourcePolicy,omitempty"`
 	BillingMode               string                 `json:"BillingMode,omitempty"`
 	TableClass                string                 `json:"TableClass,omitempty"`
 	KeySchema                 []KeySchemaElement     `json:"KeySchema"`
@@ -130,8 +131,11 @@ type BillingModeSummaryDescription struct {
 }
 
 type ProvisionedThroughputDescription struct {
-	ReadCapacityUnits  int `json:"ReadCapacityUnits"`
-	WriteCapacityUnits int `json:"WriteCapacityUnits"`
+	LastIncreaseDateTime   float64 `json:"LastIncreaseDateTime,omitempty"`
+	LastDecreaseDateTime   float64 `json:"LastDecreaseDateTime,omitempty"`
+	ReadCapacityUnits      int     `json:"ReadCapacityUnits"`
+	WriteCapacityUnits     int     `json:"WriteCapacityUnits"`
+	NumberOfDecreasesToday int64   `json:"NumberOfDecreasesToday"`
 }
 
 type GlobalSecondaryIndex struct {
@@ -228,6 +232,7 @@ type ReplicaGSIOverride struct {
 type ReplicaDescription struct {
 	ProvisionedReadCapacityUnits *int64               `json:"ProvisionedReadCapacityUnits,omitempty"`
 	RegionName                   string               `json:"RegionName,omitempty"`
+	ReplicaArn                   string               `json:"ReplicaArn,omitempty"`
 	ReplicaStatus                string               `json:"ReplicaStatus,omitempty"`
 	TableClassOverride           string               `json:"TableClassOverride,omitempty"`
 	GlobalSecondaryIndexes       []ReplicaGSIOverride `json:"GlobalSecondaryIndexes,omitempty"`
@@ -807,6 +812,7 @@ type RestoreTableFromBackupInput struct {
 	TargetTableName               string                 `json:"TargetTableName"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
+	LocalSecondaryIndexOverride   []LocalSecondaryIndex  `json:"LocalSecondaryIndexOverride,omitempty"`
 }
 
 // RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
@@ -831,6 +837,7 @@ type RestoreTableToPointInTimeInput struct {
 	TargetTableName               string                 `json:"TargetTableName"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
+	LocalSecondaryIndexOverride   []LocalSecondaryIndex  `json:"LocalSecondaryIndexOverride,omitempty"`
 	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
 

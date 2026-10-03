@@ -89,6 +89,15 @@ func (b *InMemoryBackend) CreateChangeSet(
 		DisableValidation: opts.DisableValidation,
 	}
 
+	if _, perr := ParseTemplate(templateBody); perr != nil && templateBody != "" {
+		cs.Status = "FAILED"
+		cs.StatusReason = perr.Error()
+		cs.ExecutionStatus = "UNAVAILABLE"
+		b.changeSets[stackName][changeSetName] = cs
+
+		return cs, nil
+	}
+
 	cs.Changes = b.computeChanges(templateBody, stack)
 
 	// AWS marks a change set with no actual changes as FAILED / UNAVAILABLE so

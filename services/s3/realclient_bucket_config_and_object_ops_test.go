@@ -1041,10 +1041,7 @@ func TestRealClient_BucketConfigAndObjectOps(t *testing.T) {
 				// so swapping it in here lets a real, unmodified client reach this
 				// op at all.
 				lambdaServerURL := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
-				lambdaFn := &typedWriteGetObjectResponseLambda{
-					serverURL: lambdaServerURL,
-					body:      "lambda-typed-client-body",
-				}
+				lambdaFn := newTypedWriteGetObjectResponseLambda(lambdaServerURL, "lambda-typed-client-body")
 				handler.SetObjectLambdaConfig(bucket, "arn:aws:lambda:us-east-1:000000000000:function:transformer")
 				handler.SetNotificationDispatcher(
 					s3.NewNotificationDispatcher(&s3.NotificationTargets{LambdaInvoker: lambdaFn}, "us-east-1"))
@@ -1061,12 +1058,12 @@ func TestRealClient_BucketConfigAndObjectOps(t *testing.T) {
 				// WriteGetObjectResponse signals the pending channel, which can
 				// race ahead of the lambda invoker's own goroutine finishing its
 				// client.WriteGetObjectResponse call and recording the result --
-				// poll rather than read once.
-				require.Eventually(t, func() bool {
-					called, _ := lambdaFn.result()
-
-					return called
-				}, time.Second, time.Millisecond, "the lambda invoker (which drives WriteGetObjectResponse) must run")
+				// wait on the done signal rather than polling.
+				select {
+				case <-lambdaFn.done:
+				case <-time.After(time.Second):
+					t.Fatal("the lambda invoker (which drives WriteGetObjectResponse) must run")
+				}
 				_, wgorErr := lambdaFn.result()
 				require.NoError(t, wgorErr, "the typed WriteGetObjectResponse call itself must succeed")
 
@@ -1092,10 +1089,19 @@ func TestRealClient_BucketConfigAndObjectOps(t *testing.T) {
 // real client's request encoding for the op.
 type typedWriteGetObjectResponseLambda struct {
 	wgorErr   error
+	done      chan struct{}
 	serverURL string
 	body      string
 	mu        sync.Mutex
 	called    bool
+}
+
+func newTypedWriteGetObjectResponseLambda(serverURL, body string) *typedWriteGetObjectResponseLambda {
+	return &typedWriteGetObjectResponseLambda{
+		serverURL: serverURL,
+		body:      body,
+		done:      make(chan struct{}),
+	}
 }
 
 // result reports whether InvokeFunction ran and, if so, the error its
@@ -1116,6 +1122,7 @@ func (l *typedWriteGetObjectResponseLambda) setResult(called bool, err error) {
 
 	l.called = called
 	l.wgorErr = err
+	close(l.done)
 }
 
 func (l *typedWriteGetObjectResponseLambda) InvokeFunction(

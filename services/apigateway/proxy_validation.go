@@ -22,12 +22,12 @@ func (h *Handler) runRequestValidator(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID string,
+	cfg *DeploymentConfig,
 	method *Method,
 	pathParams map[string]string,
 ) bool {
-	rv, err := h.Backend.GetRequestValidator(apiID, method.RequestValidatorID)
-	if err != nil {
+	rv, ok := cfg.RequestValidators[method.RequestValidatorID]
+	if !ok {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: request validator not found",
 			"validatorId", method.RequestValidatorID)
 
@@ -43,7 +43,7 @@ func (h *Handler) runRequestValidator(
 	}
 
 	if rv.ValidateRequestBody {
-		if denied := h.validateRequestBody(ctx, w, r, apiID, method); denied {
+		if denied := h.validateRequestBody(ctx, w, r, cfg, method); denied {
 			return true
 		}
 	}
@@ -56,7 +56,7 @@ func (h *Handler) runRequestValidator(
 // schema when one is declared. Returns true when the AWS 400 body-validation response
 // has been written.
 func (h *Handler) validateRequestBody(
-	ctx context.Context, w http.ResponseWriter, r *http.Request, apiID string, method *Method,
+	ctx context.Context, w http.ResponseWriter, r *http.Request, cfg *DeploymentConfig, method *Method,
 ) bool {
 	if r.Body == nil {
 		return false
@@ -78,14 +78,14 @@ func (h *Handler) validateRequestBody(
 		return true
 	}
 
-	schema := h.requestModelSchema(apiID, method, r.Header.Get("Content-Type"))
+	schema := requestModelSchema(cfg, method, r.Header.Get("Content-Type"))
 	if schema == "" {
 		return false
 	}
 
 	if err := validateJSONAgainstSchema(bodyBytes, schema); err != nil {
 		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: request body schema validation failed",
-			"apiId", apiID, "error", err)
+			"error", err)
 		writeValidationError(w, "Invalid request body")
 
 		return true
@@ -97,7 +97,7 @@ func (h *Handler) validateRequestBody(
 // requestModelSchema resolves the JSON Schema for the method's request model that
 // matches the request content type (falling back to application/json), or "" when the
 // method declares no usable model.
-func (h *Handler) requestModelSchema(apiID string, method *Method, contentType string) string {
+func requestModelSchema(cfg *DeploymentConfig, method *Method, contentType string) string {
 	if len(method.RequestModels) == 0 {
 		return ""
 	}
@@ -116,8 +116,8 @@ func (h *Handler) requestModelSchema(apiID string, method *Method, contentType s
 		return ""
 	}
 
-	model, err := h.Backend.GetModel(apiID, modelName, false)
-	if err != nil || model == nil {
+	model, ok := cfg.Models[modelName]
+	if !ok {
 		return ""
 	}
 

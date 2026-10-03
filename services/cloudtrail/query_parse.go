@@ -40,11 +40,19 @@ type selectItem struct {
 // parsedLakeQuery is a successfully parsed statement in the supported
 // CloudTrail Lake SQL subset (see query_exec.go's file doc comment).
 type parsedLakeQuery struct {
-	items   []selectItem // nil means "SELECT *"
-	where   whereExpr    // nil means no WHERE (match everything)
-	groupBy []string     // lowercased GROUP BY column names
-	limit   int          // 0 means "use defaultQueryRowLimit"
-	hasAgg  bool
+	items    []selectItem // nil means "SELECT *"
+	where    whereExpr    // nil means no WHERE (match everything)
+	groupBy  []string     // lowercased GROUP BY column names
+	orderBy  []orderTerm
+	limit    int // 0 means "use defaultQueryRowLimit"
+	hasAgg   bool
+	distinct bool
+}
+
+// orderTerm is one ORDER BY key: a SELECT-list alias/column or a source column.
+type orderTerm struct {
+	name string
+	desc bool
 }
 
 // lakeParser is a small hand-written recursive-descent parser over a flat
@@ -128,7 +136,7 @@ func (p *lakeParser) remainingPreview() string {
 var lakeReservedWords = map[string]struct{}{ //nolint:gochecknoglobals // static lookup table
 	"WHERE": {}, "GROUP": {}, "LIMIT": {}, "AND": {}, "OR": {}, "NOT": {},
 	"LIKE": {}, "IN": {}, "AS": {}, "BY": {}, "JOIN": {}, "INNER": {},
-	"LEFT": {}, "RIGHT": {}, "UNION": {}, "EXCEPT": {}, "INTERSECT": {},
+	"LEFT": {}, "RIGHT": {}, "UNION": {}, "EXCEPT": {}, "INTERSECT": {}, "ORDER": {}, "HAVING": {},
 }
 
 func isLakeKeyword(text string) bool {
@@ -179,6 +187,8 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 		return parsedLakeQuery{}, "expected SELECT"
 	}
 
+	distinct := p.eatKeyword("DISTINCT")
+
 	items, hasAgg, errMsg := p.parseSelectList()
 	if errMsg != "" {
 		return parsedLakeQuery{}, errMsg
@@ -202,6 +212,11 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 		return parsedLakeQuery{}, errMsg
 	}
 
+	orderBy, errMsg := p.parseOptionalOrderBy()
+	if errMsg != "" {
+		return parsedLakeQuery{}, errMsg
+	}
+
 	limit, errMsg := p.parseOptionalLimit()
 	if errMsg != "" {
 		return parsedLakeQuery{}, errMsg
@@ -211,7 +226,14 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 		return parsedLakeQuery{}, validErr
 	}
 
-	return parsedLakeQuery{items: items, where: where, groupBy: groupBy, limit: limit, hasAgg: hasAgg}, ""
+	if validErr := validateOrderAndDistinct(items, hasAgg, distinct, orderBy); validErr != "" {
+		return parsedLakeQuery{}, validErr
+	}
+
+	return parsedLakeQuery{
+		items: items, where: where, groupBy: groupBy, orderBy: orderBy,
+		limit: limit, hasAgg: hasAgg, distinct: distinct,
+	}, ""
 }
 
 // parseFromTarget consumes the FROM clause's single event-data-store
@@ -557,6 +579,66 @@ func (p *lakeParser) parseOptionalGroupBy() ([]string, string) {
 	}
 
 	return cols, ""
+}
+
+func (p *lakeParser) parseOptionalOrderBy() ([]orderTerm, string) {
+	if !p.eatKeyword("ORDER") {
+		return nil, ""
+	}
+
+	if !p.eatKeyword("BY") {
+		return nil, "expected BY after ORDER"
+	}
+
+	var terms []orderTerm
+
+	for {
+		t := p.advance()
+		if t.kind != sqlTokIdent {
+			return nil, "expected a column name or alias in ORDER BY"
+		}
+
+		term := orderTerm{name: t.text}
+
+		switch {
+		case p.eatKeyword("DESC"):
+			term.desc = true
+		default:
+			p.eatKeyword("ASC")
+		}
+
+		terms = append(terms, term)
+
+		if !p.eatPunct(",") {
+			break
+		}
+	}
+
+	return terms, ""
+}
+
+// validateOrderAndDistinct rejects DISTINCT on aggregate queries and ORDER BY
+// keys an aggregate query's output does not carry.
+func validateOrderAndDistinct(items []selectItem, hasAgg, distinct bool, orderBy []orderTerm) string {
+	if distinct && hasAgg {
+		return "SELECT DISTINCT combined with an aggregate function is not supported by this emulator"
+	}
+
+	if !hasAgg {
+		return ""
+	}
+
+	for _, term := range orderBy {
+		if !slices.ContainsFunc(items, func(it selectItem) bool { return itemMatchesOrder(it, term.name) }) {
+			return fmt.Sprintf("ORDER BY %q must name a SELECT-list column or alias in an aggregate query", term.name)
+		}
+	}
+
+	return ""
+}
+
+func itemMatchesOrder(it selectItem, name string) bool {
+	return strings.EqualFold(it.outName, name) || (it.kind == itemColumn && it.column == strings.ToLower(name))
 }
 
 func (p *lakeParser) parseOptionalLimit() (int, string) {

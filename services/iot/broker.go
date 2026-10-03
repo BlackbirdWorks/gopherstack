@@ -16,6 +16,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
+// mqttV5 is the MQTT protocol version number that carries DISCONNECT reason codes.
+const mqttV5 = 5
+
 // ErrBrokerNotStarted is returned when a publish is attempted before the broker is started.
 var ErrBrokerNotStarted = errors.New("mqtt broker not started")
 
@@ -24,6 +27,7 @@ type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
 	server  atomic.Pointer[mqtt.Server]
 	backend *InMemoryBackend
+	others  func() []*InMemoryBackend
 	port    int
 }
 
@@ -51,6 +55,7 @@ func (b *Broker) Start(ctx context.Context) error {
 
 	hook := &ruleHook{
 		backend: b.backend,
+		others:  b.others,
 		ctx:     ctx,
 	}
 
@@ -70,23 +75,14 @@ func (b *Broker) Start(ctx context.Context) error {
 	// Store the server atomically before Serve() so Publish() can access it concurrently.
 	b.server.Store(s)
 
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = s.Close()
-		case <-done:
-			// Serve() returned; goroutine exits cleanly.
-		}
-	}()
-
+	// mochi's Serve starts its listeners and event loop in goroutines and returns at once.
 	if err := s.Serve(); err != nil {
 		return fmt.Errorf("iot broker: serve: %w", err)
 	}
 
-	return nil
+	<-ctx.Done()
+
+	return s.Close()
 }
 
 // Run implements worker.Runner, adapting Start's blocking-with-error shape to
@@ -230,6 +226,70 @@ func (b *Broker) SendToClient(clientID, topic string, payload []byte, qos byte) 
 	)
 }
 
+// ClientSession implements iotdataplane.MQTTPublisher from the live client's
+// CONNECT-time properties and socket addresses.
+func (b *Broker) ClientSession(clientID string) (iotdataplane.SessionInfo, bool) {
+	s := b.server.Load()
+	if s == nil {
+		return iotdataplane.SessionInfo{}, false
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok || cl.Closed() {
+		return iotdataplane.SessionInfo{}, false
+	}
+
+	info := iotdataplane.SessionInfo{
+		Clean:         cl.Properties.Clean,
+		KeepAlive:     cl.State.Keepalive,
+		RemoteAddr:    cl.Net.Remote,
+		SessionExpiry: cl.Properties.Props.SessionExpiryInterval,
+		ExpiryKnown:   cl.Properties.Props.SessionExpiryIntervalFlag,
+	}
+
+	if cl.Net.Conn != nil && cl.Net.Conn.LocalAddr() != nil {
+		info.LocalAddr = cl.Net.Conn.LocalAddr().String()
+	}
+
+	return info, true
+}
+
+// DisconnectClient implements iotdataplane.MQTTPublisher; cleanSession drops stored session
+// state and preventWill clears the Last Will so mochi-mqtt does not publish it.
+func (b *Broker) DisconnectClient(clientID string, cleanSession, preventWill bool) (bool, error) {
+	s := b.server.Load()
+	if s == nil {
+		return false, ErrBrokerNotStarted
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok || cl.Closed() {
+		return false, nil
+	}
+
+	if preventWill {
+		atomic.StoreUint32(&cl.Properties.Will.Flag, 0)
+	}
+
+	if cleanSession {
+		cl.Properties.Clean = true
+		cl.Properties.Props.SessionExpiryInterval = 0
+	}
+
+	if cl.Properties.ProtocolVersion >= mqttV5 {
+		if err := s.DisconnectClient(cl, packets.ErrAdministrativeAction); err != nil &&
+			!errors.Is(err, packets.ErrAdministrativeAction) {
+			return false, fmt.Errorf("iot broker: disconnect client %s: %w", clientID, err)
+		}
+
+		return true, nil
+	}
+
+	cl.Stop(packets.ErrAdministrativeAction)
+
+	return true, nil
+}
+
 // SendToClientWithProperties implements iotdataplane.MQTTPublisher. It
 // behaves like SendToClient but also attaches props as real MQTT5 packet
 // properties -- see PublishWithProperties for the protocol-version encoding
@@ -269,6 +329,7 @@ type ruleHook struct {
 	mqtt.HookBase
 
 	backend *InMemoryBackend
+	others  func() []*InMemoryBackend
 	ctx     context.Context //nolint:containedctx // required to propagate broker lifecycle context into hook callbacks
 }
 
@@ -285,7 +346,7 @@ func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet,
 	dispatcher := h.backend.GetDispatcher()
 	log := logger.Load(h.ctx)
 
-	for _, rule := range h.backend.GetRules() {
+	for _, rule := range h.allRules() {
 		if !EvaluateRule(rule, pk.TopicName, pk.Payload) {
 			continue
 		}
@@ -295,6 +356,19 @@ func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet,
 	}
 
 	return pk, nil
+}
+
+// allRules returns the home region's rules plus every regional sibling's.
+func (h *ruleHook) allRules() []*TopicRule {
+	rules := h.backend.GetRules()
+
+	if h.others != nil {
+		for _, ob := range h.others() {
+			rules = append(rules, ob.GetRules()...)
+		}
+	}
+
+	return rules
 }
 
 func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, payload []byte) {

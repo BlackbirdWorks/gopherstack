@@ -305,8 +305,23 @@ func domainCopy(d *Domain) *Domain {
 	cp.AutoTuneOptions = cloneAutoTuneOptions(d.AutoTuneOptions)
 	cp.DeploymentStrategyOptions = cloneDeploymentStrategyOptions(d.DeploymentStrategyOptions)
 	cp.LogPublishingOptions = cloneLogPublishingOptions(d.LogPublishingOptions)
+	cp.Upgrades = cloneUpgrades(d.Upgrades)
 
 	return &cp
+}
+
+// cloneUpgrades deep-copies the upgrade history, or returns nil when empty.
+func cloneUpgrades(u []UpgradeRecord) []UpgradeRecord {
+	if len(u) == 0 {
+		return nil
+	}
+
+	out := slices.Clone(u)
+	for i := range out {
+		out[i].Steps = slices.Clone(out[i].Steps)
+	}
+
+	return out
 }
 
 // cloneVPCOptions returns a deep copy of v (including its subnet/security

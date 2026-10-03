@@ -1,4 +1,4 @@
-// Package mq provides an in-memory stub of Amazon MQ.
+// Package mq provides an in-memory Amazon MQ with optional docker-backed brokers.
 package mq
 
 import (
@@ -13,6 +13,7 @@ type InMemoryBackend struct {
 	tags           map[string]map[string]string
 	mu             *lockmetrics.RWMutex
 	registry       *store.Registry
+	engine         *brokerEngine
 	accountID      string
 	region         string
 }
@@ -39,8 +40,14 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // Reset clears all backend state, preserving only the account ID and region.
 func (b *InMemoryBackend) Reset() {
+	var lbs []*liveBroker
+
+	defer func() { b.reapDetached(lbs...) }()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	lbs = b.detachAllBrokersLocked()
 
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)

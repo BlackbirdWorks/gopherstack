@@ -16,6 +16,10 @@ import (
 // value, reached once a plan has been purchased against a real offering.
 const trainingPlanStatusScheduled = "Scheduled"
 
+// reservedCapacityTypeUltraServer is the ReservedCapacityType wire value for
+// a reserved capacity backed by an UltraServer (types.ReservedCapacityType).
+const reservedCapacityTypeUltraServer = "UltraServer"
+
 // Static catalog constants: currency code and the duration/instance-count
 // values used to build trainingPlanOfferingCatalog below.
 const (
@@ -205,7 +209,7 @@ func (b *InMemoryBackend) createReservedCapacity(
 	}
 
 	if rco.IsUltraServer {
-		rc.ReservedCapacityType = "UltraServer"
+		rc.ReservedCapacityType = reservedCapacityTypeUltraServer
 		spare := spareInstanceCountPerUltraServer
 		available := max(rco.InstanceCount-spare, 0)
 
@@ -217,6 +221,7 @@ func (b *InMemoryBackend) createReservedCapacity(
 			HealthStatus:                 "Healthy",
 			TotalInstanceCount:           rco.InstanceCount,
 			AvailableInstanceCount:       available,
+			AvailableSpareInstanceCount:  spare,
 			ConfiguredSpareInstanceCount: spare,
 		}}
 	} else {

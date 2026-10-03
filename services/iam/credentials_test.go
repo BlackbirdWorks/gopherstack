@@ -86,10 +86,10 @@ func TestServiceSpecificCredential_UpdateToInactive(t *testing.T) {
 		"ssc-update-user", cred.ServiceSpecificCredentialID, "Inactive",
 	))
 
-	creds, err := b.ListServiceSpecificCredentials("ssc-update-user", "")
+	p, err := b.ListServiceSpecificCredentials("ssc-update-user", "", "", 0)
 	require.NoError(t, err)
-	require.Len(t, creds, 1)
-	assert.Equal(t, "Inactive", creds[0].Status)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, "Inactive", p.Data[0].Status)
 }
 
 func TestServiceSpecificCredential_DeleteRemoves(t *testing.T) {
@@ -103,9 +103,9 @@ func TestServiceSpecificCredential_DeleteRemoves(t *testing.T) {
 
 	require.NoError(t, b.DeleteServiceSpecificCredential("ssc-del-user", cred.ServiceSpecificCredentialID))
 
-	creds, err := b.ListServiceSpecificCredentials("ssc-del-user", "")
+	p, err := b.ListServiceSpecificCredentials("ssc-del-user", "", "", 0)
 	require.NoError(t, err)
-	assert.Empty(t, creds)
+	assert.Empty(t, p.Data)
 }
 
 func TestServiceSpecificCredential_UniqueIDs(t *testing.T) {

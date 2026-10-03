@@ -41,7 +41,17 @@ func (b *InMemoryBackend) CreateByteMatchSet(name, changeToken string) (*ByteMat
 	}
 	b.byteMatchSets.Put(bms)
 
-	return bms, nil
+	return cloneByteMatchSet(bms), nil
+}
+
+// cloneByteMatchSet stops a caller from racing UpdateByteMatchSet. A shallow
+// copy is not enough: applyEntryUpdate reuses the tuples backing array.
+func cloneByteMatchSet(bms *ByteMatchSet) *ByteMatchSet {
+	cp := *bms
+	cp.ByteMatchTuples = make([]ByteMatchTuple, len(bms.ByteMatchTuples))
+	copy(cp.ByteMatchTuples, bms.ByteMatchTuples)
+
+	return &cp
 }
 
 // GetByteMatchSet retrieves a ByteMatchSet by ID.
@@ -54,7 +64,7 @@ func (b *InMemoryBackend) GetByteMatchSet(id string) (*ByteMatchSet, error) {
 		return nil, ErrNotFound
 	}
 
-	return bms, nil
+	return cloneByteMatchSet(bms), nil
 }
 
 // UpdateByteMatchSet updates a ByteMatchSet's tuples.
@@ -158,7 +168,17 @@ func (b *InMemoryBackend) CreateSizeConstraintSet(name, changeToken string) (*Si
 	}
 	b.sizeConstraintSets.Put(scs)
 
-	return scs, nil
+	return cloneSizeConstraintSet(scs), nil
+}
+
+// cloneSizeConstraintSet stops a caller from racing UpdateSizeConstraintSet.
+// A shallow copy is not enough: applyEntryUpdate reuses the constraints backing array.
+func cloneSizeConstraintSet(scs *SizeConstraintSet) *SizeConstraintSet {
+	cp := *scs
+	cp.SizeConstraints = make([]SizeConstraint, len(scs.SizeConstraints))
+	copy(cp.SizeConstraints, scs.SizeConstraints)
+
+	return &cp
 }
 
 // GetSizeConstraintSet retrieves a SizeConstraintSet by ID.
@@ -171,7 +191,7 @@ func (b *InMemoryBackend) GetSizeConstraintSet(id string) (*SizeConstraintSet, e
 		return nil, ErrNotFound
 	}
 
-	return scs, nil
+	return cloneSizeConstraintSet(scs), nil
 }
 
 // UpdateSizeConstraintSet updates a SizeConstraintSet's constraints.
@@ -284,7 +304,17 @@ func (b *InMemoryBackend) CreateSqlInjectionMatchSet(
 	}
 	b.sqlInjectionMatchSets.Put(sims)
 
-	return sims, nil
+	return cloneSQLInjectionMatchSet(sims), nil
+}
+
+// cloneSQLInjectionMatchSet stops a caller from racing
+// UpdateSqlInjectionMatchSet, whose delete path reuses the tuples backing array.
+func cloneSQLInjectionMatchSet(sims *SqlInjectionMatchSet) *SqlInjectionMatchSet {
+	cp := *sims
+	cp.SqlInjectionMatchTuples = make([]SqlInjectionMatchTuple, len(sims.SqlInjectionMatchTuples))
+	copy(cp.SqlInjectionMatchTuples, sims.SqlInjectionMatchTuples)
+
+	return &cp
 }
 
 // GetSqlInjectionMatchSet retrieves a SqlInjectionMatchSet by ID.
@@ -299,7 +329,7 @@ func (b *InMemoryBackend) GetSqlInjectionMatchSet(id string) (*SqlInjectionMatch
 		return nil, ErrNotFound
 	}
 
-	return sims, nil
+	return cloneSQLInjectionMatchSet(sims), nil
 }
 
 // UpdateSqlInjectionMatchSet updates a SqlInjectionMatchSet's tuples.
@@ -417,7 +447,17 @@ func (b *InMemoryBackend) CreateXssMatchSet(name, changeToken string) (*XssMatch
 	}
 	b.xssMatchSets.Put(xms)
 
-	return xms, nil
+	return cloneXSSMatchSet(xms), nil
+}
+
+// cloneXSSMatchSet stops a caller from racing UpdateXssMatchSet. A shallow
+// copy is not enough: applyEntryUpdate reuses the tuples backing array.
+func cloneXSSMatchSet(xms *XssMatchSet) *XssMatchSet {
+	cp := *xms
+	cp.XssMatchTuples = make([]XssMatchTuple, len(xms.XssMatchTuples))
+	copy(cp.XssMatchTuples, xms.XssMatchTuples)
+
+	return &cp
 }
 
 // GetXssMatchSet retrieves an XssMatchSet by ID.
@@ -432,7 +472,7 @@ func (b *InMemoryBackend) GetXssMatchSet(id string) (*XssMatchSet, error) {
 		return nil, ErrNotFound
 	}
 
-	return xms, nil
+	return cloneXSSMatchSet(xms), nil
 }
 
 // UpdateXssMatchSet updates an XssMatchSet's tuples.
@@ -542,7 +582,17 @@ func (b *InMemoryBackend) CreateGeoMatchSet(name, changeToken string) (*GeoMatch
 	}
 	b.geoMatchSets.Put(gms)
 
-	return gms, nil
+	return cloneGeoMatchSet(gms), nil
+}
+
+// cloneGeoMatchSet stops a caller from racing UpdateGeoMatchSet. A shallow
+// copy is not enough: applyEntryUpdate reuses the constraints backing array.
+func cloneGeoMatchSet(gms *GeoMatchSet) *GeoMatchSet {
+	cp := *gms
+	cp.GeoMatchConstraints = make([]GeoMatchConstraint, len(gms.GeoMatchConstraints))
+	copy(cp.GeoMatchConstraints, gms.GeoMatchConstraints)
+
+	return &cp
 }
 
 // GetGeoMatchSet retrieves a GeoMatchSet by ID.
@@ -555,7 +605,7 @@ func (b *InMemoryBackend) GetGeoMatchSet(id string) (*GeoMatchSet, error) {
 		return nil, ErrNotFound
 	}
 
-	return gms, nil
+	return cloneGeoMatchSet(gms), nil
 }
 
 // UpdateGeoMatchSet updates a GeoMatchSet's constraints.
@@ -774,7 +824,17 @@ func (b *InMemoryBackend) CreateRegexMatchSet(name, changeToken string) (*RegexM
 	}
 	b.regexMatchSets.Put(rms)
 
-	return rms, nil
+	return cloneRegexMatchSet(rms), nil
+}
+
+// cloneRegexMatchSet stops a caller from racing UpdateRegexMatchSet. A
+// shallow copy is not enough: applyEntryUpdate reuses the tuples backing array.
+func cloneRegexMatchSet(rms *RegexMatchSet) *RegexMatchSet {
+	cp := *rms
+	cp.RegexMatchTuples = make([]RegexMatchTuple, len(rms.RegexMatchTuples))
+	copy(cp.RegexMatchTuples, rms.RegexMatchTuples)
+
+	return &cp
 }
 
 // GetRegexMatchSet retrieves a RegexMatchSet by ID.
@@ -787,7 +847,7 @@ func (b *InMemoryBackend) GetRegexMatchSet(id string) (*RegexMatchSet, error) {
 		return nil, ErrNotFound
 	}
 
-	return rms, nil
+	return cloneRegexMatchSet(rms), nil
 }
 
 // UpdateRegexMatchSet updates a RegexMatchSet's tuples.

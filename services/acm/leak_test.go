@@ -2,6 +2,7 @@ package acm_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -105,39 +106,43 @@ func TestDeleteCertificate_TimersDoNotAccumulateAcrossCreateDelete(t *testing.T)
 func TestDeleteCertificate_StopsRenewalTimer(t *testing.T) {
 	t.Parallel()
 
-	b := acm.NewInMemoryBackend("123456789012", "us-east-1")
+	synctest.Test(t, func(t *testing.T) {
+		b := acm.NewInMemoryBackend("123456789012", "us-east-1")
 
-	// Request a DNS-validated cert; it starts PENDING_VALIDATION with an auto-validate timer.
-	cert, err := b.RequestCertificate(
-		t.Context(),
-		"renew-leak.example.com",
-		"AMAZON_ISSUED",
-		"DNS",
-		"",
-		"",
-		"",
-		"",
-		nil,
-	)
-	require.NoError(t, err)
+		// Request a DNS-validated cert; it starts PENDING_VALIDATION with an auto-validate timer.
+		cert, err := b.RequestCertificate(
+			t.Context(),
+			"renew-leak.example.com",
+			"AMAZON_ISSUED",
+			"DNS",
+			"",
+			"",
+			"",
+			"",
+			nil,
+		)
+		require.NoError(t, err)
 
-	// Wait for auto-validate to fire and transition the cert to ISSUED (clears the timer).
-	require.Eventually(t, func() bool {
-		c, descErr := b.DescribeCertificate(t.Context(), cert.ARN)
+		// autoValidateDelayMS is 100ms; cross it so auto-validate fires and
+		// transitions the cert to ISSUED (clearing the timer).
+		time.Sleep(150 * time.Millisecond)
+		synctest.Wait()
 
-		return descErr == nil && c.Status == "ISSUED"
-	}, time.Second, 10*time.Millisecond, "cert must reach ISSUED before renewal")
+		c, err := b.DescribeCertificate(t.Context(), cert.ARN)
+		require.NoError(t, err)
+		require.Equal(t, "ISSUED", c.Status, "cert must reach ISSUED before renewal")
 
-	require.Equal(t, 0, b.TimerCountForTest(), "no timers expected after initial auto-validate")
+		require.Equal(t, 0, b.TimerCountForTest(), "no timers expected after initial auto-validate")
 
-	// Renew the cert — this schedules a new autoValidateRenewal timer.
-	require.NoError(t, b.RenewCertificate(t.Context(), cert.ARN))
-	require.Equal(t, 1, b.TimerCountForTest(), "renewal must register one timer")
+		// Renew the cert — this schedules a new autoValidateRenewal timer.
+		require.NoError(t, b.RenewCertificate(t.Context(), cert.ARN))
+		require.Equal(t, 1, b.TimerCountForTest(), "renewal must register one timer")
 
-	// Delete the cert — the renewal timer must be stopped and removed.
-	require.NoError(t, b.DeleteCertificate(t.Context(), cert.ARN))
-	require.Equal(t, 0, b.TimerCountForTest(),
-		"renewal timer must be stopped and removed after DeleteCertificate")
+		// Delete the cert — the renewal timer must be stopped and removed.
+		require.NoError(t, b.DeleteCertificate(t.Context(), cert.ARN))
+		require.Equal(t, 0, b.TimerCountForTest(),
+			"renewal timer must be stopped and removed after DeleteCertificate")
+	})
 }
 
 // TestDeleteCertificate_StopsResendValidationEmailTimer verifies that deleting a

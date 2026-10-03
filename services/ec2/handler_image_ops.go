@@ -331,6 +331,9 @@ func (h *Handler) handleCreateStoreImageTask(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribeStoreImageTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ImageId")
 	tasks := h.Backend.DescribeStoreImageTasks(ids)
+	if len(ids) == 0 {
+		tasks = applyStoreImageTaskFilters(tasks, parseEC2Filters(vals))
+	}
 
 	resp := &describeStoreImageTasksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, t := range tasks {

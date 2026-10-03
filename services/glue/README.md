@@ -9,21 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 28 (23 ok, 5 partial) |
-| Known gaps | 9 |
+| Known gaps | 4 |
 | Deferred items | 6 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Lake Formation cell/row-level filtering (GetUnfilteredTableMetadata/GetUnfilteredPartitionMetadata/GetUnfilteredPartitionsMetadata) and catalog federation (CreateCatalog/UpdateCatalog federation members) have no backing state: this backend models no Lake Formation permissions/cell-filter engine or federated-catalog subsystem for any resource kind. Unmodeled subsystem, not attempted.
-- GetDataQualityResult's AggregatedMetrics/AnalyzerResults/Observations/RuleResults etc. (api_op_GetDataQualityResult.go) have no backing state: this backend never runs a real data-quality evaluation. Same class as ML transforms' EvaluationMetrics gap below.
-- MLTaskRun has no LastModifiedOn field and Properties is map[string]string vs the real *types.TaskRunProperties; inert (never populated by any code path, never observed by a real client), not an active bug -- left as a type-fidelity gap rather than a functional one.
-- ListConnectionTypes' ConnectionTypeBrief.DisplayName/LogoUrl/Vendor/ConnectionTypeVariants have no backing state: no per-connector display-name/logo/vendor/variant catalog exists in this backend.
-- DataCatalogExportConfiguration.S3TableBucketArn has no corresponding input field anywhere in the real API to derive it from, so it stays empty; its ENABLING/DISABLING transient states are not modeled since this backend has no async export pipeline (Status settles synchronously, honestly, not eventually-consistent).
-- quota/idempotency exceptions: IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException remain unenforced -- ConcurrentModificationException is structurally unreachable (coarse b.mu.Lock serializes every op, so no real race exists to detect); OperationTimeoutException would need a fabricated timeout threshold with nothing real behind it; IdempotentParameterMismatchException's real trigger condition isn't derivable from the SDK alone for the ops that declare it (none have a ClientToken/RequestToken input field). ResourceNumberLimitExceededException is real for 15 ops (limits.go, 2026-09-11 section below).
-- CustomEntityType has no ARN or Tags concept modeled at all (no ARN-building helper, no Tags field, CreateCustomEntityType's wire input doesn't accept tags) -- Blueprint/DevEndpoint/MLTransform/UserDefinedFunction all dispatch tags correctly; extending CustomEntityType is a larger lift (adding the concept from scratch, not just wiring existing-but-undispatched support).
-- 2026-09-18: StartDataQualityRulesetEvaluationRun's DataSource/AdditionalDataSources/AdditionalRunOptions/Role are now real (declared, stored, echoed back by GetDataQualityRulesetEvaluationRun); ClientToken is accepted but not stored (idempotent-replay detection needs a request-dedup store this backend has nowhere, same class as IdempotentParameterMismatchException above). Still open: this backend never evaluates a ruleset against real data, so DataSource is accepted but never applied to an actual evaluation.
-- GetTable's AttributesToGet (DEFAULT/LATEST_ICEBERG_METADATA) is declared on the wire but inert -- this backend has no Iceberg table metadata state to return.
+- Unmodeled subsystems (no backing state): Lake Formation cell/row filtering (GetUnfiltered*Metadata) and catalog federation; GetDataQualityResult metrics/rule results and StartDataQualityRulesetEvaluationRun evaluation (no engine runs); ListConnectionTypes DisplayName/LogoUrl/Vendor/variants (no connector catalog); GetTable AttributesToGet Iceberg metadata.
+- Type-fidelity only, inert: MLTaskRun lacks LastModifiedOn and has Properties as map[string]string; DataCatalogExportConfiguration.S3TableBucketArn has no input to derive from and ENABLING/DISABLING are not modeled (no async export).
+- IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException unenforced: the coarse b.mu serializes ops, there is no real timeout source, and no declaring op has a token input. ResourceNumberLimitExceededException is real for 15 ops (limits.go).
+- CustomEntityType has no ARN or Tags: the Glue ARN format for it is not verifiable offline (the SDK exposes none), so TagResource cannot be wired honestly.
 
 ### Deferred
 
@@ -31,7 +26,7 @@
 - schema registry: Compatibility enum validation and DISABLED-mode enforcement are real (gopherstack-j1b7). BACKWARD/FORWARD/FULL/*_ALL diffing for AVRO/JSON/PROTOBUF remains deferred: 2026-09-18 re-check via WebFetch against docs.aws.amazon.com returned no usable page content in this sandbox (network reaches example.com fine, but AWS doc pages render empty), so the precise per-format comparison rules can't be verified here -- a wrong compatibility verdict is worse than the current honest absence (a caller trusts a compatibility pass to reject real incompatibilities). Needs external AWS evidence; not a code-complexity problem alone.
 - data quality rulesets: DQDL syntax/rule-type validation needs a real lexer+parser for a dozen-plus rule types (comparable in scope to pkgs/dynamodb/expr) -- re-confirmed package-sized 2026-09-18, no slice of it is independently useful since every rule type needs the same scaffolding; not started
 - ML transforms: EvaluationMetrics (FindMatchesMetrics) — no real ML evaluation is ever run, so there is no real metric to report
-- quota/idempotency exceptions: see items_still_open above (same section, 2026-09-11 dated notes)
+- quota/idempotency exceptions: see items_still_open above
 - …and 1 more — see PARITY.md
 
 ## More

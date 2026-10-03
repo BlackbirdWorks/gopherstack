@@ -54,6 +54,15 @@ func (b *InMemoryBackend) dbSecurityGroupMembershipsLocked(names []string) ([]DB
 	return dbSGs, nil
 }
 
+func vpcSecurityGroupMemberships(ids []string) []VpcSecurityGroupMembership {
+	out := make([]VpcSecurityGroupMembership, 0, len(ids))
+	for _, sgID := range ids {
+		out = append(out, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
+	}
+
+	return out
+}
+
 // createDBInstanceLocked validates and inserts a new DB instance under b.mu,
 // returning a copy of the stored instance. Extracted from CreateDBInstance to
 // keep the locked region out of the parent's funlen count; the parent still
@@ -82,18 +91,15 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		engine, instanceClass, allocatedStorage, masterUser, b.region, &opts,
 	)
 
-	port := enginePort(engine)
-	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
-
-	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
-	for _, sgID := range opts.VpcSecurityGroupIDs {
-		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{
-			VpcSecurityGroupID: sgID,
-			Status:             subscriptionStatusActive,
-		})
+	secret, err := b.validateCreateLogin(engine, masterUser, opts)
+	if err != nil {
+		return nil, err
 	}
 
+	port := enginePort(engine)
+	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	inst := &DBInstance{
+		MasterSecret:                       secret,
 		InstanceCreateTime:                 time.Now().UTC(),
 		DBInstanceIdentifier:               id,
 		DBInstanceArn:                      b.rdsARN("db", id),
@@ -128,7 +134,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		KmsKeyID:                           opts.KmsKeyID,
 		CopyTagsToSnapshot:                 opts.CopyTagsToSnapshot,
 		EnabledCloudwatchLogsExports:       opts.EnabledCloudwatchLogsExports,
-		VpcSecurityGroups:                  vpcSGs,
+		VpcSecurityGroups:                  vpcSecurityGroupMemberships(opts.VpcSecurityGroupIDs),
 		DBSecurityGroups:                   dbSGs,
 		ReadReplicaIdentifiers:             []string{},
 		PubliclyAccessible:                 opts.PubliclyAccessible,
@@ -156,11 +162,22 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		}
 	}
 	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
-	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
-	b.scheduleReconcilerLocked()
+	if !b.provisionInstanceLocked(inst, opts.MasterUserPassword) {
+		b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
+	}
 	cp := *inst
 
 	return &cp, nil
+}
+
+// validateCreateLogin checks the engine login and provisions the managed master secret, if requested.
+func (b *InMemoryBackend) validateCreateLogin(engine, masterUser string, opts DBInstanceOptions) (MasterSecret, error) {
+	if err := b.validateEngineLogin(engine, masterUser); err != nil {
+		return MasterSecret{}, err
+	}
+
+	return b.createMasterSecret("db", opts.MasterSecretRequest, opts.MasterUserPassword)
 }
 
 func (b *InMemoryBackend) CreateDBInstance(
@@ -191,7 +208,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		return nil, err
 	}
 
-	if b.dnsRegistrar != nil {
+	if b.dnsRegistrar != nil && !b.engineManaged(result.Engine) {
 		b.dnsRegistrar.Register(result.Endpoint)
 	}
 
@@ -321,6 +338,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 	}
 
 	b.instances.Delete(normalizeID(id))
+	b.dropUnitLocked(unitKeyForInstance(canonicalID))
 	delete(b.tags, b.rdsARN("db", canonicalID))
 	delete(b.instanceRoles, canonicalID)
 	delete(b.instanceReadyAt, canonicalID)
@@ -653,6 +671,18 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	allocatedStorage int,
 	opts DBInstanceOptions,
 ) (*DBInstance, error) {
+	if err := b.guardEngineModify(id, opts.MasterUserPassword); err != nil {
+		return nil, err
+	}
+
+	return b.modifyDBInstanceLocked(id, instanceClass, allocatedStorage, opts)
+}
+
+func (b *InMemoryBackend) modifyDBInstanceLocked(
+	id, instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
@@ -662,11 +692,21 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
-	if err := b.applyDBInstanceModifications(
+	secret, err := b.updateMasterSecret(inst.MasterSecret, "db", opts.MasterSecretRequest, opts.MasterUserPassword)
+	if err != nil {
+		return nil, err
+	}
+	mode, resumeAt, err := resolveAutomation(inst, opts)
+	if err != nil {
+		return nil, err
+	}
+	if err = b.applyDBInstanceModifications(
 		inst, instanceClass, allocatedStorage, opts, opts.ApplyImmediately,
 	); err != nil {
 		return nil, err
 	}
+	inst.MasterSecret = secret
+	inst.AutomationMode, inst.ResumeFullAutomationModeTime = mode, resumeAt
 	if inst.PendingModifiedValues != nil && inst.PendingModifiedValues.EngineVersion != "" {
 		b.registerDBUpgradeActionLocked(inst)
 	} else {
@@ -735,8 +775,14 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 			opts.DBParameterGroupName = source.DBParameterGroupName
 		}
 
+		var secret MasterSecret
+		if secret, err = b.createMasterSecret("db", opts.MasterSecretRequest, ""); err != nil {
+			return
+		}
+
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 		inst := &DBInstance{
+			MasterSecret:                     secret,
 			DBInstanceIdentifier:             id,
 			DBInstanceArn:                    b.rdsARN("db", id),
 			DbiResourceID:                    id,
@@ -796,6 +842,16 @@ func (b *InMemoryBackend) StartDBInstance(id string) (*DBInstance, error) {
 		return nil, fmt.Errorf("%w: instance %s is not in stopped state", ErrInvalidDBInstanceState, id)
 	}
 
+	handled, err := b.beginInstanceOpLocked(inst, opStart, instanceStatusStarting)
+	if err != nil {
+		return nil, err
+	}
+	if handled {
+		cp := *inst
+
+		return &cp, nil
+	}
+
 	inst.DBInstanceStatus = instanceStatusAvailable
 	cp := *inst
 
@@ -818,6 +874,16 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 	}
 	if inst.DBInstanceStatus != instanceStatusAvailable {
 		return nil, fmt.Errorf("%w: instance %s is not in available state", ErrInvalidDBInstanceState, id)
+	}
+
+	handled, err := b.beginInstanceOpLocked(inst, opStop, instanceStatusStopping)
+	if err != nil {
+		return nil, err
+	}
+	if handled {
+		cp := *inst
+
+		return &cp, nil
 	}
 
 	inst.DBInstanceStatus = instanceStatusStopped
@@ -953,9 +1019,15 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
-	inst.DBInstanceStatus = instanceStatusRebooting
-	b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)
-	b.scheduleReconcilerLocked()
+	handled, err := b.beginInstanceOpLocked(inst, opRestart, instanceStatusRebooting)
+	if err != nil {
+		return nil, err
+	}
+	if !handled {
+		inst.DBInstanceStatus = instanceStatusRebooting
+		b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
+	}
 	b.publishInstanceEventLocked(inst.DBInstanceIdentifier, "DB instance reboot initiated")
 	cp := *inst
 
@@ -1121,7 +1193,12 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 	if _, exists := b.instances.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceAlreadyExists, id)
 	}
+	secret, err := b.createMasterSecret("db", opts.MasterSecretRequest, opts.MasterUserPassword)
+	if err != nil {
+		return nil, err
+	}
 	inst := &DBInstance{
+		MasterSecret:                       secret,
 		DBInstanceIdentifier:               id,
 		DBInstanceArn:                      b.rdsARN("db", id),
 		DBInstanceClass:                    dbInstanceClass,

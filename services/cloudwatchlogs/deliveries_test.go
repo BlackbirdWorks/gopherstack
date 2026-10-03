@@ -369,6 +369,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 					"APPLICATION_LOGS",
 					[]string{"arn:aws:ec2:::instance/i-123"},
 					nil,
+					nil,
 				)
 				require.NoError(t, err)
 				assert.Equal(t, "my-src", src.Name)
@@ -398,7 +399,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			name: "delete_rejected_while_delivery_associated",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliverySource("assoc-src", "APPLICATION_LOGS", nil, nil)
+				_, err := b.PutDeliverySource("assoc-src", "APPLICATION_LOGS", nil, nil, nil)
 				require.NoError(t, err)
 
 				delivery, err := b.CreateDelivery("assoc-src", "arn:aws:s3:::assoc-dest", "", nil, nil, nil)
@@ -416,9 +417,9 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			name: "put_updates_existing",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliverySource("src1", "FLOW_LOGS", []string{"arn:old"}, nil)
+				_, err := b.PutDeliverySource("src1", "FLOW_LOGS", []string{"arn:old"}, nil, nil)
 				require.NoError(t, err)
-				_, err = b.PutDeliverySource("src1", "VPC_FLOW_LOGS", []string{"arn:new"}, nil)
+				_, err = b.PutDeliverySource("src1", "VPC_FLOW_LOGS", []string{"arn:new"}, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -450,7 +451,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			name: "put_empty_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliverySource("", "FLOW_LOGS", nil, nil)
+				_, err := b.PutDeliverySource("", "FLOW_LOGS", nil, nil, nil)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidationException)
 			},
 		},
@@ -458,9 +459,9 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			name: "describe_sorted_by_name",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliverySource("z-src", "FLOW_LOGS", nil, nil)
+				_, err := b.PutDeliverySource("z-src", "FLOW_LOGS", nil, nil, nil)
 				require.NoError(t, err)
-				_, err = b.PutDeliverySource("a-src", "FLOW_LOGS", nil, nil)
+				_, err = b.PutDeliverySource("a-src", "FLOW_LOGS", nil, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {

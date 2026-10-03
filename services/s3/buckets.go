@@ -71,6 +71,17 @@ func (b *InMemoryBackend) CreateBucket(
 		ownershipControls = buildOwnershipControlsXML(string(input.ObjectOwnership))
 	}
 
+	// A directory bucket is identified by its --{azid}--x-s3 name suffix (the
+	// only signal a real client's own bucket-naming convention leaves us);
+	// CreateBucketConfiguration.Bucket.Type/Location (types.go:376,3072) are a
+	// second, corroborating signal from the same request, read here so a
+	// caller using them is never silently ignored.
+	isDirectoryBucket := strings.HasSuffix(bucketName, "--x-s3")
+	if input.CreateBucketConfiguration != nil && input.CreateBucketConfiguration.Bucket != nil {
+		isDirectoryBucket = isDirectoryBucket ||
+			input.CreateBucketConfiguration.Bucket.Type == types.BucketTypeDirectory
+	}
+
 	b.buckets.Put(&StoredBucket{
 		Name:         bucketName,
 		Region:       region,
@@ -87,7 +98,7 @@ func (b *InMemoryBackend) CreateBucket(
 		// S3 Express directory buckets use the naming convention {name}--{az-id}--x-s3.
 		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
 		// correctly partition general-purpose vs. directory buckets.
-		IsDirectoryBucket:       strings.HasSuffix(bucketName, "--x-s3"),
+		IsDirectoryBucket:       isDirectoryBucket,
 		ObjectLockEnabled:       aws.ToBool(input.ObjectLockEnabledForBucket),
 		OwnershipControlsConfig: ownershipControls,
 		OwnerAccountID:          awsmeta.Account(ctx),
@@ -309,36 +320,6 @@ func (b *InMemoryBackend) BucketsByRegion(region string) []types.Bucket {
 	})
 
 	return buckets
-}
-
-// CreateSession returns a stub session response for a bucket (S3 Express One
-// Zone). It is a stub in more ways than the response body suggests: SessionMode
-// (the X-Amz-Create-Session-Mode header) is never read, IsDirectoryBucket is
-// never checked -- this emulator has no directory-bucket-vs-general-purpose
-// distinction at all -- and the returned SessionToken has no downstream effect;
-// nothing validates it on subsequent requests, so it authorizes nothing.
-func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (string, error) {
-	var err error
-	func() {
-		b.mu.RLock("CreateSession")
-		defer b.mu.RUnlock()
-
-		_, err = b.getBucket(bucketName)
-	}()
-
-	if err != nil {
-		return "", err
-	}
-
-	const sessionXML = `<CreateSessionResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
-		`<Credentials>` +
-		`<SessionToken>gopherstack-mock-session-token</SessionToken>` +
-		`<SecretAccessKey>gopherstack-mock-secret</SecretAccessKey>` +
-		`<AccessKeyId>gopherstack-mock-access-key</AccessKeyId>` +
-		`<Expiration>2099-01-01T00:00:00Z</Expiration>` +
-		`</Credentials></CreateSessionResponse>`
-
-	return sessionXML, nil
 }
 
 func (b *InMemoryBackend) GetBucketMetadata(

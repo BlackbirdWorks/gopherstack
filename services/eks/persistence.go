@@ -177,6 +177,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.reapClustersLocked()
+
 	if snap.Version != eksSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
 		// partially decoded as the current shape -- that risks silently
@@ -219,6 +221,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.relaunchClustersLocked()
 
 	return nil
 }

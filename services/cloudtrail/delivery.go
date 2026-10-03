@@ -51,11 +51,6 @@ func (b *InMemoryBackend) deliverLogFile(ev Event) {
 		return
 	}
 
-	body, err := logFileBody(ev)
-	if err != nil {
-		return
-	}
-
 	b.mu.RLock("deliverLogFile:snapshot")
 
 	targets := make([]deliveryTarget, 0, b.trails.Len())
@@ -71,6 +66,15 @@ func (b *InMemoryBackend) deliverLogFile(ev Event) {
 	}
 
 	b.mu.RUnlock()
+
+	if len(targets) == 0 {
+		return
+	}
+
+	body, err := logFileBody(ev)
+	if err != nil {
+		return
+	}
 
 	for _, target := range targets {
 		input := &sdk_s3.PutObjectInput{

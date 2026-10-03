@@ -27,6 +27,8 @@ const (
 	eventSeverityInfo = "INFO"
 	// maxEventsPerRegion caps the events slice to prevent unbounded growth.
 	maxEventsPerRegion = 1000
+	// maxDeletedEnvironmentsPerRegion bounds the terminated-environment history.
+	maxDeletedEnvironmentsPerRegion = 100
 	// defaultConfigTemplateName is the configuration template AWS auto-creates
 	// alongside every new application (see CreateApplication's documented
 	// behavior: "Creates an application that has one configuration template

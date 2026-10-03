@@ -422,7 +422,7 @@ func buildLayerPolicy(stmts map[string]*LayerVersionStatement) (string, error) {
 		s := stmts[sid]
 		statements = append(statements, map[string]string{
 			"Sid":       s.StatementID,
-			"Effect":    "Allow",
+			"Effect":    effectAllow,
 			"Principal": s.Principal,
 			"Action":    s.Action,
 		})

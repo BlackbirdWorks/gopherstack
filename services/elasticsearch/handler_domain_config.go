@@ -265,9 +265,7 @@ func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, statu
 // shape (types.AutoTuneOptions -- DesiredState/MaintenanceSchedules/
 // RollbackOnDisable), which is DIFFERENT from the DomainStatus response's
 // shape (types.AutoTuneOptionsOutput, see toAutoTuneOptionsJSON in
-// handler_domains.go). RollbackOnDisable is not modeled: it only applies to
-// UpdateElasticsearchDomainConfig (not Create) and this backend has no
-// rollback state machine to act on it.
+// handler_domains.go). RollbackOnDisable is stored and echoed verbatim.
 func toDomainConfigAutoTuneOptionsJSON(a *AutoTuneOptions) domainConfigAutoTuneOptionsJSON {
 	if a == nil {
 		return domainConfigAutoTuneOptionsJSON{DesiredState: autoTuneStateDisabled}
@@ -280,6 +278,7 @@ func toDomainConfigAutoTuneOptionsJSON(a *AutoTuneOptions) domainConfigAutoTuneO
 
 	return domainConfigAutoTuneOptionsJSON{
 		DesiredState:         desired,
+		RollbackOnDisable:    a.RollbackOnDisable,
 		MaintenanceSchedules: toMaintenanceSchedulesJSON(a.MaintenanceSchedules),
 	}
 }
@@ -403,6 +402,7 @@ type autoTuneStatusJSON struct {
 // doc comment for why this differs from the DomainStatus response's shape.
 type domainConfigAutoTuneOptionsJSON struct {
 	DesiredState         string                            `json:"DesiredState,omitempty"`
+	RollbackOnDisable    string                            `json:"RollbackOnDisable,omitempty"`
 	MaintenanceSchedules []autoTuneMaintenanceScheduleJSON `json:"MaintenanceSchedules,omitempty"`
 }
 
@@ -415,22 +415,22 @@ type autoTuneConfigValue struct {
 }
 
 // domainConfigFields holds the per-feature configuration values for a domain.
-type domainConfigFields struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	ElasticsearchVersion        elasticsearchConfigValue  `json:"ElasticsearchVersion"`
-	ElasticsearchClusterConfig  elasticsearchConfigValue  `json:"ElasticsearchClusterConfig"`
-	EBSOptions                  elasticsearchConfigValue  `json:"EBSOptions"`
+type domainConfigFields struct {
+	VPCOptions                  *elasticsearchConfigValue `json:"VPCOptions,omitempty"`
+	AutoTuneOptions             autoTuneConfigValue       `json:"AutoTuneOptions"`
+	EncryptionAtRestOptions     elasticsearchConfigValue  `json:"EncryptionAtRestOptions"`
 	AccessPolicies              elasticsearchConfigValue  `json:"AccessPolicies"`
 	AdvancedOptions             elasticsearchConfigValue  `json:"AdvancedOptions"`
 	SnapshotOptions             elasticsearchConfigValue  `json:"SnapshotOptions"`
-	EncryptionAtRestOptions     elasticsearchConfigValue  `json:"EncryptionAtRestOptions"`
+	ElasticsearchVersion        elasticsearchConfigValue  `json:"ElasticsearchVersion"`
 	NodeToNodeEncryptionOptions elasticsearchConfigValue  `json:"NodeToNodeEncryptionOptions"`
 	DomainEndpointOptions       elasticsearchConfigValue  `json:"DomainEndpointOptions"`
 	CognitoOptions              elasticsearchConfigValue  `json:"CognitoOptions"`
 	AdvancedSecurityOptions     elasticsearchConfigValue  `json:"AdvancedSecurityOptions"`
-	AutoTuneOptions             autoTuneConfigValue       `json:"AutoTuneOptions"`
+	EBSOptions                  elasticsearchConfigValue  `json:"EBSOptions"`
 	DeploymentStrategyOptions   elasticsearchConfigValue  `json:"DeploymentStrategyOptions"`
 	LogPublishingOptions        elasticsearchConfigValue  `json:"LogPublishingOptions"`
-	VPCOptions                  *elasticsearchConfigValue `json:"VPCOptions,omitempty"`
+	ElasticsearchClusterConfig  elasticsearchConfigValue  `json:"ElasticsearchClusterConfig"`
 }
 
 type describeDomainConfigOutput struct {

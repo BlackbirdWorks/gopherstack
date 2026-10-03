@@ -118,17 +118,19 @@ func (b *InMemoryBackend) UpdateMaxRecordSize(ctx context.Context, input *Update
 	region := regionFromARNOrCtx(ctx, input.StreamARN, b.region)
 	streamName := streamNameFromARN(input.StreamARN)
 
-	b.mu.RLock("UpdateMaxRecordSize")
+	b.mu.Lock("UpdateMaxRecordSize")
+	defer b.mu.Unlock()
 
-	stream, ok := b.streams.Get(streamKey(region, streamName))
-	if !ok {
-		b.mu.RUnlock()
-
-		return ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, streamName)
+	if err != nil {
+		return err
 	}
 	stream.mu.Lock("UpdateMaxRecordSize.stream")
-	b.mu.RUnlock()
 	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return ErrStreamNotActive
+	}
 
 	sizeBytes := input.MaxRecordSizeInKiB * bytesPerKiB
 	if sizeBytes < defaultMaxRecordSizeBytes || sizeBytes > absoluteMaxRecordSizeBytes {

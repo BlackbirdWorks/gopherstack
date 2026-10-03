@@ -761,7 +761,9 @@ func TestDescribeTableReplicaAutoScaling(t *testing.T) {
 		name     string
 	}{
 		{
-			name: "DescribeTableReplicaAutoScaling_NoReplicas",
+			// A plain (non-global) table still reports its own region as one
+			// replica, matching real DynamoDB (see autoScalingReplicaEntries).
+			name: "DescribeTableReplicaAutoScaling_NoExplicitReplicas_ReportsHomeRegion",
 			setup: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
 				createTable(t, h.Backend.(*dynamodb.InMemoryDB), "AutoScaleTable")
@@ -779,8 +781,9 @@ func TestDescribeTableReplicaAutoScaling(t *testing.T) {
 				require.Equal(t, http.StatusOK, code)
 				desc := resp["TableAutoScalingDescription"].(map[string]any)
 				assert.Equal(t, "AutoScaleTable", desc["TableName"])
-				// No replicas configured
-				assert.Nil(t, desc["Replicas"])
+				replicas := desc["Replicas"].([]any)
+				require.Len(t, replicas, 1)
+				assert.Equal(t, "us-east-1", replicas[0].(map[string]any)["RegionName"])
 			},
 		},
 		{

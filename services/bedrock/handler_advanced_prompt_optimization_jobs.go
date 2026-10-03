@@ -193,6 +193,10 @@ func parseListAdvancedPromptOptimizationJobsQuery(c *echo.Context) *ListAdvanced
 }
 
 func (h *Handler) handleListAdvancedPromptOptimizationJobs(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	jobs, outToken := h.Backend.ListAdvancedPromptOptimizationJobs(parseListAdvancedPromptOptimizationJobsQuery(c))
 
 	summaries := make([]advancedPromptOptimizationJobSummaryOutput, 0, len(jobs))

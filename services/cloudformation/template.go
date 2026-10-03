@@ -266,6 +266,11 @@ func ParseTemplate(body string) (*Template, error) {
 		body = expanded
 	}
 
+	body, samErr := expandSAMBody(body)
+	if samErr != nil {
+		return nil, samErr
+	}
+
 	if !strings.HasPrefix(body, "{") {
 		converted, err := yamlToJSON(body)
 		if err != nil {
@@ -1543,7 +1548,13 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeAmplifyApp, resTypeAmplifyBranch,
 			resTypeBatchSchedulingPolicy, resTypeBatchServiceEnvironment,
 			resTypeEFSAccessPoint,
-			resTypeRedshiftClusterSubnetGroup:
+			resTypeRedshiftClusterSubnetGroup,
+			resTypeEC2PrefixList, resTypeEC2TGWPeeringAttachment, resTypeEC2TGWMulticastDomain,
+			resTypeEC2RouteServer, resTypeEC2RouteServerEndpoint, resTypeEC2RouteServerPeer,
+			resTypeEC2NetworkInsightsPath, resTypeElastiCacheUser,
+			resTypeKinesisVideoStream, resTypeKinesisVideoSignalingChannel,
+			resTypeECRPublicRepository,
+			resTypeKafkaConnectConnector, resTypeKafkaConnectCustomPlugin, resTypeKafkaConnectWorkerConfiguration:
 			return v
 		}
 	}

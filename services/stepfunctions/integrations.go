@@ -84,8 +84,11 @@ type s3Adapter struct {
 	backend s3pkg.StorageBackend
 }
 
-// Compile-time assertion: s3Adapter must implement asl.S3Reader.
-var _ asl.S3Reader = (*s3Adapter)(nil)
+// Compile-time assertion: s3Adapter must implement asl.S3Reader and asl.S3ListReader.
+var (
+	_ asl.S3Reader     = (*s3Adapter)(nil)
+	_ asl.S3ListReader = (*s3Adapter)(nil)
+)
 
 // NewS3Integration creates a new S3 integration adapter for Map state ItemReader.
 func NewS3Integration(backend s3pkg.StorageBackend) asl.S3Reader {
@@ -109,6 +112,44 @@ func (a *s3Adapter) GetObjectBytes(ctx context.Context, bucket, key string) ([]b
 	}
 
 	return data, nil
+}
+
+// ListObjectsV2Items implements asl.S3ListReader, paginating through every
+// object under bucket/prefix.
+func (a *s3Adapter) ListObjectsV2Items(ctx context.Context, bucket, prefix string) ([]asl.S3ObjectItem, error) {
+	var (
+		items             []asl.S3ObjectItem
+		continuationToken *string
+	)
+
+	for {
+		out, err := a.backend.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{
+			Bucket:            aws.String(bucket),
+			Prefix:            aws.String(prefix),
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, obj := range out.Contents {
+			items = append(items, asl.S3ObjectItem{
+				Key:          aws.ToString(obj.Key),
+				ETag:         aws.ToString(obj.ETag),
+				LastModified: aws.ToTime(obj.LastModified),
+				Size:         aws.ToInt64(obj.Size),
+				StorageClass: string(obj.StorageClass),
+			})
+		}
+
+		if !aws.ToBool(out.IsTruncated) || aws.ToString(out.NextContinuationToken) == "" {
+			break
+		}
+
+		continuationToken = out.NextContinuationToken
+	}
+
+	return items, nil
 }
 
 // s3ResultWriterAdapter adapts s3.StorageBackend to asl.S3Writer, used to

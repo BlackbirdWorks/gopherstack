@@ -77,6 +77,7 @@ type Policy struct {
 	PolicyType          string    `json:"policyType"` // STATIC | TEMPLATE_LINKED
 	Statement           string    `json:"statement"`
 	Description         string    `json:"description,omitempty"`
+	Name                string    `json:"name,omitempty"`
 	PolicyTemplateID    string    `json:"policyTemplateID,omitempty"`
 	PrincipalEntityType string    `json:"principalEntityType,omitempty"`
 	PrincipalEntityID   string    `json:"principalEntityID,omitempty"`
@@ -192,6 +193,7 @@ type CreatePolicyParams struct {
 	PrincipalEntityID   string // TEMPLATE_LINKED only
 	ResourceEntityType  string // TEMPLATE_LINKED only
 	ResourceEntityID    string // TEMPLATE_LINKED only
+	Name                string // optional, unique within the policy store
 	ClientToken         string // idempotency token, see InMemoryBackend.checkClientToken
 }
 
@@ -199,6 +201,7 @@ type CreatePolicyParams struct {
 // AWS's UpdatePolicy can only update static policies; there is no
 // TEMPLATE_LINKED variant.
 type UpdatePolicyParams struct {
+	Name        *string // nil keeps the existing name, "" removes it
 	Statement   string
 	Description string
 }

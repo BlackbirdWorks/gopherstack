@@ -34,6 +34,15 @@ func normaliseName(name string) string {
 	return name
 }
 
+// dnsOrderKey reverses the labels so "www.example.com." sorts as "com.example.www.",
+// the order ListHostedZonesByName and ListResourceRecordSets document.
+func dnsOrderKey(name string) string {
+	labels := strings.Split(strings.TrimSuffix(name, "."), ".")
+	slices.Reverse(labels)
+
+	return strings.Join(labels, ".") + "."
+}
+
 // CreateHostedZone creates a new hosted zone. When delegationSetID is
 // non-empty, the zone is linked to that reusable delegation set (which must
 // already exist, see ErrDelegationSetNotFound) and inherits its name
@@ -355,18 +364,22 @@ func (b *InMemoryBackend) ListHostedZonesByName(
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		if result[i].Name == result[j].Name {
+		ki, kj := dnsOrderKey(result[i].Name), dnsOrderKey(result[j].Name)
+		if ki == kj {
 			return result[i].ID < result[j].ID
 		}
 
-		return result[i].Name < result[j].Name
+		return ki < kj
 	})
 
 	var startIndex int
 	if dnsName != "" {
 		startIndex = len(result)
+		startKey := dnsOrderKey(dnsName)
+
 		for i, z := range result {
-			if z.Name > dnsName || (z.Name == dnsName && strings.TrimPrefix(z.ID, "/hostedzone/") >= zoneID) {
+			zk := dnsOrderKey(z.Name)
+			if zk > startKey || (zk == startKey && strings.TrimPrefix(z.ID, "/hostedzone/") >= zoneID) {
 				startIndex = i
 
 				break

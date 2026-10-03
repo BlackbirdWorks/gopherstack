@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 )
 
 // PutDeliveryChannel creates or updates a delivery channel. An empty/blank name
@@ -14,6 +16,19 @@ func (b *InMemoryBackend) PutDeliveryChannel(
 	name, s3Bucket, snsArn, s3KeyPrefix string,
 	props *DeliverySnapshotProperties,
 ) error {
+	return b.PutDeliveryChannelConfig(&DeliveryChannel{
+		Name:                             name,
+		S3Bucket:                         s3Bucket,
+		SNSArn:                           snsArn,
+		S3KeyPrefix:                      s3KeyPrefix,
+		ConfigSnapshotDeliveryProperties: props,
+	})
+}
+
+// PutDeliveryChannelConfig is PutDeliveryChannel taking the full channel, including S3KmsKeyArn.
+func (b *InMemoryBackend) PutDeliveryChannelConfig(ch *DeliveryChannel) error {
+	name, s3Bucket, snsArn, s3KmsKeyArn := ch.Name, ch.S3Bucket, ch.SNSArn, ch.S3KmsKeyArn
+
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("%w: DeliveryChannel name is required", ErrInvalidDeliveryChannelName)
 	}
@@ -26,16 +41,19 @@ func (b *InMemoryBackend) PutDeliveryChannel(
 		return fmt.Errorf("%w: DeliveryChannel s3BucketName is required", ErrValidation)
 	}
 
+	if snsArn != "" && !arn.IsARN(snsArn) {
+		return fmt.Errorf("%w: %q is not a valid ARN", ErrInvalidSNSTopicARN, snsArn)
+	}
+
+	if parsed, err := arn.Parse(s3KmsKeyArn); s3KmsKeyArn != "" && (err != nil || parsed.Service != "kms") {
+		return fmt.Errorf("%w: %q is not a valid KMS ARN", ErrInvalidS3KmsKeyArn, s3KmsKeyArn)
+	}
+
 	b.mu.Lock("PutDeliveryChannel")
 	defer b.mu.Unlock()
 
-	b.channels.Put(&DeliveryChannel{
-		Name:                             name,
-		S3Bucket:                         s3Bucket,
-		SNSArn:                           snsArn,
-		S3KeyPrefix:                      s3KeyPrefix,
-		ConfigSnapshotDeliveryProperties: props,
-	})
+	cp := ch.clone()
+	b.channels.Put(&cp)
 
 	return nil
 }
@@ -50,12 +68,12 @@ func (b *InMemoryBackend) DescribeDeliveryChannels(names []string) []DeliveryCha
 
 	if len(names) == 0 {
 		for _, c := range b.channels.All() {
-			out = append(out, *c)
+			out = append(out, c.clone())
 		}
 	} else {
 		for _, n := range names {
 			if c, ok := b.channels.Get(n); ok {
-				out = append(out, *c)
+				out = append(out, c.clone())
 			}
 		}
 	}
@@ -110,3 +128,13 @@ func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
 // DeliverConfigSnapshot and DescribeDeliveryChannelStatus live in
 // delivery_status.go, alongside the delivery-state tracking they share
 // (gopherstack-ru0y).
+
+func (c *DeliveryChannel) clone() DeliveryChannel {
+	cp := *c
+	if c.ConfigSnapshotDeliveryProperties != nil {
+		props := *c.ConfigSnapshotDeliveryProperties
+		cp.ConfigSnapshotDeliveryProperties = &props
+	}
+
+	return cp
+}

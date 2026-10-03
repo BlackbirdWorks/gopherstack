@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -259,43 +260,45 @@ func TestReplicationConfiguration_Clear(t *testing.T) {
 func TestDescribeImageReplicationStatus_ReturnsStatus(t *testing.T) {
 	t.Parallel()
 
-	h := newAccuracyHandler()
-	mustCreateRepo(t, h, "replication-repo")
+	synctest.Test(t, func(t *testing.T) {
+		h := newAccuracyHandler()
+		mustCreateRepo(t, h, "replication-repo")
 
-	// A replication status is reported per configured destination; with no
-	// replication configuration the list is (correctly) empty, so configure one.
-	repCfg := doAccuracy(t, h, "PutReplicationConfiguration", map[string]any{
-		"replicationConfiguration": map[string]any{
-			"rules": []any{
-				map[string]any{
-					"destinations": []any{
-						map[string]any{"region": "us-west-2", "registryId": "000000000000"},
+		// A replication status is reported per configured destination; with no
+		// replication configuration the list is (correctly) empty, so configure one.
+		repCfg := doAccuracy(t, h, "PutReplicationConfiguration", map[string]any{
+			"replicationConfiguration": map[string]any{
+				"rules": []any{
+					map[string]any{
+						"destinations": []any{
+							map[string]any{"region": "us-west-2", "registryId": "000000000000"},
+						},
 					},
 				},
 			},
-		},
+		})
+		require.Equal(t, http.StatusOK, repCfg.Code)
+
+		digest := mustPutImage(t, h, "replication-repo", "v1.0", `{"schemaVersion":2,"repl":"test"}`)
+
+		// Wait briefly for async replication to complete
+		time.Sleep(20 * time.Millisecond)
+
+		rec := doAccuracy(t, h, "DescribeImageReplicationStatus", map[string]any{
+			"repositoryName": "replication-repo",
+			"imageId": map[string]any{
+				"imageDigest": digest,
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		out := parseAccuracy(t, rec)
+		assert.Equal(t, "replication-repo", out["repositoryName"])
+		statuses, _ := out["replicationStatuses"].([]any)
+		require.NotEmpty(t, statuses, "replicationStatuses must be present")
+		status := statuses[0].(map[string]any)
+		assert.NotEmpty(t, status["status"], "replication status must not be empty")
 	})
-	require.Equal(t, http.StatusOK, repCfg.Code)
-
-	digest := mustPutImage(t, h, "replication-repo", "v1.0", `{"schemaVersion":2,"repl":"test"}`)
-
-	// Wait briefly for async replication to complete
-	time.Sleep(20 * time.Millisecond)
-
-	rec := doAccuracy(t, h, "DescribeImageReplicationStatus", map[string]any{
-		"repositoryName": "replication-repo",
-		"imageId": map[string]any{
-			"imageDigest": digest,
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	out := parseAccuracy(t, rec)
-	assert.Equal(t, "replication-repo", out["repositoryName"])
-	statuses, _ := out["replicationStatuses"].([]any)
-	require.NotEmpty(t, statuses, "replicationStatuses must be present")
-	status := statuses[0].(map[string]any)
-	assert.NotEmpty(t, status["status"], "replication status must not be empty")
 }
 
 func TestDescribeImageReplicationStatus_ByTag(t *testing.T) {

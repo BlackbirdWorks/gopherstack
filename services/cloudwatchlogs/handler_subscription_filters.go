@@ -12,6 +12,10 @@ type putSubscriptionFilterInput struct {
 	DestinationArn string `json:"destinationArn"`
 	RoleArn        string `json:"roleArn,omitempty"`
 	Distribution   string `json:"distribution,omitempty"`
+
+	FieldSelectionCriteria *string  `json:"fieldSelectionCriteria,omitempty"`
+	EmitSystemFields       []string `json:"emitSystemFields,omitempty"`
+	ApplyOnTransformedLogs bool     `json:"applyOnTransformedLogs,omitempty"`
 }
 
 type describeSubscriptionFiltersInput struct {
@@ -42,10 +46,15 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.PutSubscriptionFilter(
+			if err := h.Backend.PutSubscriptionFilterWithOptions(
 				ctx,
 				input.LogGroupName, input.FilterName, input.FilterPattern, input.DestinationArn,
 				input.RoleArn, input.Distribution,
+				FilterOptions{
+					FieldSelectionCriteria: input.FieldSelectionCriteria,
+					EmitSystemFields:       input.EmitSystemFields,
+					ApplyOnTransformedLogs: input.ApplyOnTransformedLogs,
+				},
 			); err != nil {
 				return nil, err
 			}

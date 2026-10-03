@@ -322,7 +322,7 @@ func TestListStackSetOperationResults_Pagination(t *testing.T) {
 	require.NoError(t, err)
 
 	accounts := []string{"111111111111", "222222222222", "333333333333"}
-	_, err = backend.CreateStackInstances(ctx, "opresults-ss", accounts, nil, []string{"us-east-1"})
+	_, err = backend.CreateStackInstances(ctx, "opresults-ss", accounts, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
 
 	opsOut, err := client.ListStackSetOperations(ctx, &cfnsdk.ListStackSetOperationsInput{
@@ -379,7 +379,7 @@ func TestListStackSetAutoDeploymentTargets_Pagination(t *testing.T) {
 	require.NoError(t, err)
 
 	accounts := []string{"111111111111", "222222222222", "333333333333"}
-	_, err = backend.CreateStackInstances(ctx, "autotargets-ss", accounts, nil, []string{"us-east-1"})
+	_, err = backend.CreateStackInstances(ctx, "autotargets-ss", accounts, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
 
 	page1, err := client.ListStackSetAutoDeploymentTargets(ctx, &cfnsdk.ListStackSetAutoDeploymentTargetsInput{

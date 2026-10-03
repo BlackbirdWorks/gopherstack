@@ -30,16 +30,18 @@ import (
 )
 
 // newDependentServiceBackends creates a ServiceBackends with all phase-3 backends populated.
-func newDependentServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
-	t.Helper()
+func newDependentServiceBackends(tb testing.TB) *cloudformation.ServiceBackends {
+	tb.Helper()
 
-	b := newAdditionalServiceBackends()
-	b.EKS = eksbackend.NewHandler(eksbackend.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"))
+	b := newAdditionalServiceBackends(tb)
+	b.EKS = eksbackend.NewHandler(eksbackend.NewInMemoryBackend(tb.Context(), "000000000000", "us-east-1"))
 	b.EFS = efsbackend.NewHandler(efsbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend("000000000000", "us-east-1"))
-	b.CloudFront = cloudfrontbackend.NewHandler(
-		cloudfrontbackend.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"),
+	cloudfrontHandler := cloudfrontbackend.NewHandler(
+		cloudfrontbackend.NewInMemoryBackend(tb.Context(), "000000000000", "us-east-1"),
 	)
+	shutdownOnCleanup(tb, cloudfrontHandler)
+	b.CloudFront = cloudfrontHandler
 	b.Autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
 	b.APIGatewayV2 = apigatewayv2backend.NewHandler(apigatewayv2backend.NewInMemoryBackend())
 	b.CodeBuild = codebuildbackend.NewHandler(
@@ -52,7 +54,7 @@ func newDependentServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
 	)
 	b.Kafka = kafkabackend.NewHandler(kafkabackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Transfer = transferbackend.NewHandler(
-		transferbackend.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"),
+		transferbackend.NewInMemoryBackend(tb.Context(), "000000000000", "us-east-1"),
 	)
 	b.CloudTrail = cloudtrailbackend.NewHandler(
 		cloudtrailbackend.NewInMemoryBackend("000000000000", "us-east-1"),
@@ -208,8 +210,8 @@ func TestResourceCreator_DependentServiceTypes_NilBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// newServiceBackends() leaves all Phase 3 backends nil → stub path.
-			backends := newServiceBackends()
+			// newServiceBackends(t) leaves all Phase 3 backends nil → stub path.
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)

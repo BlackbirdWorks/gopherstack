@@ -196,7 +196,7 @@ func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []Im
 			tag = pe.ImageTags[0]
 		}
 
-		if !deleteByDigestLocked(b.images, repoTags, repositoryName, digest) {
+		if !deleteByDigestLocked(b.images, b.layerRefs, repoTags, repositoryName, digest) {
 			continue
 		}
 

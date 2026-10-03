@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -18,6 +19,28 @@ const (
 	// notification and the next disk write.
 	debounceDuration = 500 * time.Millisecond
 )
+
+// maxParallelism caps concurrent per-service saves/restores so peak memory stays bounded.
+const maxParallelism = 8
+
+// forEachEntry runs fn for every entry with bounded parallelism and waits for all of them.
+func forEachEntry(entries map[string]*entry, fn func(name string, e *entry)) {
+	var wg sync.WaitGroup
+
+	sem := make(chan struct{}, min(runtime.GOMAXPROCS(0), maxParallelism))
+
+	for name, e := range entries {
+		sem <- struct{}{}
+
+		wg.Go(func() {
+			defer func() { <-sem }()
+
+			fn(name, e)
+		})
+	}
+
+	wg.Wait()
+}
 
 // entry holds the Persistable backend and debounce state for a single service.
 type entry struct {
@@ -75,7 +98,7 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for name, e := range m.entries {
+	forEachEntry(m.entries, func(name string, e *entry) {
 		ectx := entryCtx(ctx, name)
 		log := logger.Load(ectx)
 
@@ -87,7 +110,7 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 				log.WarnContext(ectx, "persistence: load failed", "service", name, "error", err)
 			}
 
-			continue
+			return
 		}
 
 		if restoreErr := e.persistable.Restore(ectx, data); restoreErr != nil {
@@ -95,7 +118,7 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 		} else {
 			log.InfoContext(ectx, "persistence: restored", "service", name)
 		}
-	}
+	})
 }
 
 // Notify schedules a debounced save for the named service.
@@ -147,8 +170,7 @@ func (m *Manager) SaveAll(ctx context.Context) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for _, e := range m.entries {
-		// Stop any pending debounce timer so it doesn't fire concurrently.
+	forEachEntry(m.entries, func(_ string, e *entry) {
 		e.mu.Lock()
 		if e.timer != nil {
 			e.timer.Stop()
@@ -161,7 +183,7 @@ func (m *Manager) SaveAll(ctx context.Context) {
 			logger.Load(ectx).
 				WarnContext(ectx, "persistence: save failed on shutdown", "service", e.name, "error", saveErr)
 		}
-	}
+	})
 }
 
 // saveIfCurrent fires a save only if the generation still matches the one

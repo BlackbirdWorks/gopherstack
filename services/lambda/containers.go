@@ -30,15 +30,17 @@ const extractParentDirPerm = 0o750
 //   - started, startErr, srv, port, zipDir, layerDirs, and containerID are protected by rt.mu.
 //     They are set once during startup and read afterwards without b.mu held.
 type functionRuntime struct {
-	lastUsed    time.Time
-	startErr    error
-	srv         *runtimeServer
-	mu          *lockmetrics.RWMutex
-	zipDir      string
-	containerID string
-	layerDirs   []string
-	port        int
-	started     bool
+	lastUsed     time.Time
+	hotCheckedAt time.Time
+	startErr     error
+	srv          *runtimeServer
+	mu           *lockmetrics.RWMutex
+	zipDir       string
+	hotFP        string
+	containerID  string
+	layerDirs    []string
+	port         int
+	started      bool
 }
 
 // containerShutdownTimeout is the maximum time to wait for a container to stop.
@@ -244,7 +246,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.port = port
 	rt.started = true
 
-	zipDir, layerDirs, containerID, containerErr := b.startContainer(ctx, fn, port)
+	zipDir, layerDirs, containerID, hotFP, containerErr := b.startRuntimeContainer(ctx, fn, port)
 	if containerErr != nil {
 		// handleContainerStartFailure receives rt.mu already locked and releases
 		// it itself once its cleanup completes, before doing further b.mu work.
@@ -259,8 +261,26 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.zipDir = zipDir
 	rt.layerDirs = layerDirs
 	rt.containerID = containerID
+	rt.hotFP = hotFP
+	rt.hotCheckedAt = time.Now()
 
 	return srv, nil
+}
+
+// startRuntimeContainer fingerprints hot-reload code (refusing unsafe trees) before starting the container.
+func (b *InMemoryBackend) startRuntimeContainer(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	port int,
+) (string, []string, string, string, error) {
+	hotFP, err := b.hotReloadFingerprintFor(fn)
+	if err != nil {
+		return "", nil, "", "", fmt.Errorf("%w: %w", ErrLambdaUnavailable, err)
+	}
+
+	zipDir, layerDirs, containerID, err := b.startContainer(ctx, fn, port)
+
+	return zipDir, layerDirs, containerID, hotFP, err
 }
 
 // lookupOrRegisterRuntime returns the existing runtime entry for fn, or
@@ -415,17 +435,21 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 //
 //nolint:gochecknoglobals // intentional package-level lookup table
 var runtimeBaseImages = map[string]string{
+	"python3.14":      "public.ecr.aws/lambda/python:3.14",
 	"python3.13":      "public.ecr.aws/lambda/python:3.13",
 	"python3.12":      "public.ecr.aws/lambda/python:3.12",
 	"python3.11":      "public.ecr.aws/lambda/python:3.11",
 	"python3.10":      "public.ecr.aws/lambda/python:3.10",
 	"python3.9":       "public.ecr.aws/lambda/python:3.9",
+	"nodejs24.x":      "public.ecr.aws/lambda/nodejs:24",
 	"nodejs22.x":      "public.ecr.aws/lambda/nodejs:22",
 	"nodejs20.x":      "public.ecr.aws/lambda/nodejs:20",
 	"nodejs18.x":      "public.ecr.aws/lambda/nodejs:18",
+	"java25":          "public.ecr.aws/lambda/java:25",
 	"java21":          "public.ecr.aws/lambda/java:21",
 	"java17":          "public.ecr.aws/lambda/java:17",
 	"java11":          "public.ecr.aws/lambda/java:11",
+	"dotnet10":        "public.ecr.aws/lambda/dotnet:10",
 	"dotnet9":         "public.ecr.aws/lambda/dotnet:9",
 	"dotnet8":         "public.ecr.aws/lambda/dotnet:8",
 	"ruby3.3":         "public.ecr.aws/lambda/ruby:3.3",
@@ -490,6 +514,29 @@ func isValidRuntime(runtime string) bool {
 	}
 
 	_, ok := deprecatedRuntimes[runtime]
+
+	return ok
+}
+
+// durableSupportedRuntimes lists managed runtimes allowed for a Zip durable function.
+// docs.aws.amazon.com/lambda/latest/dg/durable-supported-runtimes.html
+//
+//nolint:gochecknoglobals // static allowlist mirroring a fixed AWS doc table
+var durableSupportedRuntimes = map[string]struct{}{
+	"nodejs22.x": {},
+	"nodejs24.x": {},
+	"python3.13": {},
+	"python3.14": {},
+	"java17":     {},
+	"java21":     {},
+	"java25":     {},
+	"dotnet8":    {},
+	"dotnet10":   {},
+}
+
+// isDurableSupportedRuntime reports whether runtime supports durable functions.
+func isDurableSupportedRuntime(runtime string) bool {
+	_, ok := durableSupportedRuntimes[runtime]
 
 	return ok
 }
@@ -645,6 +692,10 @@ func (b *InMemoryBackend) startZipContainer(
 		return "", "", fmt.Errorf("%w: unsupported runtime %q", ErrLambdaUnavailable, fn.Runtime)
 	}
 
+	if b.isHotReloadFunction(fn) {
+		return b.startHotReloadContainer(ctx, fn, baseImage, env, layerMount)
+	}
+
 	// Resolve zip bytes from inline data or S3.
 	zipData := fn.ZipData
 	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
@@ -680,7 +731,46 @@ func (b *InMemoryBackend) startZipContainer(
 		return "", "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
 	}
 
-	mounts := []string{zipDir + ":/var/task:ro"}
+	containerID, err := b.createZipContainer(ctx, fn, baseImage, zipDir, env, layerMount)
+	if err != nil {
+		_ = os.RemoveAll(zipDir) // #nosec G703
+
+		return "", "", err
+	}
+
+	return zipDir, containerID, nil
+}
+
+// startHotReloadContainer bind-mounts the function's live local directory read-only.
+func (b *InMemoryBackend) startHotReloadContainer(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	baseImage string,
+	env []string,
+	layerMount string,
+) (string, string, error) {
+	dir, err := ResolveHotReloadPath(fn.S3KeyCode)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %w", ErrLambdaUnavailable, err)
+	}
+
+	containerID, err := b.createZipContainer(ctx, fn, baseImage, dir, env, layerMount)
+	if err != nil {
+		return "", "", err
+	}
+
+	return "", containerID, nil
+}
+
+// createZipContainer starts a base-image container with codeDir mounted read-only at /var/task.
+func (b *InMemoryBackend) createZipContainer(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	baseImage, codeDir string,
+	env []string,
+	layerMount string,
+) (string, error) {
+	mounts := []string{codeDir + ":/var/task:ro"}
 	if layerMount != "" {
 		mounts = append(mounts, layerMount)
 	}
@@ -702,14 +792,7 @@ func (b *InMemoryBackend) startZipContainer(
 		spec.Cmd = []string{fn.Handler}
 	}
 
-	containerID, err := b.docker.CreateAndStart(ctx, spec)
-	if err != nil {
-		_ = os.RemoveAll(zipDir) // #nosec G703
-
-		return "", "", err
-	}
-
-	return zipDir, containerID, nil
+	return b.docker.CreateAndStart(ctx, spec)
 }
 
 // layerEntry holds a single Lambda layer's zip bytes, collected under the backend

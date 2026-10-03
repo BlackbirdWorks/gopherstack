@@ -130,6 +130,8 @@ var (
 	// InvalidParameterValue this backend previously returned, which left the real
 	// AWS provider's delete waiter unable to recognize "already gone" as success).
 	ErrDBProxyNotFound = awserr.New("DBProxyNotFoundFault", awserr.ErrNotFound)
+	// ErrDBProxyTargetGroupNotFound is the documented fault for an unknown target group.
+	ErrDBProxyTargetGroupNotFound = awserr.New("DBProxyTargetGroupNotFoundFault", awserr.ErrNotFound)
 	// ErrDBProxyEndpointNotFound is returned for an unknown DBProxyEndpointName
 	// (confirmed against DescribeDBProxyEndpoints/DeleteDBProxyEndpoint's declared
 	// error sets, both DBProxyEndpointNotFoundFault).

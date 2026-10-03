@@ -116,6 +116,7 @@ gaps: []
   #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
   #     ownership model to draw a different value from.
 items_still_open:
+  - "Docker engine (--kafka-engine=docker) runs ONE plaintext single-node KRaft broker per provisioned cluster (NumberOfBrokerNodes>1 still reports one broker); serverless clusters, TLS/SASL/IAM listeners and the MSK Topic API (CreateTopic etc. stay metadata, real topics are created via the Kafka protocol) are not backed by the broker."
   - "MSK Connect (CreateConnector/CreateCustomPlugin/CreateWorkerConfiguration and
     the rest of the kafkaconnect API, e.g. Terraform's aws_mskconnect_connector/
     _custom_plugin/_worker_configuration) is not implemented at all -- it is a
@@ -158,6 +159,18 @@ deferred: []
   #     mutation the real API exposes, so gopherstack's coverage is complete.
 leaks: {status: clean, note: "no goroutines/timers introduced or found this pass; all new Channels logic (channelARN derivation, deep-clone helpers, destination-update validation) is synchronous, computed under the existing coarse b.mu per call via the new channels store.Table, with no new background work."}
 ---
+
+## 2026-10-01: optional real broker (docker engine)
+
+`--kafka-engine=docker` (`KAFKA_ENGINE`, default `stub`; the port binds 127.0.0.1 unless `KAFKA_BROKER_HOST` is non-loopback, then all interfaces) starts a pinned `apache/kafka:3.9.1`
+KRaft container per provisioned cluster on a free host port (`broker.go`). The cluster is
+CREATING until a Kafka ping succeeds, then ACTIVE; a start failure or timeout is FAILED with
+`StateInfo` and the container is removed. GetBootstrapBrokers returns only the real
+`bootstrapBrokerString` (empty while CREATING); DeleteCluster, Reset, Shutdown and capacity
+eviction remove the container. Container IDs and ports are runtime state and are not persisted:
+Restore relaunches an empty broker for each restored provisioned cluster (state CREATING again,
+topics/messages are lost). Default stub mode is unchanged. Covered by `broker_test.go` (fake
+runtime, no Docker) and `lambda.TestMSKESMRealBroker` (Docker).
 
 ## Notes
 

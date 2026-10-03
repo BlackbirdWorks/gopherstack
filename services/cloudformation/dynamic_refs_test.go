@@ -339,6 +339,7 @@ func newBackendWithSSMAndSM(t *testing.T) (
 	smBackend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	ssmHandler := ssm.NewHandler(ssmBackend)
 	smHandler := secretsmanager.NewHandler(smBackend)
+	shutdownOnCleanup(t, smHandler)
 
 	backends := &cloudformation.ServiceBackends{
 		SSM:            ssmHandler,
@@ -667,8 +668,11 @@ func TestNewDynamicRefResolver_RealSecretsManager(t *testing.T) {
 		SecretString: `{"password":"p@ss","user":"admin"}`,
 	})
 
+	smHandler := secretsmanager.NewHandler(smBackend)
+	shutdownOnCleanup(t, smHandler)
+
 	backends := &cloudformation.ServiceBackends{
-		SecretsManager: secretsmanager.NewHandler(smBackend),
+		SecretsManager: smHandler,
 	}
 
 	resolver := cloudformation.NewDynamicRefResolver(backends)

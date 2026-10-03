@@ -46,14 +46,14 @@ func (b *InMemoryBackend) CreateJob(
 		AccountID: b.accountID,
 		Tags:      maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate:         float64(time.Now().Unix()),
-		ProfileConfiguration:     extra.ProfileConfiguration,
+		ProfileConfiguration:     cloneProfileConfiguration(extra.ProfileConfiguration),
 		JobSample:                extra.JobSample,
 		EncryptionMode:           extra.EncryptionMode,
 		EncryptionKeyArn:         extra.EncryptionKeyArn,
 		LogSubscription:          extra.LogSubscription,
 		DataCatalogOutputs:       extra.DataCatalogOutputs,
 		DatabaseOutputs:          extra.DatabaseOutputs,
-		ValidationConfigurations: extra.ValidationConfigurations,
+		ValidationConfigurations: slices.Clone(extra.ValidationConfigurations),
 		MaxCapacity:              extra.MaxCapacity,
 		MaxRetries:               extra.MaxRetries,
 		Timeout:                  extra.Timeout,
@@ -78,11 +78,8 @@ func (b *InMemoryBackend) DescribeJob(ctx context.Context, name string) (*Job, e
 	if !ok {
 		return nil, ErrNotFound
 	}
-	cp := *j
-	cp.Tags = maps.Clone(j.Tags)
-	cp.Outputs = append([]Output(nil), j.Outputs...)
 
-	return &cp, nil
+	return jobCopy(j), nil
 }
 
 func (b *InMemoryBackend) ListJobs(
@@ -113,10 +110,7 @@ func (b *InMemoryBackend) ListJobs(
 	out := make([]*Job, 0, len(pageKeys))
 	for _, k := range pageKeys {
 		v, _ := t.Get(k)
-		cp := *v
-		cp.Tags = maps.Clone(v.Tags)
-		cp.Outputs = append([]Output(nil), v.Outputs...)
-		out = append(out, &cp)
+		out = append(out, jobCopy(v))
 	}
 
 	return out, next
@@ -192,6 +186,13 @@ func (b *InMemoryBackend) validateJobResourceRefs(region, datasetName, projectNa
 // SampleMode, DatabaseOutputMode, DataCatalogOutput/DatabaseOutput
 // "required" lists).
 func validateJobExtras(extra JobExtras) error {
+	if err := validateProfileConfiguration(extra.ProfileConfiguration); err != nil {
+		return err
+	}
+	if err := validateValidationConfigurations(extra.ValidationConfigurations); err != nil {
+		return err
+	}
+
 	if extra.EncryptionMode != "" && extra.EncryptionMode != "SSE-KMS" && extra.EncryptionMode != "SSE-S3" {
 		return fmt.Errorf("%w: invalid EncryptionMode %q", ErrValidation, extra.EncryptionMode)
 	}
@@ -259,7 +260,7 @@ func validateDatabaseOutputs(outs []DatabaseOutput) error {
 // extra, leaving fields extra didn't set unchanged. Callers must hold b.mu.
 func applyJobExtras(j *Job, extra JobExtras) {
 	if extra.ProfileConfiguration != nil {
-		j.ProfileConfiguration = extra.ProfileConfiguration
+		j.ProfileConfiguration = cloneProfileConfiguration(extra.ProfileConfiguration)
 	}
 	if extra.JobSample != nil {
 		j.JobSample = extra.JobSample
@@ -280,7 +281,7 @@ func applyJobExtras(j *Job, extra JobExtras) {
 		j.DatabaseOutputs = extra.DatabaseOutputs
 	}
 	if extra.ValidationConfigurations != nil {
-		j.ValidationConfigurations = extra.ValidationConfigurations
+		j.ValidationConfigurations = slices.Clone(extra.ValidationConfigurations)
 	}
 }
 
@@ -336,7 +337,7 @@ func (b *InMemoryBackend) StartJobRun(ctx context.Context, jobName string) (*Job
 		LogSubscription:          j.LogSubscription,
 		Outputs:                  append([]Output(nil), j.Outputs...),
 		RecipeReference:          j.RecipeReference,
-		ValidationConfigurations: append([]map[string]any(nil), j.ValidationConfigurations...),
+		ValidationConfigurations: slices.Clone(j.ValidationConfigurations),
 	}
 
 	runStore := b.jobRunsStore(region)
@@ -479,4 +480,107 @@ func (b *InMemoryBackend) DescribeJobRun(ctx context.Context, name, runID string
 	}
 
 	return nil, ErrNotFound
+}
+
+func jobCopy(j *Job) *Job {
+	cp := *j
+	cp.Tags = maps.Clone(j.Tags)
+	cp.Outputs = append([]Output(nil), j.Outputs...)
+	cp.ProfileConfiguration = cloneProfileConfiguration(j.ProfileConfiguration)
+	cp.ValidationConfigurations = slices.Clone(j.ValidationConfigurations)
+
+	return &cp
+}
+
+func cloneStatisticsConfiguration(s *StatisticsConfiguration) *StatisticsConfiguration {
+	if s == nil {
+		return nil
+	}
+	out := &StatisticsConfiguration{IncludedStatistics: slices.Clone(s.IncludedStatistics)}
+	for _, o := range s.Overrides {
+		out.Overrides = append(
+			out.Overrides,
+			StatisticOverride{Statistic: o.Statistic, Parameters: maps.Clone(o.Parameters)},
+		)
+	}
+
+	return out
+}
+
+func cloneProfileConfiguration(p *ProfileConfiguration) *ProfileConfiguration {
+	if p == nil {
+		return nil
+	}
+	out := &ProfileConfiguration{
+		DatasetStatisticsConfiguration: cloneStatisticsConfiguration(p.DatasetStatisticsConfiguration),
+		ProfileColumns:                 slices.Clone(p.ProfileColumns),
+	}
+	for _, c := range p.ColumnStatisticsConfigurations {
+		out.ColumnStatisticsConfigurations = append(out.ColumnStatisticsConfigurations, ColumnStatisticsConfiguration{
+			Statistics: cloneStatisticsConfiguration(c.Statistics), Selectors: slices.Clone(c.Selectors),
+		})
+	}
+	if e := p.EntityDetectorConfiguration; e != nil {
+		out.EntityDetectorConfiguration = &EntityDetectorConfiguration{EntityTypes: slices.Clone(e.EntityTypes)}
+		for _, a := range e.AllowedStatistics {
+			out.EntityDetectorConfiguration.AllowedStatistics = append(
+				out.EntityDetectorConfiguration.AllowedStatistics,
+				AllowedStatistics{Statistics: slices.Clone(a.Statistics)},
+			)
+		}
+	}
+
+	return out
+}
+
+// validateProfileConfiguration enforces the SDK's "required" members (databrew@v1.42.4 types.go).
+func validateProfileConfiguration(p *ProfileConfiguration) error {
+	if p == nil {
+		return nil
+	}
+	for i, c := range p.ColumnStatisticsConfigurations {
+		if c.Statistics == nil {
+			return fmt.Errorf("%w: ColumnStatisticsConfigurations[%d] requires Statistics", ErrValidation, i)
+		}
+		if err := validateStatisticOverrides(c.Statistics.Overrides); err != nil {
+			return err
+		}
+	}
+	if p.DatasetStatisticsConfiguration != nil {
+		if err := validateStatisticOverrides(p.DatasetStatisticsConfiguration.Overrides); err != nil {
+			return err
+		}
+	}
+	if e := p.EntityDetectorConfiguration; e != nil {
+		if len(e.EntityTypes) == 0 {
+			return fmt.Errorf("%w: EntityDetectorConfiguration requires EntityTypes", ErrValidation)
+		}
+		for i, a := range e.AllowedStatistics {
+			if len(a.Statistics) == 0 {
+				return fmt.Errorf("%w: AllowedStatistics[%d] requires Statistics", ErrValidation, i)
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateStatisticOverrides(os []StatisticOverride) error {
+	for i, o := range os {
+		if o.Statistic == "" || o.Parameters == nil {
+			return fmt.Errorf("%w: Overrides[%d] requires Statistic and Parameters", ErrValidation, i)
+		}
+	}
+
+	return nil
+}
+
+func validateValidationConfigurations(vcs []ValidationConfiguration) error {
+	for i, v := range vcs {
+		if v.RulesetArn == "" || (v.ValidationMode != "" && v.ValidationMode != "CHECK_ALL") {
+			return fmt.Errorf("%w: ValidationConfigurations[%d] needs RulesetArn and mode CHECK_ALL", ErrValidation, i)
+		}
+	}
+
+	return nil
 }

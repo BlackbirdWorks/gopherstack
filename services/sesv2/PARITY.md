@@ -870,3 +870,24 @@ that no real client can send -- the real Inputs (sesv2@v1.66.4) name these
 members `SendingStatus`/`ReputationEntityPolicy` only. Removed both aliases
 per the no-dead-paths rule; existing `SendingStatus`/`ReputationEntityPolicy`
 coverage (deliverability_test.go, persistence_test.go) is unaffected.
+
+## 2026-10-03: optional real SMTP delivery (gopherstack-frq01)
+
+When `SMTP_HOST` is set (optional `SMTP_USER`/`SMTP_PASS`; port defaults to 25),
+accepted SendEmail (Simple, Raw and Template content) and SendBulkEmail
+messages are additionally relayed over `net/smtp` by `pkgs/smtprelay`, same
+env interface as LocalStack (https://docs.localstack.cloud/aws/services/ses/,
+https://docs.localstack.cloud/aws/capabilities/config/configuration/).
+
+- Async bounded queue with one worker, stopped on Shutdown; failures are logged
+  without credentials or bodies and the API response is unchanged.
+- STARTTLS when offered; AUTH PLAIN only over TLS or to localhost. Bcc is in
+  RCPT TO only; Raw content passes through verbatim.
+- Unverified senders are rejected before queueing. Suppressed destinations are
+  not filtered from relay because SendEmail does not model them today.
+- SendEmail now reads ReplyToAddresses for the relayed Reply-To header only.
+- No persisted fields changed; no version bump.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+SESv2 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own identities, configuration sets, templates, contact lists, suppression list; region-correct ARNs) via `pkgs/regionpeers`; siblings share the home SMTP relay. `Handler.MailBackends()` returns every region's backend, so `/_aws/ses` retrospection (GET and DELETE) aggregates messages from all regions. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionMailAggregates`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/sesv2`. Limitation: non-home regions are not visible to the dashboard.

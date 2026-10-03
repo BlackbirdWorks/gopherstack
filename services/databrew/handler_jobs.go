@@ -129,20 +129,20 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 	// an Outputs list (see backend.Job.Outputs / DescribeJob), so it's
 	// converted to a one-element Output slice for storage.
 	var req struct {
-		Tags                     map[string]string `json:"Tags"`
-		OutputLocation           *S3Location       `json:"OutputLocation"`
-		Configuration            map[string]any    `json:"Configuration"`
-		JobSample                *JobSample        `json:"JobSample"`
-		DatasetName              string            `json:"DatasetName"`
-		Name                     string            `json:"Name"`
-		RoleArn                  string            `json:"RoleArn"`
-		EncryptionKeyArn         string            `json:"EncryptionKeyArn"`
-		EncryptionMode           string            `json:"EncryptionMode"`
-		LogSubscription          string            `json:"LogSubscription"`
-		ValidationConfigurations []map[string]any  `json:"ValidationConfigurations"`
-		MaxCapacity              int               `json:"MaxCapacity"`
-		MaxRetries               int               `json:"MaxRetries"`
-		Timeout                  int               `json:"Timeout"`
+		Tags                     map[string]string         `json:"Tags"`
+		OutputLocation           *S3Location               `json:"OutputLocation"`
+		Configuration            *ProfileConfiguration     `json:"Configuration"`
+		JobSample                *JobSample                `json:"JobSample"`
+		DatasetName              string                    `json:"DatasetName"`
+		Name                     string                    `json:"Name"`
+		RoleArn                  string                    `json:"RoleArn"`
+		EncryptionKeyArn         string                    `json:"EncryptionKeyArn"`
+		EncryptionMode           string                    `json:"EncryptionMode"`
+		LogSubscription          string                    `json:"LogSubscription"`
+		ValidationConfigurations []ValidationConfiguration `json:"ValidationConfigurations"`
+		MaxCapacity              int                       `json:"MaxCapacity"`
+		MaxRetries               int                       `json:"MaxRetries"`
+		Timeout                  int                       `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -280,18 +280,18 @@ func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, erro
 // "Outputs" -- see the outputLocationToOutputs doc comment.
 func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		OutputLocation           *S3Location      `json:"OutputLocation"`
-		Configuration            map[string]any   `json:"Configuration"`
-		JobSample                *JobSample       `json:"JobSample"`
-		Name                     string           `json:"Name"`
-		RoleArn                  string           `json:"RoleArn"`
-		EncryptionKeyArn         string           `json:"EncryptionKeyArn"`
-		EncryptionMode           string           `json:"EncryptionMode"`
-		LogSubscription          string           `json:"LogSubscription"`
-		ValidationConfigurations []map[string]any `json:"ValidationConfigurations"`
-		MaxCapacity              int              `json:"MaxCapacity"`
-		MaxRetries               int              `json:"MaxRetries"`
-		Timeout                  int              `json:"Timeout"`
+		OutputLocation           *S3Location               `json:"OutputLocation"`
+		Configuration            *ProfileConfiguration     `json:"Configuration"`
+		JobSample                *JobSample                `json:"JobSample"`
+		Name                     string                    `json:"Name"`
+		RoleArn                  string                    `json:"RoleArn"`
+		EncryptionKeyArn         string                    `json:"EncryptionKeyArn"`
+		EncryptionMode           string                    `json:"EncryptionMode"`
+		LogSubscription          string                    `json:"LogSubscription"`
+		ValidationConfigurations []ValidationConfiguration `json:"ValidationConfigurations"`
+		MaxCapacity              int                       `json:"MaxCapacity"`
+		MaxRetries               int                       `json:"MaxRetries"`
+		Timeout                  int                       `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

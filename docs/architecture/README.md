@@ -61,6 +61,20 @@ When `--persist` (`PERSIST=true`) is set:
 
 Snapshots are stored in `~/.gopherstack/data/<service>/snapshot` (or `/data/` in containers).
 
+## Regions
+
+One process can serve several regions. The shared middleware resolves the request region from the SigV4
+credential scope, then `X-Amz-Region`, then the configured default, and stores it on the context
+(`awsmeta.Region(ctx)`).
+
+- **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic.
+  S3 bucket names are globally unique, but each bucket has a region.
+- **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, and most others.
+- **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs and others build one sibling handler per extra
+  region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
+- **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
+  regions collide); a `knownCollision` case there fails once such a service is fixed.
+
 ## DNS server
 
 An optional embedded DNS server (based on `miekg/dns`) can be enabled with `--dns-addr :10053`. Services that create network-addressable resources (RDS, Redshift, ElastiCache, OpenSearch) automatically register/deregister synthetic hostnames when resources are created/deleted.

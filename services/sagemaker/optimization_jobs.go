@@ -74,6 +74,8 @@ func optimizationTypesOf(rawConfigs json.RawMessage) []string {
 type OptimizationJob struct {
 	LastModifiedTime        time.Time          `json:"LastModifiedTime"`
 	CreationTime            time.Time          `json:"CreationTime"`
+	OptimizationStartTime   *time.Time         `json:"OptimizationStartTime,omitempty"`
+	OptimizationEndTime     *time.Time         `json:"OptimizationEndTime,omitempty"`
 	StoppingCondition       *StoppingCondition `json:"StoppingCondition,omitempty"`
 	Tags                    map[string]string  `json:"Tags,omitempty"`
 	OptimizationEnvironment map[string]string  `json:"OptimizationEnvironment,omitempty"`
@@ -116,12 +118,16 @@ func (j *OptimizationJob) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(struct {
 		*alias
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
+		OptimizationStartTime *float64 `json:"OptimizationStartTime,omitempty"`
+		OptimizationEndTime   *float64 `json:"OptimizationEndTime,omitempty"`
+		CreationTime          float64  `json:"CreationTime"`
+		LastModifiedTime      float64  `json:"LastModifiedTime"`
 	}{
-		alias:            (*alias)(j),
-		CreationTime:     epochSeconds(j.CreationTime),
-		LastModifiedTime: epochSeconds(j.LastModifiedTime),
+		alias:                 (*alias)(j),
+		CreationTime:          epochSeconds(j.CreationTime),
+		LastModifiedTime:      epochSeconds(j.LastModifiedTime),
+		OptimizationStartTime: epochSecondsPtr(j.OptimizationStartTime),
+		OptimizationEndTime:   epochSecondsPtr(j.OptimizationEndTime),
 	})
 }
 
@@ -132,8 +138,10 @@ func (j *OptimizationJob) UnmarshalJSON(data []byte) error {
 
 	aux := struct {
 		*alias
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
+		OptimizationStartTime *float64 `json:"OptimizationStartTime,omitempty"`
+		OptimizationEndTime   *float64 `json:"OptimizationEndTime,omitempty"`
+		CreationTime          float64  `json:"CreationTime"`
+		LastModifiedTime      float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(j)}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -142,6 +150,8 @@ func (j *OptimizationJob) UnmarshalJSON(data []byte) error {
 
 	j.CreationTime = timeFromEpochSeconds(aux.CreationTime)
 	j.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+	j.OptimizationStartTime = timeFromEpochSecondsPtr(aux.OptimizationStartTime)
+	j.OptimizationEndTime = timeFromEpochSecondsPtr(aux.OptimizationEndTime)
 
 	return nil
 }
@@ -233,6 +243,10 @@ func (b *InMemoryBackend) CreateOptimizationJob(
 		Tags:                    mergeTags(nil, opts.Tags),
 		CreationTime:            now,
 		LastModifiedTime:        now,
+		// The job completes synchronously (no real optimization run), so its
+		// start and end are both the creation instant.
+		OptimizationStartTime: &now,
+		OptimizationEndTime:   &now,
 	}
 	store.Put(j)
 

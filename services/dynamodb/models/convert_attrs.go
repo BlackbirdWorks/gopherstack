@@ -459,8 +459,9 @@ func ToSDKGlobalSecondaryIndexDescriptions(
 			KeySchema:   ToSDKKeySchema(gsi.KeySchema),
 			Projection:  ToSDKProjection(gsi.Projection),
 			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  &rcu,
-				WriteCapacityUnits: &wcu,
+				ReadCapacityUnits:      &rcu,
+				WriteCapacityUnits:     &wcu,
+				NumberOfDecreasesToday: aws.Int64(0),
 			},
 			ItemCount:      &itemCount,
 			IndexSizeBytes: &indexSizeBytes,

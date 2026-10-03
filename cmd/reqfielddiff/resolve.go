@@ -73,7 +73,7 @@ type opResolution struct {
 // "an undeclared field is real, not a resolution gap".
 func resolveOp(op sdkOp, dispatch map[string]ast.Expr, ctx handlerResolveCtx) opResolution {
 	res := opResolution{Fields: map[string]emuField{}}
-	formKeys := formFieldKeys(op.Fields)
+	formKeys := formFieldKeys(op)
 
 	if expr, ok := dispatch[op.Name]; ok {
 		if dres, resolved := resolveDispatchValue(expr, ctx, formKeys); resolved {
@@ -244,9 +244,13 @@ func scanBody(
 	}
 
 	bindings := collectLocalBindings(fl, ctx.fset, ctx.structs)
-	urlValuesNames := urlValuesParamNames(fl)
+	urlValuesNames := urlValuesParamNames(fl, ctx)
 	mapNames := mapAnyNames(fl, ctx)
-	localLits := map[string]string{}
+	localLits := maps.Clone(ctx.pkgConsts)
+	if localLits == nil {
+		localLits = map[string]string{}
+	}
+
 	formChainVisited := map[*ast.FuncDecl]bool{}
 
 	if hop == 0 {
@@ -257,6 +261,8 @@ func scanBody(
 	if formLoopRanges(fl, urlValuesNames) {
 		res.FormLoopUnresolved = true
 	}
+
+	matchDynamicKeyTable(fl.Body, urlValuesNames, formKeys, res)
 
 	ast.Inspect(fl.Body, func(n ast.Node) bool {
 		if idx, ok := n.(*ast.IndexExpr); ok {
@@ -283,7 +289,7 @@ func scanBody(
 		matchReturnsStructCall(call, ctx, res)
 		matchGenericCallbackCall(call, ctx, res)
 		matchFormReadCall(call, urlValuesNames, formKeys, ctx, res, localLits, formChainVisited)
-		matchHeaderReadCall(call, formKeys, res)
+		matchHeaderReadCall(call, formKeys, ctx, res)
 		matchMapFieldCall(call, mapNames, ctx, res)
 
 		if hop < maxHop {

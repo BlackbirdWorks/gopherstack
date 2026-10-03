@@ -728,7 +728,16 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 }
 
 func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
-	policies := h.Backend.ListAutomatedReasoningPolicies()
+	q := c.Request().URL.Query()
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
+	policies, nextToken, err := h.Backend.ListAutomatedReasoningPolicies(
+		q.Get("policyArn"), maxResults, q.Get("nextToken"),
+	)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
 	summaries := make([]map[string]any, 0, len(policies))
 
 	for _, p := range policies {
@@ -754,7 +763,12 @@ func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
 
 	// Real key is automatedReasoningPolicySummaries (bedrock@v1.66.4
 	// deserializers.go, awsRestjson1_deserializeOpDocumentListAutomatedReasoningPoliciesOutput).
-	return c.JSON(http.StatusOK, map[string]any{"automatedReasoningPolicySummaries": summaries})
+	resp := map[string]any{"automatedReasoningPolicySummaries": summaries}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type updateARPInput struct {

@@ -29,6 +29,8 @@ const (
 	// importRefDefault is the AWS integration-responses map key for the
 	// catch-all response that carries no selection pattern.
 	importRefDefault = "default"
+	// anyMethodExtension is the OpenAPI path-item key for an ANY method.
+	anyMethodExtension = "x-amazon-apigateway-any-method"
 )
 
 // PutRestAPIInput is the input for the PutRestApi operation.
@@ -41,14 +43,15 @@ type PutRestAPIInput struct {
 
 // openAPIDoc is the subset of an OpenAPI/Swagger document we interpret.
 type openAPIDoc struct {
-	Info             openAPIInfo                           `json:"info"`
-	Paths            map[string]map[string]json.RawMessage `json:"paths"`
-	Definitions      map[string]json.RawMessage            `json:"definitions"`
-	Components       *openAPIComponents                    `json:"components"`
-	Swagger          string                                `json:"swagger"`
-	OpenAPI          string                                `json:"openapi"`
-	APIKeySourceExt  string                                `json:"x-amazon-apigateway-api-key-source"`
-	BinaryMediaTypes []string                              `json:"x-amazon-apigateway-binary-media-types"`
+	Info                openAPIInfo                           `json:"info"`
+	Paths               map[string]map[string]json.RawMessage `json:"paths"`
+	Definitions         map[string]json.RawMessage            `json:"definitions"`
+	Components          *openAPIComponents                    `json:"components"`
+	SecurityDefinitions map[string]openAPISecurityScheme      `json:"securityDefinitions"`
+	Swagger             string                                `json:"swagger"`
+	OpenAPI             string                                `json:"openapi"`
+	APIKeySourceExt     string                                `json:"x-amazon-apigateway-api-key-source"`
+	BinaryMediaTypes    []string                              `json:"x-amazon-apigateway-binary-media-types"`
 }
 
 type openAPIInfo struct {
@@ -58,7 +61,8 @@ type openAPIInfo struct {
 }
 
 type openAPIComponents struct {
-	Schemas map[string]json.RawMessage `json:"schemas"`
+	Schemas         map[string]json.RawMessage       `json:"schemas"`
+	SecuritySchemes map[string]openAPISecurityScheme `json:"securitySchemes"`
 }
 
 // openAPIOperation is the subset of an OpenAPI operation object we interpret.
@@ -426,6 +430,7 @@ func importModels(b *InMemoryBackend, api *RestAPI, doc *openAPIDoc) {
 func importPaths(b *InMemoryBackend, api *RestAPI, doc *openAPIDoc) {
 	// Sort paths for deterministic resource creation order.
 	pathKeys := collections.SortedKeys(doc.Paths)
+	auths := importAuthorizers(b, api, doc)
 
 	for _, path := range pathKeys {
 		res := ensureResourcePath(b, api, path)
@@ -434,6 +439,9 @@ func importPaths(b *InMemoryBackend, api *RestAPI, doc *openAPIDoc) {
 		}
 		for verb, raw := range doc.Paths[path] {
 			httpMethod := strings.ToUpper(verb)
+			if verb == anyMethodExtension {
+				httpMethod = "ANY"
+			}
 			if !isHTTPVerb(httpMethod) {
 				continue
 			}
@@ -441,7 +449,7 @@ func importPaths(b *InMemoryBackend, api *RestAPI, doc *openAPIDoc) {
 			if err := json.Unmarshal(raw, &op); err != nil {
 				continue
 			}
-			importMethod(res, httpMethod, &op)
+			importMethod(res, httpMethod, &op, auths)
 		}
 	}
 }
@@ -503,7 +511,7 @@ func findChildResource(b *InMemoryBackend, restAPIID, parentID, pathPart string)
 
 // importMethod creates a method (and its integration/responses) on a resource
 // from an OpenAPI operation.
-func importMethod(res *Resource, httpMethod string, op *openAPIOperation) {
+func importMethod(res *Resource, httpMethod string, op *openAPIOperation, auths map[string]*Authorizer) {
 	method := &Method{
 		HTTPMethod:        httpMethod,
 		AuthorizationType: "NONE",
@@ -513,6 +521,7 @@ func importMethod(res *Resource, httpMethod string, op *openAPIOperation) {
 		MethodResponses:   make(map[string]*MethodResponse),
 	}
 	applyImportedSecurity(method, op)
+	applyAuthorizerSecurity(method, op, auths)
 	importMethodResponses(method, op)
 
 	if op.Integration != nil {

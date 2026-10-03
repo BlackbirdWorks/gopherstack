@@ -876,6 +876,7 @@ type slScheduledActionWire struct {
 	ScheduledActionName        string          `json:"scheduledActionName"`
 	ScheduledActionUUID        string          `json:"scheduledActionUuid,omitempty"`
 	State                      string          `json:"state"`
+	NextInvocations            []float64       `json:"nextInvocations,omitempty"`
 	Schedule                   json.RawMessage `json:"schedule,omitempty"`
 	TargetAction               json.RawMessage `json:"targetAction,omitempty"`
 }
@@ -902,6 +903,7 @@ func toScheduledActionWire(sa *ServerlessScheduledAction) *slScheduledActionWire
 		TargetAction:               sa.TargetAction,
 		StartTime:                  slEpochPtr(sa.StartTime),
 		EndTime:                    slEpochPtr(sa.EndTime),
+		NextInvocations:            slNextInvocations(sa, time.Now().UTC()),
 	}
 }
 

@@ -29,12 +29,12 @@ func post(t *testing.T, action, body string) *httptest.ResponseRecorder {
 
 // postWithHandler sends a POST to a specific handler instance.
 func postWithHandler(
-	t *testing.T,
+	tb testing.TB,
 	handler *apigateway.Handler,
 	e *echo.Echo,
 	action, body string,
 ) *httptest.ResponseRecorder {
-	t.Helper()
+	tb.Helper()
 
 	var req *http.Request
 	if body != "" {
@@ -49,7 +49,7 @@ func postWithHandler(
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	err := handler.Handler()(c)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	return rec
 }

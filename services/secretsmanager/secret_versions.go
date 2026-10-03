@@ -15,6 +15,10 @@ const (
 	// maxVersionsPerSecret is the maximum number of versions retained per secret.
 	// Matches the AWS Secrets Manager limit of 100 versions.
 	maxVersionsPerSecret = 100
+	// maxVersionsHardCap bounds versions kept for the 24h rule; AWS throttles instead.
+	maxVersionsHardCap = 500
+	// versionMinAge is how long a deprecated version is retained past the 100 limit.
+	versionMinAge = 24 * time.Hour
 	// maxSecretValueBytes is the maximum allowed size of a secret value in bytes (64 KB).
 	maxSecretValueBytes = 65536
 	// maxResultsBatchGet is the maximum allowed MaxResults for BatchGetSecretValue.
@@ -207,7 +211,7 @@ func (b *InMemoryBackend) PutSecretValue(
 	secret.LastChangedDate = &now
 	b.syncReplicationStatusLocked(region, secret)
 
-	pruneVersions(secret)
+	pruneVersions(secret, now)
 
 	return &PutSecretValueOutput{
 		ARN:           secret.ARN,
@@ -265,10 +269,10 @@ func (b *InMemoryBackend) resolveStagingLabels(secret *Secret, requested []strin
 	return true, out
 }
 
-// pruneVersions removes the oldest unlabeled versions when the total version count
-// exceeds maxVersionsPerSecret. Versions with any staging labels are never pruned.
+// pruneVersions drops unlabeled versions past maxVersionsPerSecret, sparing those
+// younger than 24h (PutSecretValue/UpdateSecret docs) until maxVersionsHardCap.
 // Must be called with a write lock held.
-func pruneVersions(secret *Secret) {
+func pruneVersions(secret *Secret, now float64) {
 	if len(secret.Versions) <= maxVersionsPerSecret {
 		return
 	}
@@ -286,7 +290,6 @@ func pruneVersions(secret *Secret) {
 		}
 	}
 
-	// Sort oldest first; break ties by ID for deterministic eviction order.
 	sort.Slice(unlabeled, func(i, j int) bool {
 		if unlabeled[i].createdDate != unlabeled[j].createdDate {
 			return unlabeled[i].createdDate < unlabeled[j].createdDate
@@ -295,10 +298,21 @@ func pruneVersions(secret *Secret) {
 		return unlabeled[i].id < unlabeled[j].id
 	})
 
-	toRemove := min(len(secret.Versions)-maxVersionsPerSecret, len(unlabeled))
+	cutoff := now - versionMinAge.Seconds()
+	excess := len(secret.Versions) - maxVersionsPerSecret
+	hardExcess := len(secret.Versions) - maxVersionsHardCap
 
-	for i := range toRemove {
-		delete(secret.Versions, unlabeled[i].id)
+	removed := 0
+
+	for _, e := range unlabeled {
+		old := e.createdDate <= cutoff
+		if removed >= excess || (!old && removed >= hardExcess) {
+			break
+		}
+
+		delete(secret.Versions, e.id)
+
+		removed++
 	}
 }
 

@@ -31,7 +31,7 @@ func TestProxyTargetGroup_Modify(t *testing.T) {
 	_, err := b.CreateDBProxy("proxy2", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
-	tg, err := b.ModifyDBProxyTargetGroup("proxy2", "default", rds.ConnectionPoolConfig{
+	tg, err := b.ModifyDBProxyTargetGroup("proxy2", "default", "", rds.ConnectionPoolConfig{
 		MaxConnectionsPercent: 90,
 	})
 	require.NoError(t, err)

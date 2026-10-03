@@ -23,6 +23,7 @@ func newTestStack(t *testing.T) *elasticachesdk.Client {
 	t.Helper()
 
 	backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1", nil)
+	t.Cleanup(backend.Reset)
 	handler := elasticache.NewHandler(backend)
 
 	e := echo.New()

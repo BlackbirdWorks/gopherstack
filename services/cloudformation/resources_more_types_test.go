@@ -14,11 +14,13 @@ import (
 
 // newMoreTypesServiceBackends creates a ServiceBackends with all phase-4 backends populated.
 // IAM and EC2 backends are already set by newDependentServiceBackends (via newExtendedServiceBackends).
-func newMoreTypesServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
-	t.Helper()
+func newMoreTypesServiceBackends(tb testing.TB) *cloudformation.ServiceBackends {
+	tb.Helper()
 
-	b := newDependentServiceBackends(t)
-	b.ELBv2 = elbv2backend.NewHandler(elbv2backend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b := newDependentServiceBackends(tb)
+	elbv2Handler := elbv2backend.NewHandler(elbv2backend.NewInMemoryBackend("000000000000", "us-east-1"))
+	shutdownOnCleanup(tb, elbv2Handler)
+	b.ELBv2 = elbv2Handler
 	b.WAFv2 = wafv2backend.NewHandler(wafv2backend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Backup = backupbackend.NewHandler(backupbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 
@@ -148,8 +150,8 @@ func TestResourceCreator_MoreTypes_NilBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// newServiceBackends() leaves all phase-4 backends nil → stub path.
-			backends := newServiceBackends()
+			// newServiceBackends(t) leaves all phase-4 backends nil → stub path.
+			backends := newServiceBackends(t)
 			backends.EC2 = nil // also nil EC2 backend for EC2 stubs
 			rc := cloudformation.NewResourceCreator(backends)
 

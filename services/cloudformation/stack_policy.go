@@ -75,3 +75,13 @@ func (b *InMemoryBackend) checkStackPolicy(stack *Stack, newTemplateBody string,
 
 	return nil
 }
+
+func validateStackPolicyBody(policy string) error {
+	if policy == "" {
+		return nil
+	}
+
+	_, err := parseStackPolicyDocument(policy)
+
+	return err
+}

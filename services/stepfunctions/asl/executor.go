@@ -1,6 +1,8 @@
 package asl
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/base64"
@@ -8,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"math"
 	"math/rand/v2"
@@ -19,6 +22,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // ErrExecutionFailed is returned when a Fail state is reached.
@@ -81,7 +86,18 @@ const (
 	errCodeStatesTimeout                         = "States.Timeout"
 	errCodeStatesTaskFailed                      = "States.TaskFailed"
 	errCodeStatesExceedToleratedFailureThreshold = "States.ExceedToleratedFailureThreshold"
+	errCodeStatesItemReaderFailed                = "States.ItemReaderFailed"
 )
+
+const (
+	itemReaderResourceGetObject     = "arn:aws:states:::s3:getObject"
+	itemReaderResourceListObjectsV2 = "arn:aws:states:::s3:listObjectsV2"
+)
+
+// aslNullLiteral is ASL's "null" string: a ResultPath sentinel, an
+// intrinsic-function literal, and (in result_writer.go) a JSON marshal
+// fallback -- three unrelated meanings that happen to share this text.
+const aslNullLiteral = "null"
 
 // Sentinel errors for Map state tolerated-failure threshold resolution.
 var (
@@ -115,6 +131,25 @@ type ActivityInvoker interface {
 type S3Reader interface {
 	// GetObjectBytes returns the raw bytes of an S3 object by bucket and key.
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
+}
+
+// S3ObjectItem is one object's metadata, as returned by S3's ListObjectsV2
+// and consumed by a Map state ItemReader whose Resource is s3:listObjectsV2
+// (AWS docs: input-output-itemreader.html).
+type S3ObjectItem struct {
+	LastModified time.Time
+	Key          string
+	ETag         string
+	StorageClass string
+	Size         int64
+}
+
+// S3ListReader lists objects in an S3 bucket/prefix, for a Map state
+// ItemReader whose Resource is arn:aws:states:::s3:listObjectsV2. Optional:
+// implemented by the same adapter as S3Reader, but checked separately so an
+// S3Reader that predates this capability (e.g. a test double) still compiles.
+type S3ListReader interface {
+	ListObjectsV2Items(ctx context.Context, bucket, prefix string) ([]S3ObjectItem, error)
 }
 
 // S3Writer writes objects to S3 for a Distributed Map state's ResultWriter.
@@ -333,8 +368,8 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	s3                   S3Reader
-	s3w                  S3Writer
+	lambda               LambdaInvoker
+	mapItemValue         any
 	callback             TaskTokenCallbackInvoker
 	sqs                  SQSIntegration
 	sns                  SNSIntegration
@@ -344,19 +379,27 @@ type Executor struct {
 	glue                 GlueIntegration
 	glueSyncWaiter       GlueSyncWaiter
 	eventbridge          EventBridgeIntegration
+	sdk                  SDKIntegration
 	history              HistoryRecorder
 	mapRunNotifier       MapRunNotifier
 	distributedMapRunner DistributedMapRunner
-	lambda               LambdaInvoker
+	s3w                  S3Writer
+	s3                   S3Reader
 	activity             ActivityInvoker
-	mapItemValue         any
-	execSem              *semaphore.Weighted
+	matchedRule          *ChoiceRule
 	jsonPathCache        *jsonPathCache
 	sm                   *StateMachine
+	jx                   *jxScope
+	mock                 *MockRun
+	outerVars            map[string]any
+	execSem              *semaphore.Weighted
+	jxNums               map[string]int
+	vars                 map[string]any
 	execMeta             executionMeta
 	branchName           string
 	mapItemIdx           int
 	inMapItem            bool
+	caught               bool
 }
 
 // executionMeta is the subset of context object data that ASL exposes via `$$`.
@@ -416,6 +459,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		s3:                   e.s3,
 		s3w:                  e.s3w,
 		execSem:              e.execSem,
+		mock:                 e.mock,
 		jsonPathCache:        e.jsonPathCache,
 		execMeta:             e.execMeta,
 		branchName:           e.branchName,
@@ -424,6 +468,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		inMapItem:            e.inMapItem,
 		mapItemIdx:           e.mapItemIdx,
 		mapItemValue:         e.mapItemValue,
+		outerVars:            e.visibleVars(),
 	}
 }
 
@@ -486,12 +531,7 @@ func (e *Executor) buildContextObject() map[string]any {
 	}
 
 	if e.inMapItem {
-		ctx["Map"] = map[string]any{
-			"Item": map[string]any{
-				"Index": float64(e.mapItemIdx),
-				"Value": e.mapItemValue,
-			},
-		}
+		ctx["Map"] = mapItemContext(e.mapItemIdx, e.mapItemValue)
 	}
 
 	return ctx
@@ -587,31 +627,20 @@ func (e *Executor) runStates(
 			e.history.RecordStateEntered(executionARN, current, state.Type, value)
 		}
 
-		// Apply InputPath.
-		effectiveInput, err := applyPath(state.InputPath, value, e.jsonPathCache)
-		if err != nil {
-			return nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
+		var (
+			nextState   string
+			finalOutput any
+			err         error
+		)
+
+		e.caught = false
+
+		if state.jx != nil {
+			nextState, finalOutput, err = e.runJSONataState(ctx, executionARN, current, state, value)
+		} else {
+			nextState, finalOutput, err = e.runJSONPathState(ctx, executionARN, current, state, value)
 		}
 
-		// Apply Parameters to transform the effective input for this state.
-		taskInput := effectiveInput
-		if len(state.Parameters) > 0 {
-			paramInput := pathEvalInput{data: effectiveInput, context: e.buildContextObject()}
-			taskInput, err = applyParametersTemplate(state.Parameters, paramInput)
-			if err != nil {
-				return nil, fmt.Errorf("parameters error in state %q: %w", current, err)
-			}
-		}
-
-		var result any
-		var nextState string
-
-		nextState, result, err = e.executeState(ctx, executionARN, current, state, effectiveInput, taskInput)
-		if err != nil {
-			return nil, err
-		}
-
-		finalOutput, err := e.applyStateOutputTransforms(state, value, result, current)
 		if err != nil {
 			return nil, err
 		}
@@ -631,6 +660,62 @@ func (e *Executor) runStates(
 	return nil, ErrMaxTransitions
 }
 
+// runJSONPathState runs one JSONPath-mode state: InputPath, Parameters, the
+// state body, Assign, then ResultSelector/ResultPath/OutputPath.
+func (e *Executor) runJSONPathState(
+	ctx context.Context,
+	executionARN, current string,
+	state *State,
+	value any,
+) (string, any, error) {
+	effectiveInput, err := applyPath(state.InputPath, value, e.jsonPathCache)
+	if err != nil {
+		return "", nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
+	}
+
+	taskInput := effectiveInput
+	if len(state.Parameters) > 0 {
+		tmpl := loadTemplate(&state.paramsTmpl, state.Parameters)
+		taskInput, err = tmpl.eval(e, effectiveInput)
+		if err != nil {
+			return "", nil, fmt.Errorf("parameters error in state %q: %w", current, err)
+		}
+	}
+
+	nextState, result, err := e.executeState(ctx, executionARN, current, state, effectiveInput, taskInput)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if len(state.assignVals) > 0 && !e.caught {
+		assignData := effectiveInput
+		if jsonPathAssignsResult(state.Type) {
+			assignData = result
+		}
+
+		if err = e.assignJSONPath(state.assignVals, assignData); err != nil {
+			return "", nil, fmt.Errorf("state %q: %w", current, err)
+		}
+	}
+
+	if rule := e.matchedRule; rule != nil {
+		e.matchedRule = nil
+
+		if err = e.assignJSONPath(rule.assignVals, effectiveInput); err != nil {
+			return "", nil, fmt.Errorf("state %q: %w", current, err)
+		}
+	}
+
+	finalOutput, err := e.applyStateOutputTransforms(state, value, result, current)
+
+	return nextState, finalOutput, err
+}
+
+func jsonPathAssignsResult(stateType string) bool {
+	return stateType == stateTypeTask || stateType == stateTypeParallel || stateType == StateTypeMap ||
+		stateType == stateTypePass
+}
+
 // applyStateOutputTransforms applies ResultSelector, ResultPath, and OutputPath to produce the final state output.
 func (e *Executor) applyStateOutputTransforms(
 	state *State,
@@ -641,9 +726,8 @@ func (e *Executor) applyStateOutputTransforms(
 	if len(state.ResultSelector) > 0 {
 		var err error
 
-		rsInput := pathEvalInput{data: result, context: e.buildContextObject()}
-
-		result, err = applyParametersTemplate(state.ResultSelector, rsInput)
+		tmpl := loadTemplate(&state.resultSelTmpl, state.ResultSelector)
+		result, err = tmpl.eval(e, result)
 		if err != nil {
 			return nil, fmt.Errorf("ResultSelector error in state %q: %w", stateName, err)
 		}
@@ -677,19 +761,19 @@ func (e *Executor) executeState(
 	pathInput, input any,
 ) (string, any, error) {
 	switch state.Type {
-	case "Pass":
+	case stateTypePass:
 		return e.executePass(state, input)
-	case "Succeed":
+	case stateTypeSucceed:
 		return "", input, nil
-	case "Fail":
+	case stateTypeFail:
 		return "", nil, &FailError{ErrCode: state.Error, Cause: state.Cause}
-	case "Wait":
+	case stateTypeWait:
 		return e.executeWait(ctx, state, input)
-	case "Choice":
+	case stateTypeChoice:
 		return e.executeChoice(state, input)
-	case "Task":
+	case stateTypeTask:
 		return e.executeTask(ctx, executionARN, stateName, state, pathInput, input)
-	case "Parallel":
+	case stateTypeParallel:
 		return e.executeParallel(ctx, executionARN, stateName, state, input)
 	case StateTypeMap:
 		return e.executeMap(ctx, executionARN, stateName, state, pathInput, input)
@@ -840,6 +924,10 @@ func (e *Executor) executeChoice(state *State, input any) (string, any, error) {
 				return "", nil, ErrChoiceNoNext
 			}
 
+			if len(rule.assignVals) > 0 {
+				e.matchedRule = &rule
+			}
+
 			return rule.Next, input, nil
 		}
 	}
@@ -882,7 +970,10 @@ func (e *Executor) executeTask(
 	waitForTaskToken := isWaitForTaskTokenResource(state.Resource)
 
 	for {
-		result, taskErr := e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+		result, mocked, taskErr := e.mock.invoke(stateName)
+		if !mocked {
+			result, taskErr = e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+		}
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, state.Resource, result)
 
@@ -907,8 +998,10 @@ func (e *Executor) executeTask(
 			continue
 		}
 
-		if next, out, matched := e.checkCatchers(executionARN, stateName, state, input, taskErr); matched {
-			return next, out, nil
+		if next, out, matched, catchErr := e.checkCatchers(
+			executionARN, stateName, state, pathInput, taskErr,
+		); matched {
+			return next, out, catchErr
 		}
 
 		e.recordTaskFailed(
@@ -1152,8 +1245,9 @@ func (e *Executor) checkCatchers(
 	state *State,
 	input any,
 	taskErr error,
-) (string, any, bool) {
-	for _, catcher := range state.Catch {
+) (string, any, bool, error) {
+	for i := range state.Catch {
+		catcher := &state.Catch[i]
 		if catchesError(catcher.ErrorEquals, taskErr) {
 			errCode := stepFunctionsErrorCode(taskErr)
 			cause := stepFunctionsErrorCause(taskErr)
@@ -1168,15 +1262,31 @@ func (e *Executor) checkCatchers(
 				errorResult["Cause"] = cause
 			}
 
-			out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
+			e.caught = true
+			out, err := e.catchOutput(state, catcher, input, errorResult)
 
 			e.recordTaskFailed(executionARN, stateName, state.Resource, errCode, cause)
 
-			return catcher.Next, out, true
+			return catcher.Next, out, true, err
 		}
 	}
 
-	return "", nil, false
+	return "", nil, false, nil
+}
+
+// catchOutput builds a matched Catch's output and applies its Assign.
+func (e *Executor) catchOutput(state *State, catcher *Catcher, input any, errorResult map[string]any) (any, error) {
+	if state.jx != nil {
+		return e.jxCatchOutput(catcher, errorResult)
+	}
+
+	if err := e.assignJSONPath(catcher.assignVals, errorResult); err != nil {
+		return nil, err
+	}
+
+	out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
+
+	return out, nil
 }
 
 // recordTaskSucceeded records a task success event if a history recorder is configured.
@@ -1201,6 +1311,12 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any, hear
 
 	if isActivityResource(state.Resource) {
 		return e.invokeActivityTask(ctx, state, input, heartbeatSeconds)
+	}
+	if isLambdaInvokeResource(state.Resource) {
+		return e.invokeLambdaOptimized(ctx, input)
+	}
+	if call, ok := sdkCallFor(state.Resource); ok && e.sdk != nil {
+		return e.invokeSDKTask(ctx, input, call)
 	}
 	if isLambdaResource(state.Resource) {
 		return e.invokeLambdaTask(ctx, state, input)
@@ -1285,6 +1401,10 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	const statusOK = 200
 	if statusCode >= 400 || statusCode < statusOK {
 		return nil, fmt.Errorf("%w: %d", ErrLambdaStatusError, statusCode)
+	}
+
+	if ferr := lambdaFunctionError(respBytes); ferr != nil {
+		return nil, ferr
 	}
 
 	var result any
@@ -1686,6 +1806,12 @@ func checkSyncPatternSupported(resource string) error {
 }
 
 func parseServiceIntegrationResource(resource string) (string, string) {
+	if base, ok := strings.CutSuffix(resource, ".sync:2"); ok {
+		action, _ := parseServiceIntegrationResource(base)
+
+		return action, "sync:2"
+	}
+
 	parts := strings.Split(resource, ":")
 	action := parts[len(parts)-1]
 	pattern := ""
@@ -1769,8 +1895,10 @@ func (e *Executor) executeWithStateRetryAndCatch(
 			continue
 		}
 
-		if next, out, matched := e.checkCatchers(executionARN, stateName, state, input, err); matched {
-			return next, out, nil
+		if next, out, matched, catchErr := e.checkCatchers(
+			executionARN, stateName, state, input, err,
+		); matched {
+			return next, out, catchErr
 		}
 
 		return "", nil, err
@@ -1850,11 +1978,8 @@ func (e *Executor) executeMap(
 				return nil, err
 			}
 
-			if len(state.ItemSelector) > 0 {
-				items, err = applyMapItemSelector(state.ItemSelector, items)
-				if err != nil {
-					return nil, err
-				}
+			if items, err = e.selectMapItems(state, items); err != nil {
+				return nil, err
 			}
 
 			// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
@@ -1881,6 +2006,18 @@ func (e *Executor) executeMap(
 	)
 }
 
+// selectMapItems applies the Map state's ItemSelector (JSONata or JSONPath) per item.
+func (e *Executor) selectMapItems(state *State, items []any) ([]any, error) {
+	switch {
+	case len(state.ItemSelector) == 0:
+		return items, nil
+	case state.jx != nil:
+		return e.jxItemSelector(state, items)
+	default:
+		return applyMapItemSelector(&state.itemSelTmpl, state.ItemSelector, items, e.varFn())
+	}
+}
+
 // runMapItemsAndFinalize runs iterator over items (or pre-built batches) at
 // the resolved concurrency, notifies the MapRunNotifier (if configured), and
 // finalizes the result, applying any ToleratedFailure* threshold.
@@ -1894,6 +2031,7 @@ func (e *Executor) runMapItemsAndFinalize(
 ) (any, error) {
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
+	meta := make([]DistributedMapItemResult, len(items))
 
 	maxConcurrency, err := e.resolveMaxConcurrency(state, mapInput)
 	if err != nil {
@@ -1908,7 +2046,18 @@ func (e *Executor) runMapItemsAndFinalize(
 	}
 
 	if isDistributedMapIterator(iterator) && e.distributedMapRunner != nil {
-		e.runDistributedMapTasks(ctx, executionARN, mapRunARN, stateName, iterator, items, results, errs, concurrency)
+		e.runDistributedMapTasks(
+			ctx,
+			executionARN,
+			mapRunARN,
+			stateName,
+			iterator,
+			items,
+			results,
+			errs,
+			meta,
+			concurrency,
+		)
 	} else {
 		e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 	}
@@ -1917,7 +2066,9 @@ func (e *Executor) runMapItemsAndFinalize(
 
 	resultsWritten := 0
 	if finalErr == nil && state.ResultWriter != nil {
-		out, resultsWritten, finalErr = e.exportMapResults(ctx, state, stateName, mapRunARN, items, results, errs)
+		out, resultsWritten, finalErr = e.exportMapResults(
+			ctx, state, stateName, mapRunARN, items, results, errs, meta, e.execMeta.StateMachineArn,
+		)
 	}
 
 	if e.mapRunNotifier != nil && mapRunARN != "" {
@@ -2055,22 +2206,23 @@ func wrapItemBatcherBatches(rawBatches []any, batchInput json.RawMessage) ([]any
 	return wrapped, nil
 }
 
-func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, error) {
+func applyMapItemSelector(
+	slot *atomic.Pointer[parsedTemplate],
+	itemSelector json.RawMessage,
+	items []any,
+	vars varFunc,
+) ([]any, error) {
 	selectedItems := make([]any, len(items))
+	tmpl := loadTemplate(slot, itemSelector)
+
 	for idx, item := range items {
 		contextInput := pathEvalInput{
-			data: item,
-			context: map[string]any{
-				"Map": map[string]any{
-					"Item": map[string]any{
-						"Index": float64(idx),
-						"Value": item,
-					},
-				},
-			},
+			vars:    vars,
+			data:    item,
+			context: map[string]any{"Map": mapItemContext(idx, item)},
 		}
 
-		selected, err := applyParametersTemplate(itemSelector, contextInput)
+		selected, err := tmpl.evalWith(contextInput)
 		if err != nil {
 			return nil, fmt.Errorf("map ItemSelector error: %w", err)
 		}
@@ -2131,6 +2283,26 @@ func (e *Executor) getMapIterator(state *State) (*StateMachine, error) {
 // ErrS3ReaderNotConfigured is returned when ItemReader requires S3 but no S3Reader is set.
 var ErrS3ReaderNotConfigured = errors.New("S3 reader not configured for Map state ItemReader")
 
+// ErrS3ListReaderNotConfigured is returned when an ItemReader's Resource is
+// s3:listObjectsV2 but the configured S3Reader doesn't implement S3ListReader.
+var ErrS3ListReaderNotConfigured = errors.New("S3 list reader not configured for Map state ItemReader")
+
+// ErrItemReaderUnsupportedResource is returned for an ItemReader.Resource
+// this emulator doesn't recognize.
+var ErrItemReaderUnsupportedResource = errors.New("ItemReader: unsupported Resource")
+
+// ErrAthenaManifestUnsupported is returned for ReaderConfig.ManifestType
+// ATHENA_DATA, which this emulator doesn't implement -- see PARITY.md.
+var ErrAthenaManifestUnsupported = errors.New(
+	"ItemReader: ManifestType ATHENA_DATA is not supported by this emulator",
+)
+
+// ErrParquetUnsupported is returned for InputType PARQUET, which this
+// emulator doesn't decode (no pure-Go Parquet reader dependency) -- see PARITY.md.
+var ErrParquetUnsupported = errors.New(
+	"ItemReader: InputType PARQUET is not supported by this emulator",
+)
+
 // ErrItemReaderInvalidData is returned when ItemReader S3 object cannot be parsed as items.
 var ErrItemReaderInvalidData = errors.New(
 	"ItemReader: unable to parse S3 object as JSON array or JSON lines",
@@ -2144,6 +2316,10 @@ func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any)
 		}
 
 		return e.truncateReaderItems(items, state.ItemReader.ReaderConfig, input)
+	}
+
+	if state.jx != nil {
+		return e.jxMapItems(state)
 	}
 
 	items, err := resolveItems(state.ItemsPath, input)
@@ -2189,9 +2365,34 @@ func (e *Executor) truncateReaderItems(items []any, cfg *ReaderConfig, mapInput 
 	return items, nil
 }
 
-// resolveItemsFromReader reads items from S3 using the ItemReader configuration.
-// Supports JSON arrays, newline-delimited JSON (JSON Lines), and CSV.
+// resolveItemsFromReader reads items from S3 using the ItemReader's Resource
+// and ReaderConfig, wrapping any failure as States.ItemReaderFailed --
+// AWS's documented error for a Distributed Map ItemReader that can't read
+// its dataset (input-output-itemreader.html).
 func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReader) ([]any, error) {
+	items, err := e.readItemReaderSource(ctx, reader)
+	if err != nil {
+		return nil, &FailError{ErrCode: errCodeStatesItemReaderFailed, Cause: err.Error()}
+	}
+
+	return items, nil
+}
+
+func (e *Executor) readItemReaderSource(ctx context.Context, reader *ItemReader) ([]any, error) {
+	switch reader.Resource {
+	case "", itemReaderResourceGetObject:
+		return e.resolveItemsFromS3GetObject(ctx, reader)
+	case itemReaderResourceListObjectsV2:
+		return e.resolveItemsFromS3List(ctx, reader)
+	default:
+		return nil, fmt.Errorf("%w %q", ErrItemReaderUnsupportedResource, reader.Resource)
+	}
+}
+
+// resolveItemsFromS3GetObject implements the s3:getObject Resource: a single
+// S3 object decoded as JSON, JSON Lines, CSV, or (via ManifestType/InputType
+// MANIFEST) an S3 Inventory manifest fanning out to multiple CSV data files.
+func (e *Executor) resolveItemsFromS3GetObject(ctx context.Context, reader *ItemReader) ([]any, error) {
 	if e.s3 == nil {
 		return nil, ErrS3ReaderNotConfigured
 	}
@@ -2204,7 +2405,210 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
 	}
 
-	return decodeReaderItems(data, reader.ReaderConfig)
+	cfg := reader.ReaderConfig
+	if isManifestReaderConfig(cfg) {
+		return e.resolveManifestItems(ctx, bucket, data, cfg)
+	}
+
+	return decodeReaderItems(data, cfg)
+}
+
+// resolveItemsFromS3List implements the s3:listObjectsV2 Resource: by
+// default, one item per listed object's metadata; with
+// ReaderConfig.Transformation LOAD_AND_FLATTEN, each listed object's content
+// is read and decoded, fanning out into per-record items.
+func (e *Executor) resolveItemsFromS3List(ctx context.Context, reader *ItemReader) ([]any, error) {
+	if e.s3 == nil {
+		return nil, ErrS3ReaderNotConfigured
+	}
+
+	lister, ok := e.s3.(S3ListReader)
+	if !ok {
+		return nil, ErrS3ListReaderNotConfigured
+	}
+
+	bucket, _ := reader.Parameters["Bucket"].(string)
+	prefix, _ := reader.Parameters["Prefix"].(string)
+
+	objs, err := lister.ListObjectsV2Items(ctx, bucket, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("ItemReader S3 list error: %w", err)
+	}
+
+	cfg := reader.ReaderConfig
+	if cfg != nil && strings.EqualFold(cfg.Transformation, "LOAD_AND_FLATTEN") {
+		return e.flattenListedObjects(ctx, bucket, objs, cfg)
+	}
+
+	items := make([]any, len(objs))
+	for i, o := range objs {
+		items[i] = map[string]any{
+			"Etag":         o.ETag,
+			"Key":          o.Key,
+			"LastModified": awstime.Epoch(o.LastModified),
+			"Size":         o.Size,
+			"StorageClass": o.StorageClass,
+		}
+	}
+
+	return items, nil
+}
+
+// flattenListedObjects reads and decodes each listed object's content per
+// InputType, fanning out into per-record items (AWS docs: "Processing
+// nested data sets"). Zero-byte keys ending in "/" are S3 console folder
+// placeholders with no content to decode, so they're skipped.
+func (e *Executor) flattenListedObjects(
+	ctx context.Context,
+	bucket string,
+	objs []S3ObjectItem,
+	cfg *ReaderConfig,
+) ([]any, error) {
+	if cfg.InputType == "" {
+		return nil, fmt.Errorf(
+			"%w: InputType is required when Transformation is LOAD_AND_FLATTEN",
+			ErrItemReaderInvalidData,
+		)
+	}
+
+	var items []any
+
+	for _, o := range objs {
+		if o.Size == 0 && strings.HasSuffix(o.Key, "/") {
+			continue
+		}
+
+		data, err := e.s3.GetObjectBytes(ctx, bucket, o.Key)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader flatten %q: %w", o.Key, err)
+		}
+
+		objItems, err := decodeReaderItems(data, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader flatten %q: %w", o.Key, err)
+		}
+
+		items = append(items, objItems...)
+	}
+
+	return items, nil
+}
+
+// isManifestReaderConfig reports whether cfg names an S3 Inventory/Athena
+// manifest rather than a plain data object -- either the legacy
+// InputType=MANIFEST form or the newer ManifestType field.
+func isManifestReaderConfig(cfg *ReaderConfig) bool {
+	if cfg == nil {
+		return false
+	}
+
+	return strings.EqualFold(cfg.InputType, "MANIFEST") || cfg.ManifestType != ""
+}
+
+// s3InventoryManifest is the manifest.json shape AWS S3 Inventory writes
+// alongside its CSV data files (AWS docs: input-output-itemreader.html).
+type s3InventoryManifest struct {
+	FileSchema string `json:"fileSchema"`
+	Files      []struct {
+		Key string `json:"key"`
+	} `json:"files"`
+}
+
+// resolveManifestItems dispatches on ManifestType (S3_INVENTORY, the only
+// InputType=MANIFEST target has ever meant, or ATHENA_DATA, unsupported).
+func (e *Executor) resolveManifestItems(
+	ctx context.Context,
+	bucket string,
+	manifestData []byte,
+	cfg *ReaderConfig,
+) ([]any, error) {
+	manifestType := strings.ToUpper(cfg.ManifestType)
+	if manifestType == "" {
+		manifestType = "S3_INVENTORY"
+	}
+
+	switch manifestType {
+	case "S3_INVENTORY":
+		return e.resolveS3InventoryManifest(ctx, bucket, manifestData, cfg)
+	case "ATHENA_DATA":
+		return nil, ErrAthenaManifestUnsupported
+	default:
+		return nil, fmt.Errorf("%w: unsupported ManifestType %q", ErrItemReaderInvalidData, cfg.ManifestType)
+	}
+}
+
+// resolveS3InventoryManifest reads an S3 Inventory manifest.json, then reads
+// and decodes each listed (optionally gzip-compressed) CSV data file, using
+// the manifest's fileSchema as the CSV headers. cfg's CSVDelimiter (if any)
+// carries through to the data files, matching AWS's "CSVDelimiter ... when
+// InputType is CSV or MANIFEST".
+func (e *Executor) resolveS3InventoryManifest(
+	ctx context.Context,
+	bucket string,
+	manifestData []byte,
+	cfg *ReaderConfig,
+) ([]any, error) {
+	var manifest s3InventoryManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return nil, fmt.Errorf("%w: manifest.json: %w", ErrItemReaderInvalidData, err)
+	}
+
+	headers := splitManifestFileSchema(manifest.FileSchema)
+	fileCfg := &ReaderConfig{CSVHeaderLocation: "GIVEN", CSVHeaders: headers}
+
+	if cfg != nil {
+		fileCfg.CSVDelimiter = cfg.CSVDelimiter
+	}
+
+	var items []any
+
+	for _, f := range manifest.Files {
+		data, err := e.s3.GetObjectBytes(ctx, bucket, f.Key)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader manifest data file %q: %w", f.Key, err)
+		}
+
+		if strings.HasSuffix(strings.ToLower(f.Key), ".gz") {
+			data, err = gunzipBytes(data)
+			if err != nil {
+				return nil, fmt.Errorf("%w: gunzip %q: %w", ErrItemReaderInvalidData, f.Key, err)
+			}
+		}
+
+		fileItems, err := decodeCSVItems(data, fileCfg)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader manifest data file %q: %w", f.Key, err)
+		}
+
+		items = append(items, fileItems...)
+	}
+
+	return items, nil
+}
+
+// splitManifestFileSchema splits an S3 Inventory manifest's fileSchema
+// ("Bucket, Key, Size, LastModifiedDate") into CSV headers.
+func splitManifestFileSchema(schema string) []string {
+	parts := strings.Split(schema, ",")
+	headers := make([]string, len(parts))
+
+	for i, p := range parts {
+		headers[i] = strings.TrimSpace(p)
+	}
+
+	return headers
+}
+
+// gunzipBytes decompresses gzip-compressed S3 object data (AWS docs: ItemReader
+// input files support GZIP/ZSTD external compression; only GZIP is implemented).
+func gunzipBytes(data []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	return io.ReadAll(r)
 }
 
 // decodeReaderItems parses S3 object bytes into Map items based on the
@@ -2221,9 +2625,96 @@ func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 	case "JSONL", "JSON_LINES":
 		return decodeJSONLines(data)
 	case "", "JSON":
-		return decodeJSONAuto(data)
+		return decodeJSONItems(data, cfg)
+	case "PARQUET":
+		return nil, ErrParquetUnsupported
 	default:
 		return nil, fmt.Errorf("%w: unsupported InputType %q", ErrItemReaderInvalidData, inputType)
+	}
+}
+
+// decodeJSONItems decodes a JSON InputType object, applying ReaderConfig's
+// ItemsPointer (RFC 6901 JSON Pointer) to select a nested array when set --
+// AWS docs: input-output-itemreader.html, "ItemsPointer". Without it, falls
+// back to the pre-existing JSON-array-then-JSON-lines auto-detection.
+func decodeJSONItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	if cfg == nil || cfg.ItemsPointer == "" {
+		return decodeJSONAuto(data)
+	}
+
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, err)
+	}
+
+	val, err := resolveJSONPointer(doc, cfg.ItemsPointer)
+	if err != nil {
+		return nil, err
+	}
+
+	arr, ok := val.([]any)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: ItemsPointer %q does not reference a JSON array",
+			ErrItemReaderInvalidData, cfg.ItemsPointer,
+		)
+	}
+
+	return arr, nil
+}
+
+// errJSONPointerNotFound is resolveJSONPointer's internal not-found signal,
+// always re-wrapped as ErrItemReaderInvalidData before it leaves this file.
+var errJSONPointerNotFound = errors.New("path not found")
+
+// resolveJSONPointer resolves an RFC 6901 JSON Pointer ("/data/items")
+// against a decoded JSON document: forward slashes separate nesting levels,
+// array indices are plain decimal integers, and "~1"/"~0" escape "/" and "~"
+// in a token (AWS docs: ItemsPointer "JSONPointer syntax").
+func resolveJSONPointer(doc any, pointer string) (any, error) {
+	if pointer == "" || pointer == "/" {
+		return doc, nil
+	}
+
+	if !strings.HasPrefix(pointer, "/") {
+		return nil, fmt.Errorf(`%w: ItemsPointer %q must start with "/"`, ErrItemReaderInvalidData, pointer)
+	}
+
+	cur := doc
+
+	for tok := range strings.SplitSeq(pointer[1:], "/") {
+		tok = strings.ReplaceAll(tok, "~1", "/")
+		tok = strings.ReplaceAll(tok, "~0", "~")
+
+		next, err := stepJSONPointer(cur, tok)
+		if err != nil {
+			return nil, fmt.Errorf("%w: ItemsPointer %q: %w", ErrItemReaderInvalidData, pointer, err)
+		}
+
+		cur = next
+	}
+
+	return cur, nil
+}
+
+func stepJSONPointer(cur any, tok string) (any, error) {
+	switch v := cur.(type) {
+	case map[string]any:
+		next, ok := v[tok]
+		if !ok {
+			return nil, errJSONPointerNotFound
+		}
+
+		return next, nil
+	case []any:
+		idx, err := strconv.Atoi(tok)
+		if err != nil || idx < 0 || idx >= len(v) {
+			return nil, errJSONPointerNotFound
+		}
+
+		return v[idx], nil
+	default:
+		return nil, errJSONPointerNotFound
 	}
 }
 
@@ -2258,8 +2749,39 @@ func decodeJSONLines(data []byte) ([]any, error) {
 	return items, nil
 }
 
+// csvDelimiterRune maps ReaderConfig.CSVDelimiter to the field separator
+// AWS documents for CSV/MANIFEST InputType: COMMA (default), PIPE,
+// SEMICOLON, SPACE, TAB (input-output-itemreader.html).
+func csvDelimiterRune(cfg *ReaderConfig) (rune, error) {
+	delim := ""
+	if cfg != nil {
+		delim = strings.ToUpper(cfg.CSVDelimiter)
+	}
+
+	switch delim {
+	case "", "COMMA":
+		return ',', nil
+	case "PIPE":
+		return '|', nil
+	case "SEMICOLON":
+		return ';', nil
+	case "SPACE":
+		return ' ', nil
+	case "TAB":
+		return '\t', nil
+	default:
+		return 0, fmt.Errorf("%w: unsupported CSVDelimiter %q", ErrItemReaderInvalidData, delim)
+	}
+}
+
 func decodeCSVItems(data []byte, cfg *ReaderConfig) ([]any, error) {
+	delim, err := csvDelimiterRune(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	reader := csv.NewReader(strings.NewReader(string(data)))
+	reader.Comma = delim
 	reader.FieldsPerRecord = -1
 
 	rows, err := reader.ReadAll()
@@ -2524,6 +3046,10 @@ var ErrMaxConcurrencyPathNotNumber = errors.New("MaxConcurrencyPath: value is no
 // state's pre-Parameters input, the same way resolveToleratedFailureCount
 // resolves ToleratedFailureCountPath.
 func (e *Executor) resolveMaxConcurrency(state *State, mapInput any) (int, error) {
+	if v, ok := e.jxNums["MaxConcurrency"]; ok {
+		return v, nil
+	}
+
 	if state.MaxConcurrencyPath == "" {
 		return state.MaxConcurrency, nil
 	}
@@ -2558,6 +3084,10 @@ var ErrHeartbeatSecondsPathNotNumber = errors.New("HeartbeatSecondsPath: value i
 // retry attempts), so resolving once before the retry loop gives the same
 // value every attempt.
 func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, error) {
+	if v, ok := e.jxNums["TimeoutSeconds"]; ok {
+		return v, nil
+	}
+
 	if state.TimeoutSecondsPath == "" {
 		return state.TimeoutSeconds, nil
 	}
@@ -2578,6 +3108,10 @@ func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, erro
 // resolveTaskHeartbeatSeconds resolves HeartbeatSeconds(Path) against the
 // Task state's own input; see resolveTaskTimeoutSeconds.
 func (e *Executor) resolveTaskHeartbeatSeconds(state *State, input any) (int, error) {
+	if v, ok := e.jxNums["HeartbeatSeconds"]; ok {
+		return v, nil
+	}
+
 	if state.HeartbeatSecondsPath == "" {
 		return state.HeartbeatSeconds, nil
 	}
@@ -2626,6 +3160,7 @@ func (e *FailError) Error() string {
 // pathEvalInput wraps path evaluation scope.
 // data is target for "$" paths; context is target for "$$" paths.
 type pathEvalInput struct {
+	vars    varFunc
 	data    any
 	context any
 }
@@ -2664,6 +3199,10 @@ func applyPath(path string, value any, pathCache ...*jsonPathCache) (any, error)
 		return jsonPathGet(path[3:], pathInput.context, cache)
 	}
 
+	if _, _, isVar := splitVarRef(path); isVar {
+		return resolveVarRef(path, pathInput, cache)
+	}
+
 	return nil, fmt.Errorf("%w: %q", ErrUnsupportedPathExpr, path)
 }
 
@@ -2673,7 +3212,7 @@ func applyPath(path string, value any, pathCache ...*jsonPathCache) (any, error)
 // If ResultPath is "$.field", result is written to input[field].
 // If ResultPath is "null", result is discarded (input passes through).
 func applyResultPath(resultPath string, input, result any) (any, error) {
-	if resultPath == "null" {
+	if resultPath == aslNullLiteral {
 		return input, nil
 	}
 
@@ -3469,16 +4008,45 @@ func marshalInput(v any) string {
 	return string(b)
 }
 
-// applyParametersTemplate evaluates a Parameters or ResultSelector template
-// (json.RawMessage) against the given input context.
-// Keys ending in ".$" are evaluated as JSONPath or intrinsic function references.
-func applyParametersTemplate(template json.RawMessage, input any) (any, error) {
-	var tmpl any
-	if err := json.Unmarshal(template, &tmpl); err != nil {
-		return nil, fmt.Errorf("invalid template: %w", err)
+// parsedTemplate is a Parameters/ResultSelector/ItemSelector template decoded once.
+type parsedTemplate struct {
+	tmpl        any
+	err         error
+	usesContext bool
+}
+
+// loadTemplate returns the slot's parsed template, decoding raw on first use.
+func loadTemplate(slot *atomic.Pointer[parsedTemplate], raw json.RawMessage) *parsedTemplate {
+	if pt := slot.Load(); pt != nil {
+		return pt
 	}
 
-	return evalTemplate(tmpl, input)
+	pt := &parsedTemplate{usesContext: bytes.Contains(raw, []byte("$$"))}
+	if err := json.Unmarshal(raw, &pt.tmpl); err != nil {
+		pt.err = fmt.Errorf("invalid template: %w", err)
+	}
+
+	slot.CompareAndSwap(nil, pt)
+
+	return slot.Load()
+}
+
+func (pt *parsedTemplate) evalWith(input any) (any, error) {
+	if pt.err != nil {
+		return nil, pt.err
+	}
+
+	return evalTemplate(pt.tmpl, input)
+}
+
+// eval evaluates the template, building the context object only if it refers to "$$".
+func (pt *parsedTemplate) eval(e *Executor, data any) (any, error) {
+	in := pathEvalInput{data: data, vars: e.varFn()}
+	if pt.usesContext {
+		in.context = e.buildContextObject()
+	}
+
+	return pt.evalWith(in)
 }
 
 // evalTemplate recursively evaluates a template structure against the input context.

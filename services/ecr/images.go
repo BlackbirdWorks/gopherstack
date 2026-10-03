@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -16,13 +17,18 @@ import (
 // that digest, and returns true if the image was found.
 func deleteByDigestLocked(
 	images *store.Table[Image],
+	layerRefs *layerRefIndex,
 	repoTags map[string]string,
 	repositoryName, digest string,
 ) bool {
 	key := imageTableKey(repositoryName, digest)
-	if !images.Has(key) {
+
+	img, ok := images.Get(key)
+	if !ok {
 		return false
 	}
+
+	layerRefs.remove(img)
 
 	// Remove all tag bindings for this digest.
 	for tag, d := range repoTags {
@@ -80,7 +86,7 @@ func (b *InMemoryBackend) BatchDeleteImage(ctx context.Context, //nolint:revive 
 		var found bool
 
 		if id.ImageDigest != "" {
-			found = deleteByDigestLocked(b.images, repoTags, repositoryName, id.ImageDigest)
+			found = deleteByDigestLocked(b.images, b.layerRefs, repoTags, repositoryName, id.ImageDigest)
 			if found {
 				b.clearDigestTagsLocked(repositoryName, id.ImageDigest)
 			}
@@ -235,8 +241,12 @@ func (b *InMemoryBackend) DescribeImages(
 		if len(tags) == 0 && img.ImageID.ImageTag != "" {
 			tags = []string{img.ImageID.ImageTag}
 		}
-		// Sort for stable output.
-		sort.Strings(tags)
+		// digestTags is shared under RLock: sort a private copy, never in place.
+		if !slices.IsSorted(tags) {
+			tags = slices.Clone(tags)
+			slices.Sort(tags)
+		}
+
 		img.Tags = tags
 
 		// imageScanFindingsSummary/imageScanStatus are derived fresh from the
@@ -500,7 +510,7 @@ func (b *InMemoryBackend) PutImage(
 	normalizeImageFields(&image, repositoryName, b.accountID)
 
 	stored := image
-	b.images.Put(&stored)
+	b.putImageLocked(&stored)
 
 	// Update tag index and keep digestTagsIndex in sync.
 	if tag != "" {
@@ -632,7 +642,7 @@ func (b *InMemoryBackend) AddImageInternal(repositoryName string, img Image) {
 		cp.ImageStatus = imageStatusActive
 	}
 
-	b.images.Put(&cp)
+	b.putImageLocked(&cp)
 
 	if img.ImageID.ImageTag != "" {
 		if b.tagIndex[repositoryName] == nil {

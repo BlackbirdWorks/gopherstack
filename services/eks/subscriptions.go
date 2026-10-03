@@ -3,8 +3,9 @@ package eks
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -31,7 +32,9 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 		)
 	}
 
-	id := stableID(name + strconv.FormatInt(time.Now().UnixNano(), 10))
+	// Id is documented as "UUID identifying a subscription" (types.EksAnywhereSubscription,
+	// aws-sdk-go-v2/service/eks), not a name-derived hash.
+	id := uuid.NewString()
 	subARN := arn.Build("eks", b.region, b.accountID, "eks-anywhere-subscription/"+id)
 
 	t := tags.New("eks.subscription." + id + ".tags")

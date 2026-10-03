@@ -332,6 +332,8 @@ func vulnerabilitiesToWire(vulns []*Vulnerability) []map[string]any {
 			entry["vendorUpdatedAt"] = awstime.Epoch(v.VendorUpdatedAt)
 		}
 
+		addVulnerabilityDetailWire(entry, v)
+
 		wire = append(wire, entry)
 	}
 

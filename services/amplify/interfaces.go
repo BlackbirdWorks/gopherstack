@@ -52,7 +52,7 @@ type StorageBackend interface {
 	ListJobs(appID, branchName, nextToken string, maxResults int) ([]*Job, string, error)
 	DeleteJob(appID, branchName, jobID string) (*Job, error)
 	CreateDeployment(appID, branchName string) (string, string, error)
-	StartDeployment(appID, branchName, jobID, sourceURL string) (*Job, error)
+	StartDeployment(appID, branchName, jobID, sourceURL, sourceURLType string) (*Job, error)
 	// Domains
 	CreateDomainAssociation(
 		appID, domainName string, subDomains []SubDomainSetting, enableAutoSubDomain bool,

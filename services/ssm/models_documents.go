@@ -29,8 +29,8 @@ type DocumentRequires struct {
 
 // Document represents an SSM document.
 type Document struct {
-	TargetType             string                  `json:"TargetType,omitempty"`
-	LatestVersion          string                  `json:"LatestVersion"`
+	SchemaVersion          string                  `json:"SchemaVersion"`
+	Description            string                  `json:"Description,omitempty"`
 	DocumentType           string                  `json:"DocumentType"`
 	DocumentFormat         string                  `json:"DocumentFormat"`
 	Status                 string                  `json:"Status"`
@@ -39,15 +39,16 @@ type Document struct {
 	Name                   string                  `json:"Name"`
 	DisplayName            string                  `json:"DisplayName,omitempty"`
 	Content                string                  `json:"Content"`
-	SchemaVersion          string                  `json:"SchemaVersion"`
-	Description            string                  `json:"Description,omitempty"`
+	LatestVersion          string                  `json:"LatestVersion"`
 	DocumentVersion        string                  `json:"DocumentVersion"`
+	TargetType             string                  `json:"TargetType,omitempty"`
 	Hash                   string                  `json:"Hash,omitempty"`
 	HashType               string                  `json:"HashType,omitempty"`
 	Sha1                   string                  `json:"Sha1,omitempty"`
-	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
+	VersionName            string                  `json:"VersionName,omitempty"`
 	AttachmentsInformation []AttachmentInformation `json:"AttachmentsInformation,omitempty"`
 	Requires               []DocumentRequires      `json:"Requires,omitempty"`
+	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
 	CreatedDate            float64                 `json:"CreatedDate"`
 }
 
@@ -57,8 +58,8 @@ type Document struct {
 // deliberately omits Content — only GetDocument returns document content, to
 // avoid every metadata call re-transmitting potentially large document bodies.
 type DocumentDescription struct {
-	TargetType             string                  `json:"TargetType,omitempty"`
-	LatestVersion          string                  `json:"LatestVersion"`
+	Description            string                  `json:"Description,omitempty"`
+	DocumentVersion        string                  `json:"DocumentVersion"`
 	DocumentType           string                  `json:"DocumentType"`
 	DocumentFormat         string                  `json:"DocumentFormat"`
 	Status                 string                  `json:"Status"`
@@ -67,15 +68,16 @@ type DocumentDescription struct {
 	Name                   string                  `json:"Name"`
 	DisplayName            string                  `json:"DisplayName,omitempty"`
 	SchemaVersion          string                  `json:"SchemaVersion"`
-	Description            string                  `json:"Description,omitempty"`
-	DocumentVersion        string                  `json:"DocumentVersion"`
+	LatestVersion          string                  `json:"LatestVersion"`
 	Hash                   string                  `json:"Hash,omitempty"`
+	TargetType             string                  `json:"TargetType,omitempty"`
 	HashType               string                  `json:"HashType,omitempty"`
 	Sha1                   string                  `json:"Sha1,omitempty"`
-	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
+	VersionName            string                  `json:"VersionName,omitempty"`
 	AttachmentsInformation []AttachmentInformation `json:"AttachmentsInformation,omitempty"`
 	Requires               []DocumentRequires      `json:"Requires,omitempty"`
 	Tags                   []Tag                   `json:"Tags,omitempty"`
+	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
 	CreatedDate            float64                 `json:"CreatedDate"`
 }
 
@@ -87,6 +89,7 @@ type DocumentVersion struct {
 	DocumentFormat   string  `json:"DocumentFormat"`
 	Status           string  `json:"Status"`
 	Content          string  `json:"Content,omitempty"`
+	VersionName      string  `json:"VersionName,omitempty"`
 	CreatedDate      float64 `json:"CreatedDate"`
 	IsDefaultVersion bool    `json:"IsDefaultVersion"`
 }
@@ -121,6 +124,7 @@ type CreateDocumentInput struct {
 	DocumentFormat string              `json:"DocumentFormat,omitempty"`
 	TargetType     string              `json:"TargetType,omitempty"`
 	Description    string              `json:"Description,omitempty"`
+	VersionName    string              `json:"VersionName,omitempty"`
 	PlatformTypes  []string            `json:"PlatformTypes,omitempty"`
 	Attachments    []AttachmentsSource `json:"Attachments,omitempty"`
 	Requires       []DocumentRequires  `json:"Requires,omitempty"`
@@ -137,6 +141,7 @@ type GetDocumentInput struct {
 	Name            string `json:"Name"`
 	DocumentVersion string `json:"DocumentVersion,omitempty"`
 	DocumentFormat  string `json:"DocumentFormat,omitempty"`
+	VersionName     string `json:"VersionName,omitempty"`
 }
 
 // GetDocumentOutput is the response payload for GetDocument.
@@ -149,6 +154,7 @@ type GetDocumentOutput struct {
 	DocumentVersion   string             `json:"DocumentVersion"`
 	Status            string             `json:"Status"`
 	StatusInformation string             `json:"StatusInformation,omitempty"`
+	VersionName       string             `json:"VersionName,omitempty"`
 	Requires          []DocumentRequires `json:"Requires,omitempty"`
 	CreatedDate       float64            `json:"CreatedDate"`
 }
@@ -157,6 +163,7 @@ type GetDocumentOutput struct {
 type DescribeDocumentInput struct {
 	Name            string `json:"Name"`
 	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	VersionName     string `json:"VersionName,omitempty"`
 }
 
 // DescribeDocumentOutput is the response payload for DescribeDocument.
@@ -186,6 +193,7 @@ type UpdateDocumentInput struct {
 	DocumentFormat  string              `json:"DocumentFormat,omitempty"`
 	DocumentVersion *string             `json:"DocumentVersion,omitempty"`
 	TargetType      *string             `json:"TargetType,omitempty"`
+	VersionName     string              `json:"VersionName,omitempty"`
 	Attachments     []AttachmentsSource `json:"Attachments,omitempty"`
 }
 

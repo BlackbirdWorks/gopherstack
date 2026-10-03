@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -54,6 +55,7 @@ func newTestLambdaClient(t *testing.T, h *lambda.Handler) *lambdasdk.Client {
 
 	return lambdasdk.NewFromConfig(cfg, func(o *lambdasdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 

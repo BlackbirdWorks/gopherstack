@@ -3,6 +3,8 @@ package opensearch
 import (
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // CancelDomainConfigChange cancels a pending configuration change on a domain.
@@ -148,7 +150,9 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 	applyOperationalConfig(d, input)
 	applyAutoTuneConfig(d, input, b.clock())
 
-	changeID := fmt.Sprintf("change-%s-%d", name, time.Now().UnixNano())
+	// ChangeId is a bare UUID (confirmed pattern on ChangeProgressStatusDetails,
+	// docs.aws.amazon.com/opensearch-service).
+	changeID := uuid.NewString()
 	d.LastChangeID = changeID
 	b.beginProcessing(d, dpsModifying)
 

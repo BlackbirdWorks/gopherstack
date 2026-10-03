@@ -479,7 +479,7 @@ func testPendingMaintenanceActionsPaginationRealClient(t *testing.T) {
 			EngineVersion: "8.0.30",
 		})
 		require.NoError(t, err)
-		waitForInstanceStatus(t, backend, id, "available")
+		waitForInstanceAvailable(t, backend, id)
 	}
 	for _, id := range ids {
 		_, err := backend.ModifyDBInstance(id, "", 0, rds.DBInstanceOptions{

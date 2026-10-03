@@ -25,6 +25,8 @@ type Backend interface {
 	// of instanceID's primary network interface (defaults to true, matching
 	// AWS's default for VPC instances).
 	PrimaryNetworkInterfaceSourceDestCheck(instanceID string) bool
+	// PrimaryNetworkInterfaceSourceDestChecks is the batched form for DescribeInstances.
+	PrimaryNetworkInterfaceSourceDestChecks(instanceIDs []string) map[string]bool
 
 	// DescribeInstances returns instances, optionally filtered by IDs or state name.
 	DescribeInstances(ids []string, state string) []*Instance
@@ -40,6 +42,14 @@ type Backend interface {
 	// StopInstances transitions running instances to stopping / stopped.
 	// Returns ErrInvalidInstanceState if an instance is not running.
 	StopInstances(ids []string) ([]*InstanceStateChange, error)
+	// StopInstancesWithOptions is StopInstances with the Hibernate flag.
+	StopInstancesWithOptions(ids []string, hibernate bool) ([]*InstanceStateChange, error)
+	// SetInstancesHibernation records HibernationOptions.Configured at launch.
+	SetInstancesHibernation(ids []string, configured bool) error
+	// ModifyInstanceBlockDeviceMappings applies ModifyInstanceAttribute BlockDeviceMappings.
+	ModifyInstanceBlockDeviceMappings(instanceID string, updates []BlockDeviceUpdate) error
+	// InstanceBlockDevices returns volume attachments per instance ID.
+	InstanceBlockDevices(instanceIDs []string) map[string][]VolumeAttachment
 
 	// RebootInstances keeps instances running (mock no-op transition).
 	RebootInstances(ids []string) error
@@ -54,6 +64,8 @@ type Backend interface {
 
 	// CreateImage creates an AMI from an instance.
 	CreateImage(instanceID, name, description string) (*AMIStub, error)
+	// CreateImageWithLocation adds the SnapshotLocation request field.
+	CreateImageWithLocation(instanceID, name, description, snapshotLocation string) (*AMIStub, error)
 
 	// DescribeImageUsageReports returns the usage reports created via
 	// CreateImageUsageReport.
@@ -136,6 +148,11 @@ type Backend interface {
 
 	// CreateKeyPair generates an RSA key pair and stores it.
 	CreateKeyPair(name string, tags map[string]string) (*KeyPair, error)
+
+	// CreateKeyPairWithType generates a key pair of keyType (rsa or ed25519) and stores it.
+	CreateKeyPairWithType(name, keyType string, tags map[string]string) (*KeyPair, error)
+	// CreateKeyPairWithFormat is CreateKeyPairWithType plus KeyFormat (pem or ppk).
+	CreateKeyPairWithFormat(name, keyType, keyFormat string, tags map[string]string) (*KeyPair, error)
 
 	// ImportKeyPair stores a pre-existing key pair by name without key material.
 	ImportKeyPair(name, publicKeyMaterial string, tags map[string]string) (*KeyPair, error)
@@ -253,9 +270,15 @@ type Backend interface {
 
 	// CopyImage copies an AMI to produce a new one.
 	CopyImage(sourceImageID, name, description string) (*AMIStub, error)
+	// ResolveSSMImageAlias resolves a resolve:ssm: image reference via SSM.
+	ResolveSSMImageAlias(ref string) (string, error)
+	// CopyImageEncrypted is CopyImage with the Encrypted/KmsKeyId snapshot options.
+	CopyImageEncrypted(sourceImageID, name, description string, encrypted bool, kmsKeyID string) (*AMIStub, error)
 
 	// DeregisterImage removes an AMI from the store.
 	DeregisterImage(imageID string) error
+	// DeregisterImageDeleteSnapshots deregisters and optionally deletes the backing snapshots.
+	DeregisterImageDeleteSnapshots(imageID string, deleteSnapshots bool) ([]SnapshotDeleteResult, error)
 
 	// ---- VPC / Subnet attributes ----
 
@@ -916,8 +939,11 @@ type Backend interface {
 
 	// ---- VPN Connections ----
 
-	// CreateVpnConnection creates a VPN connection between a customer gateway and VPN gateway.
-	CreateVpnConnection(connType, customerGatewayID, vpnGatewayID string) (*VpnConnection, error)
+	// CreateVpnConnection creates a VPN connection terminating on a VPN
+	// gateway or a transit gateway (transitGatewayID is variadic).
+	CreateVpnConnection(
+		connType, customerGatewayID, vpnGatewayID string, transitGatewayID ...string,
+	) (*VpnConnection, error)
 
 	// DescribeVpnConnections returns VPN connections, optionally filtered by IDs.
 	DescribeVpnConnections(ids []string) []*VpnConnection
@@ -1295,6 +1321,12 @@ type Backend interface {
 	CreateSnapshots(
 		instanceID string, excludeBootVolume bool, excludeDataVolumeIDs []string, description string,
 	) ([]*Snapshot, error)
+	// CreateSnapshotsAt is CreateSnapshots plus the Location request field.
+	CreateSnapshotsAt(
+		instanceID string, excludeBootVolume bool, excludeDataVolumeIDs []string, description, location string,
+	) ([]*Snapshot, error)
+	// CreateSnapshotAt is CreateSnapshot plus the Location request field.
+	CreateSnapshotAt(volumeID, description, location string) (*Snapshot, error)
 
 	// ---- batch1: snapshot block public access ----
 
@@ -1318,6 +1350,8 @@ type Backend interface {
 
 	CreateDefaultVpc() (*VPC, error)
 	CreateDefaultSubnet(az string) (*Subnet, error)
+	// CreateDefaultSubnetWithOptions adds the Ipv6Native flag.
+	CreateDefaultSubnetWithOptions(az string, ipv6Native bool) (*Subnet, error)
 	AssociateSubnetCidrBlock(subnetID, ipv6CIDRBlock string) (*SubnetCIDRAssociation, error)
 	DisassociateSubnetCidrBlock(associationID string) (string, error)
 	AssociateSecurityGroupVpc(sgID, vpcID string) (*SGVpcAssociationState, error)
@@ -1415,6 +1449,12 @@ type Backend interface {
 	CopyVolumes(sourceVolumeID string, size int, volumeType string, iops, throughput int) (*Volume, error)
 	DisassociateVpcCidrBlock(associationID string) (vpcID string, assoc *VpcCidrBlockAssociation, err error)
 	DisassociateNatGatewayAddress(natGatewayID string, associationIDs []string) (*NatGateway, error)
+	// DisassociateNatGatewayAddressDrain adds MaxDrainDurationSeconds.
+	DisassociateNatGatewayAddressDrain(
+		natGatewayID string,
+		associationIDs []string,
+		maxDrainSeconds int,
+	) (*NatGateway, error)
 	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)
 	AssignPrivateNatGatewayAddress(natGatewayID string, count int, ips []string) (*NatGateway, error)
 	DisableImage(imageID string) error
@@ -1529,7 +1569,7 @@ type Backend interface {
 	RestoreVolumeFromRecycleBin(volumeID string) error
 	RestoreAddressToClassic(publicIP string) error
 	ReportInstanceStatus(instanceIDs, reasonCodes []string, status, description string) error
-	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
+	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string, transitGatewayID ...string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
 	ModifyTransitGateway(
@@ -1543,6 +1583,8 @@ type Backend interface {
 	DeleteManagedPrefixList(id string) (*ManagedPrefixList, error)
 	DescribeManagedPrefixLists(ids []string) []*ManagedPrefixList
 	GetManagedPrefixListEntries(id string) ([]PrefixListEntry, error)
+	// GetManagedPrefixListEntriesAt returns a retained version's entries (0 = current).
+	GetManagedPrefixListEntriesAt(id string, targetVersion int64) ([]PrefixListEntry, error)
 	ModifyManagedPrefixList(id string, addEntries, removeEntries []PrefixListEntry) (*ManagedPrefixList, error)
 	RestoreManagedPrefixListVersion(id string, version int64) (*ManagedPrefixList, error)
 
@@ -2083,6 +2125,10 @@ type Backend interface {
 	CreateMacSystemIntegrityProtectionModificationTask(
 		instanceID, status string, config *MacSIPConfig, tags map[string]string,
 	) (*MacModificationTask, error)
+	// CreateMacSIPModificationTaskWithCredentials adds the validated MacCredentials.
+	CreateMacSIPModificationTaskWithCredentials(
+		instanceID, status, macCredentials string, config *MacSIPConfig, tags map[string]string,
+	) (*MacModificationTask, error)
 	CreateDelegateMacVolumeOwnershipTask(
 		instanceID, macCredentials string, tags map[string]string,
 	) (*MacModificationTask, error)
@@ -2251,6 +2297,12 @@ type Backend interface {
 	MoveAddressToVpc(publicIP string) (*Address, error)
 	RejectVpcEndpointConnections(serviceID string, vpcEndpointIDs []string) ([]string, error)
 	UnassignPrivateNatGatewayAddress(natGatewayID string, privateIPs []string) (*NatGateway, error)
+	// UnassignPrivateNatGatewayAddressDrain adds MaxDrainDurationSeconds.
+	UnassignPrivateNatGatewayAddressDrain(
+		natGatewayID string,
+		privateIPs []string,
+		maxDrainSeconds int,
+	) (*NatGateway, error)
 
 	CancelImageLaunchPermission(imageID string) error
 	DescribeImageReferences(imageIDs []string) []*ImageReferenceEntry

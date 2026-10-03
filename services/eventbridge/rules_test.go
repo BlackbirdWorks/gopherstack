@@ -291,7 +291,7 @@ func TestTestEventPattern_InvalidPattern(t *testing.T) {
 	b := newBackend()
 
 	_, err := b.TestEventPattern(context.Background(), "not-json", `{"source":"x"}`)
-	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+	require.ErrorIs(t, err, eventbridge.ErrInvalidEventPattern)
 }
 
 func TestTestEventPattern_InvalidEvent(t *testing.T) {
@@ -484,7 +484,7 @@ func TestTestEventPattern_EventJSONValidation(t *testing.T) {
 			name:    "invalid pattern JSON rejects",
 			pattern: `not-json`,
 			event:   `{"source":"my.app"}`,
-			wantErr: eventbridge.ErrInvalidParameter,
+			wantErr: eventbridge.ErrInvalidEventPattern,
 		},
 		{
 			name:    "empty pattern rejects",

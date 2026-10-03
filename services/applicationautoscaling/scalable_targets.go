@@ -58,6 +58,38 @@ func (b *InMemoryBackend) scalableTargetsForNamespaceLocked(serviceNamespace str
 	return count
 }
 
+// validateRegisterScalableTargetBasics checks the fields required regardless
+// of namespace and the tag-count quota.
+func validateRegisterScalableTargetBasics(
+	serviceNamespace, resourceID, scalableDimension string, tags map[string]string,
+) error {
+	if serviceNamespace == "" {
+		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	}
+
+	if resourceID == "" {
+		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+
+	if scalableDimension == "" {
+		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
+	}
+
+	// RegisterScalableTarget's modeled error set has LimitExceededException
+	// but no TooManyTagsException (that's only modeled on TagResource -- see
+	// ErrTooManyTags's doc comment), so an over-limit tag count here is
+	// reported as LimitExceededException.
+	if len(tags) > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: too many tags; maximum allowed is %d",
+			ErrLimitExceeded,
+			maxTagsPerResource,
+		)
+	}
+
+	return nil
+}
+
 // RegisterScalableTarget upserts a scalable target (creates or updates).
 // minCapacity and maxCapacity are *int32, not int32: real AWS's
 // RegisterScalableTargetInput models both as optional pointers, required only
@@ -74,28 +106,16 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 	roleARN string,
 	suspendedState *SuspendedState,
 ) (*ScalableTarget, error) {
-	if serviceNamespace == "" {
-		return nil, fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	if err := validateRegisterScalableTargetBasics(serviceNamespace, resourceID, scalableDimension, tags); err != nil {
+		return nil, err
 	}
 
-	if resourceID == "" {
-		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
-	}
-
-	if scalableDimension == "" {
-		return nil, fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
-	}
-
-	// RegisterScalableTarget's modeled error set has LimitExceededException
-	// but no TooManyTagsException (that's only modeled on TagResource -- see
-	// ErrTooManyTags's doc comment), so an over-limit tag count here is
-	// reported as LimitExceededException.
-	if len(tags) > maxTagsPerResource {
-		return nil, fmt.Errorf(
-			"%w: too many tags; maximum allowed is %d",
-			ErrLimitExceeded,
-			maxTagsPerResource,
-		)
+	if serviceNamespace == dynamoDBServiceNamespace {
+		if err := b.registerDynamoDBScalableTarget(
+			resourceID, scalableDimension, minCapacity, maxCapacity, roleARN,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("RegisterScalableTarget")
@@ -327,7 +347,6 @@ type DescribeScalableTargetsFilter struct {
 // Returns ErrInvalidNextToken if f.NextToken fails to decode.
 func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) ([]*ScalableTarget, string, error) {
 	b.mu.RLock("DescribeScalableTargets")
-	defer b.mu.RUnlock()
 
 	var idSet map[string]bool
 	if len(f.ResourceIDs) > 0 {
@@ -338,7 +357,11 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 	}
 
 	list := make([]*ScalableTarget, 0, b.scalableTargets.Len())
+	known := make(map[string]bool, b.scalableTargets.Len())
+
 	for _, t := range b.scalableTargets.All() {
+		known[scalableTargetKey(t.ServiceNamespace, t.ResourceID, t.ScalableDimension)] = true
+
 		if f.ServiceNamespace != "" && t.ServiceNamespace != f.ServiceNamespace {
 			continue
 		}
@@ -356,6 +379,11 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 
 		list = append(list, &cp)
 	}
+
+	b.mu.RUnlock()
+
+	// A target set via DynamoDB's own API must show up here too.
+	list = append(list, b.dynamodbSiblingScalableTargets(f, known)...)
 
 	return paginate(list, f.MaxResults, f.NextToken, func(t *ScalableTarget) string {
 		return t.ResourceID + "|" + t.ScalableDimension

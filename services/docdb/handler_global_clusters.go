@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/xml"
 	"net/url"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, vals url.Values) (any, error) {
@@ -15,7 +17,7 @@ func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, vals url.Val
 	members := make([]xmlGlobalCluster, 0, len(gcs))
 	for _, gc := range gcs {
 		cp := gc
-		members = append(members, toXMLGlobalCluster(&cp))
+		members = append(members, h.globalClusterXML(ctx, &cp))
 	}
 
 	return &describeGlobalClustersResponse{
@@ -29,14 +31,19 @@ func (h *Handler) handleCreateGlobalCluster(ctx context.Context, vals url.Values
 	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
-	gc, err := h.Backend.CreateGlobalCluster(ctx, id, sourceDBClusterID, engine, engineVersion)
+	gc, err := h.Backend.CreateGlobalCluster(ctx, id, sourceDBClusterID, engine, engineVersion,
+		CreateGlobalClusterOptions{
+			DatabaseName:       vals.Get("DatabaseName"),
+			DeletionProtection: parseBoolParam(vals, "DeletionProtection"),
+			StorageEncrypted:   parseBoolParam(vals, "StorageEncrypted"),
+		})
 	if err != nil {
 		return nil, err
 	}
 
 	return &createGlobalClusterResponse{
 		Xmlns:         docdbXMLNS,
-		GlobalCluster: toXMLGlobalCluster(gc),
+		GlobalCluster: h.globalClusterXML(ctx, gc),
 	}, nil
 }
 
@@ -49,7 +56,7 @@ func (h *Handler) handleDeleteGlobalCluster(ctx context.Context, vals url.Values
 
 	return &deleteGlobalClusterResponse{
 		Xmlns:         docdbXMLNS,
-		GlobalCluster: toXMLGlobalCluster(gc),
+		GlobalCluster: h.globalClusterXML(ctx, gc),
 	}, nil
 }
 
@@ -64,7 +71,7 @@ func (h *Handler) handleModifyGlobalCluster(ctx context.Context, vals url.Values
 
 	return &modifyGlobalClusterResponse{
 		Xmlns:         docdbXMLNS,
-		GlobalCluster: toXMLGlobalCluster(gc),
+		GlobalCluster: h.globalClusterXML(ctx, gc),
 	}, nil
 }
 
@@ -78,7 +85,7 @@ func (h *Handler) handleFailoverGlobalCluster(ctx context.Context, vals url.Valu
 
 	return &failoverGlobalClusterResponse{
 		Xmlns:         docdbXMLNS,
-		GlobalCluster: toXMLGlobalCluster(gc),
+		GlobalCluster: h.globalClusterXML(ctx, gc),
 	}, nil
 }
 
@@ -92,7 +99,7 @@ func (h *Handler) handleRemoveFromGlobalCluster(ctx context.Context, vals url.Va
 
 	return &removeFromGlobalClusterResponse{
 		Xmlns:         docdbXMLNS,
-		GlobalCluster: toXMLGlobalCluster(gc),
+		GlobalCluster: h.globalClusterXML(ctx, gc),
 	}, nil
 }
 
@@ -106,7 +113,7 @@ func (h *Handler) handleSwitchoverGlobalCluster(ctx context.Context, vals url.Va
 
 	return &switchoverGlobalClusterResponse{
 		Xmlns:         docdbXMLNS,
-		GlobalCluster: toXMLGlobalCluster(gc),
+		GlobalCluster: h.globalClusterXML(ctx, gc),
 	}, nil
 }
 
@@ -154,6 +161,9 @@ type xmlGlobalCluster struct {
 	EngineVersion           string                     `xml:"EngineVersion,omitempty"`
 	GlobalClusterArn        string                     `xml:"GlobalClusterArn,omitempty"`
 	Status                  string                     `xml:"Status"`
+	DatabaseName            string                     `xml:"DatabaseName,omitempty"`
+	GlobalClusterResourceID string                     `xml:"GlobalClusterResourceId,omitempty"`
+	TagList                 *xmlTagList                `xml:"TagList,omitempty"`
 	GlobalClusterMembers    xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
 	StorageEncrypted        bool                       `xml:"StorageEncrypted"`
 	DeletionProtection      bool                       `xml:"DeletionProtection"`
@@ -195,6 +205,20 @@ type switchoverGlobalClusterResponse struct {
 	GlobalCluster xmlGlobalCluster `xml:"SwitchoverGlobalClusterResult>GlobalCluster"`
 }
 
+// globalClusterXML adds the ARN-keyed tags (AddTagsToResource) as TagList.
+func (h *Handler) globalClusterXML(ctx context.Context, gc *GlobalCluster) xmlGlobalCluster {
+	x := toXMLGlobalCluster(gc)
+	if tags := h.Backend.ListTagsForResource(ctx, gc.GlobalClusterArn); len(tags) > 0 {
+		list := &xmlTagList{Members: make([]svcTags.KV, 0, len(tags))}
+		for _, t := range tags {
+			list.Members = append(list.Members, svcTags.KV(t))
+		}
+		x.TagList = list
+	}
+
+	return x
+}
+
 func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 	members := make([]xmlGlobalClusterMember, 0, len(gc.GlobalClusterMembers))
 	for _, m := range gc.GlobalClusterMembers {
@@ -217,5 +241,7 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		GlobalClusterMembers:    xmlGlobalClusterMemberList{Members: members},
 		StorageEncrypted:        gc.StorageEncrypted,
 		DeletionProtection:      gc.DeletionProtection,
+		DatabaseName:            gc.DatabaseName,
+		GlobalClusterResourceID: gc.GlobalClusterResourceID,
 	}
 }

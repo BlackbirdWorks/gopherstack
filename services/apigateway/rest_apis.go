@@ -85,6 +85,7 @@ func (b *InMemoryBackend) deleteAPIChildrenLocked(restAPIID string) {
 	}
 	for _, s := range append([]*Stage{}, b.stagesByAPI.Get(restAPIID)...) {
 		b.stages.Delete(stageKeyFn(s))
+		b.clearStageThrottleBuckets(restAPIID, s.StageName)
 	}
 	for _, a := range append([]*Authorizer{}, b.authorizersByAPI.Get(restAPIID)...) {
 		b.authorizers.Delete(authorizerKeyFn(a))

@@ -103,8 +103,10 @@ type InMemoryBackend struct {
 	glueIntegration asl.GlueIntegration
 	glueSyncWaiter  asl.GlueSyncWaiter
 	ebIntegration   asl.EventBridgeIntegration
+	sdkIntegration  asl.SDKIntegration
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
+	mockConfig      *asl.MockConfig
 	svcCtx          context.Context
 	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
 	// Left as a plain map (not a store.Table): activityTaskEntry carries
@@ -274,6 +276,13 @@ func (b *InMemoryBackend) SetSettings(s Settings) {
 	b.settings = s
 }
 
+// SetMockConfig installs the mocked service integration configuration.
+func (b *InMemoryBackend) SetMockConfig(c *asl.MockConfig) {
+	b.mu.Lock("SetMockConfig")
+	defer b.mu.Unlock()
+	b.mockConfig = c
+}
+
 // Destroy cancels all running execution goroutines and releases resources.
 func (b *InMemoryBackend) Destroy() {
 	b.mu.Lock("Destroy")
@@ -296,6 +305,13 @@ func (b *InMemoryBackend) SetLambdaInvoker(invoker asl.LambdaInvoker) {
 	b.mu.Lock("SetLambdaInvoker")
 	defer b.mu.Unlock()
 	b.lambdaInvoker = invoker
+}
+
+// SetSDKIntegration configures the generic AWS SDK integration for Task states.
+func (b *InMemoryBackend) SetSDKIntegration(sdk asl.SDKIntegration) {
+	b.mu.Lock("SetSDKIntegration")
+	defer b.mu.Unlock()
+	b.sdkIntegration = sdk
 }
 
 // SetSQSIntegration configures the SQS integration for Task states.
@@ -383,8 +399,10 @@ type integrationsSnapshot struct {
 	glueIntegration asl.GlueIntegration
 	glueSyncWaiter  asl.GlueSyncWaiter
 	ebIntegration   asl.EventBridgeIntegration
+	sdkIntegration  asl.SDKIntegration
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
+	mockRun         *asl.MockRun
 }
 
 // snapshotIntegrationsLocked copies the configured integrations. Must be
@@ -400,6 +418,7 @@ func (b *InMemoryBackend) snapshotIntegrationsLocked() integrationsSnapshot {
 		glueIntegration: b.glueIntegration,
 		glueSyncWaiter:  b.glueSyncWaiter,
 		ebIntegration:   b.ebIntegration,
+		sdkIntegration:  b.sdkIntegration,
 		s3Reader:        b.s3Reader,
 		s3ResultWriter:  b.s3ResultWriter,
 	}
@@ -417,8 +436,10 @@ func applyIntegrations(executor *asl.Executor, s integrationsSnapshot) {
 	executor.SetGlueIntegration(s.glueIntegration)
 	executor.SetGlueSyncWaiter(s.glueSyncWaiter)
 	executor.SetEventBridgeIntegration(s.ebIntegration)
+	executor.SetSDKIntegration(s.sdkIntegration)
 	executor.SetS3Reader(s.s3Reader)
 	executor.SetS3ResultWriter(s.s3ResultWriter)
+	executor.SetMockRun(s.mockRun)
 }
 
 func (b *InMemoryBackend) smARN(region, name string) string {

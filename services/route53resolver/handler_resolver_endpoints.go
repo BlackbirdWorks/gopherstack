@@ -81,6 +81,9 @@ type resolverEndpointIPAddressDetail struct {
 	IP       string `json:"Ip"`
 	Ipv6     string `json:"Ipv6,omitempty"`
 	Status   string `json:"Status"`
+
+	CreationTime     string `json:"CreationTime,omitempty"`
+	ModificationTime string `json:"ModificationTime,omitempty"`
 }
 
 type listResolverEndpointIPAddressesInput struct {
@@ -306,6 +309,9 @@ func (h *Handler) handleListResolverEndpointIPAddresses(
 			IP:       ip.IP,
 			Ipv6:     ip.Ipv6,
 			Status:   "ATTACHED",
+
+			CreationTime:     ip.CreationTime,
+			ModificationTime: ip.ModificationTime,
 		})
 	}
 	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)

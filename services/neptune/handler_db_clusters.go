@@ -263,10 +263,16 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(
 ) (any, error) {
 	snapshotID := vals.Get("SnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID)
+	opts, tags, err := parseRestoreClusterOptions(vals)
 	if err != nil {
 		return nil, err
 	}
+	opts.CopyTagsToSnapshot = vals.Get("CopyTagsToSnapshot") == formTrue
+	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID, opts)
+	if err != nil {
+		return nil, err
+	}
+	h.tagRestoredCluster(ctx, cluster.DBClusterIdentifier, tags)
 
 	return &restoreDBClusterFromSnapshotResponse{
 		Xmlns:     neptuneXMLNS,
@@ -280,7 +286,12 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(
 ) (any, error) {
 	srcClusterID := vals.Get("SourceDBClusterIdentifier")
 	targetClusterID := vals.Get("DBClusterIdentifier")
+	common, tags, err := parseRestoreClusterOptions(vals)
+	if err != nil {
+		return nil, err
+	}
 	opts := RestoreToPointInTimeOptions{
+		RestoreClusterOptions:   common,
 		RestoreToTime:           vals.Get("RestoreToTime"),
 		UseLatestRestorableTime: vals.Get("UseLatestRestorableTime") == formTrue,
 	}
@@ -288,11 +299,53 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(
 	if err != nil {
 		return nil, err
 	}
+	h.tagRestoredCluster(ctx, cluster.DBClusterIdentifier, tags)
 
 	return &restoreDBClusterToPointInTimeResponse{
 		Xmlns:     neptuneXMLNS,
 		DBCluster: toXMLCluster(cluster),
 	}, nil
+}
+
+// parseRestoreClusterOptions reads the request members both restore ops share.
+func parseRestoreClusterOptions(vals url.Values) (RestoreClusterOptions, []Tag, error) {
+	sv2, sv2Err := parseServerlessV2ScalingConfig(vals)
+	if sv2Err != nil && !errors.Is(sv2Err, errNoServerlessV2Config) {
+		return RestoreClusterOptions{}, nil, sv2Err
+	}
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return RestoreClusterOptions{}, nil, err
+	}
+	opts := RestoreClusterOptions{
+		DBSubnetGroupName:           vals.Get("DBSubnetGroupName"),
+		StorageType:                 vals.Get("StorageType"),
+		EngineVersion:               vals.Get("EngineVersion"),
+		KmsKeyID:                    vals.Get("KmsKeyId"),
+		NetworkType:                 vals.Get("NetworkType"),
+		DBClusterParameterGroupName: vals.Get("DBClusterParameterGroupName"),
+		EnableIAMAuth:               vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		DeletionProtection:          vals.Get("DeletionProtection") == formTrue,
+		VpcSecurityGroupIDs:         parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		AvailabilityZones:           parseMemberList(vals, "AvailabilityZones.AvailabilityZone"),
+		ServerlessV2ScalingConfig:   sv2,
+	}
+	if s := vals.Get("Port"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			opts.Port = v
+		}
+	}
+
+	return opts, tags, nil
+}
+
+func (h *Handler) tagRestoredCluster(ctx context.Context, id string, tags []Tag) {
+	if len(tags) == 0 {
+		return
+	}
+	_ = h.Backend.AddTagsToResource(
+		ctx, h.clusterARN(getRegion(ctx, h.Backend.Region()), id), tags,
+	)
 }
 
 // parseServerlessV2ScalingConfig parses ServerlessV2ScalingConfiguration from form values.

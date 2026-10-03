@@ -5,9 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -75,7 +73,7 @@ func parseAddonRoute(method, clusterName string, parts []string) eksRoute {
 func addonToJSON(a *Addon) map[string]any {
 	m := map[string]any{
 		keyClusterName: a.ClusterName,
-		"addonName":    a.AddonName,
+		keyAddonName:   a.AddonName,
 		"addonArn":     a.ARN,
 		keyStatusField: a.Status,
 		keyCreatedAt:   a.CreatedAt.Unix(),
@@ -259,14 +257,16 @@ func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName stri
 			return 0, nil, err
 		}
 
+		u := h.Backend.startUpdate(&Update{ClusterName: clusterName, AddonName: addon.AddonName, Type: "AddonUpdate"})
+
 		return http.StatusOK, map[string]any{
 			keyUpdate: map[string]any{
-				"id":           uuid.NewString()[:8],
-				keyStatusField: statusInProgress,
-				keyType:        "AddonUpdate",
+				"id":           u.ID,
+				keyStatusField: u.Status,
+				keyType:        u.Type,
 				keyClusterName: clusterName,
 				"addonName":    addon.AddonName,
-				keyCreatedAt:   float64(time.Now().Unix()),
+				keyCreatedAt:   float64(u.CreatedAt.Unix()),
 			},
 		}, nil
 	})

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -485,51 +486,58 @@ func TestPipeSourceFiltering(t *testing.T) {
 func TestPipesRunner_ShardIteratorSweep(t *testing.T) {
 	t.Parallel()
 
-	backend := newTestPipeBackend(t)
-	kinesisARN := "arn:aws:kinesis:us-east-1:000000000000:stream/sweep-stream"
-	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
-	createTestPipe(t, backend, "sweep-pipe", kinesisARN, lambdaARN, "RUNNING")
+	synctest.Test(t, func(t *testing.T) {
+		backend := newTestPipeBackend(t)
+		kinesisARN := "arn:aws:kinesis:us-east-1:000000000000:stream/sweep-stream"
+		lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+		createTestPipe(t, backend, "sweep-pipe", kinesisARN, lambdaARN, "RUNNING")
 
-	reader := &fakeKinesisReader{
-		shardIDs: []string{"shard-1"},
-		pending:  map[string][]pipes.KinesisRecord{},
-	}
-	runner := pipes.NewRunner(backend)
-	runner.SetKinesisReader(reader)
+		reader := &fakeKinesisReader{
+			shardIDs: []string{"shard-1"},
+			pending:  map[string][]pipes.KinesisRecord{},
+		}
+		runner := pipes.NewRunner(backend)
+		runner.SetKinesisReader(reader)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
-	defer cancel()
-	runner.Start(ctx)
+		ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+		defer cancel()
+		runner.Start(ctx)
 
-	getIterCalls := func() int {
-		reader.mu.Lock()
-		defer reader.mu.Unlock()
+		getIterCalls := func() int {
+			reader.mu.Lock()
+			defer reader.mu.Unlock()
 
-		return reader.getIterCalls
-	}
+			return reader.getIterCalls
+		}
 
-	// The runner's first background tick polls the running pipe and caches
-	// one shard iterator for it.
-	require.Eventually(t, func() bool { return getIterCalls() >= 1 }, 3*time.Second, 20*time.Millisecond,
-		"expected the runner's first tick to request a shard iterator for the running pipe")
+		// The runner ticks every second; let the first tick poll the running
+		// pipe and cache one shard iterator for it.
+		time.Sleep(1100 * time.Millisecond)
+		synctest.Wait()
+		require.GreaterOrEqual(t, getIterCalls(), 1,
+			"expected the runner's first tick to request a shard iterator for the running pipe")
 
-	_, err := backend.StopPipe(context.Background(), "sweep-pipe")
-	require.NoError(t, err)
-	pipes.WaitPipeStopped(t, backend, "sweep-pipe")
+		_, err := backend.StopPipe(context.Background(), "sweep-pipe")
+		require.NoError(t, err)
+		pipes.WaitPipeStopped(t, backend, "sweep-pipe")
 
-	// Give the background ticker at least one full cycle while the pipe is
-	// stopped, so the sweep observes it outside the running set and prunes
-	// its cached shard iterator (the pipe itself is not polled while
-	// stopped, so this cannot be observed until it runs again below).
-	time.Sleep(1500 * time.Millisecond)
+		// Give the background ticker at least one full cycle while the pipe is
+		// stopped, so the sweep observes it outside the running set and prunes
+		// its cached shard iterator (the pipe itself is not polled while
+		// stopped, so this cannot be observed until it runs again below).
+		time.Sleep(1500 * time.Millisecond)
+		synctest.Wait()
 
-	_, err = backend.StartPipe(context.Background(), "sweep-pipe")
-	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, backend, "sweep-pipe")
+		_, err = backend.StartPipe(context.Background(), "sweep-pipe")
+		require.NoError(t, err)
+		pipes.WaitPipeRunning(t, backend, "sweep-pipe")
 
-	require.Eventually(t, func() bool { return getIterCalls() >= 2 }, 3*time.Second, 20*time.Millisecond,
-		"expected a fresh GetShardIterator call after the pipe restarted, proving the sweep "+
-			"pruned the stale cache entry while the pipe was stopped")
+		time.Sleep(1100 * time.Millisecond)
+		synctest.Wait()
+		require.GreaterOrEqual(t, getIterCalls(), 2,
+			"expected a fresh GetShardIterator call after the pipe restarted, proving the sweep "+
+				"pruned the stale cache entry while the pipe was stopped")
+	})
 }
 
 // TestPipesRunner_InputTemplate tests that TargetParameters.InputTemplate overrides default payload.

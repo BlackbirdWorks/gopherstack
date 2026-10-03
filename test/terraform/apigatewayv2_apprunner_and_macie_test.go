@@ -53,6 +53,7 @@ func TestTerraform_Apigatewayv2ApprunnerAndMacie(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockMacie2(t)
 			runTFTest(t, tc)
 		})
 	}

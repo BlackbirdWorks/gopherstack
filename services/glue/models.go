@@ -651,10 +651,11 @@ type DataQualityEvaluationRun struct {
 	DataSource            *DataQualityDataSource           `json:"DataSource,omitempty"`
 	AdditionalRunOptions  *DataQualityRunAdditionalOptions `json:"AdditionalRunOptions,omitempty"`
 	AdditionalDataSources map[string]DataQualityDataSource `json:"AdditionalDataSources,omitempty"`
-	RunID                 string                           `json:"RunId"`
+	Role                  string                           `json:"Role,omitempty"`
 	Status                string                           `json:"Status"`
 	ErrorString           string                           `json:"ErrorString,omitempty"`
-	Role                  string                           `json:"Role,omitempty"`
+	RunID                 string                           `json:"RunId"`
+	ClientToken           string                           `json:"-"`
 	RulesetNames          []string                         `json:"RulesetNames,omitempty"`
 	StartedOn             float64                          `json:"StartedOn,omitempty"`
 	CompletedOn           float64                          `json:"CompletedOn,omitempty"`

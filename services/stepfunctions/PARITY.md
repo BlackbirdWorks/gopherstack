@@ -394,23 +394,87 @@ families:
       (or a legacy Iterator-style Map, which has no ProcessorConfig at all)
       takes the pre-existing runMapTasks path unconditionally.
 
-      DISCLOSED, not modeled (deliberately out of this pass's scope):
-      ResultWriter's per-item S3 export records (exportMapResults,
-      asl/result_writer.go) still omit ExecutionArn/Name/StartDate/StopDate
-      even though real child executions now exist to source them from --
-      wiring that through was judged not to "fall out cheaply" (it would
-      need exportMapResults, which only sees results/errs, to also see the
-      per-item child Execution records) and was left for a future pass
-      rather than attempted here. WriterConfig (Transformation/OutputType)
-      remains parsed but unapplied, unchanged from the prior pass. A
-      DISTRIBUTED Map Run's parent MapRun *resource* record (as opposed to
-      its child Execution records, which do persist -- see Execution.
-      MapRunArn/ItemCount in persistence.go) is still not part of
-      backendSnapshot at all -- a pre-existing gap predating this pass
-      (versions/aliases/mapRuns have never been persisted here), so a
-      restored backend loses DescribeMapRun/ListMapRuns/
-      ListExecutions(mapRunArn=...) access to a Map Run whose children
-      otherwise survive the restore intact.
+      FIXED 2026-09-26 (WriterConfig sweep), correcting the prior pass's
+      "DISCLOSED, not modeled" note below: ResultWriter's per-item S3 export
+      records omitting ExecutionArn/Name/StartDate/StopDate, and
+      WriterConfig (Transformation/OutputType) being parsed but unapplied,
+      are both fixed. asl.DistributedMapRunner.RunDistributedMapItem now
+      returns a DistributedMapItemResult (Output plus ExecutionArn/Name/
+      StartDate/StopDate) instead of a bare `any`, threaded through
+      runDistributedMapTasks into a new `meta []DistributedMapItemResult`
+      slice that exportMapResults uses to populate Transformation: NONE
+      records -- populated only for DISTRIBUTED Map items (real child
+      Executions exist to source it from); INLINE Map iterations still
+      correctly leave those fields empty, having no such resource.
+      WriterConfig.Transformation (NONE: full metadata record with
+      JSON-stringified Input/Output, matching a real DescribeExecution;
+      COMPACT: raw per-item output; FLATTEN: COMPACT plus splicing any
+      array output into the outer array) and OutputType (JSON: array;
+      JSONL: newline-delimited, no enclosing array) are now applied to the
+      S3-exported SUCCEEDED_n.json/FAILED_n.json files AND to the no-export
+      preview output (ResultWriter with WriterConfig but no Resource/
+      Parameters, AWS's documented "preview the formatted output" shape).
+      Per AWS's documented note ("If a child workflow execution fails, Step
+      Functions returns its execution result unchanged"), a FAILED item's
+      record is always the full NONE-shaped record regardless of
+      Transformation -- verified via
+      TestDistributedMapResultWriter_FailedItemsKeepFullRecord. Verified
+      against input-output-resultwriter.html for the exact Transformation/
+      OutputType semantics; see
+      TestDistributedMapResultWriter_TransformationOutputType (all 6
+      Transformation x OutputType combinations, real SDK client + wired
+      in-process S3) and TestDistributedMapResultWriter_
+      DistributedChildIdentity. A DISTRIBUTED Map Run's parent MapRun
+      *resource* record now persists (2026-10-01, see Notes).
+
+      2026-09-26 (WriterConfig sweep, new finding, not fixed this pass):
+      re-reading input-output-itemreader.html surfaced that ItemReader only
+      ever supports Resource=arn:aws:states:::s3:getObject with InputType
+      JSON/JSON Lines/CSV against a single object -- Resource=
+      arn:aws:states:::s3:listObjectsV2 (bucket/prefix metadata iteration,
+      optionally with Transformation=LOAD_AND_FLATTEN), InputType=MANIFEST
+      (ManifestType ATHENA_DATA/S3_INVENTORY), and InputType=PARQUET are
+      all real, documented ItemReader shapes with no code path here at all
+      -- resolveItemsFromReader never inspects ItemReader.Resource, and
+      decodeReaderItems' InputType switch has no MANIFEST/PARQUET case.
+      This was never previously documented in this file (grepped: no prior
+      mention of ListObjectsV2/ManifestType/PARQUET anywhere in this
+      PARITY.md's history). Not attempted that pass.
+
+      FIXED 2026-09-26 (ItemReader Resource sweep), closing most of the
+      above: resolveItemsFromReader now switches on ItemReader.Resource.
+      arn:aws:states:::s3:listObjectsV2 lists the bucket/prefix (a new
+      asl.S3ListReader interface, paginating via s3Adapter.
+      ListObjectsV2Items against services/s3.StorageBackend.ListObjectsV2)
+      and returns one item per object -- {Etag,Key,LastModified,Size,
+      StorageClass}, LastModified as epoch seconds via pkgs/awstime.Epoch,
+      matching the docs' example shape exactly. ReaderConfig.Transformation
+      LOAD_AND_FLATTEN (new field) instead reads and decodes each listed
+      object's content per InputType (JSON/JSONL/CSV; zero-byte
+      trailing-slash "folder" keys are skipped, since they have no content
+      to decode) and flattens every object's items into one array, per
+      "Processing nested data sets" in the docs. ReaderConfig.ManifestType
+      (new field) S3_INVENTORY -- and the legacy bare InputType=MANIFEST,
+      which the docs' own example uses without ManifestType set, treated as
+      identical -- reads a manifest.json (fileSchema, files[].key), fetches
+      each listed CSV data file (gzip-decompressed when the key ends
+      .gz, via compress/gzip), and decodes it with fileSchema's
+      comma-separated column names as CSV headers, matching the docs'
+      worked example's field names and values (TestItemReader_S3Manifest).
+      All ItemReader
+      failures (S3 NoSuchBucket/NoSuchKey, unsupported Resource, unsupported
+      ManifestType/InputType) are now wrapped as a States.ItemReaderFailed
+      FailError instead of falling back to the error's raw Go string as the
+      Catch-match code -- AWS's own documented predefined error name for
+      this failure class, so a Map state's Catch can now match it
+      specifically instead of only via States.ALL. ManifestType=ATHENA_DATA
+      and InputType=PARQUET are explicitly rejected with dedicated sentinel
+      errors (ErrAthenaManifestUnsupported/ErrParquetUnsupported) rather
+      than silently mis-parsed -- see the narrowed items_still_open entry.
+      Verified via TestItemReader_S3ListObjectsV2/TestItemReader_S3Manifest/
+      TestItemReader_S3GetObject_Errors, all driven through the real
+      aws-sdk-go-v2 sfn client with objects seeded in the in-process S3
+      backend.
   asl_parallel:
     status: ok
     note: "Unchanged this pass."
@@ -452,20 +516,174 @@ families:
 filter_semantics: {status: ok, note: "gopherstack-uox6 (value-semantics sweep, 2026-08-30): this service establishes no prior sweep of this kind. First, its protocol: aws-sdk-go-v2/service/sfn@v1.45.4's types package has NO Filter struct at all (grep of types/types.go) -- this API surface has almost no server-side filtering. The one real filter is ListExecutionsInput.StatusFilter (types.ExecutionStatus, a single-value equality field, not a list), applied at executions.go:643 via an exact bucket lookup -- no documented modifier to get wrong. Everything else this service's ~14 hand-rolled 'match' helpers implement is Amazon States Language Choice-state comparators (asl/executor.go), which decide whether a state's input satisfies a rule, not an SDK list filter, but the same right-field-wrong-algorithm risk applies: evaluateChoiceRule's And/Or/Not (correct all/any/negate), IsPresent/IsNull/IsString/IsNumeric/IsBoolean/IsTimestamp (each compares a computed bool against *rule.IsX with ==, correctly honoring both true and false rather than only checking truthiness), and the String/Numeric/Boolean/Timestamp -Equals/-LessThan/-GreaterThan/-LessThanEquals/-GreaterThanEquals families (each Path and literal variant) were all read and are correct. stringMatchesPattern/globMatch (StringMatches) is the one genuine wildcard comparator in this family -- verified against the ASL spec's documented semantics (its own doc comment: '*' matches zero or more chars, backslash escapes the next character, anchored both ends) via a real two-pointer backtracking implementation; correct, including the escape case. No bugs found -- clean verdict."}
 gaps: []
 items_still_open:
-  - "Map Distributed Map ResultWriter's WriterConfig (Transformation/OutputType) is parsed but not applied, only the plain S3-export shape; per-item result records still omit ExecutionArn/Name/StartDate/StopDate (bd: gopherstack-8j8). Real child Execution records now exist for DISTRIBUTED Map (bd: gopherstack-zov6, this pass) but exportMapResults was deliberately not wired to source those fields from them -- disclosed, not modeled, see asl_map family note."
-  - "STALE, corrected this pass (bd: gopherstack-zov6): this line previously read 'Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)' -- Mode/ExecutionType parsing and validation (parser.go) were already done before this pass; what was actually missing was Mode being acted on. FIXED: a DISTRIBUTED Map state now spawns a real child Execution per item/batch instead of running inline (see asl_map family note). Genuinely still open: DescribeMapRun/ListMapRuns/ListExecutions(mapRunArn=...) lose access to a Map Run after a backend restore, because the MapRun *resource* table (unlike its child Execution records, which do persist) has never been part of backendSnapshot -- a pre-existing gap, not introduced this pass."
-  - "STALE, corrected 2026-09-11 (bd: gopherstack-1sf): StartExecutionInput has no ClientRequestToken member in the real SDK, so there was nothing to model there. FIXED: EXPRESS name reuse is now immediate (uniqueness check skipped for EXPRESS), and STANDARD reuse of a still-RUNNING execution's name with matching Input now returns that execution (idempotent) instead of erroring; differing Input or a closed execution still conflicts. See the StartExecution note above and Test_StartExecution_NameReuseSemantics."
-  - "StartExecution's STANDARD name-reuse conflict does not expire: AWS allows reusing a closed execution's name 90 days after it closes, but this emulator conflicts on any existing name regardless of how long it has been closed (no notion of elapsed wall-clock time since close) -- disclosed, not modeled (bd: gopherstack-1sf)"
-  - "STALE, corrected 2026-09-11 (bd: gopherstack-996): resourceType/region/parameters were fixed by the 2026-08-21 batch-10 pass; TimeoutInSeconds/HeartbeatInSeconds were fixed this pass (set from the Task state's own TimeoutSeconds/HeartbeatSeconds, nil when unset -- see GetExecutionHistory note above). Resource on TaskScheduled/TaskSucceeded/TaskFailed was also fixed this pass: previously the raw Task Resource ARN, now split to just the action for States service-integration ARNs, matching AWS's documented field meaning. Still genuinely open: no TaskSubmitted/TaskStarted history events are emitted for .sync/.waitForTaskToken Task states -- a structural gap, this emulator never models those event kinds at all (bd: gopherstack-996)"
-  - "STALE, corrected 2026-08-23 (manifest-harvest pass): re-read models.go/executions.go directly instead of trusting this note -- RedriveStatus, TraceHeader, InputDetails, and OutputDetails were already declared on Execution AND already assigned real values at every relevant transition (initializeExecutionRecord/finalizeExecutionRecordLocked/StopExecution/resetExecutionForRedrive); this line's claim that gopherstack-f5dc left them missing was wrong. RedriveStatusReason (real, AWS: 'When redriveStatus is NOT_REDRIVABLE, redriveStatusReason specifies the reason', api_op_DescribeExecution.go) WAS a genuine gap -- declared but never assigned, so real clients always decoded an empty string -- FIXED this pass: populated with AWS's exact documented reason strings ('Execution is RUNNING and cannot be redriven.' / 'Execution is SUCCEEDED and cannot be redriven.') at every NOT_REDRIVABLE transition and cleared at every REDRIVABLE one. MapRunArn was, at the time of this 2026-08-23 pass, genuinely absent -- FIXED since, this pass (bd: gopherstack-zov6): Execution.MapRunArn is now assigned for every real Distributed Map child execution; see the gopherstack-zov6 gap entry above and the asl_map family note. Proven via a real aws-sdk-go-v2/service/sfn client round trip (wire_redrivestatusreason_test.go), which also incidentally caught and fixed a second, unrelated real bug it exposed: a bare {\"Type\":\"Fail\"} state (Error/Cause both optional per the ASL spec) was silently recorded as SUCCEEDED, not FAILED, because asl.ExecutionResult had no way to distinguish 'failed with an empty error code' from 'succeeded' other than checking Error != \"\" -- fixed by adding ExecutionResult.Failed and switching every consumer (asl/executor.go's Parallel-branch and Map-iteration paths, executions.go's async and sync finalizers, handler_util.go's TestState) off the Error != \"\" check. FIXED 2026-09-11 (bd: gopherstack-f5dc), closing the remainder: InputDetails/OutputDetails (CloudWatchEventsExecutionDataDetails) were wire-tagged/valued as Truncated=false, a member the real type doesn't have -- now Included=true, matching sfn@v1.49.0 types.go:159-166. TraceHeader, though already assigned on StartExecution, was never carried through Snapshot/Restore -- now persisted."
-  - "Non-standard intrinsic functions (StringConcat, ArraySlice, MathSubtract, etc.) are accepted by this emulator but do not exist in real AWS Step Functions -- permissive superset, not a correctness bug against valid AWS definitions, but a definition that only works here would fail on real AWS (no bd filed; informational)"
-  - "STALE, corrected this pass (bd: gopherstack-zov6): this line previously read 'ListExecutions' new executionListItem view (gopherstack-dv4s) omits itemCount/mapRunArn, which real ExecutionListItem declares (types.go, sfn@v1.45.4) -- the domain Execution struct never tracked either field, a missing-field gap distinct from the over-wide leak this pass fixed (bd: unfiled)'. FIXED: Execution now tracks both, and ListExecutions accepts a mapRunArn query mode that populates them on the results -- see the ListExecutions ops note."
-  - "2026-09-18 (reqfielddiff, gopherstack-xhu2t): TestState.InspectionLevel/RevealSecrets are unmodeled -- both need an InspectionData subsystem (per-stage input/parameters/resultSelector/resultPath snapshots, plus real HTTP Task request/response capture for RevealSecrets to un-redact) that asl.Executor does not have; TestState today only produces a final status/output/error/cause/nextState. See the TestState ops entry."
+  - "ItemReader: ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported; the docs do not specify the manifest format precisely enough to implement) and InputType=PARQUET (asl.ErrParquetUnsupported; no pure-Go Parquet reader in go.mod) fail with distinct sentinel errors rather than mis-decoding."
+  - "A closed STANDARD execution's name becomes reusable once ExecutionRetention (default 24h) prunes it, not AWS's fixed 90 days after close (bd: gopherstack-1sf)."
+  - "No TaskSubmitted/TaskStarted history events are emitted for .sync/.waitForTaskToken Task states; this emulator models neither event kind (bd: gopherstack-996)."
+  - "TestState InspectionLevel/RevealSecrets are accepted but have no effect: asl.Executor keeps no per-stage InspectionData snapshots and makes no real HTTP Task calls (gopherstack-xhu2t)."
+  - "Non-standard intrinsics (StringConcat, ArraySlice, MathSubtract, etc.) are accepted here but do not exist in AWS; informational, a definition using them would fail on real AWS."
+  - "JSONata (gopherstack-iisrz) gaps: Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ToleratedFailureCount/Percentage and ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS); TestState does not take StateConfiguration.Variables."
+  - "Service integrations not implemented (bd gopherstack-wdw): optimized http:invoke and eks:* (not implemented), bedrock:invokeModel (routed to bedrockruntime, untested), and aws-sdk integrations for services outside the 55-service table in sdk_services.go; ecs/glue optimized still use the legacy adapters (no <Service>.<Error> names)."
 deferred: []
 leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execution's context via b.cancelFns; Wait/waitForRetry/execSem/semaphore all select on ctx.Done(); Map/Parallel goroutines (wg.Go) all respect ctx cancellation. FIXED this pass: DeleteActivity leaked a permanent h.tags tombstone entry per deleted activity (see ops.DeleteActivity). No new goroutines introduced this pass (resolveExecutionTarget/S3Reader wiring are synchronous, no new goroutines)."}
 ---
 
 ## Notes
+
+### 2026-10-01 items_still_open burn-down
+
+Map Runs now round-trip through Snapshot/Restore (a RUNNING run is saved as FAILED, matching the TIMED_OUT promotion of its execution); proven by `TestMapRun_SurvivesSnapshotRestore`. Stale entries already fixed at HEAD were removed (ClientRequestToken, history event fields, RedriveStatusReason/InputDetails, ListExecutions itemCount/mapRunArn, Map ProcessorConfig.Mode).
+
+### 2026-09-26 ItemReader gap-closure sweep (CSVDelimiter, ItemsPointer)
+
+Follow-up to the ItemReader Resource sweep below, which flagged CSVDelimiter
+and ItemsPointer as newly-discovered, still-unimplemented ReaderConfig
+fields. Re-read input-output-itemreader.html for both fields' exact
+semantics and implemented:
+
+- **`ReaderConfig.CSVDelimiter`** (new field): `COMMA` (default), `PIPE`,
+  `SEMICOLON`, `SPACE`, `TAB`, case-insensitive; an unrecognized value is a
+  `States.ItemReaderFailed` error rather than silently falling back to
+  comma. Wired into `decodeCSVItems` via `csv.Reader.Comma`, and threaded
+  through to `S3_INVENTORY` manifest data files too (the docs: "You can
+  specify this field when InputType is CSV or MANIFEST") -- previously
+  `resolveS3InventoryManifest` built its own `fileCfg` with no way to carry
+  the outer `ReaderConfig`'s delimiter through, so it's now passed the full
+  `cfg` and copies `CSVDelimiter` onto `fileCfg`.
+- **`ReaderConfig.ItemsPointer`** (new field): an RFC 6901 JSON Pointer
+  (`/data/items`, forward-slash-separated, numeric array indices, `~1`/`~0`
+  escapes) selecting a nested array within a JSON `InputType` file, per the
+  docs' example (`{"data": {"items": [...]}}` -> `"/data/items"`). Resolving
+  to anything other than a JSON array (an object, scalar, or a path that
+  doesn't exist) is a `States.ItemReaderFailed` error. Only applies to
+  `InputType: JSON` (or omitted, its default); `JSONL`/`CSV` are unaffected
+  and still auto-detect as before when `ItemsPointer` is unset.
+
+Verified CSVHeaderLocation (`FIRST_ROW`/`GIVEN`+`CSVHeaders`) and
+MaxItems/MaxItemsPath were already correctly implemented and tested
+(`TestDecodeReaderItems`'s `csv_first_row_header`/`csv_given_headers`/
+`csv_max_items_truncates` cases, `TestExecutor_ItemReaderMaxItemsPath`) --
+no changes needed there.
+
+InputType=PARQUET and ManifestType=ATHENA_DATA remain unimplemented,
+unchanged from the prior sweep: no pure-Go Parquet reader dependency exists
+in `go.mod` and adding one was out of scope (explicitly disallowed for this
+pass), and ATHENA_DATA's manifest format isn't documented precisely enough
+to implement against confidently. Both still fail with their existing
+dedicated sentinel errors (`ErrParquetUnsupported`/
+`ErrAthenaManifestUnsupported`), not silently.
+
+New table-driven cases in `TestDecodeReaderItems`
+(`asl/intrinsics_extras_test.go`): CSV with `PIPE`/lowercase `semicolon`/
+`TAB`/`SPACE` delimiters, an unsupported delimiter error, `ItemsPointer`
+selecting a nested array (including a path segment that indexes into an
+array), and error cases (points at a non-array, path doesn't exist, path
+doesn't start with `/`). New SDK-roundtrip tests: a `CSVDelimiter: PIPE`
+case added to `TestItemReader_S3Manifest` (delimiter carried through to the
+manifest's data file), and a new `TestItemReader_ItemsPointer`
+(`item_reader_s3_resource_test.go`, nested-array selection and the
+not-an-array failure, both driven through the real
+`aws-sdk-go-v2/service/sfn` client with the in-process S3 backend).
+
+Gates green: `gofmt`, `go build ./...`, `go vet ./services/stepfunctions/...`,
+`go test -race -count=1` (this package), `golangci-lint run` (0 findings),
+`go test ./pkgs/persistence/`, `go run ./cmd/parityfmtcheck -dir services`.
+No `go.mod`/`go.sum` changes.
+
+### 2026-09-26 ItemReader Resource sweep (listObjectsV2, MANIFEST, LOAD_AND_FLATTEN)
+
+Closed most of the `items_still_open` gap the WriterConfig sweep below found
+in the same session: ItemReader ignored `ItemReader.Resource` entirely and
+only ever did a single `s3:getObject` decoded as JSON/JSON Lines/CSV. Read
+input-output-itemreader.html end to end for the exact item shapes and error
+behavior. Implemented:
+
+- **Resource `arn:aws:states:::s3:listObjectsV2`**: a new `asl.S3ListReader`
+  interface (`ListObjectsV2Items`), implemented by the existing `s3Adapter`
+  against `services/s3.StorageBackend.ListObjectsV2`, paginating via
+  `ContinuationToken` until exhausted. Default mode returns one item per
+  object: `{"Etag","Key","LastModified","Size","StorageClass"}`, matching
+  the docs' example exactly (`LastModified` as epoch seconds via
+  `pkgs/awstime.Epoch`).
+- **`ReaderConfig.Transformation: LOAD_AND_FLATTEN`** (new field): reads and
+  decodes each listed object's content per `InputType` (JSON/JSONL/CSV) and
+  flattens every object's records into one item array, per the docs'
+  "Processing nested data sets" section. Zero-byte keys ending in `/` (S3
+  console folder placeholders) are skipped, since they have no content.
+- **`ReaderConfig.ManifestType: S3_INVENTORY`** (new field), and the legacy
+  bare `InputType: MANIFEST` the docs' own worked example uses without
+  `ManifestType` set (treated identically): reads a `manifest.json`
+  (`fileSchema`, `files[].key`), fetches each listed CSV data file
+  (gzip-decompressed when the key ends `.gz`), and decodes it using
+  `fileSchema`'s comma-separated column names as CSV headers.
+- **Error behavior**: every ItemReader failure (missing bucket/key,
+  unsupported `Resource`, unsupported `ManifestType`/`InputType`) is now
+  wrapped as a `States.ItemReaderFailed` `FailError` -- AWS's own documented
+  predefined error name for this failure class -- instead of leaking the
+  raw Go error string as the Catch-match code. A Map state's `Catch` can now
+  match `States.ItemReaderFailed` specifically, not only via `States.ALL`.
+
+Not implemented, each behind a dedicated sentinel error rather than a silent
+stub (see the narrowed `items_still_open` entry and the `asl_map` family
+note): `ManifestType: ATHENA_DATA` (the docs describe its manifest only as
+"a structured CSV list of the data files", which isn't precise enough to
+implement against confidently -- Athena's own UNLOAD manifest format is
+documented elsewhere as JSON, not CSV -- and `$states.context.Map.Item.Source`
+is unmodeled too); `InputType: PARQUET` (no pure-Go Parquet reader dependency
+exists in `go.mod`, and this pass does not add one, per instructions).
+`CSVDelimiter` and `ItemsPointer` remain unparsed (`ReaderConfig` has no
+fields for either) -- discovered while reading the docs for this pass but
+out of the four originally-recorded gaps, so left as-is and disclosed above
+rather than silently addressed. STALE, corrected same-day by the 2026-09-26
+ItemReader gap-closure sweep above: both are now implemented.
+
+New table-driven tests, driven through a real `aws-sdk-go-v2/service/sfn`
+client over `httptest` with objects seeded in the in-process S3 backend
+(`item_reader_s3_resource_test.go`): `TestItemReader_S3ListObjectsV2`
+(metadata mode, LOAD_AND_FLATTEN JSON, LOAD_AND_FLATTEN CSV, missing-bucket
+error), `TestItemReader_S3Manifest` (S3_INVENTORY with a gzip data file, the
+legacy `InputType: MANIFEST` alias, and the ATHENA_DATA gap), and
+`TestItemReader_S3GetObject_Errors` (missing key, the PARQUET gap).
+
+Gates green: `gofmt`, `go build ./...`, `go vet ./services/stepfunctions/...`,
+`go test -race -count=1` (this package), `golangci-lint run` (0 findings),
+`go run ./cmd/parityfmtcheck -dir services`. No `go.mod`/`go.sum` changes.
+`go test ./pkgs/persistence/` fails on this branch, but only on a
+pre-existing `services/sqs` snapshot-version-guard finding from a different,
+concurrently-in-progress change to that package -- unrelated to this sweep
+and `services/sqs` was not touched here.
+
+### 2026-09-26 Distributed Map ResultWriter WriterConfig sweep
+
+Implemented ResultWriter.WriterConfig (Transformation: NONE/COMPACT/FLATTEN,
+OutputType: JSON/JSONL), the item this file's own `items_still_open` named
+as the open gap, per input-output-resultwriter.html. Also threaded real
+DISTRIBUTED Map child-execution identity (ExecutionArn/Name/StartDate/
+StopDate) into NONE-transformation records via a new
+`asl.DistributedMapItemResult` return type on `DistributedMapRunner.
+RunDistributedMapItem` (previously a bare `any`) -- the other half of the
+same gap, closing gopherstack-8j8's remaining scope. See the `asl_map`
+family note for the full before/after and the new
+`TestDistributedMapResultWriter_*` tests (table-driven over all 6
+Transformation x OutputType combinations, plus FAILED-item and DISTRIBUTED-
+identity cases, all driven through the real aws-sdk-go-v2 sfn client with
+the in-process S3 backend wired).
+
+Also read input-output-itemreader.html and input-output-itembatcher.html
+end to end per this sweep's brief. ItemBatcher and ToleratedFailureCount/
+ToleratedFailurePercentage (and their `*Path` siblings) were already
+correctly implemented -- no changes needed there. Found, but did not fix,
+that ItemReader has never supported `Resource: arn:aws:states:::
+s3:listObjectsV2`, `InputType: MANIFEST`, or `InputType: PARQUET` -- only
+`s3:getObject` with JSON/JSON Lines/CSV. This was not previously documented
+anywhere in this file; recorded in `items_still_open` and the `asl_map`
+family note rather than attempted, since ListObjectsV2 needs a wire-shape
+citation this pass didn't chase down and MANIFEST/PARQUET are meaningfully
+larger builds (a manifest-driven GetObject fan-out; a binary columnar
+decoder) than fit this pass's scope.
+
+Gates green: `gofmt`, `go build ./...`, `go vet`, `go test -race` (this
+package), `golangci-lint run` (0 findings), `go test ./pkgs/persistence/`,
+`cmd/parityfmtcheck`. No `go.mod`/`go.sum` changes.
 
 ### 2026-09-24 perf sweep
 
@@ -1247,3 +1465,37 @@ backend-only workaround documented in both tests' prior comments.
 
 `leak_main_test.go` and `Destroy()` (cancels execution goroutines) already
 existed from a prior pass; re-ran `go test -race -count=2`, still clean.
+
+## 2026-10-01 JSONata query language (gopherstack-iisrz)
+
+Implemented per AWS dev guide "Transforming data with JSONata in Step Functions"
+and "Passing data between states with variables": top-level and per-state
+`QueryLanguage`; `Arguments`/`Output`/`Assign`; `{% %}` expressions (strict
+wrapping, validated at CreateStateMachine/ValidateStateMachineDefinition);
+`$states.input/result/errorOutput/context` with creation-time checks of where
+`result`/`errorOutput` are readable; Choice `Condition` (+ rule `Assign`); Map
+`Items`/`ItemSelector`/`MaxConcurrency`; Wait `Seconds`/`Timestamp`; Task
+`TimeoutSeconds`/`HeartbeatSeconds`; Fail `Error`/`Cause`; Catch `Output`/`Assign`;
+`States.QueryEvaluationError` (catchable) for failed/undefined/mistyped
+expressions and the 1s evaluation timeout; `$partition/$range/$hash/$random/
+$uuid/$parse` (`$eval` rejected). Variables (also in JSONPath states): evaluation
+at state entry, new values visible from the next state, inner scopes (Parallel/
+Map) read outer variables and may not redeclare outer names, variable-name syntax
+and 80-char limit. Engine: github.com/recolabs/gnata v0.5.0 (JSONata 2.x, MIT).
+Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
+
+## 2026-10-01 Mocked service integrations (gopherstack-pu3k0)
+
+- Step Functions Local / LocalStack mock config (`StateMachines`/`TestCases`/`MockedResponses`, `Return`/`Throw`, `"N"` and `"N-M"` invocation keys) loaded from `SFN_MOCK_CONFIG` (or `LOCALSTACK_SFN_MOCK_CONFIG`); env only, no CLI flag; invalid file fails startup with a clear error.
+- Activated by `StartExecution`/`StartSyncExecution` with `stateMachineArn#TestCase`; unknown test case or no config returns `InvalidArn`.
+- Mocked Task states skip the real integration (incl. `.waitForTaskToken`) in JSONPath and JSONata, inside Map/Parallel; Retry/Catch/ResultSelector apply. Invocation index is counted per state across the run; a missing index fails with `States.Runtime`.
+- Not mocked: Distributed Map child executions and RedriveExecution. Sources: docs.aws.amazon.com/step-functions/latest/dg/sfn-local-mock-cfg-file.html, docs.localstack.cloud/aws/services/stepfunctions/.
+
+## 2026-10-03 AWS SDK and optimized service integrations (gopherstack-wdw)
+
+- `arn:aws:states:::aws-sdk:<service>:<action>` is served in-process for 55 services (sdk_services.go): the real aws-sdk-go-v2 client builds the protocol-correct request and the full in-process server (cli.go `wireStepFunctionsSDKIntegration`) answers it; Parameters PascalCase in, SDK output PascalCase out (nil members omitted, blobs base64, S3 Body and Lambda Payload as strings). Sources: docs.aws.amazon.com/step-functions/latest/dg/supported-services-awssdk.html, integrate-services.html.
+- Errors are `<ServicePrefix>.<ErrorName>` with `Exception` appended when absent (`DynamoDb.ResourceNotFoundException`, `S3.NoSuchKeyException`, `Sqs.QueueDoesNotExistException`), so Catch/Retry on those names works; optimized resources use `DynamoDB`/`SQS`/`SNS`/`StepFunctions` prefixes (best effort, not verified against AWS).
+- Optimized `dynamodb:*`, `sqs:*`, `sns:*`, `events:putEvents`, `states:startExecution` (`.sync` string Output, `.sync:2` JSON Output, nested failure = `States.TaskFailed`), `athena:startQueryExecution(.sync)`, `batch:submitJob(.sync)`, `codebuild:startBuild(.sync)` use the same path; `lambda:invoke` (and direct Lambda ARNs) honor Payload/Qualifier/InvocationType and fail with the function `errorType` on a Lambda error payload. SFN_MOCK_CONFIG mocks still win over every integration.
+- With `--enforce-iam`, SDK/optimized calls are signed with temporary credentials for the state machine's RoleArn (`sts.AssumeRoleForService`, trust must allow `states.amazonaws.com`; cached per role, refreshed a minute before expiry), so the role's IAM policies apply and a denial surfaces as `<Service>.AccessDeniedException`. A missing/untrusted role fails the task `States.Permissions` (documented: docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html). Enforcement off keeps static credentials. Direct Lambda/ECS/Glue legacy adapters are not role-scoped.
+- Also fixed: `.sync:2` was mis-parsed as action `2`; a Catch ResultPath was applied to the post-Parameters input instead of the state input; StartExecution with no Name produced an empty-named execution.
+- Tests: `cli_sfn_sdk_integration_test.go` (typed sfn StartSyncExecution against the full in-process server: success, Catch, Retry, JSONPath and JSONata), `sdk_integration_mock_test.go`, `asl/sdk_integration_internal_test.go`. Not covered: bedrock `invokeModel`, `http:invoke`, `eks`.

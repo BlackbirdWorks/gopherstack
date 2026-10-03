@@ -251,7 +251,11 @@ func (b *InMemoryBackend) lookupRoleMeta(roleArn string) *RoleMeta {
 
 // isSessionExpired reports whether s has a non-zero expiry time that has already passed.
 func isSessionExpired(s *SessionInfo) bool {
-	return !s.Expiration.IsZero() && !time.Now().UTC().Before(s.Expiration)
+	return sessionExpiredAt(s, time.Now())
+}
+
+func sessionExpiredAt(s *SessionInfo, now time.Time) bool {
+	return !s.Expiration.IsZero() && !now.Before(s.Expiration)
 }
 
 // sessionEvictThreshold is the session count above which inserting a new session
@@ -275,8 +279,10 @@ const sessionEvictSweepInterval = 64
 func (b *InMemoryBackend) evictExpiredSessionsLocked() {
 	var expired []string
 
+	now := time.Now()
+
 	b.sessions.Range(func(session *SessionInfo) bool {
-		if isSessionExpired(session) {
+		if sessionExpiredAt(session, now) {
 			expired = append(expired, session.AccessKeyID)
 		}
 

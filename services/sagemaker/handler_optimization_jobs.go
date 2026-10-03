@@ -67,11 +67,8 @@ type describeOptimizationJobInput struct {
 	OptimizationJobName string `json:"OptimizationJobName"`
 }
 
-// optimizationJobResponseMap builds the AWS wire representation of an
-// OptimizationJob's DescribeOptimizationJobOutput. OptimizationOutput/
-// OptimizationStartTime/OptimizationEndTime are disclosed not modeled: this
-// backend never simulates an actual optimization run (Create completes
-// synchronously with no server-derived result to report).
+// optimizationJobResponseMap builds DescribeOptimizationJobOutput. OptimizationOutput is
+// disclosed not modeled: this backend never simulates an actual optimization run.
 func optimizationJobResponseMap(j *OptimizationJob) map[string]any {
 	resp := map[string]any{
 		"OptimizationJobName":    j.OptimizationJobName,
@@ -113,6 +110,14 @@ func optimizationJobResponseMap(j *OptimizationJob) map[string]any {
 
 	if len(j.TrainingPlanArns) > 0 {
 		resp["TrainingPlanArns"] = j.TrainingPlanArns
+	}
+
+	if j.OptimizationStartTime != nil {
+		resp["OptimizationStartTime"] = epochSeconds(*j.OptimizationStartTime)
+	}
+
+	if j.OptimizationEndTime != nil {
+		resp["OptimizationEndTime"] = epochSeconds(*j.OptimizationEndTime)
 	}
 
 	return resp
@@ -226,6 +231,14 @@ func (h *Handler) handleListOptimizationJobs(ctx context.Context, body []byte) (
 		}
 		if j.MaxInstanceCount > 0 {
 			item["MaxInstanceCount"] = j.MaxInstanceCount
+		}
+
+		if j.OptimizationStartTime != nil {
+			item["OptimizationStartTime"] = epochSeconds(*j.OptimizationStartTime)
+		}
+
+		if j.OptimizationEndTime != nil {
+			item["OptimizationEndTime"] = epochSeconds(*j.OptimizationEndTime)
 		}
 
 		items = append(items, item)

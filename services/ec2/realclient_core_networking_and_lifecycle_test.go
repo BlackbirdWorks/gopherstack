@@ -1,6 +1,8 @@
 package ec2_test
 
 import (
+	"encoding/base64"
+	"encoding/pem"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -8,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
@@ -50,6 +53,42 @@ func TestKeyPairs_RealClient(t *testing.T) {
 	}
 	assert.Contains(t, names, "created-key")
 	assert.Contains(t, names, "imported-key")
+}
+
+// TestCreateKeyPair_ED25519 proves KeyType=ed25519 generates a real ED25519
+// key, not an RSA key relabeled (previously unmodeled).
+func TestCreateKeyPair_ED25519(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateKeyPair(t.Context(), &ec2sdk.CreateKeyPairInput{
+		KeyName: aws.String("ed25519-key"), KeyType: types.KeyTypeEd25519,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(created.KeyMaterial))
+	assert.Contains(t, aws.ToString(created.KeyMaterial), "OPENSSH PRIVATE KEY")
+
+	block, _ := pem.Decode([]byte(aws.ToString(created.KeyMaterial)))
+	require.NotNil(t, block, "KeyMaterial must be a real PEM block")
+
+	signer, err := ssh.ParsePrivateKey([]byte(aws.ToString(created.KeyMaterial)))
+	require.NoError(t, err, "KeyMaterial must parse as a real private key")
+	assert.Equal(t, ssh.KeyAlgoED25519, signer.PublicKey().Type())
+
+	fp := aws.ToString(created.KeyFingerprint)
+	assert.NotContains(t, fp, ":", "ED25519 fingerprint is a base64 SHA-256 digest, not RSA's colon-hex form")
+
+	_, err = base64.StdEncoding.DecodeString(fp)
+	require.NoError(t, err, "ED25519 fingerprint must be valid base64")
+
+	listed, err := client.DescribeKeyPairs(
+		t.Context(), &ec2sdk.DescribeKeyPairsInput{KeyNames: []string{"ed25519-key"}},
+	)
+	require.NoError(t, err)
+	require.Len(t, listed.KeyPairs, 1)
+	assert.Equal(t, types.KeyTypeEd25519, listed.KeyPairs[0].KeyType)
 }
 
 // TestDefaultVpcAndSubnet_RealClient covers CreateDefaultVpc and

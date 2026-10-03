@@ -73,7 +73,10 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 
 	appCtx.Logger.Info("ECS service initialized")
 
-	return NewHandler(backend), nil
+	handler := NewHandler(backend)
+	handler.EnableRegions(appCtx.JanitorCtx)
+
+	return handler, nil
 }
 
 // compile-time assertion that Provider implements service.Provider.

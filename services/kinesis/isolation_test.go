@@ -3,6 +3,8 @@ package kinesis //nolint:testpackage // needs access to the unexported region co
 import (
 	"context"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +22,14 @@ func ctxRegion(region string) context.Context {
 func TestKinesisRegionIsolation(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testKinesisRegionIsolation(t)
+	})
+}
+
+func testKinesisRegionIsolation(t *testing.T) {
+	t.Helper()
+
 	backend := NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 
 	ctxEast := ctxRegion("us-east-1")
@@ -36,6 +46,7 @@ func TestKinesisRegionIsolation(t *testing.T) {
 		StreamName: "shared",
 		ShardCount: 2,
 	}))
+	time.Sleep(streamSettleWaitInternal)
 
 	// 3. Each region's stream carries its own ARN region and shard count.
 	eastDesc, err := backend.DescribeStream(ctxEast, &DescribeStreamInput{StreamName: "shared"})
@@ -64,6 +75,7 @@ func TestKinesisRegionIsolation(t *testing.T) {
 
 	// 5. Delete the stream in us-east-1; us-west-2 still has its stream.
 	require.NoError(t, backend.DeleteStream(ctxEast, &DeleteStreamInput{StreamName: "shared"}))
+	time.Sleep(streamSettleWaitInternal)
 
 	_, err = backend.DescribeStream(ctxEast, &DescribeStreamInput{StreamName: "shared"})
 	require.ErrorIs(t, err, ErrStreamNotFound)
@@ -80,6 +92,14 @@ func TestKinesisRegionIsolation(t *testing.T) {
 func TestKinesisRecordRegionIsolation(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testKinesisRecordRegionIsolation(t)
+	})
+}
+
+func testKinesisRecordRegionIsolation(t *testing.T) {
+	t.Helper()
+
 	backend := NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 
 	ctxEast := ctxRegion("us-east-1")
@@ -91,6 +111,7 @@ func TestKinesisRecordRegionIsolation(t *testing.T) {
 			ShardCount: 1,
 		}))
 	}
+	time.Sleep(streamSettleWaitInternal)
 
 	// Write distinct records into each region's stream.
 	_, err := backend.PutRecord(ctxEast, &PutRecordInput{

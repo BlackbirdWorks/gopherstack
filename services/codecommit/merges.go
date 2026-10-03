@@ -21,9 +21,19 @@ func (b *InMemoryBackend) BatchDescribeMergeConflicts(
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
+	destID, err := b.resolveCommitSpecifier(repositoryName, destinationCommitSpecifier)
+	if err != nil {
+		return nil, err
+	}
+	sourceID, err := b.resolveCommitSpecifier(repositoryName, sourceCommitSpecifier)
+	if err != nil {
+		return nil, err
+	}
+
 	result := &BatchDescribeMergeConflictsResult{
-		DestinationCommitID: destinationCommitSpecifier,
-		SourceCommitID:      sourceCommitSpecifier,
+		DestinationCommitID: destID,
+		SourceCommitID:      sourceID,
+		BaseCommitID:        b.mergeBase(repositoryName, sourceID, destID),
 		Conflicts:           []MergeConflict{},
 	}
 
@@ -44,53 +54,42 @@ func (b *InMemoryBackend) BatchDescribeMergeConflicts(
 	return result, nil
 }
 
-// MergePullRequestByFastForward merges a pull request by fast-forward strategy.
+// MergePullRequestOptions carries the optional author/message fields of the
+// squash and three-way pull request merges, plus the merging principal.
+type MergePullRequestOptions struct {
+	CommitMessage string
+	AuthorName    string
+	Email         string
+	MergedBy      string
+}
+
+// MergePullRequestByFastForward merges a pull request by fast-forward.
 func (b *InMemoryBackend) MergePullRequestByFastForward(
-	prID, _ /* repoName */, _ /* sourceRef */ string,
+	prID, repoName, sourceCommitID string, opts MergePullRequestOptions,
 ) (*PullRequest, error) {
-	b.mu.Lock("MergePullRequestByFastForward")
-	defer b.mu.Unlock()
-
-	pr, ok := b.pullRequests.Get(prID)
-	if !ok {
-		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
-	}
-	if pr.PullRequestStatus == prStatusClosed {
-		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
-	}
-	pr.PullRequestStatus = prStatusClosed
-	pr.LastActivityDate = time.Now().UTC()
-	cp := *pr
-
-	return &cp, nil
+	return b.mergePullRequest(prID, repoName, sourceCommitID, mergeOptionFastForward, opts)
 }
 
-// MergePullRequestBySquash merges a pull request by squash strategy.
+// MergePullRequestBySquash merges a pull request by squash.
 func (b *InMemoryBackend) MergePullRequestBySquash(
-	prID, _ /* repoName */, _ /* sourceRef */ string,
+	prID, repoName, sourceCommitID string, opts MergePullRequestOptions,
 ) (*PullRequest, error) {
-	b.mu.Lock("MergePullRequestBySquash")
-	defer b.mu.Unlock()
-
-	pr, ok := b.pullRequests.Get(prID)
-	if !ok {
-		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
-	}
-	if pr.PullRequestStatus == prStatusClosed {
-		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
-	}
-	pr.PullRequestStatus = prStatusClosed
-	pr.LastActivityDate = time.Now().UTC()
-	cp := *pr
-
-	return &cp, nil
+	return b.mergePullRequest(prID, repoName, sourceCommitID, mergeOptionSquash, opts)
 }
 
-// MergePullRequestByThreeWay merges a pull request by three-way strategy.
+// MergePullRequestByThreeWay merges a pull request by three-way merge.
 func (b *InMemoryBackend) MergePullRequestByThreeWay(
-	prID, _ /* repoName */, _ /* sourceRef */ string,
+	prID, repoName, sourceCommitID string, opts MergePullRequestOptions,
 ) (*PullRequest, error) {
-	b.mu.Lock("MergePullRequestByThreeWay")
+	return b.mergePullRequest(prID, repoName, sourceCommitID, mergeOptionThreeWay, opts)
+}
+
+// mergePullRequest closes the PR and, when its references resolve, moves the
+// destination branch to the merge result and records MergeMetadata.
+func (b *InMemoryBackend) mergePullRequest(
+	prID, repoName, sourceCommitID, option string, opts MergePullRequestOptions,
+) (*PullRequest, error) {
+	b.mu.Lock("MergePullRequest")
 	defer b.mu.Unlock()
 
 	pr, ok := b.pullRequests.Get(prID)
@@ -100,11 +99,117 @@ func (b *InMemoryBackend) MergePullRequestByThreeWay(
 	if pr.PullRequestStatus == prStatusClosed {
 		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
+
+	for i := range pr.PullRequestTargets {
+		t := &pr.PullRequestTargets[i]
+		if repoName != "" && t.RepositoryName != repoName {
+			continue
+		}
+		b.fillTargetCommits(t)
+		t.MergeMetadata = b.applyPullRequestMerge(t, sourceCommitID, option, opts)
+	}
 	pr.PullRequestStatus = prStatusClosed
 	pr.LastActivityDate = time.Now().UTC()
-	cp := *pr
 
-	return &cp, nil
+	return b.snapshotPullRequest(pr), nil
+}
+
+// applyPullRequestMerge creates the merge commit for one target. Caller holds the lock.
+func (b *InMemoryBackend) applyPullRequestMerge(
+	t *PullRequestTarget, sourceCommitID, option string, opts MergePullRequestOptions,
+) *MergeMetadata {
+	meta := &MergeMetadata{IsMerged: true, MergeOption: option, MergedBy: opts.MergedBy}
+
+	source := sourceCommitID
+	if source == "" {
+		source = t.SourceCommit
+	}
+	destBranch, dest := t.DestinationReference, t.DestinationCommit
+	if source == "" || dest == "" {
+		return meta
+	}
+
+	if option == mergeOptionFastForward {
+		meta.MergeCommitID = source
+		b.branches.Put(&Branch{BranchName: destBranch, CommitID: source, RepositoryName: t.RepositoryName})
+
+		return meta
+	}
+
+	parents := []string{dest}
+	message := "Merged PR using squash strategy"
+	if option == mergeOptionThreeWay {
+		parents = append(parents, source)
+		message = "Merged PR using three-way strategy"
+	}
+	if opts.CommitMessage != "" {
+		message = opts.CommitMessage
+	}
+	commit := &Commit{
+		CommitID:       uuid.NewString(),
+		TreeID:         uuid.NewString(),
+		Message:        message,
+		AuthorName:     opts.AuthorName,
+		AuthorEmail:    opts.Email,
+		CommitterName:  opts.AuthorName,
+		CommitterEmail: opts.Email,
+		RepositoryName: t.RepositoryName,
+		Parents:        parents,
+		CreatedAt:      time.Now().UTC(),
+	}
+	b.commits.Put(commit)
+	b.branches.Put(&Branch{BranchName: destBranch, CommitID: commit.CommitID, RepositoryName: t.RepositoryName})
+	meta.MergeCommitID = commit.CommitID
+
+	return meta
+}
+
+// fillTargetCommits resolves a target's destination branch and current
+// source, destination and merge-base commits. Caller holds the lock.
+func (b *InMemoryBackend) fillTargetCommits(t *PullRequestTarget) {
+	if t.DestinationReference == "" {
+		if repo, ok := b.repositories.Get(t.RepositoryName); ok {
+			t.DestinationReference = repo.DefaultBranch
+		}
+	}
+	source, srcErr := b.resolveCommitSpecifier(t.RepositoryName, t.SourceReference)
+	dest, destErr := b.resolveCommitSpecifier(t.RepositoryName, t.DestinationReference)
+	if srcErr == nil {
+		t.SourceCommit = source
+	}
+	if destErr == nil {
+		t.DestinationCommit = dest
+	}
+	if srcErr == nil && destErr == nil {
+		t.MergeBase = b.mergeBase(t.RepositoryName, source, dest)
+	}
+}
+
+// snapshotPullRequest deep-copies pr; an open PR's targets reflect the
+// current branch tips. Caller holds the lock.
+func (b *InMemoryBackend) snapshotPullRequest(pr *PullRequest) *PullRequest {
+	cp := copyPullRequest(pr)
+	if pr.PullRequestStatus != prStatusClosed {
+		for i := range cp.PullRequestTargets {
+			b.fillTargetCommits(&cp.PullRequestTargets[i])
+		}
+	}
+
+	return cp
+}
+
+func copyPullRequest(pr *PullRequest) *PullRequest {
+	cp := *pr
+	cp.PullRequestTargets = make([]PullRequestTarget, len(pr.PullRequestTargets))
+	for i, t := range pr.PullRequestTargets {
+		if t.MergeMetadata != nil {
+			m := *t.MergeMetadata
+			t.MergeMetadata = &m
+		}
+		cp.PullRequestTargets[i] = t
+	}
+
+	return &cp
 }
 
 // ResolveCommitSpecifier resolves a branch name or full commit ID to a
@@ -134,6 +239,46 @@ func (b *InMemoryBackend) resolveCommitSpecifier(repoName, specifier string) (st
 	}
 
 	return "", fmt.Errorf("%w: commit specifier %s not found", ErrCommitNotFound, specifier)
+}
+
+// MergeBase returns the nearest common ancestor of two commits (a commit is
+// its own ancestor), or "" when their histories are unrelated.
+func (b *InMemoryBackend) MergeBase(repoName, sourceID, destID string) string {
+	b.mu.RLock("MergeBase")
+	defer b.mu.RUnlock()
+
+	return b.mergeBase(repoName, sourceID, destID)
+}
+
+func (b *InMemoryBackend) mergeBase(repoName, sourceID, destID string) string {
+	sourceAncestors := make(map[string]struct{})
+	for queue := []string{sourceID}; len(queue) > 0; queue = queue[1:] {
+		id := queue[0]
+		if _, seen := sourceAncestors[id]; seen {
+			continue
+		}
+		sourceAncestors[id] = struct{}{}
+		if c, ok := b.commits.Get(commitKey(repoName, id)); ok {
+			queue = append(queue, c.Parents...)
+		}
+	}
+
+	visited := make(map[string]struct{})
+	for queue := []string{destID}; len(queue) > 0; queue = queue[1:] {
+		id := queue[0]
+		if _, seen := visited[id]; seen {
+			continue
+		}
+		visited[id] = struct{}{}
+		if _, ok := sourceAncestors[id]; ok {
+			return id
+		}
+		if c, ok := b.commits.Get(commitKey(repoName, id)); ok {
+			queue = append(queue, c.Parents...)
+		}
+	}
+
+	return ""
 }
 
 // MergeBranchesOptions carries the optional fields MergeBranchesBySquash and

@@ -10,6 +10,13 @@ import "time"
 // caching results indefinitely.
 const clientTokenTTL = 5 * time.Minute
 
+// idempotencyEvictThreshold: cache size that arms the expired-entry sweep;
+// unreplayed tokens otherwise live until process exit.
+const idempotencyEvictThreshold = 256
+
+// idempotencyEvictSweepInterval: inserts between sweeps once armed.
+const idempotencyEvictSweepInterval = 64
+
 // idempotentResult is a cached successful Create*'s ARN, keyed by clientTokenKey.
 type idempotentResult struct {
 	expiresAt time.Time
@@ -58,4 +65,33 @@ func (h *Handler) storeIdempotent(key, arn string) {
 	}
 
 	h.idempotency.Set(key, idempotentResult{arn: arn, expiresAt: time.Now().Add(clientTokenTTL)})
+	h.maybeEvictExpiredIdempotency()
+}
+
+// maybeEvictExpiredIdempotency drops expired entries once the cache is large.
+func (h *Handler) maybeEvictExpiredIdempotency() {
+	if h.idempotency.Len() < idempotencyEvictThreshold {
+		return
+	}
+
+	if h.idempotencyInsertsSinceSweep.Add(1) < idempotencyEvictSweepInterval {
+		return
+	}
+
+	h.idempotencyInsertsSinceSweep.Store(0)
+
+	now := time.Now()
+
+	var expired []string
+	h.idempotency.Range(func(key string, res idempotentResult) bool {
+		if now.After(res.expiresAt) {
+			expired = append(expired, key)
+		}
+
+		return true
+	})
+
+	for _, key := range expired {
+		h.idempotency.Delete(key)
+	}
 }

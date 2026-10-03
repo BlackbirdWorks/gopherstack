@@ -87,6 +87,14 @@ func (m *mockMQTTPublisher) ClientSubscriptions(clientID string) (map[string]byt
 	return subs, true
 }
 
+func (m *mockMQTTPublisher) ClientSession(string) (iotdataplane.SessionInfo, bool) {
+	return iotdataplane.SessionInfo{}, false
+}
+
+func (m *mockMQTTPublisher) DisconnectClient(string, bool, bool) (bool, error) {
+	return false, nil
+}
+
 func (m *mockMQTTPublisher) SendToClient(
 	clientID, topic string,
 	payload []byte,

@@ -215,6 +215,55 @@ func TestListCopyJobs_WireFilters(t *testing.T) {
 	}
 }
 
+// TestCopyJob_SourceRecoveryPointArn checks DescribeCopyJob and ListCopyJobs return
+// SourceRecoveryPointArn (backup types/types.go:1154).
+func TestCopyJob_SourceRecoveryPointArn(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	h := backup.NewHandler(backend)
+	client := newTestBackupClient(t, h)
+
+	mustVault(t, backend, "cjrp-src")
+	dest := mustVault(t, backend, "cjrp-dst")
+	rpArn := "arn:aws:backup:us-east-1:000000000000:recovery-point:cjrp-rp"
+	mustRP(t, backend, "cjrp-src", rpArn, "arn:aws:ec2:us-east-1:000000000000:instance/i-cjrp", "EC2")
+
+	job, err := backend.StartCopyJob(rpArn, "cjrp-src", dest.BackupVaultArn, "arn:aws:iam::000000000000:role/r")
+	require.NoError(t, err)
+
+	tests := []struct {
+		got  func(t *testing.T) *string
+		name string
+	}{
+		{name: "DescribeCopyJob", got: func(t *testing.T) *string {
+			t.Helper()
+
+			in := &backupsdk.DescribeCopyJobInput{CopyJobId: aws.String(job.CopyJobID)}
+			out, getErr := client.DescribeCopyJob(t.Context(), in)
+			require.NoError(t, getErr)
+
+			return out.CopyJob.SourceRecoveryPointArn
+		}},
+		{name: "ListCopyJobs", got: func(t *testing.T) *string {
+			t.Helper()
+
+			out, listErr := client.ListCopyJobs(t.Context(), &backupsdk.ListCopyJobsInput{})
+			require.NoError(t, listErr)
+			require.Len(t, out.CopyJobs, 1)
+
+			return out.CopyJobs[0].SourceRecoveryPointArn
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, rpArn, aws.ToString(tc.got(t)))
+		})
+	}
+}
+
 // TestListRecoveryPointsByBackupVault_WireFilters covers serializers.go
 // (ListRecoveryPointsByBackupVault query bindings).
 func TestListRecoveryPointsByBackupVault_WireFilters(t *testing.T) {

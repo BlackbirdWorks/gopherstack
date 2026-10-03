@@ -70,6 +70,11 @@ type StorageBackend interface {
 	PutSubscriptionFilter(
 		ctx context.Context, groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
 	) error
+	// PutSubscriptionFilterWithOptions is PutSubscriptionFilter plus the system-field options.
+	PutSubscriptionFilterWithOptions(
+		ctx context.Context, groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
+		opts FilterOptions,
+	) error
 	DescribeSubscriptionFilters(
 		ctx context.Context,
 		groupName, filterNamePrefix, nextToken string,
@@ -115,6 +120,10 @@ type StorageBackend interface {
 	) (string, error)
 	// CreateImportTask creates an import task from a CloudTrail Lake event data store.
 	CreateImportTask(ctx context.Context, importRoleArn, importSourceArn string) (*ImportTask, error)
+	// CreateImportTaskWithFilter is CreateImportTask plus an optional event-time filter.
+	CreateImportTaskWithFilter(
+		ctx context.Context, importRoleArn, importSourceArn string, filter *ImportFilter,
+	) (*ImportTask, error)
 	// CreateLogAnomalyDetector creates an anomaly detector for one or more log groups.
 	CreateLogAnomalyDetector(
 		logGroupArnList []string,
@@ -176,6 +185,11 @@ type StorageBackend interface {
 	// PutMetricFilter creates or updates a metric filter for a log group.
 	PutMetricFilter(
 		ctx context.Context, logGroupName, filterName, filterPattern string, transformations []MetricTransformation,
+	) error
+	// PutMetricFilterWithOptions is PutMetricFilter plus the system-field options.
+	PutMetricFilterWithOptions(
+		ctx context.Context, logGroupName, filterName, filterPattern string,
+		transformations []MetricTransformation, opts FilterOptions,
 	) error
 	// DescribeMetricFilters lists metric filters with optional filters.
 	DescribeMetricFilters(
@@ -239,5 +253,12 @@ type StorageBackend interface {
 		ctx context.Context,
 		namePattern, nextToken, logGroupClass string,
 		limit int,
+	) ([]LogGroup, string, error)
+	// ListLogGroupsFiltered is ListLogGroups plus a keep predicate applied before pagination.
+	ListLogGroupsFiltered(
+		ctx context.Context,
+		namePattern, nextToken, logGroupClass string,
+		limit int,
+		keep func(LogGroup) bool,
 	) ([]LogGroup, string, error)
 }

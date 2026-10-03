@@ -63,7 +63,7 @@ func TestBackend_StoreRestoreImageTask_CreateDescribeRestoreRoundTrip(t *testing
 	task, err := b.CreateStoreImageTask(img.ImageID, "my-bucket")
 	require.NoError(t, err)
 	assert.Equal(t, img.ImageID+".bin", task.S3ObjectKey)
-	assert.Equal(t, "completed", task.StoreTaskState)
+	assert.Equal(t, "Completed", task.StoreTaskState)
 	assert.Equal(t, int32(100), task.ProgressPercentage)
 
 	tasks := b.DescribeStoreImageTasks([]string{img.ImageID})

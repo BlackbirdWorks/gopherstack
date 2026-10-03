@@ -44,9 +44,9 @@ type InMemoryBackend struct {
 	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
 	// nowFunc is the backend's time source for FIFO throughput rate limiting
-	// (see checkFIFOPerQueueRateLimit / checkFIFOPerGroupRateLimit), overridable
-	// in tests via export_test.go's SetNowFunc for deterministic windows without
-	// real sleeps. Defaults to time.Now.
+	// (see checkFIFOThroughput), overridable in tests via export_test.go's
+	// SetNowFunc for deterministic windows without real sleeps. Defaults to
+	// time.Now.
 	nowFunc func() time.Time
 	// recentlyDeleted maps a queueKey(region, name) to the time DeleteQueue was
 	// called for it, so CreateQueue can enforce AWS's 60-second

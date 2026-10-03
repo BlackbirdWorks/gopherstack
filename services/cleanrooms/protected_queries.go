@@ -10,11 +10,12 @@ func (b *InMemoryBackend) StartProtectedQuery(
 	membershipID, sqlText string,
 	resultConfig map[string]any,
 	computeConfiguration map[string]any,
+	payerAccountID string,
 ) (*ProtectedQuery, error) {
 	b.mu.Lock("StartProtectedQuery")
 	defer b.mu.Unlock()
 
-	return b.startProtectedQueryLocked(membershipID, sqlText, resultConfig, computeConfiguration)
+	return b.startProtectedQueryLocked(membershipID, sqlText, resultConfig, computeConfiguration, payerAccountID)
 }
 
 // startProtectedQueryLocked is the shared implementation behind
@@ -27,6 +28,7 @@ func (b *InMemoryBackend) startProtectedQueryLocked(
 	membershipID, sqlText string,
 	resultConfig map[string]any,
 	computeConfiguration map[string]any,
+	payerAccountID string,
 ) (*ProtectedQuery, error) {
 	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
@@ -49,12 +51,13 @@ func (b *InMemoryBackend) startProtectedQueryLocked(
 		// (called from every subsequent read) resolves it to a terminal status
 		// instead of leaving it stuck at SUBMITTED forever, which would hang any
 		// client that polls GetProtectedQuery for completion.
-		Status:               "SUBMITTED",
-		SQLParameters:        sqlParams,
-		ResultConfiguration:  resultConfig,
-		ComputeConfiguration: computeConfiguration,
-		CreateTime:           ts,
-		MembershipID:         membershipID,
+		Status:                     "SUBMITTED",
+		SQLParameters:              sqlParams,
+		ResultConfiguration:        resultConfig,
+		ComputeConfiguration:       computeConfiguration,
+		QueryComputePayerAccountID: payerAccountID,
+		CreateTime:                 ts,
+		MembershipID:               membershipID,
 	}
 	b.protectedQueries.Put(q)
 
@@ -102,12 +105,13 @@ func (b *InMemoryBackend) ListProtectedQueries(
 			continue
 		}
 		items = append(items, &ProtectedQuerySummary{
-			ID:                   q.ID,
-			MembershipIdentifier: q.MembershipIdentifier,
-			MembershipArn:        q.MembershipArn,
-			Status:               q.Status,
-			CreateTime:           q.CreateTime,
-			MembershipID:         q.MembershipID,
+			ID:                         q.ID,
+			MembershipIdentifier:       q.MembershipIdentifier,
+			MembershipArn:              q.MembershipArn,
+			QueryComputePayerAccountID: q.QueryComputePayerAccountID,
+			Status:                     q.Status,
+			CreateTime:                 q.CreateTime,
+			MembershipID:               q.MembershipID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })

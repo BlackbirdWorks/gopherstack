@@ -62,6 +62,7 @@ type HPTrainingJobStatusCounters struct {
 type HyperParameterTuningJob struct {
 	LastModifiedTime              time.Time                   `json:"LastModifiedTime"`
 	CreationTime                  time.Time                   `json:"CreationTime"`
+	HyperParameterTuningEndTime   *time.Time                  `json:"HyperParameterTuningEndTime,omitempty"`
 	Tags                          map[string]string           `json:"Tags,omitempty"`
 	HyperParameterTuningJobName   string                      `json:"HyperParameterTuningJobName"`
 	Strategy                      string                      `json:"Strategy,omitempty"`
@@ -164,8 +165,10 @@ func (b *InMemoryBackend) scheduleHPTuningJobCompletion(ctx context.Context, reg
 			return
 		}
 
+		now := time.Now()
 		j.HyperParameterTuningJobStatus = algorithmStatusCompleted
-		j.LastModifiedTime = time.Now()
+		j.LastModifiedTime = now
+		j.HyperParameterTuningEndTime = &now
 	})
 }
 
@@ -307,8 +310,10 @@ func (b *InMemoryBackend) StopHyperParameterTuningJob(ctx context.Context, name 
 			return
 		}
 
+		now := time.Now()
 		j2.HyperParameterTuningJobStatus = pipelineStatusStopped
-		j2.LastModifiedTime = time.Now()
+		j2.LastModifiedTime = now
+		j2.HyperParameterTuningEndTime = &now
 	})
 
 	return nil

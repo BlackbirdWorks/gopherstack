@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // serverCertIDPrefix is the AWS-style prefix for server certificate IDs.
@@ -23,7 +25,9 @@ func newServerCertID() string {
 }
 
 // UploadServerCertificate stores a new server certificate.
-func (b *InMemoryBackend) UploadServerCertificate(name, path, certBody, certChain string) (*ServerCertificate, error) {
+func (b *InMemoryBackend) UploadServerCertificate(
+	name, path, certBody, certChain string,
+) (*ServerCertificate, error) {
 	b.mu.Lock("UploadServerCertificate")
 	defer b.mu.Unlock()
 
@@ -36,7 +40,11 @@ func (b *InMemoryBackend) UploadServerCertificate(name, path, certBody, certChai
 	}
 
 	if _, exists := b.serverCertificates.Get(name); exists {
-		return nil, fmt.Errorf("%w: server certificate %q already exists", ErrUserAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: server certificate %q already exists",
+			ErrUserAlreadyExists,
+			name,
+		)
 	}
 
 	normalizedPath := normPath(path)
@@ -68,8 +76,11 @@ func (b *InMemoryBackend) GetServerCertificate(name string) (*ServerCertificate,
 	return cert, nil
 }
 
-// ListServerCertificates returns server certificates, filtered by path prefix if non-empty.
-func (b *InMemoryBackend) ListServerCertificates(pathPrefix string) ([]ServerCertificate, error) {
+// ListServerCertificates returns a paginated list of server certificates, filtered by path prefix if non-empty.
+func (b *InMemoryBackend) ListServerCertificates(
+	pathPrefix, marker string,
+	maxItems int,
+) (page.Page[ServerCertificate], error) {
 	b.mu.RLock("ListServerCertificates")
 	defer b.mu.RUnlock()
 
@@ -85,7 +96,7 @@ func (b *InMemoryBackend) ListServerCertificates(pathPrefix string) ([]ServerCer
 		return result[i].ServerCertificateName < result[j].ServerCertificateName
 	})
 
-	return result, nil
+	return page.New(result, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // UpdateServerCertificate renames a server certificate and/or changes its path.
@@ -100,7 +111,11 @@ func (b *InMemoryBackend) UpdateServerCertificate(name, newName, newPath string)
 
 	if newName != "" && newName != name {
 		if _, nameExists := b.serverCertificates.Get(newName); nameExists {
-			return fmt.Errorf("%w: server certificate %q already exists", ErrUserAlreadyExists, newName)
+			return fmt.Errorf(
+				"%w: server certificate %q already exists",
+				ErrUserAlreadyExists,
+				newName,
+			)
 		}
 
 		// serverCertificates is keyed by ServerCertificateName, which is

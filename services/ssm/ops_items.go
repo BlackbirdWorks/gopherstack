@@ -604,7 +604,6 @@ func (b *InMemoryBackend) DeleteOpsItem(
 }
 
 // DisassociateOpsItemRelatedItem removes a related item from an OpsItem.
-// Returns success if the OpsItem does not exist (stub compat for empty ID).
 func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
 	ctx context.Context,
 	input *DisassociateOpsItemRelatedItemInput,
@@ -617,18 +616,29 @@ func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
 	b.mu.Lock("DisassociateOpsItemRelatedItem")
 	defer b.mu.Unlock()
 
+	if !b.opsItemsStore(region).Has(input.OpsItemID) {
+		return nil, ErrOpsItemNotFound
+	}
+
 	store := b.opsItemRelatedItemsStore(region)
 	items, exists := store[input.OpsItemID]
 	if !exists {
-		// No-op if OpsItem doesn't have any related items.
-		return &DisassociateOpsItemRelatedItemOutput{}, nil
+		return nil, ErrOpsItemRelatedItemAssociationNotFound
 	}
 
+	found := false
 	filtered := items[:0]
+
 	for _, item := range items {
 		if item.AssociationID != input.AssociationID {
 			filtered = append(filtered, item)
+		} else {
+			found = true
 		}
+	}
+
+	if !found {
+		return nil, ErrOpsItemRelatedItemAssociationNotFound
 	}
 
 	store[input.OpsItemID] = filtered

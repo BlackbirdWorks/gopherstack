@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 )
@@ -44,7 +45,7 @@ func newTestBedrockRuntimeH2Client(t *testing.T, h *bedrockruntime.Handler) *bed
 		awscfg.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),
 		),
-		awscfg.WithHTTPClient(srv.Client()),
+		awscfg.WithHTTPClient(sdktest.PlainBody(srv.Client())),
 	)
 	require.NoError(t, err)
 

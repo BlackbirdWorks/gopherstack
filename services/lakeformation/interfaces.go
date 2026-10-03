@@ -114,7 +114,9 @@ type StorageBackend interface {
 	GetWorkUnits(queryID string) ([]WorkUnitRange, string, error)
 	GetWorkUnitResults(queryID string, workUnitID int64, workUnitToken string) (string, error)
 
-	ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer
+	ListTableStorageOptimizers(
+		catalogID, databaseName, tableName, storageOptimizerType string, maxResults int, nextToken string,
+	) ([]StorageOptimizer, string)
 	UpdateTableStorageOptimizer(catalogID, databaseName, tableName string, config map[string]map[string]string) string
 
 	SearchDatabasesByLFTags(

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -311,28 +312,30 @@ func TestSessionTimestampsPresent(t *testing.T) {
 func TestSessionUpdatedAtAdvances(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/macie", nil)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/macie", nil)
 
-	rec1 := doRequest(t, h, http.MethodGet, "/macie", nil)
-	require.Equal(t, http.StatusOK, rec1.Code)
+		rec1 := doRequest(t, h, http.MethodGet, "/macie", nil)
+		require.Equal(t, http.StatusOK, rec1.Code)
 
-	var before map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
-	createdAt := before["createdAt"].(string)
+		var before map[string]any
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
+		createdAt := before["createdAt"].(string)
 
-	time.Sleep(1001 * time.Millisecond)
+		time.Sleep(1001 * time.Millisecond)
 
-	doRequest(t, h, http.MethodPatch, "/macie",
-		map[string]string{"findingPublishingFrequency": "SIX_HOURS"})
+		doRequest(t, h, http.MethodPatch, "/macie",
+			map[string]string{"findingPublishingFrequency": "SIX_HOURS"})
 
-	rec2 := doRequest(t, h, http.MethodGet, "/macie", nil)
-	require.Equal(t, http.StatusOK, rec2.Code)
+		rec2 := doRequest(t, h, http.MethodGet, "/macie", nil)
+		require.Equal(t, http.StatusOK, rec2.Code)
 
-	var after map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after))
+		var after map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after))
 
-	assert.Equal(t, createdAt, after["createdAt"].(string), "createdAt must not change after update")
-	assert.NotEqual(t, after["createdAt"], after["updatedAt"],
-		"updatedAt must differ from createdAt after UpdateMacieSession")
+		assert.Equal(t, createdAt, after["createdAt"].(string), "createdAt must not change after update")
+		assert.NotEqual(t, after["createdAt"], after["updatedAt"],
+			"updatedAt must differ from createdAt after UpdateMacieSession")
+	})
 }

@@ -366,6 +366,24 @@ func (b *InMemoryBackend) PrimaryNetworkInterfaceSourceDestCheck(instanceID stri
 	return true
 }
 
+// PrimaryNetworkInterfaceSourceDestChecks resolves several instances under one read lock.
+func (b *InMemoryBackend) PrimaryNetworkInterfaceSourceDestChecks(instanceIDs []string) map[string]bool {
+	b.mu.RLock("PrimaryNetworkInterfaceSourceDestChecks")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]bool, len(instanceIDs))
+
+	for _, id := range instanceIDs {
+		out[id] = true
+
+		if eni := b.primaryNetworkInterfaceLocked(id); eni != nil {
+			out[id] = eni.SourceDestCheck
+		}
+	}
+
+	return out
+}
+
 // DescribeNetworkInterfaceAttribute returns a requested attribute for a network interface.
 func (b *InMemoryBackend) DescribeNetworkInterfaceAttribute(
 	niID string, _ string,
@@ -586,6 +604,13 @@ func (b *InMemoryBackend) recycleENIIPsLocked(eni *NetworkInterface) {
 func (b *InMemoryBackend) detachVolumesAndEIPsLocked(instanceID string) {
 	for _, vol := range b.volumes.All() {
 		if vol.Attachment != nil && vol.Attachment.InstanceID == instanceID {
+			if vol.Attachment.DeleteOnTermination {
+				b.volumes.Delete(vol.ID)
+				delete(b.tags, vol.ID)
+
+				continue
+			}
+
 			vol.Attachment = nil
 			vol.State = stateAvailable
 		}

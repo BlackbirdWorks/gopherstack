@@ -31,9 +31,11 @@ type StackOptions struct {
 	// StackPolicyDuringUpdateBody, api_op_UpdateStack.go:223) -- it is never
 	// persisted to the stack's stored policy.
 	StackPolicyDuringUpdateBody string
-	Capabilities                []string
-	NotificationARNs            []string
-	Tags                        []Tag
+	// StackPolicyBody is stored as the stack's policy on Create/UpdateStack.
+	StackPolicyBody  string
+	Capabilities     []string
+	NotificationARNs []string
+	Tags             []Tag
 	// ResourceTypes is the optional per-call allowlist of resource type
 	// wildcard patterns (CreateStackInput.ResourceTypes,
 	// api_op_CreateStack.go): when non-empty, every resource Type in the
@@ -279,6 +281,10 @@ func validateCreateStackPreflight(templateBody string, opts StackOptions, parent
 		}
 	}
 
+	if err := validateStackPolicyBody(opts.StackPolicyBody); err != nil {
+		return err
+	}
+
 	if opts.DisableValidation {
 		return nil
 	}
@@ -344,6 +350,9 @@ func (b *InMemoryBackend) createStackLocked(
 
 	b.stacks.Put(stack)
 	b.stackIDIndex[arn] = name
+	if opts.StackPolicyBody != "" {
+		b.stackPolicies[arn] = opts.StackPolicyBody
+	}
 	b.events[arn] = nil
 	b.resources[arn] = make(map[string]*StackResource)
 
@@ -375,6 +384,7 @@ func (b *InMemoryBackend) createStackLocked(
 		stack.StackStatus = statusDeleteComplete
 		b.removeExports(arn)
 		delete(b.events, arn)
+		delete(b.stackPolicies, arn)
 		delete(b.resources, arn)
 		delete(b.changeSets, name)
 		b.pruneDriftDetections(arn)
@@ -593,7 +603,7 @@ func (b *InMemoryBackend) provisionResources(
 				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
 				stack.StackStatus = statusRollbackComplete
 			} else {
-				reason := "rollback failed to delete one or more resources"
+				reason := reasonRollbackDeleteFailed
 				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackFailed, reason)
 				stack.StackStatus = statusRollbackFailed
 				stack.StackStatusReason = reason
@@ -701,6 +711,10 @@ func (b *InMemoryBackend) UpdateStack(
 		return nil, err
 	}
 
+	if err := validateStackPolicyBody(opts.StackPolicyBody); err != nil {
+		return nil, err
+	}
+
 	if !opts.DisableValidation {
 		if err := preflightGetAttAttributeErr(templateBody); err != nil {
 			return nil, err
@@ -718,6 +732,10 @@ func (b *InMemoryBackend) UpdateStack(
 	// stack to UPDATE_IN_PROGRESS.
 	if err := b.checkStackPolicy(stack, templateBody, opts); err != nil {
 		return nil, err
+	}
+
+	if opts.StackPolicyBody != "" {
+		b.stackPolicies[stack.StackID] = opts.StackPolicyBody
 	}
 
 	// Captured before stack.TemplateBody is overwritten below: deleteStaleResources
@@ -1228,7 +1246,7 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 	maps.Copy(b.resources[stack.StackID], prevResources)
 
 	if !rollbackOK {
-		reason := "rollback failed to delete one or more resources"
+		reason := reasonRollbackDeleteFailed
 		stack.StackStatus = statusUpdateRollbackFailed
 		stack.StackStatusReason = reason
 		b.addEvent(

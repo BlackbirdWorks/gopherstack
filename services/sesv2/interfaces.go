@@ -68,6 +68,7 @@ type StorageBackend interface {
 		subject, bodyHTML, bodyText string,
 		template *bulkEmailTemplate,
 	) (string, error)
+	SendMessage(out OutboundEmail) (string, error)
 	SendBulkEmail(
 		fromEmailAddress string,
 		defaultContent *bulkEmailContent,

@@ -935,14 +935,15 @@ func assertQueryMatchesScan(t *testing.T, db *InMemoryDB, table *Table, input *s
 	t.Helper()
 
 	idxName := aws.ToString(input.IndexName)
-	precomputedPKValue := preParseQueryPKValue(input)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+	precomputedPKValue := preParseQueryPKValue(input, eav)
 
 	snap, _, _ := db.snapshotTableForQuery(table, idxName, precomputedPKValue)
 
 	keySchema, projection, err := db.extractKeySchema(snap, idxName, false)
 	require.NoError(t, err)
 
-	indexed, err := db.filterCandidatesForKeyCondition(context.Background(), snap, input, projection, keySchema)
+	indexed, err := db.filterCandidatesForKeyCondition(context.Background(), snap, input, projection, keySchema, eav)
 	require.NoError(t, err)
 
 	// Ground truth: a full, unoptimised scan over its OWN full-Items copy of

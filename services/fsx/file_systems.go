@@ -3,6 +3,7 @@ package fsx
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -151,24 +152,28 @@ func (s *storedFileSystem) toOpenZFSConfiguration() *OpenZFSConfiguration {
 
 // createFileSystemInput holds parameters for CreateFileSystem.
 type createFileSystemInput struct {
-	LustreConfiguration  *createLustreConfiguration  `json:"LustreConfiguration,omitempty"`
-	WindowsConfiguration *createWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
-	OntapConfiguration   *createOntapConfiguration   `json:"OntapConfiguration,omitempty"`
-	OpenZFSConfiguration *createOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
-	FileSystemType       string                      `json:"FileSystemType"`
-	StorageType          string                      `json:"StorageType,omitempty"`
-	VpcID                string                      `json:"VpcId,omitempty"`
-	NetworkType          string                      `json:"NetworkType,omitempty"`
-	ClientRequestToken   string                      `json:"ClientRequestToken,omitempty"`
-	Tags                 []Tag                       `json:"Tags,omitempty"`
-	SubnetIDs            []string                    `json:"SubnetIds,omitempty"`
-	SecurityGroupIDs     []string                    `json:"SecurityGroupIds,omitempty"`
-	StorageCapacityGiB   int32                       `json:"StorageCapacity,omitempty"`
+	LustreConfiguration   *createLustreConfiguration  `json:"LustreConfiguration,omitempty"`
+	WindowsConfiguration  *createWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
+	OntapConfiguration    *createOntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration  *createOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemType        string                      `json:"FileSystemType"`
+	StorageType           string                      `json:"StorageType,omitempty"`
+	VpcID                 string                      `json:"VpcId,omitempty"`
+	NetworkType           string                      `json:"NetworkType,omitempty"`
+	FileSystemTypeVersion string                      `json:"FileSystemTypeVersion,omitempty"`
+	ClientRequestToken    string                      `json:"ClientRequestToken,omitempty"`
+	Tags                  []Tag                       `json:"Tags,omitempty"`
+	SubnetIDs             []string                    `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs      []string                    `json:"SecurityGroupIds,omitempty"`
+	StorageCapacityGiB    int32                       `json:"StorageCapacity,omitempty"`
 }
 
 // createLustreConfiguration mirrors the CreateFileSystemLustreConfiguration
 // block sent by the AWS provider for Lustre file systems.
 type createLustreConfiguration struct {
+	MetadataConfiguration *struct {
+		Mode string `json:"Mode,omitempty"`
+	} `json:"MetadataConfiguration,omitempty"`
 	DeploymentType string `json:"DeploymentType,omitempty"`
 }
 
@@ -265,6 +270,19 @@ func validateSecurityGroupIDs(securityGroupIDs []string) error {
 	return nil
 }
 
+// defaultLustreVersion applies the documented default (api_op_CreateFileSystem.go):
+// 2.10, or 2.12/2.15 for PERSISTENT_2 without/with a metadata configuration mode.
+func defaultLustreVersion(deploymentType string, cfg *createLustreConfiguration) string {
+	switch {
+	case deploymentType != "PERSISTENT_2":
+		return "2.10"
+	case cfg != nil && cfg.MetadataConfiguration != nil && cfg.MetadataConfiguration.Mode != "":
+		return "2.15"
+	default:
+		return "2.12"
+	}
+}
+
 // applyLustreConfig sets the Lustre-specific fields on fs. LustreConfiguration
 // is optional on the real CreateFileSystemInput; an absent block (or an
 // absent DeploymentType within it) defaults to SCRATCH_1, matching real AWS.
@@ -276,6 +294,10 @@ func applyLustreConfig(fs *storedFileSystem, cfg *createLustreConfiguration) {
 
 	if fs.DeploymentType == "" {
 		fs.DeploymentType = lustreDeploymentTypeScratch1
+	}
+
+	if fs.FileSystemTypeVersion == "" {
+		fs.FileSystemTypeVersion = defaultLustreVersion(fs.DeploymentType, cfg)
 	}
 }
 
@@ -391,6 +413,7 @@ func applyOpenZFSConfig(fs *storedFileSystem, cfg *createOpenZFSConfiguration) e
 func applyFileSystemTypeConfig(fs *storedFileSystem, input *createFileSystemInput) error {
 	switch fs.FileSystemType {
 	case fileSystemTypeLustre:
+		fs.FileSystemTypeVersion = input.FileSystemTypeVersion
 		applyLustreConfig(fs, input.LustreConfiguration)
 
 		return nil
@@ -509,11 +532,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		return nil, err
 	}
 
-	if err := validateSubnetIDs(input.SubnetIDs); err != nil {
-		return nil, err
-	}
-
-	if err := validateSecurityGroupIDs(input.SecurityGroupIDs); err != nil {
+	if err := validateCreateNetworkAndVersion(input); err != nil {
 		return nil, err
 	}
 
@@ -701,37 +720,86 @@ func (b *InMemoryBackend) DescribeFileSystems(
 	return result, next, nil
 }
 
-// DeleteFileSystem removes a file system. For ONTAP, real AWS requires every
-// SVM and volume to be deleted first and refuses otherwise; for every other
-// type it cascades to the child resources real AWS also tears down as part
-// of file-system deletion: storage virtual machines (and, transitively,
-// their volumes and those volumes' snapshots), directly-attached volumes
-// (e.g. an OpenZFS root/child volume), data repository associations, and DNS
-// aliases. Backups and data repository tasks are intentionally left alone:
-// real AWS backups persist independently of the file system they were taken
-// from, and data repository tasks are historical execution records.
-func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
+// DeleteFileSystem removes a file system, cascading to children and taking the
+// documented default final backup.
+func (b *InMemoryBackend) DeleteFileSystem(in *deleteFileSystemInput) (*deleteFileSystemOutput, error) {
 	b.mu.Lock("DeleteFileSystem")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems.Get(fileSystemID)
+	fs, ok := b.fileSystems.Get(in.FileSystemID)
 	if !ok {
-		return ErrFileSystemNotFound
+		return nil, ErrFileSystemNotFound
 	}
 
 	if fs.FileSystemType == fileSystemTypeONTAP {
-		if err := b.requireNoONTAPChildrenLocked(fileSystemID); err != nil {
-			return err
+		if err := b.requireNoONTAPChildrenLocked(in.FileSystemID); err != nil {
+			return nil, err
 		}
 	}
 
-	b.cascadeDeleteFileSystemChildrenLocked(fileSystemID)
+	out := &deleteFileSystemOutput{FileSystemID: in.FileSystemID, Lifecycle: lifecycleDeleting}
 
-	delete(b.aliases, fileSystemID)
-	b.fileSystems.Delete(fileSystemID)
+	cfg := in.configFor(fs.FileSystemType)
+
+	var finalTags []Tag
+	if cfg != nil {
+		finalTags = cfg.FinalBackupTags
+	}
+
+	if err := validateCreateTags(finalTags); err != nil {
+		return nil, err
+	}
+
+	if takesFinalBackup(fs.FileSystemType, cfg) {
+		bk := b.takeFinalBackupLocked(fs, nil, finalTags)
+		out.setFinalBackup(fs.FileSystemType, &deleteFinalBackup{
+			FinalBackupID:   bk.BackupID,
+			FinalBackupTags: tagsMapToSlice(bk.Tags),
+		})
+	}
+
+	b.cascadeDeleteFileSystemChildrenLocked(in.FileSystemID)
+
+	delete(b.aliases, in.FileSystemID)
+	b.fileSystems.Delete(in.FileSystemID)
 	delete(b.tags, fs.ResourceARN)
 
-	return nil
+	return out, nil
+}
+
+// takeFinalBackupLocked records a delete-time backup; explicit finalTags replace
+// CopyTagsToBackups copying. Caller must hold b.mu.
+func (b *InMemoryBackend) takeFinalBackupLocked(
+	fs *storedFileSystem,
+	vol *storedVolume,
+	finalTags []Tag,
+) *storedBackup {
+	tags := tagsSliceToMap(finalTags)
+	if len(finalTags) == 0 && fs.CopyTagsToBackups {
+		tags = maps.Clone(fs.Tags)
+	}
+
+	id := newFSxBackupID()
+	arn := b.backupARN(id)
+	bk := &storedBackup{
+		BackupID:     id,
+		BackupType:   backupTypeUserInitiated,
+		CreationTime: time.Now().UTC(),
+		Lifecycle:    lifecycleAvailable,
+		ResourceARN:  arn,
+		Tags:         tags,
+		FileSystemID: fs.FileSystemID,
+		FileSystem:   cloneStoredFileSystem(fs),
+	}
+
+	if vol != nil {
+		bk.Volume = cloneStoredVolume(vol)
+	}
+
+	b.backups.Put(bk)
+	b.tags[arn] = maps.Clone(tags)
+
+	return bk
 }
 
 // requireNoONTAPChildrenLocked returns ErrValidation if fileSystemID still has
@@ -1261,4 +1329,27 @@ func (b *InMemoryBackend) StartMisconfiguredStateRecovery(fileSystemID string) e
 	}
 
 	return nil
+}
+
+// validateLustreVersion rejects a Lustre FileSystemTypeVersion outside the
+// documented 2.10/2.12/2.15 set (api_op_CreateFileSystem.go).
+func validateLustreVersion(input *createFileSystemInput) error {
+	switch input.FileSystemTypeVersion {
+	case "", "2.10", "2.12", "2.15":
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported FileSystemTypeVersion %q", ErrValidation, input.FileSystemTypeVersion)
+	}
+}
+
+func validateCreateNetworkAndVersion(input *createFileSystemInput) error {
+	if err := validateLustreVersion(input); err != nil {
+		return err
+	}
+
+	if err := validateSubnetIDs(input.SubnetIDs); err != nil {
+		return err
+	}
+
+	return validateSecurityGroupIDs(input.SecurityGroupIDs)
 }

@@ -174,8 +174,8 @@ type StorageBackend interface {
 		userName, serviceName string,
 	) (*ServiceSpecificCredential, error)
 	ListServiceSpecificCredentials(
-		userName, serviceName string,
-	) ([]ServiceSpecificCredential, error)
+		userName, serviceName, marker string, maxItems int,
+	) (page.Page[ServiceSpecificCredential], error)
 	DeleteServiceSpecificCredential(userName, credentialID string) error
 	UpdateServiceSpecificCredential(userName, credentialID, status string) error
 
@@ -263,12 +263,12 @@ type StorageBackend interface {
 	// Server Certificates
 	UploadServerCertificate(name, path, certBody, certChain string) (*ServerCertificate, error)
 	GetServerCertificate(name string) (*ServerCertificate, error)
-	ListServerCertificates(pathPrefix string) ([]ServerCertificate, error)
+	ListServerCertificates(pathPrefix, marker string, maxItems int) (page.Page[ServerCertificate], error)
 	UpdateServerCertificate(name, newName, newPath string) error
 	DeleteServerCertificate(name string) error
 
 	// Group membership queries
-	ListGroupsForUser(userName string) ([]Group, error)
+	ListGroupsForUser(userName, marker string, maxItems int) (page.Page[Group], error)
 
 	// Account Password Policy
 	GetAccountPasswordPolicy() *PasswordPolicy
@@ -590,7 +590,9 @@ func sortedUsers(t *store.Table[User]) []User {
 	users := make([]User, 0, len(items))
 
 	for _, u := range items {
-		users = append(users, *u)
+		cp := *u
+		cp.Tags = maps.Clone(u.Tags)
+		users = append(users, cp)
 	}
 
 	return users

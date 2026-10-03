@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -73,6 +74,8 @@ type Handler struct {
 	idempotency *safemap.Map[string, idempotentStatement]
 	AccountID   string
 	Region      string
+	// idempotencyInsertsSinceSweep paces maybeEvictExpiredIdempotency.
+	idempotencyInsertsSinceSweep atomic.Int64
 }
 
 // regionFromRequest resolves the AWS region for a request from its SigV4

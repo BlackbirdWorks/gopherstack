@@ -114,7 +114,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 
 	b.functionURLConfigs.Put(cfg)
 
-	return cfg, nil
+	return cloneFunctionURLConfig(cfg), nil
 }
 
 // allocateAndStartURLServerUnlocked allocates a port and starts the HTTP listener
@@ -176,6 +176,14 @@ func (b *InMemoryBackend) doAllocateAndStart(
 	return "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/", srv, nil
 }
 
+// cloneFunctionURLConfig copies cfg so a caller can't race UpdateFunctionURLConfig,
+// which mutates the stored config's fields in place.
+func cloneFunctionURLConfig(cfg *FunctionURLConfig) *FunctionURLConfig {
+	cp := *cfg
+
+	return &cp
+}
+
 // GetFunctionURLConfig returns the function URL config for a function.
 func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionURLConfig, error) {
 	b.mu.RLock("GetFunctionURLConfig")
@@ -186,7 +194,7 @@ func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionUR
 		return nil, ErrFunctionURLNotFound
 	}
 
-	return cfg, nil
+	return cloneFunctionURLConfig(cfg), nil
 }
 
 // DeleteFunctionURLConfig removes the function URL config, stops the listener, and deregisters DNS.
@@ -652,7 +660,7 @@ func (b *InMemoryBackend) UpdateFunctionURLConfig(
 	cfg.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	b.functionURLConfigs.Put(cfg)
 
-	return cfg, nil
+	return cloneFunctionURLConfig(cfg), nil
 }
 
 // ListFunctionURLConfigs returns all function URL configs.
@@ -662,9 +670,14 @@ func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
 
 	cfgs := b.functionURLConfigs.All()
 
-	sort.Slice(cfgs, func(i, j int) bool {
-		return cfgs[i].FunctionArn < cfgs[j].FunctionArn
+	out := make([]*FunctionURLConfig, len(cfgs))
+	for i, cfg := range cfgs {
+		out[i] = cloneFunctionURLConfig(cfg)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].FunctionArn < out[j].FunctionArn
 	})
 
-	return cfgs
+	return out
 }

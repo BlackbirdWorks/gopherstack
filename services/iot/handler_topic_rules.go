@@ -197,18 +197,20 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"ruleArn": r.ARN,
-		"rule": map[string]any{
-			"ruleName":         r.RuleName,
-			"sql":              r.SQL,
-			"awsIotSqlVersion": r.AWSIoTSQLVersion,
-			keyDescription:     r.Description,
-			"actions":          r.Actions,
-			"ruleDisabled":     !r.Enabled,
-			keyCreatedAt:       awstime.Epoch(r.CreatedAt),
-		},
-	})
+	rule := map[string]any{
+		"ruleName":         r.RuleName,
+		"sql":              r.SQL,
+		"awsIotSqlVersion": r.AWSIoTSQLVersion,
+		keyDescription:     r.Description,
+		"actions":          r.Actions,
+		"ruleDisabled":     !r.Enabled,
+		keyCreatedAt:       awstime.Epoch(r.CreatedAt),
+	}
+	if r.ErrorAction != nil {
+		rule["errorAction"] = r.ErrorAction
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"ruleArn": r.ARN, "rule": rule})
 }
 
 func (h *Handler) handleDeleteTopicRule(c *echo.Context) error {
@@ -337,6 +339,9 @@ func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
 	if d.VPCProperties != nil {
 		out["vpcProperties"] = d.VPCProperties
 	}
+	if d.InfluxDBProperties != nil {
+		out["influxDBProperties"] = d.InfluxDBProperties
+	}
 
 	return out
 }
@@ -359,6 +364,9 @@ func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
 	}
 	if d.VPCProperties != nil {
 		out["vpcDestinationSummary"] = d.VPCProperties
+	}
+	if d.InfluxDBProperties != nil {
+		out["influxDBSummary"] = d.InfluxDBProperties
 	}
 
 	return out

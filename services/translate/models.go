@@ -39,6 +39,7 @@ const (
 	parallelDataStatusCreating = "CREATING"
 	parallelDataStatusUpdating = "UPDATING"
 	parallelDataStatusActive   = "ACTIVE"
+	parallelDataStatusDeleting = "DELETING"
 )
 
 // TerminologyData holds imported terminology file bytes.

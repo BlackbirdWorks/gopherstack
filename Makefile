@@ -1,4 +1,4 @@
-.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit parity-lint
+.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit parity-lint cfn-attrs-gen cfn-attrs-spec-refresh
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -239,6 +239,20 @@ bd-audit:
 # against the real corpus and found too imprecise to build a hard gate on.
 parity-lint:
 	go run ./cmd/paritylint
+
+# Regenerate services/cloudformation/cfn_attributes.json (Fn::GetAtt
+# attribute table) from the committed spec fixture and the current
+# resTypeXxx constants. See cmd/cfnattrgen.
+cfn-attrs-gen:
+	go run ./cmd/cfnattrgen -spec cmd/cfnattrgen/testdata/cfn_resource_spec.json -src services/cloudformation -out services/cloudformation/cfn_attributes.json
+
+# Refresh cmd/cfnattrgen/testdata/cfn_resource_spec.json from a fresh
+# download of the full CloudFormation resource specification. Run this
+# occasionally, then `make cfn-attrs-gen` and commit both files.
+cfn-attrs-spec-refresh:
+	curl -sL https://d1uauaxba7bl26.cloudfront.net/latest/gzip/CloudFormationResourceSpecification.json | gunzip > /tmp/cfn_full_spec.json
+	go run ./cmd/cfnattrgen -spec /tmp/cfn_full_spec.json -trimspec-out cmd/cfnattrgen/testdata/cfn_resource_spec.json
+	rm -f /tmp/cfn_full_spec.json
 
 demo: ui-build
 	docker compose down

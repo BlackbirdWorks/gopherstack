@@ -453,6 +453,10 @@ func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) e
 		}
 	}
 
+	if req.Filter.ActionType != "" && req.Filter.ParentHandshakeID != "" {
+		return h.handleBackendError(c, ErrInvalidInput)
+	}
+
 	handshakes, err := h.Backend.ListHandshakesForAccount(req.Filter.ActionType)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -480,6 +484,10 @@ func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []by
 		if err := json.Unmarshal(body, &req); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 		}
+	}
+
+	if req.Filter.ActionType != "" && req.Filter.ParentHandshakeID != "" {
+		return h.handleBackendError(c, ErrInvalidInput)
 	}
 
 	handshakes, err := h.Backend.ListHandshakesForOrganization(req.Filter.ActionType)

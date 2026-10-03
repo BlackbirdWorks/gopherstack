@@ -110,7 +110,8 @@ func TestHandler_StartAsyncInvoke_WithTags(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/async-invoke", map[string]any{
-		"modelId": "anthropic.claude-v2",
+		"modelId":    "anthropic.claude-v2",
+		"modelInput": map[string]any{},
 		"outputDataConfig": map[string]any{
 			"s3OutputDataConfig": map[string]any{
 				"s3Uri": "s3://bucket/output/",
@@ -173,7 +174,8 @@ func TestStartAsyncInvoke_InvalidS3URI(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/async-invoke",
 				map[string]any{
-					"modelId": "anthropic.claude-v2",
+					"modelId":    "anthropic.claude-v2",
+					"modelInput": map[string]any{},
 					"outputDataConfig": map[string]any{
 						"s3OutputDataConfig": map[string]any{
 							"s3Uri": tt.s3URI,
@@ -192,7 +194,8 @@ func TestStartAsyncInvoke_ValidS3URI(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/async-invoke",
 		map[string]any{
-			"modelId": "anthropic.claude-v2",
+			"modelId":    "anthropic.claude-v2",
+			"modelInput": map[string]any{},
 			"outputDataConfig": map[string]any{
 				"s3OutputDataConfig": map[string]any{
 					"s3Uri": "s3://valid-bucket/prefix/",
@@ -216,6 +219,7 @@ func TestStartAsyncInvoke_ModelIDAsInferenceProfileARN(t *testing.T) {
 		map[string]any{
 			"modelId": "arn:aws:bedrock:us-east-1::inference-profile/" +
 				"us.anthropic.claude-3-sonnet-20240229-v1-0",
+			"modelInput": map[string]any{},
 			"outputDataConfig": map[string]any{
 				"s3OutputDataConfig": map[string]any{
 					"s3Uri": "s3://valid-bucket/output/",
@@ -239,12 +243,22 @@ func TestAsyncInvoke_MissingS3URI_Returns400(t *testing.T) {
 	}{
 		{
 			name: "missing outputDataConfig",
-			body: map[string]any{"modelId": "anthropic.claude-v2"},
+			body: map[string]any{"modelId": "anthropic.claude-v2", "modelInput": map[string]any{}},
+		},
+		{
+			name: "missing modelInput",
+			body: map[string]any{
+				"modelId": "anthropic.claude-v2",
+				"outputDataConfig": map[string]any{
+					"s3OutputDataConfig": map[string]any{"s3Uri": "s3://valid-bucket/output/"},
+				},
+			},
 		},
 		{
 			name: "missing s3Uri",
 			body: map[string]any{
-				"modelId": "anthropic.claude-v2",
+				"modelId":    "anthropic.claude-v2",
+				"modelInput": map[string]any{},
 				"outputDataConfig": map[string]any{
 					"s3OutputDataConfig": map[string]any{"s3Uri": ""},
 				},
@@ -339,6 +353,7 @@ func TestHandler_GetAsyncInvoke_FullFields(t *testing.T) {
 	startRec := doRequest(t, h, http.MethodPost, "/async-invoke", map[string]any{
 		"modelId":            "anthropic.claude-v2",
 		"clientRequestToken": "my-idempotency-token",
+		"modelInput":         map[string]any{},
 		"outputDataConfig": map[string]any{
 			"s3OutputDataConfig": map[string]any{"s3Uri": "s3://bucket/output/"},
 		},
@@ -397,7 +412,8 @@ func TestAsyncInvoke_GetResponseShape(t *testing.T) {
 			recCreate := doRequest(
 				t, h, http.MethodPost, "/async-invoke",
 				map[string]any{
-					"modelId": tt.modelID,
+					"modelId":    tt.modelID,
+					"modelInput": map[string]any{},
 					"outputDataConfig": map[string]any{
 						"s3OutputDataConfig": map[string]any{"s3Uri": tt.s3URI},
 					},
@@ -528,7 +544,8 @@ func TestHandler_ListAsyncInvokes_StatusFilter(t *testing.T) {
 
 			startBody := func(i int) map[string]any {
 				return map[string]any{
-					"modelId": fmt.Sprintf("model-%d", i),
+					"modelId":    fmt.Sprintf("model-%d", i),
+					"modelInput": map[string]any{},
 					"outputDataConfig": map[string]any{
 						"s3OutputDataConfig": map[string]any{
 							"s3Uri": fmt.Sprintf("s3://bucket/%d/", i),
@@ -567,6 +584,7 @@ func TestHandler_ListAsyncInvokes_WithClientToken(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/async-invoke", map[string]any{
 		"modelId":            "anthropic.claude-v2",
 		"clientRequestToken": "summary-token",
+		"modelInput":         map[string]any{},
 		"outputDataConfig": map[string]any{
 			"s3OutputDataConfig": map[string]any{"s3Uri": "s3://bucket/"},
 		},
@@ -631,7 +649,8 @@ func TestListAsyncInvokes_AfterCreate(t *testing.T) {
 				rec := doRequest(
 					t, h, http.MethodPost, "/async-invoke",
 					map[string]any{
-						"modelId": "anthropic.claude-v2",
+						"modelId":    "anthropic.claude-v2",
+						"modelInput": map[string]any{},
 						"outputDataConfig": map[string]any{
 							"s3OutputDataConfig": map[string]any{"s3Uri": s3URL},
 						},

@@ -79,7 +79,14 @@ func (h *S3Handler) verifyHeaderAuth(
 		return true
 	}
 
-	if scope.service != "s3" && scope.service != "s3-object-lambda" {
+	// "s3express" is the signing name every S3 Express One Zone request uses
+	// (CreateSession and any Zonal endpoint operation on a directory bucket --
+	// s3@v1.111.0 internal/customizations/express_signer.go,
+	// SetSigV4SigningName("s3express")), not "s3". Rejecting it here is what
+	// previously turned a real client's directory-bucket CreateSession call
+	// into a 403 SignatureDoesNotMatch before any actual signature was even
+	// checked (gopherstack-z2w1a).
+	if scope.service != "s3" && scope.service != "s3-object-lambda" && scope.service != "s3express" {
 		h.writeSignatureError(ctx, w, r, "Credential should be scoped to correct service: s3.")
 
 		return false
@@ -107,7 +114,12 @@ func (h *S3Handler) verifyHeaderAuth(
 		return false
 	}
 
-	if !h.signatureMatches(r, scope) {
+	secret, ok := h.resolveSigningSecret(ctx, w, r, scope)
+	if !ok {
+		return false
+	}
+
+	if !h.signatureMatches(r, scope, secret) {
 		h.writeSignatureError(ctx, w, r,
 			"The request signature we calculated does not match the signature you provided. "+
 				"Check your key and signing method.")
@@ -116,6 +128,32 @@ func (h *S3Handler) verifyHeaderAuth(
 	}
 
 	return true
+}
+
+// resolveSigningSecret returns the secret to verify r's signature against:
+// h.PresignSecret ordinarily, or a live S3 Express session's own secret key
+// when r carries an x-amz-s3session-token. Returns ok=false (having already
+// written the error response) when that session token is unknown, mismatched,
+// or expired.
+func (h *S3Handler) resolveSigningSecret(
+	ctx context.Context, w http.ResponseWriter, r *http.Request, scope authScope,
+) (string, bool) {
+	sessionToken := r.Header.Get(headerAmzSessionToken)
+	if sessionToken == "" {
+		return h.PresignSecret, true
+	}
+
+	_, secret, ok := h.Backend.ExpressSessionSecret(scope.accessKeyID, sessionToken)
+	if !ok {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "ExpiredToken",
+			Message: "The provided token has expired.",
+		}, http.StatusForbidden)
+
+		return "", false
+	}
+
+	return secret, true
 }
 
 // writeSignatureError emits a SignatureDoesNotMatch 403 with the given message.
@@ -231,9 +269,16 @@ func parseAmzTime(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// signatureMatches recomputes the SigV4 header signature for r and compares it
-// against the client-provided signature in constant time.
-func (h *S3Handler) signatureMatches(r *http.Request, scope authScope) bool {
+// headerAmzSessionToken is the header an S3 Express One Zone client carries
+// its CreateSession token on (s3@v1.111.0 internal/customizations/
+// express_signer.go's headerAmzSessionToken constant).
+const headerAmzSessionToken = "X-Amz-S3session-Token" //nolint:gosec // header name, not a credential
+
+// signatureMatches recomputes the SigV4 header signature for r using secret
+// and compares it against the client-provided signature in constant time.
+// secret is h.PresignSecret for ordinary requests, or the looked-up S3
+// Express session's own secret key when an x-amz-s3session-token is present.
+func (h *S3Handler) signatureMatches(r *http.Request, scope authScope, secret string) bool {
 	canonicalReq := buildHeaderCanonicalRequest(r, scope.signedHeaders)
 	amzDate := r.Header.Get("X-Amz-Date")
 	credentialScope := strings.Join(
@@ -246,7 +291,7 @@ func (h *S3Handler) signatureMatches(r *http.Request, scope authScope) bool {
 		hexSHA256(canonicalReq),
 	}, "\n")
 
-	signingKey := derivePresignSigningKey(h.PresignSecret, scope.date, scope.region, scope.service)
+	signingKey := derivePresignSigningKey(secret, scope.date, scope.region, scope.service)
 	expected := hex.EncodeToString(hmacSHA256Bytes(signingKey, stringToSign))
 
 	return hmac.Equal([]byte(expected), []byte(scope.signature))

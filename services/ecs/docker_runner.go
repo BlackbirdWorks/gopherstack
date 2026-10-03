@@ -461,12 +461,6 @@ func (r *realDockerRunner) cancelLogForwarding(containerID string) {
 // exit to handler so the owning task can move to STOPPED. Runs in its own
 // goroutine so RunTask does not block on it, and terminates on container exit,
 // cancellation, or shutdown (ctx derives from r.svcCtx) -- never leaked.
-//
-// Only the first container in a task to exit is meant to drive the task to
-// STOPPED (see markTaskStoppedByContainerExit); siblings of a multi-container
-// task are not forcibly stopped here, an approximation left for a future
-// change since real ECS task definitions used with Step Functions .sync are
-// overwhelmingly single-container batch jobs.
 func (r *realDockerRunner) watchContainerExit(
 	handler func(taskArn, containerName string, exitCode int),
 	taskArn, containerID, containerName string,

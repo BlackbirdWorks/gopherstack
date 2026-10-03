@@ -302,6 +302,7 @@ type updateDistributionRequest struct {
 	CacheBehaviorSettings           *cacheSettingsWire         `json:"cacheBehaviorSettings,omitempty"`
 	DefaultCacheBehavior            *cacheBehaviorWire         `json:"defaultCacheBehavior,omitempty"`
 	IsEnabled                       *bool                      `json:"isEnabled,omitempty"`
+	Origin                          *inputOriginWire           `json:"origin,omitempty"`
 	CertificateName                 string                     `json:"certificateName,omitempty"`
 	DistributionName                string                     `json:"distributionName"`
 	ViewerMinimumTLSProtocolVersion string                     `json:"viewerMinimumTlsProtocolVersion,omitempty"`
@@ -320,7 +321,7 @@ func (h *Handler) handleUpdateDistribution(_ context.Context, body []byte) ([]by
 		defaultCacheBehavior = &CacheBehavior{Behavior: req.DefaultCacheBehavior.Behavior}
 	}
 
-	op, updateErr := h.Backend.UpdateDistribution(UpdateDistributionRequest{
+	updateReq := UpdateDistributionRequest{
 		Name:                  req.DistributionName,
 		CertificateName:       req.CertificateName,
 		IsEnabled:             req.IsEnabled,
@@ -329,7 +330,15 @@ func (h *Handler) handleUpdateDistribution(_ context.Context, body []byte) ([]by
 		CacheBehaviors:        cacheBehaviorsPerPathFromWire(req.CacheBehaviors),
 		ViewerMinTLSVersion:   req.ViewerMinimumTLSProtocolVersion,
 		UseDefaultCertificate: req.UseDefaultCertificate,
-	})
+	}
+
+	if req.Origin != nil {
+		updateReq.OriginName = req.Origin.Name
+		updateReq.OriginRegionName = req.Origin.RegionName
+		updateReq.OriginProtocolPolicy = req.Origin.ProtocolPolicy
+	}
+
+	op, updateErr := h.Backend.UpdateDistribution(updateReq)
 	if updateErr != nil {
 		return nil, updateErr
 	}

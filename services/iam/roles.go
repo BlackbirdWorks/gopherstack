@@ -100,11 +100,25 @@ func (b *InMemoryBackend) ListRoles(marker string, maxItems int) (page.Page[Role
 
 	return pageFromSortedNames(
 		b.sortedRoleNames,
-		b.roles.Get,
+		b.cloneRoleLocked,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
 	), nil
+}
+
+// cloneRoleLocked looks up a role by name and returns a copy with its own
+// Tags map, so ListRoles cannot alias TagRole/UntagRole's in-place writes.
+func (b *InMemoryBackend) cloneRoleLocked(roleName string) (*Role, bool) {
+	r, exists := b.roles.Get(roleName)
+	if !exists {
+		return nil, false
+	}
+
+	cp := *r
+	cp.Tags = maps.Clone(r.Tags)
+
+	return &cp, true
 }
 
 // GetRole retrieves a single IAM role by name.
@@ -117,7 +131,10 @@ func (b *InMemoryBackend) GetRole(roleName string) (*Role, error) {
 		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
-	return r, nil
+	cp := *r
+	cp.Tags = maps.Clone(r.Tags)
+
+	return &cp, nil
 }
 
 // GetRoleByArn retrieves a single IAM role by its full ARN.
@@ -135,7 +152,10 @@ func (b *InMemoryBackend) GetRoleByArn(roleArn string) (*Role, error) {
 		return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
 	}
 
-	return role, nil
+	cp := *role
+	cp.Tags = maps.Clone(role.Tags)
+
+	return &cp, nil
 }
 
 // UpdateRoleMaxSessionDuration sets the maximum session duration for a role.

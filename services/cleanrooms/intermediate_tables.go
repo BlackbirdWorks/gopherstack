@@ -243,7 +243,7 @@ func (b *InMemoryBackend) PopulateIntermediateTable(
 	}
 
 	q, err := b.startProtectedQueryLocked(
-		membershipID, populationQueryString(it.PopulationAnalysisConfiguration), nil, computeConfiguration,
+		membershipID, populationQueryString(it.PopulationAnalysisConfiguration), nil, computeConfiguration, "",
 	)
 	if err != nil {
 		return nil, err

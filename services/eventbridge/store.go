@@ -59,6 +59,7 @@ var (
 	ErrRuleNotFound           = errors.New("ResourceNotFoundException")
 	ErrCannotDeleteDefaultBus = errors.New("IllegalArgumentException")
 	ErrInvalidParameter       = errors.New("InvalidParameterException")
+	ErrInvalidEventPattern    = errors.New("InvalidEventPatternException")
 	ErrNotFound               = errors.New("ResourceNotFoundException")
 	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidState           = errors.New("InvalidStateException")
@@ -327,7 +328,7 @@ type InMemoryBackend struct {
 	buses           map[string]*store.Table[EventBus]
 	partnerSources  map[string]*store.Table[PartnerEventSource]
 	archives        map[string]*store.Table[Archive]
-	archivedEvents  map[string]map[string][]EventEntry
+	archivedEvents  map[string]map[string][]archivedEvent
 	busePolicies    map[string]map[string]*EventBusPolicy
 	// registries is NOT region-scoped -- a single backend holds one global
 	// SchemaRegistry catalogue -- so it is a single Table, lazily registered
@@ -403,7 +404,7 @@ func NewInMemoryBackendWithContext(
 		replays:          make(map[string]*store.Table[Replay]),
 		apiDestinations:  make(map[string]*store.Table[APIDestination]),
 		archives:         make(map[string]*store.Table[Archive]),
-		archivedEvents:   make(map[string]map[string][]EventEntry),
+		archivedEvents:   make(map[string]map[string][]archivedEvent),
 		connections:      make(map[string]*store.Table[Connection]),
 		endpoints:        make(map[string]*store.Table[Endpoint]),
 		partnerSources:   make(map[string]*store.Table[PartnerEventSource]),
@@ -531,7 +532,7 @@ func (b *InMemoryBackend) Reset() {
 	b.replays = make(map[string]*store.Table[Replay])
 	b.apiDestinations = make(map[string]*store.Table[APIDestination])
 	b.archives = make(map[string]*store.Table[Archive])
-	b.archivedEvents = make(map[string]map[string][]EventEntry)
+	b.archivedEvents = make(map[string]map[string][]archivedEvent)
 	b.connections = make(map[string]*store.Table[Connection])
 	b.endpoints = make(map[string]*store.Table[Endpoint])
 	b.partnerSources = make(map[string]*store.Table[PartnerEventSource])

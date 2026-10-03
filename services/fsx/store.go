@@ -23,6 +23,8 @@ const (
 	sharedVpcDisabled = "false"
 
 	fileSystemTypeLustre           = "LUSTRE"
+	filterNameVolumeID             = "volume-id"
+	svmSubtypeDefault              = "DEFAULT"
 	fileSystemTypeWindows          = "WINDOWS"
 	fileSystemTypeONTAP            = "ONTAP"
 	fileSystemTypeOpenZFS          = "OPENZFS"

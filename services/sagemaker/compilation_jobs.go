@@ -49,9 +49,17 @@ type CompilationInputConfig struct {
 // (validateOutputConfig, validators.go, *string nil-checked only) -- same
 // omitempty class as CompilationInputConfig.S3Uri above.
 type CompilationOutputConfig struct {
-	S3OutputLocation string `json:"S3OutputLocation"`
-	TargetDevice     string `json:"TargetDevice,omitempty"`
-	KmsKeyID         string `json:"KmsKeyId,omitempty"`
+	TargetPlatform   *CompilationTargetPlatform `json:"TargetPlatform,omitempty"`
+	S3OutputLocation string                     `json:"S3OutputLocation"`
+	TargetDevice     string                     `json:"TargetDevice,omitempty"`
+	KmsKeyID         string                     `json:"KmsKeyId,omitempty"`
+}
+
+// CompilationTargetPlatform mirrors types.TargetPlatform.
+type CompilationTargetPlatform struct {
+	Os          string `json:"Os"`
+	Arch        string `json:"Arch"`
+	Accelerator string `json:"Accelerator,omitempty"`
 }
 
 // CompilationJob represents a SageMaker Neo compilation job.
@@ -95,6 +103,11 @@ func cloneCompilationJob(j *CompilationJob) *CompilationJob {
 
 	if j.OutputConfig != nil {
 		oc := *j.OutputConfig
+		if oc.TargetPlatform != nil {
+			tp := *oc.TargetPlatform
+			oc.TargetPlatform = &tp
+		}
+
 		cp.OutputConfig = &oc
 	}
 

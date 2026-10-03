@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,9 +152,18 @@ func TestSnapshot_EmptyShardRecords_NoNull(t *testing.T) {
 func TestSnapshot_RestoreClearsOldPointers(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testSnapshotRestoreClearsOldPointers(t)
+	})
+}
+
+func testSnapshotRestoreClearsOldPointers(t *testing.T) {
+	t.Helper()
+
 	// Create a backend with records in it.
 	bk := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "ptr-stream"}))
+	time.Sleep(streamSettleWait)
 
 	for range 5 {
 		_, err := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{

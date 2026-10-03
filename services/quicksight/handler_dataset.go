@@ -81,6 +81,7 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		tagsFromBody(body),
 		physicalTableMap,
 		logicalTableMap,
+		dataSetSecurityFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -140,7 +141,7 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 
 	ds, ingestion, err := h.Backend.UpdateDataSet(
 		accountID, dataSetID, strField(body, "Name"), strField(body, "ImportMode"),
-		physicalTableMap, logicalTableMap,
+		physicalTableMap, logicalTableMap, dataSetSecurityFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -208,7 +209,7 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 // which -- unlike the full DataSet type -- carries no PhysicalTableMap/
 // LogicalTableMap.
 func dataSetToMap(ds *DataSet) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyArn:             ds.Arn,
 		keyCreatedTime:     ds.CreatedTime.Unix(),
 		keyDataSetID:       ds.DataSetID,
@@ -216,6 +217,9 @@ func dataSetToMap(ds *DataSet) map[string]any {
 		keyLastUpdatedTime: ds.LastUpdatedTime.Unix(),
 		keyName:            ds.Name,
 	}
+	addDataSetSummarySecurity(m, ds.Security)
+
+	return m
 }
 
 // dataSetDetailToMap builds the full DataSet shape returned by
@@ -224,6 +228,14 @@ func dataSetToMap(ds *DataSet) map[string]any {
 // fields.
 func dataSetDetailToMap(ds *DataSet) map[string]any {
 	m := dataSetToMap(ds)
+	delete(m, "ColumnLevelPermissionRulesApplied")
+	delete(m, "RowLevelPermissionTagConfigurationApplied")
+	if len(ds.Security.ColumnLevelPermissionRules) > 0 {
+		m["ColumnLevelPermissionRules"] = ds.Security.ColumnLevelPermissionRules
+	}
+	if ds.Security.RowLevelPermissionTagConfiguration != nil {
+		m["RowLevelPermissionTagConfiguration"] = ds.Security.RowLevelPermissionTagConfiguration
+	}
 	m["PhysicalTableMap"] = physicalTableMapToWire(ds.PhysicalTableMap)
 	if lt := logicalTableMapToWire(ds.LogicalTableMap); lt != nil {
 		m["LogicalTableMap"] = lt

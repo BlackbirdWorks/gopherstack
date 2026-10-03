@@ -598,15 +598,15 @@ const (
 func sqliteAffinity(decltype string) string {
 	switch {
 	case strings.Contains(decltype, "INT"):
-		return "INTEGER"
+		return typeInteger
 	case strings.Contains(decltype, "CHAR"), strings.Contains(decltype, "CLOB"), strings.Contains(decltype, "TEXT"):
-		return "TEXT"
+		return typeText
 	case strings.Contains(decltype, "BLOB"), decltype == "":
 		return "BLOB"
 	case strings.Contains(decltype, "REAL"), strings.Contains(decltype, "FLOA"), strings.Contains(decltype, "DOUB"):
 		return "REAL"
 	default:
-		return "NUMERIC"
+		return typeNumeric
 	}
 }
 
@@ -645,16 +645,16 @@ func columnMetadataFor(ct *sql.ColumnType) ColumnMetadata {
 	}
 
 	switch sqliteAffinity(decltype) {
-	case "INTEGER":
+	case typeInteger:
 		meta.Type = jdbcTypeInteger
 		meta.IsSigned = true
-	case "TEXT":
+	case typeText:
 		meta.Type = jdbcTypeVarchar
 		meta.IsCaseSensitive = true
 	case "REAL":
 		meta.Type = jdbcTypeDouble
 		meta.IsSigned = true
-	case "NUMERIC":
+	case typeNumeric:
 		meta.Type = jdbcTypeDecimal
 		meta.IsSigned = true
 	default: // BLOB, or no declared type

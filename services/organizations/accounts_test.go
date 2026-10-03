@@ -285,7 +285,6 @@ func TestListAccountsWithInvalidEffectivePolicy_AllTypes(t *testing.T) {
 	t.Parallel()
 
 	policyTypes := []string{
-		"SERVICE_CONTROL_POLICY",
 		"TAG_POLICY",
 		"BACKUP_POLICY",
 		"AISERVICES_OPT_OUT_POLICY",

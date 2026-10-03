@@ -21,6 +21,21 @@ func FlushInstanceLifecycle(b *InMemoryBackend) {
 	}
 }
 
+// FlushClusterLifecycle immediately transitions all rebooting clusters to available.
+// This is a test helper that bypasses the reconciler delay.
+func FlushClusterLifecycle(b *InMemoryBackend) {
+	b.mu.Lock("FlushClusterLifecycle")
+	defer b.mu.Unlock()
+
+	for _, c := range b.clusters.All() {
+		if c.Status == "rebooting" {
+			c.Status = instanceStatusAvailable
+		}
+
+		delete(b.clusterReadyAt, c.DBClusterIdentifier)
+	}
+}
+
 // RDSIDFromARNForTest exposes rdsIDFromARN for unit tests.
 func RDSIDFromARNForTest(arnOrID string) string {
 	return rdsIDFromARN(arnOrID)

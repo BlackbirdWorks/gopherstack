@@ -27,8 +27,10 @@ type hostVolumeInput struct {
 }
 
 type volumeInput struct {
-	Host *hostVolumeInput `json:"host,omitempty"`
-	Name string           `json:"name"`
+	Host                *hostVolumeInput        `json:"host,omitempty"`
+	EfsConfig           *EFSVolumeConfiguration `json:"efsVolumeConfiguration,omitempty"`
+	S3FilesVolumeConfig *S3FilesVolumeConfig    `json:"s3filesVolumeConfiguration,omitempty"`
+	Name                string                  `json:"name"`
 }
 
 type ulimitInput struct {
@@ -217,7 +219,7 @@ func containerPropertiesFromInput(in *containerPropertiesInput) *ContainerProper
 	}
 
 	for _, v := range in.Volumes {
-		vol := Volume{Name: v.Name}
+		vol := Volume{Name: v.Name, EfsVolumeConfiguration: v.EfsConfig, S3FilesVolumeConfig: v.S3FilesVolumeConfig}
 		if v.Host != nil {
 			vol.Host = &HostVolume{SourcePath: v.Host.SourcePath}
 		}

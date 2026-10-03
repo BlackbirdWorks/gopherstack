@@ -296,6 +296,9 @@ type Job struct {
 	CommitTime time.Time `json:"commitTime,omitzero"`
 	AppID      string    `json:"appId"`
 	BranchName string    `json:"branchName"`
+	// SourceURL and SourceURLType are set only by StartDeployment.
+	SourceURL     string `json:"sourceUrl,omitzero"`
+	SourceURLType string `json:"sourceUrlType,omitzero"`
 }
 
 // DomainStatus represents the status of a domain association.

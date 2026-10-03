@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -28,15 +29,12 @@ import (
 // replay is answered with InvalidParameterException (ErrValidation), the
 // same general request-shape-fault code these ops already use for every
 // other client-side request defect.
-//
-// The 24-hour token validity window api_op_CreateCluster.go's doc comment
-// mentions ("This token is valid for 24 hours after creation.") is not
-// enforced: tokens remain valid for the lifetime of the backend. This is a
-// conservative simplification (it can only cause an over-eager replay of a
-// token a real server would have already expired, never an incorrect new
-// resource) and is disclosed in PARITY.md rather than silently added.
+
+// idempotencyTokenTTL is the documented token window (api_op_CreateCluster.go: "valid for 24 hours").
+const idempotencyTokenTTL = 24 * time.Hour
 
 type idempotencyRecord struct {
+	CreatedAt   time.Time       `json:"createdAt"`
 	Op          string          `json:"op"`
 	Token       string          `json:"token"`
 	Fingerprint string          `json:"fingerprint"`
@@ -84,7 +82,16 @@ func (b *InMemoryBackend) lookupIdempotency(op, token string) (idempotencyRecord
 		return idempotencyRecord{}, false
 	}
 
+	if idempotencyExpired(rec, time.Now()) {
+		return idempotencyRecord{}, false
+	}
+
 	return *rec, true
+}
+
+// idempotencyExpired reports whether rec is past its validity window; unstamped legacy records count as expired.
+func idempotencyExpired(rec *idempotencyRecord, now time.Time) bool {
+	return rec.CreatedAt.IsZero() || now.Sub(rec.CreatedAt) >= idempotencyTokenTTL
 }
 
 // storeIdempotency records a successful (2xx) response for later replay.
@@ -92,8 +99,16 @@ func (b *InMemoryBackend) storeIdempotency(op, token, fingerprint string, status
 	b.mu.Lock("storeIdempotency")
 	defer b.mu.Unlock()
 
+	now := time.Now()
+
+	for _, rec := range b.idempotency.All() {
+		if idempotencyExpired(rec, now) {
+			b.idempotency.Delete(idempotencyKeyFn(rec))
+		}
+	}
+
 	b.idempotency.Put(&idempotencyRecord{
-		Op: op, Token: token, Fingerprint: fingerprint, StatusCode: statusCode, Body: body,
+		Op: op, Token: token, Fingerprint: fingerprint, StatusCode: statusCode, Body: body, CreatedAt: now,
 	})
 }
 

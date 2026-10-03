@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -96,46 +97,52 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
+	compressor Compressor
+	// serviceCtx is the long-lived context for background work (replication).
+	// Initialised in NewInMemoryBackend so it is always non-nil; overridden by
+	// SetServiceContext when the handler wires in the real service context.
+	serviceCtx context.Context
+	// uploadsByBucket is a secondary index replacing the old
+	// bucket->uploadID->*StoredMultipartUpload nesting for the "all uploads in
+	// bucket X" access pattern (ListMultipartUploads, janitor cleanup,
+	// DeleteBucket cleanup). A caller-supplied uploadID is only valid for the
+	// bucket it was issued against — see getUpload, which enforces that the
+	// same way the old b.uploads[bucketName][uploadID] nesting did.
+	uploadsByBucket *store.Index[StoredMultipartUpload]
 	// registry lets Reset/Snapshot/Restore collapse the buckets/uploads
 	// lifecycle to one call each (registry.ResetAll/SnapshotAll/RestoreAll)
 	// instead of hand-rolled per-map wiring. See pkgs/store's package doc and
 	// the services/sqs pilot (commit 0f09d77c) for the pattern this follows.
 	registry *store.Registry
-	// buckets is keyed by bucket name (globally unique — see StoredBucket.Region's
-	// doc comment). This replaces the old region->name->*StoredBucket nesting plus
-	// the separate bucketIndex name->region map: Table.Get(name) alone now answers
-	// both "does it exist" and "give me the bucket", and StoredBucket.Region
-	// carries what bucketIndex used to.
-	buckets *store.Table[StoredBucket]
-	// uploads is keyed by UploadID (a random 32-hex-char string — see
-	// newObjectVersionID — so it is unique across all buckets). uploadsByBucket
-	// is a secondary index replacing the old bucket->uploadID->*StoredMultipartUpload
-	// nesting for the "all uploads in bucket X" access pattern (ListMultipartUploads,
-	// janitor cleanup, DeleteBucket cleanup). A caller-supplied uploadID is only
-	// valid for the bucket it was issued against — see getUpload, which enforces
-	// that the same way the old b.uploads[bucketName][uploadID] nesting did.
-	uploads         *store.Table[StoredMultipartUpload]
-	uploadsByBucket *store.Index[StoredMultipartUpload]
 	// tags is intentionally left as a plain map (not a store.Table): its key is
 	// a composite "bucket/key/versionID" string that is not a pure function of
 	// the stored value (a bare []types.Tag has no identity field of its own) —
 	// the same reason services/ec2's store_setup.go leaves e.g.
 	// vpcPeeringOptions/instanceIMDSOptions unconverted.
-	tags       map[string][]types.Tag
-	mu         *lockmetrics.RWMutex
-	compressor Compressor
-	// serviceCtx is the long-lived context for background work (replication).
-	// Initialised in NewInMemoryBackend so it is always non-nil; overridden by
-	// SetServiceContext when the handler wires in the real service context.
-	serviceCtx    context.Context
+	tags map[string][]types.Tag
+	mu   *lockmetrics.RWMutex
+	// uploads is keyed by UploadID (a random 32-hex-char string — see
+	// newObjectVersionID — so it is unique across all buckets).
+	uploads *store.Table[StoredMultipartUpload]
+	// buckets is keyed by bucket name (globally unique — see StoredBucket.Region's
+	// doc comment). This replaces the old region->name->*StoredBucket nesting plus
+	// the separate bucketIndex name->region map: Table.Get(name) alone now answers
+	// both "does it exist" and "give me the bucket", and StoredBucket.Region
+	// carries what bucketIndex used to.
+	buckets       *store.Table[StoredBucket]
 	serviceCancel context.CancelFunc
-	defaultRegion string
-	// serviceCtxMu guards serviceCtx and serviceCancel.
-	serviceCtxMu sync.RWMutex
+	// expressSessions holds live S3 Express CreateSession credentials, keyed
+	// by AccessKeyID. Isolated single-map state with its own TTL sweep (see
+	// express_session.go) -- not registered with b.registry, since session
+	// credentials are deliberately not persisted across a snapshot/restore.
+	expressSessions *safemap.Map[string, expressSession]
+	defaultRegion   string
 	// replicationWg tracks all in-flight replication goroutines.
 	// DrainReplicationGoroutines blocks until they all finish.
 	replicationWg       sync.WaitGroup
 	compressionMinBytes int
+	// serviceCtxMu guards serviceCtx and serviceCancel.
+	serviceCtxMu sync.RWMutex
 	// skipMultipartSizeCheck disables the 5 MiB minimum part size check during
 	// CompleteMultipartUpload. This is intended for use in unit tests only.
 	skipMultipartSizeCheck bool
@@ -221,6 +228,7 @@ func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 		mu:              lockmetrics.New("s3"),
 		serviceCtx:      ctx,
 		serviceCancel:   cancel,
+		expressSessions: safemap.New[string, expressSession]("s3.expressSessions"),
 	}
 }
 

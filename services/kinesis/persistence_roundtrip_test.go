@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +22,14 @@ import (
 func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testInMemoryBackendFullStateSnapshotRestoreRoundTrip(t)
+	})
+}
+
+func testInMemoryBackendFullStateSnapshotRestoreRoundTrip(t *testing.T) {
+	t.Helper()
+
 	ctx := context.Background()
 	ctxEast := ctxRegion("us-east-1")
 	ctxWest := ctxRegion("us-west-2")
@@ -34,6 +44,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 		StreamName: "beta",
 		ShardCount: 1,
 	}))
+	time.Sleep(streamSettleWaitInternal)
 
 	// Inline shard records (hot path, stays inline per Stream -- not decomposed).
 	_, err := original.PutRecord(ctxEast, &PutRecordInput{

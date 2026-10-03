@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -228,32 +228,35 @@ func TestDelivery_SQS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sqsMock := newMockSQSSender()
-			backend := setupDeliveryBackend(t, sqsMock, nil)
+			synctest.Test(t, func(t *testing.T) {
+				sqsMock := newMockSQSSender()
+				backend := setupDeliveryBackend(t, sqsMock, nil)
 
-			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         tt.ruleName,
-				EventPattern: tt.eventPattern,
-				State:        tt.ruleState,
-			})
-			require.NoError(t, err)
+				_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         tt.ruleName,
+					EventPattern: tt.eventPattern,
+					State:        tt.ruleState,
+				})
+				require.NoError(t, err)
 
-			target := eventbridge.Target{ID: "t1", Arn: tt.queueARN}
-			if tt.targetInput != "" {
-				target.Input = tt.targetInput
-			}
+				target := eventbridge.Target{ID: "t1", Arn: tt.queueARN}
+				if tt.targetInput != "" {
+					target.Input = tt.targetInput
+				}
 
-			_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{target})
-			require.NoError(t, err)
+				_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{target})
+				require.NoError(t, err)
 
-			backend.PutEvents(context.Background(), tt.events)
-
-			if tt.wantDelivered {
-				require.Eventually(t, func() bool {
-					return len(sqsMock.MessagesFor(tt.queueARN)) > 0
-				}, 2*time.Second, 10*time.Millisecond)
+				backend.PutEvents(context.Background(), tt.events)
+				synctest.Wait()
 
 				msgs := sqsMock.MessagesFor(tt.queueARN)
+				if !tt.wantDelivered {
+					assert.Empty(t, msgs)
+
+					return
+				}
+
 				assert.Len(t, msgs, tt.wantLen)
 
 				if tt.wantContains != "" {
@@ -263,11 +266,7 @@ func TestDelivery_SQS(t *testing.T) {
 				if tt.wantJSONEq != "" {
 					assert.JSONEq(t, tt.wantJSONEq, msgs[0])
 				}
-			} else {
-				time.Sleep(100 * time.Millisecond)
-				msgs := sqsMock.MessagesFor(tt.queueARN)
-				assert.Empty(t, msgs)
-			}
+			})
 		})
 	}
 }
@@ -299,30 +298,29 @@ func TestDelivery_Lambda(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			lamMock := newMockLambdaInvoker()
-			backend := setupDeliveryBackend(t, nil, lamMock)
+			synctest.Test(t, func(t *testing.T) {
+				lamMock := newMockLambdaInvoker()
+				backend := setupDeliveryBackend(t, nil, lamMock)
 
-			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         tt.ruleName,
-				EventPattern: tt.eventPattern,
-				State:        "ENABLED",
+				_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         tt.ruleName,
+					EventPattern: tt.eventPattern,
+					State:        "ENABLED",
+				})
+				require.NoError(t, err)
+
+				_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{
+					{ID: "t1", Arn: tt.lambdaARN},
+				})
+				require.NoError(t, err)
+
+				backend.PutEvents(context.Background(), tt.events)
+				synctest.Wait()
+
+				invocations := lamMock.Invocations()
+				assert.Len(t, invocations, tt.wantInvocations)
+				assert.Equal(t, tt.lambdaARN, invocations[0].name)
 			})
-			require.NoError(t, err)
-
-			_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{
-				{ID: "t1", Arn: tt.lambdaARN},
-			})
-			require.NoError(t, err)
-
-			backend.PutEvents(context.Background(), tt.events)
-
-			require.Eventually(t, func() bool {
-				return len(lamMock.Invocations()) >= tt.wantInvocations
-			}, 2*time.Second, 10*time.Millisecond)
-
-			invocations := lamMock.Invocations()
-			assert.Len(t, invocations, tt.wantInvocations)
-			assert.Equal(t, tt.lambdaARN, invocations[0].name)
 		})
 	}
 }
@@ -372,34 +370,34 @@ func TestDelivery_FullEnvelope(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sqsMock := newMockSQSSender()
-			backend := setupDeliveryBackend(t, sqsMock, nil)
-			queueARN := "arn:aws:sqs:us-east-1:000000000000:envelope-queue-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				sqsMock := newMockSQSSender()
+				backend := setupDeliveryBackend(t, sqsMock, nil)
+				queueARN := "arn:aws:sqs:us-east-1:000000000000:envelope-queue-" + tt.name
 
-			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         "envelope-rule-" + tt.name,
-				EventPattern: `{"source": ["test.service"]}`,
-				State:        "ENABLED",
+				_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         "envelope-rule-" + tt.name,
+					EventPattern: `{"source": ["test.service"]}`,
+					State:        "ENABLED",
+				})
+				require.NoError(t, err)
+
+				_, err = backend.PutTargets(
+					context.Background(), "envelope-rule-"+tt.name, "default",
+					[]eventbridge.Target{{ID: "t1", Arn: queueARN}},
+				)
+				require.NoError(t, err)
+
+				backend.PutEvents(context.Background(), tt.events)
+				synctest.Wait()
+
+				msgs := sqsMock.MessagesFor(queueARN)
+				require.Len(t, msgs, 1)
+
+				for _, field := range tt.wantFields {
+					assert.Contains(t, msgs[0], field, "expected field %q in payload", field)
+				}
 			})
-			require.NoError(t, err)
-
-			_, err = backend.PutTargets(context.Background(), "envelope-rule-"+tt.name, "default", []eventbridge.Target{
-				{ID: "t1", Arn: queueARN},
-			})
-			require.NoError(t, err)
-
-			backend.PutEvents(context.Background(), tt.events)
-
-			require.Eventually(t, func() bool {
-				return len(sqsMock.MessagesFor(queueARN)) > 0
-			}, 2*time.Second, 10*time.Millisecond)
-
-			msgs := sqsMock.MessagesFor(queueARN)
-			require.Len(t, msgs, 1)
-
-			for _, field := range tt.wantFields {
-				assert.Contains(t, msgs[0], field, "expected field %q in payload", field)
-			}
 		})
 	}
 }
@@ -407,50 +405,48 @@ func TestDelivery_FullEnvelope(t *testing.T) {
 func TestDelivery_SharedEventIDAcrossTargets(t *testing.T) {
 	t.Parallel()
 
-	sqsMock1 := newMockSQSSender()
-	sqsMock2 := newMockSQSSender()
+	synctest.Test(t, func(t *testing.T) {
+		sqsMock1 := newMockSQSSender()
+		sqsMock2 := newMockSQSSender()
 
-	backend := eventbridge.NewInMemoryBackend()
-	backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
-		SQS: &multiQueueSender{senders: map[string]*mockSQSSender{
-			"arn:aws:sqs:us-east-1:000000000000:queue-a": sqsMock1,
-			"arn:aws:sqs:us-east-1:000000000000:queue-b": sqsMock2,
-		}},
+		backend := eventbridge.NewInMemoryBackend()
+		backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+			SQS: &multiQueueSender{senders: map[string]*mockSQSSender{
+				"arn:aws:sqs:us-east-1:000000000000:queue-a": sqsMock1,
+				"arn:aws:sqs:us-east-1:000000000000:queue-b": sqsMock2,
+			}},
+		})
+
+		_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         "shared-id-rule",
+			EventPattern: `{"source": ["shared.id.service"]}`,
+			State:        "ENABLED",
+		})
+		require.NoError(t, err)
+
+		_, err = backend.PutTargets(context.Background(), "shared-id-rule", "default", []eventbridge.Target{
+			{ID: "t1", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-a"},
+			{ID: "t2", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-b"},
+		})
+		require.NoError(t, err)
+
+		backend.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "shared.id.service", DetailType: "Evt", Detail: `{}`},
+		})
+		synctest.Wait()
+
+		var id1, id2 struct {
+			ID string `json:"id"`
+		}
+
+		msg1 := sqsMock1.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-a")[0]
+		msg2 := sqsMock2.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-b")[0]
+
+		require.NoError(t, json.Unmarshal([]byte(msg1), &id1))
+		require.NoError(t, json.Unmarshal([]byte(msg2), &id2))
+		assert.NotEmpty(t, id1.ID)
+		assert.Equal(t, id1.ID, id2.ID, "all targets for the same rule+event must share the same event id")
 	})
-
-	_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:         "shared-id-rule",
-		EventPattern: `{"source": ["shared.id.service"]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
-
-	_, err = backend.PutTargets(context.Background(), "shared-id-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-a"},
-		{ID: "t2", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-b"},
-	})
-	require.NoError(t, err)
-
-	backend.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "shared.id.service", DetailType: "Evt", Detail: `{}`},
-	})
-
-	require.Eventually(t, func() bool {
-		return len(sqsMock1.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-a")) > 0 &&
-			len(sqsMock2.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-b")) > 0
-	}, 2*time.Second, 10*time.Millisecond)
-
-	var id1, id2 struct {
-		ID string `json:"id"`
-	}
-
-	msg1 := sqsMock1.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-a")[0]
-	msg2 := sqsMock2.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-b")[0]
-
-	require.NoError(t, json.Unmarshal([]byte(msg1), &id1))
-	require.NoError(t, json.Unmarshal([]byte(msg2), &id2))
-	assert.NotEmpty(t, id1.ID)
-	assert.Equal(t, id1.ID, id2.ID, "all targets for the same rule+event must share the same event id")
 }
 
 // multiQueueSender routes SendMessageToQueue calls to the matching mockSQSSender by ARN.
@@ -514,39 +510,38 @@ func TestDelivery_InputPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sqsMock := newMockSQSSender()
-			backend := setupDeliveryBackend(t, sqsMock, nil)
-			queueARN := "arn:aws:sqs:us-east-1:000000000000:path-queue-" + tt.name
-			ruleName := "path-rule-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				sqsMock := newMockSQSSender()
+				backend := setupDeliveryBackend(t, sqsMock, nil)
+				queueARN := "arn:aws:sqs:us-east-1:000000000000:path-queue-" + tt.name
+				ruleName := "path-rule-" + tt.name
 
-			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         ruleName,
-				EventPattern: `{"source": ["path.service"]}`,
-				State:        "ENABLED",
+				_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         ruleName,
+					EventPattern: `{"source": ["path.service"]}`,
+					State:        "ENABLED",
+				})
+				require.NoError(t, err)
+
+				_, err = backend.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
+					{ID: "t1", Arn: queueARN, InputPath: tt.inputPath},
+				})
+				require.NoError(t, err)
+
+				backend.PutEvents(context.Background(), tt.events)
+				synctest.Wait()
+
+				msgs := sqsMock.MessagesFor(queueARN)
+				require.Len(t, msgs, 1)
+
+				if tt.wantJSONEq != "" {
+					assert.JSONEq(t, tt.wantJSONEq, msgs[0])
+				}
+
+				if tt.wantContains != "" {
+					assert.Contains(t, msgs[0], tt.wantContains)
+				}
 			})
-			require.NoError(t, err)
-
-			_, err = backend.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
-				{ID: "t1", Arn: queueARN, InputPath: tt.inputPath},
-			})
-			require.NoError(t, err)
-
-			backend.PutEvents(context.Background(), tt.events)
-
-			require.Eventually(t, func() bool {
-				return len(sqsMock.MessagesFor(queueARN)) > 0
-			}, 2*time.Second, 10*time.Millisecond)
-
-			msgs := sqsMock.MessagesFor(queueARN)
-			require.Len(t, msgs, 1)
-
-			if tt.wantJSONEq != "" {
-				assert.JSONEq(t, tt.wantJSONEq, msgs[0])
-			}
-
-			if tt.wantContains != "" {
-				assert.Contains(t, msgs[0], tt.wantContains)
-			}
 		})
 	}
 }
@@ -620,39 +615,38 @@ func TestDelivery_InputTransformer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sqsMock := newMockSQSSender()
-			backend := setupDeliveryBackend(t, sqsMock, nil)
-			queueARN := "arn:aws:sqs:us-east-1:000000000000:transform-queue-" + tt.name
-			ruleName := "transform-rule-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				sqsMock := newMockSQSSender()
+				backend := setupDeliveryBackend(t, sqsMock, nil)
+				queueARN := "arn:aws:sqs:us-east-1:000000000000:transform-queue-" + tt.name
+				ruleName := "transform-rule-" + tt.name
 
-			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         ruleName,
-				EventPattern: `{"source": ["transform.service", "order.service", "text.service"]}`,
-				State:        "ENABLED",
+				_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         ruleName,
+					EventPattern: `{"source": ["transform.service", "order.service", "text.service"]}`,
+					State:        "ENABLED",
+				})
+				require.NoError(t, err)
+
+				_, err = backend.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
+					{ID: "t1", Arn: queueARN, InputTransformer: tt.inputTransformer},
+				})
+				require.NoError(t, err)
+
+				backend.PutEvents(context.Background(), tt.events)
+				synctest.Wait()
+
+				msgs := sqsMock.MessagesFor(queueARN)
+				require.Len(t, msgs, 1)
+
+				if tt.wantJSONEq != "" {
+					assert.JSONEq(t, tt.wantJSONEq, msgs[0])
+				}
+
+				if tt.wantContains != "" {
+					assert.Contains(t, msgs[0], tt.wantContains)
+				}
 			})
-			require.NoError(t, err)
-
-			_, err = backend.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
-				{ID: "t1", Arn: queueARN, InputTransformer: tt.inputTransformer},
-			})
-			require.NoError(t, err)
-
-			backend.PutEvents(context.Background(), tt.events)
-
-			require.Eventually(t, func() bool {
-				return len(sqsMock.MessagesFor(queueARN)) > 0
-			}, 2*time.Second, 10*time.Millisecond)
-
-			msgs := sqsMock.MessagesFor(queueARN)
-			require.Len(t, msgs, 1)
-
-			if tt.wantJSONEq != "" {
-				assert.JSONEq(t, tt.wantJSONEq, msgs[0])
-			}
-
-			if tt.wantContains != "" {
-				assert.Contains(t, msgs[0], tt.wantContains)
-			}
 		})
 	}
 }
@@ -698,44 +692,43 @@ func TestDelivery_SNS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			snsMock := newMockSNSPublisher()
-			backend := setupDeliveryBackendFull(t, nil, nil, snsMock)
+			synctest.Test(t, func(t *testing.T) {
+				snsMock := newMockSNSPublisher()
+				backend := setupDeliveryBackendFull(t, nil, nil, snsMock)
 
-			state := "ENABLED"
-			if !tt.wantDelivered {
-				state = "DISABLED"
-			}
+				state := "ENABLED"
+				if !tt.wantDelivered {
+					state = "DISABLED"
+				}
 
-			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
-				Name:         tt.ruleName,
-				EventPattern: tt.eventPattern,
-				State:        state,
-			})
-			require.NoError(t, err)
+				_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         tt.ruleName,
+					EventPattern: tt.eventPattern,
+					State:        state,
+				})
+				require.NoError(t, err)
 
-			_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{
-				{ID: "t1", Arn: tt.topicARN},
-			})
-			require.NoError(t, err)
+				_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{
+					{ID: "t1", Arn: tt.topicARN},
+				})
+				require.NoError(t, err)
 
-			backend.PutEvents(context.Background(), tt.events)
-
-			if tt.wantDelivered {
-				require.Eventually(t, func() bool {
-					return len(snsMock.MessagesFor(tt.topicARN)) > 0
-				}, 2*time.Second, 10*time.Millisecond)
+				backend.PutEvents(context.Background(), tt.events)
+				synctest.Wait()
 
 				msgs := snsMock.MessagesFor(tt.topicARN)
+				if !tt.wantDelivered {
+					assert.Empty(t, msgs, "expected no messages for disabled rule")
+
+					return
+				}
+
 				assert.Len(t, msgs, tt.wantLen)
 
 				if tt.wantContains != "" {
 					assert.Contains(t, msgs[0], tt.wantContains)
 				}
-			} else {
-				require.Never(t, func() bool {
-					return len(snsMock.MessagesFor(tt.topicARN)) > 0
-				}, 100*time.Millisecond, 10*time.Millisecond, "expected no messages for disabled rule")
-			}
+			})
 		})
 	}
 }

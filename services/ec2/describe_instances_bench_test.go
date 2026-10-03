@@ -76,16 +76,19 @@ func seedDescribeInstancesBenchBackend(b *testing.B, n int) *ec2.Handler {
 	return h
 }
 
-func benchmarkDescribeInstances(b *testing.B, n int) {
+const describeInstancesFilteredBody = "Action=DescribeInstances&Version=2016-11-15" +
+	"&Filter.1.Name=tag%3AEnvironment&Filter.1.Value.1=prod" +
+	"&Filter.2.Name=instance-state-name&Filter.2.Value.1=running&Filter.2.Value.2=pending"
+
+func benchmarkDescribeInstances(b *testing.B, n int, body string) {
 	b.Helper()
 
 	h := seedDescribeInstancesBenchBackend(b, n)
 	e := echo.New()
-	const body = "Action=DescribeInstances&Version=2016-11-15"
 
-	b.ResetTimer()
+	b.ReportAllocs()
 
-	for range b.N {
+	for b.Loop() {
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -102,5 +105,20 @@ func benchmarkDescribeInstances(b *testing.B, n int) {
 	}
 }
 
-func BenchmarkDescribeInstances_100(b *testing.B)  { benchmarkDescribeInstances(b, 100) }
-func BenchmarkDescribeInstances_1000(b *testing.B) { benchmarkDescribeInstances(b, 1000) }
+const describeInstancesPlainBody = "Action=DescribeInstances&Version=2016-11-15"
+
+func BenchmarkDescribeInstances_100(b *testing.B) {
+	benchmarkDescribeInstances(b, 100, describeInstancesPlainBody)
+}
+
+func BenchmarkDescribeInstances_1000(b *testing.B) {
+	benchmarkDescribeInstances(b, 1000, describeInstancesPlainBody)
+}
+
+func BenchmarkDescribeInstancesFiltered_100(b *testing.B) {
+	benchmarkDescribeInstances(b, 100, describeInstancesFilteredBody)
+}
+
+func BenchmarkDescribeInstancesFiltered_1000(b *testing.B) {
+	benchmarkDescribeInstances(b, 1000, describeInstancesFilteredBody)
+}

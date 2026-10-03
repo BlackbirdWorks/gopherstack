@@ -3,6 +3,7 @@ package rds
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 )
 
 func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
@@ -12,6 +13,11 @@ func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
 	versions, err := applyDBEngineVersionFilters(vals, versions)
 	if err != nil {
 		return nil, err
+	}
+	if vals.Get("IncludeAll") != formTrue {
+		versions = slices.DeleteFunc(versions, func(v DBEngineVersion) bool {
+			return v.Status == engineVersionStatusDeprecated
+		})
 	}
 	if vals.Get("DefaultOnly") == formTrue {
 		filtered := make([]DBEngineVersion, 0, len(versions))
@@ -29,17 +35,9 @@ func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
 
 		return a.Engine < b.Engine
 	}, func(v DBEngineVersion) xmlDBEngineVersion {
-		out := xmlDBEngineVersion{
-			Engine:              v.Engine,
-			EngineVersion:       v.EngineVersion,
-			DBEngineDescription: v.DBEngineDescription,
-			Status:              v.Status,
-		}
-		if v.ImageID != "" {
-			out.Image = &xmlCustomDBEngineVersionAMI{ImageID: v.ImageID, Status: v.Status}
-		}
-
-		return out
+		return toXMLEngineVersion(
+			v, vals.Get("ListSupportedCharacterSets") == formTrue, vals.Get("ListSupportedTimezones") == formTrue,
+		)
 	})
 	if err != nil {
 		return nil, err
@@ -50,6 +48,33 @@ func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
 		Marker:           marker,
 		DBEngineVersions: xmlDBEngineVersionList{Members: members},
 	}, nil
+}
+
+func toXMLEngineVersion(v DBEngineVersion, charSets, timezones bool) xmlDBEngineVersion {
+	out := xmlDBEngineVersion{
+		Engine:              v.Engine,
+		EngineVersion:       v.EngineVersion,
+		DBEngineDescription: v.DBEngineDescription,
+		Status:              v.Status,
+	}
+	if v.ImageID != "" {
+		out.Image = &xmlCustomDBEngineVersionAMI{ImageID: v.ImageID, Status: v.Status}
+	}
+	if charSets && len(v.SupportedCharacterSets) > 0 {
+		out.SupportedCharacterSets = &xmlSupportedCharacterSets{}
+		for _, c := range v.SupportedCharacterSets {
+			out.SupportedCharacterSets.Members = append(out.SupportedCharacterSets.Members,
+				xmlCharacterSet{CharacterSetName: c.Name, CharacterSetDescription: c.Description})
+		}
+	}
+	if timezones && len(v.SupportedTimezones) > 0 {
+		out.SupportedTimezones = &xmlSupportedTimezones{}
+		for _, tz := range v.SupportedTimezones {
+			out.SupportedTimezones.Members = append(out.SupportedTimezones.Members, xmlTimezone{TimezoneName: tz})
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any, error) {
@@ -81,12 +106,31 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any
 	}, nil
 }
 
+type xmlCharacterSet struct {
+	CharacterSetName        string `xml:"CharacterSetName"`
+	CharacterSetDescription string `xml:"CharacterSetDescription"`
+}
+
+type xmlSupportedCharacterSets struct {
+	Members []xmlCharacterSet `xml:"CharacterSet"`
+}
+
+type xmlTimezone struct {
+	TimezoneName string `xml:"TimezoneName"`
+}
+
+type xmlSupportedTimezones struct {
+	Members []xmlTimezone `xml:"Timezone"`
+}
+
 type xmlDBEngineVersion struct {
-	Image               *xmlCustomDBEngineVersionAMI `xml:"Image,omitempty"`
-	Engine              string                       `xml:"Engine"`
-	EngineVersion       string                       `xml:"EngineVersion"`
-	DBEngineDescription string                       `xml:"DBEngineDescription"`
-	Status              string                       `xml:"Status,omitempty"`
+	Image                  *xmlCustomDBEngineVersionAMI `xml:"Image,omitempty"`
+	SupportedCharacterSets *xmlSupportedCharacterSets   `xml:"SupportedCharacterSets,omitempty"`
+	SupportedTimezones     *xmlSupportedTimezones       `xml:"SupportedTimezones,omitempty"`
+	Engine                 string                       `xml:"Engine"`
+	EngineVersion          string                       `xml:"EngineVersion"`
+	DBEngineDescription    string                       `xml:"DBEngineDescription"`
+	Status                 string                       `xml:"Status,omitempty"`
 }
 
 type xmlDBEngineVersionList struct {

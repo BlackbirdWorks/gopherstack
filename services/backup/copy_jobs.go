@@ -57,13 +57,15 @@ func (b *InMemoryBackend) DescribeCopyJob(copyJobID string) (*CopyJob, error) {
 // backup@v1.64.0 types.go) was never emitted here, unlike every sibling
 // summary op (ListBackupJobSummaries/ListRestoreJobSummaries/
 // ListScanJobSummaries all include it) -- fixed.
-func (b *InMemoryBackend) ListCopyJobSummaries() []map[string]any {
+func (b *InMemoryBackend) ListCopyJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListCopyJobSummaries")
 	defer b.mu.RUnlock()
 
 	counts := make(map[string]int)
 	for _, j := range b.copyJobs.All() {
-		counts[j.State]++
+		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.State, "") {
+			counts[j.State]++
+		}
 	}
 
 	summaries := make([]map[string]any, 0, len(counts))

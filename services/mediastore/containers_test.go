@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -322,42 +323,6 @@ func TestInMemoryBackend_AccessLogging(t *testing.T) {
 	}
 }
 
-// waitForContainerStatus polls DescribeContainer until want is observed or
-// timeout elapses, returning the final observed status (or an empty string
-// if DescribeContainer errored, e.g. because the container was actually
-// removed). Modeled on services/redshift's reconciler_test.go waitFor
-// helper: since advanceContainerStates only runs lazily (no background
-// goroutine), the caller must keep calling a read path for a due transition
-// to ever apply.
-func waitForContainerStatus(
-	t *testing.T,
-	b *mediastore.InMemoryBackend,
-	name, want string,
-	timeout time.Duration,
-) string {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	last := ""
-
-	for time.Now().Before(deadline) {
-		c, err := b.DescribeContainer(context.Background(), name)
-		if err != nil {
-			last = ""
-		} else {
-			last = c.Status
-		}
-
-		if last == want {
-			return last
-		}
-
-		time.Sleep(2 * time.Millisecond)
-	}
-
-	return last
-}
-
 // TestInMemoryBackend_ContainerActivationDelay verifies the CREATING/
 // DELETING transient-lifecycle simulation gated by SetActivationDelay: with
 // no delay configured (the default), transitions stay synchronous (matching
@@ -387,56 +352,52 @@ func TestInMemoryBackend_ContainerActivationDelay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
-			b.SetActivationDelay(tt.delay)
+			synctest.Test(t, func(t *testing.T) {
+				b := newBackend()
+				b.SetActivationDelay(tt.delay)
 
-			container := "activation-delay-test"
+				container := "activation-delay-test"
 
-			created, err := b.CreateContainer(context.Background(), testAccountID, container, nil)
-			require.NoError(t, err)
+				created, err := b.CreateContainer(context.Background(), testAccountID, container, nil)
+				require.NoError(t, err)
 
-			if tt.delay == 0 {
-				assert.Equal(t, "ACTIVE", created.Status)
-			} else {
-				assert.Equal(t, "CREATING", created.Status)
+				if tt.delay == 0 {
+					assert.Equal(t, "ACTIVE", created.Status)
+				} else {
+					assert.Equal(t, "CREATING", created.Status)
 
-				got := waitForContainerStatus(t, b, container, "ACTIVE", time.Second)
-				assert.Equal(t, "ACTIVE", got, "container never transitioned to ACTIVE")
-			}
+					// advanceContainerStates only runs lazily (no background
+					// goroutine): sleeping past the delay then reading once is enough.
+					time.Sleep(tt.delay + time.Millisecond)
 
-			err = b.DeleteContainer(context.Background(), container)
-			require.NoError(t, err)
-
-			if tt.delay == 0 {
-				_, err = b.DescribeContainer(context.Background(), container)
-				require.Error(t, err, "container should be gone immediately with no activation delay")
-
-				return
-			}
-
-			// With a delay configured, the container must still be visible
-			// (in DELETING) immediately after DeleteContainer returns...
-			mid, err := b.DescribeContainer(context.Background(), container)
-			require.NoError(t, err, "container should still be visible mid-deletion")
-			assert.Equal(t, "DELETING", mid.Status)
-
-			// ...and actually gone once the delay elapses.
-			deadline := time.Now().Add(time.Second)
-
-			for {
-				_, err = b.DescribeContainer(context.Background(), container)
-				if err != nil {
-					break
+					var got *mediastore.Container
+					got, err = b.DescribeContainer(context.Background(), container)
+					require.NoError(t, err)
+					assert.Equal(t, "ACTIVE", got.Status, "container never transitioned to ACTIVE")
 				}
 
-				if time.Now().After(deadline) {
-					t.Fatal("container was never removed after its deletion delay elapsed")
+				err = b.DeleteContainer(context.Background(), container)
+				require.NoError(t, err)
+
+				if tt.delay == 0 {
+					_, err = b.DescribeContainer(context.Background(), container)
+					require.Error(t, err, "container should be gone immediately with no activation delay")
+
+					return
 				}
 
-				time.Sleep(2 * time.Millisecond)
-			}
+				// With a delay configured, the container must still be visible
+				// (in DELETING) immediately after DeleteContainer returns...
+				mid, err := b.DescribeContainer(context.Background(), container)
+				require.NoError(t, err, "container should still be visible mid-deletion")
+				assert.Equal(t, "DELETING", mid.Status)
 
-			require.Error(t, err)
+				// ...and actually gone once the delay elapses.
+				time.Sleep(tt.delay + time.Millisecond)
+
+				_, err = b.DescribeContainer(context.Background(), container)
+				require.Error(t, err, "container was never removed after its deletion delay elapsed")
+			})
 		})
 	}
 }

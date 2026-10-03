@@ -26,17 +26,14 @@ func packageKey(domainName, repoName, format, namespace, name string) string {
 	return domainName + "/" + repoName + "/" + format + "/" + namespace + "/" + name
 }
 
-// DescribePackage returns a package by domain, repository, format, namespace, and name.
-// If the package does not already exist in the store, a stub entry is created on the fly so
-// that callers (e.g. Terraform providers) can always retrieve metadata about packages that
-// were published directly to the repository.
+// DescribePackage returns a published package, or ResourceNotFoundException.
 func (b *InMemoryBackend) DescribePackage(
 	ctx context.Context, domainName, repoName, format, namespace, name string,
 ) (*Package, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("DescribePackage")
-	defer b.mu.Unlock()
+	b.mu.RLock("DescribePackage")
+	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
@@ -45,17 +42,7 @@ func (b *InMemoryBackend) DescribePackage(
 	key := packageKey(domainName, repoName, format, namespace, name)
 	pkg, ok := b.packages.Get(regionKey(region, key))
 	if !ok {
-		// Auto-create a stub package entry.
-		pkg = &Package{
-			DomainName:  domainName,
-			DomainOwner: b.accountID,
-			Repository:  repoName,
-			Format:      format,
-			Namespace:   namespace,
-			Name:        name,
-			region:      region,
-		}
-		b.packages.Put(pkg)
+		return nil, fmt.Errorf("%w: package %s not found", ErrNotFound, name)
 	}
 	cp := *pkg
 

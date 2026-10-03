@@ -206,7 +206,8 @@ func (rc *ResourceCreator) createLogsDeliverySource(
 	}
 
 	src, err := imb.PutDeliverySource(
-		name, strProp(props, "LogType", params, physicalIDs), resourceArns, tagListProp(props, params, physicalIDs),
+		name, strProp(props, "LogType", params, physicalIDs), resourceArns,
+		tagListProp(props, params, physicalIDs), nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Logs delivery source %s: %w", name, err)

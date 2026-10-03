@@ -3,6 +3,7 @@ package elasticbeanstalk_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -17,18 +18,20 @@ import (
 func TestInMemoryBackend_UpdateConfigurationTemplate_BumpsDateUpdated(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend()
-	_, err := b.CreateApplication(context.Background(), "app3", "", nil)
-	require.NoError(t, err)
-	tmpl, err := b.CreateConfigurationTemplate(context.Background(), "app3", "tmpl1", "orig", "", nil)
-	require.NoError(t, err)
-	created := tmpl.DateUpdated
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
+		_, err := b.CreateApplication(context.Background(), "app3", "", nil)
+		require.NoError(t, err)
+		tmpl, err := b.CreateConfigurationTemplate(context.Background(), "app3", "tmpl1", "orig", "", nil)
+		require.NoError(t, err)
+		created := tmpl.DateUpdated
 
-	time.Sleep(time.Second)
+		time.Sleep(time.Second)
 
-	updated, err := b.UpdateConfigurationTemplate(context.Background(), "app3", "tmpl1", "new desc")
-	require.NoError(t, err)
-	assert.NotEqual(t, created, updated.DateUpdated)
+		updated, err := b.UpdateConfigurationTemplate(context.Background(), "app3", "tmpl1", "new desc")
+		require.NoError(t, err)
+		assert.NotEqual(t, created, updated.DateUpdated)
+	})
 }
 
 // TestInMemoryBackend_CreateConfigurationTemplate_SeedsFromEnvironment verifies that

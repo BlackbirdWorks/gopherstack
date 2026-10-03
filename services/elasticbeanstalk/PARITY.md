@@ -7,7 +7,7 @@
 service: elasticbeanstalk
 sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4   # version audited against
 last_audit_commit: 16aa469b2                      # HEAD at close of the 2026-09-18 ledger burn-down pass
-last_audit_date: 2026-09-18
+last_audit_date: 2026-09-30
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
                        #
                        # gopherstack-hoky pass (2026-09-11): CreateConfigurationTemplate's
@@ -88,24 +88,24 @@ families:
   Create/UpdateConfigurationTemplate response shape: {status: fixed, note: "real CreateConfigurationTemplateOutput and UpdateConfigurationTemplateOutput are NOT a bespoke small type -- they are the exact same ConfigurationSettingsDescription shape DescribeConfigurationSettings returns (ApplicationName/TemplateName/Description/DateCreated/DateUpdated/DeploymentStatus/OptionSettings/PlatformArn/SolutionStackName; confirmed by reading api_op_CreateConfigurationTemplate.go/api_op_UpdateConfigurationTemplate.go in the SDK module). The previous 4-field configurationTemplateDescType silently dropped DateCreated/DateUpdated/OptionSettings/PlatformArn from both responses. Unified onto configurationSettingsDescType via toConfigurationSettingsDesc, shared with DescribeConfigurationSettings' template branch."}
 gaps: []
 items_still_open:
-  - "(2026-09-18) DescribeConfigurationOptions applies one fixed, curated ~48-option catalog across 16 namespaces regardless of the resolved SolutionStackName/PlatformArn; real AWS returns hundreds of platform-specific options that vary by solution stack. Large effort (a per-solution-stack option table); not reclassified to ok."
-  - "(2026-09-18) CreateApplication behavior on a duplicate ApplicationName (idempotent-return-existing vs error) is genuinely unconfirmable: re-checked against the live API doc and the pinned SDK's error deserializer again this pass -- only TooManyApplicationsException is modeled/documented either way. Current behavior (errors via ErrAlreadyExists, never silently overwrites) is the safer of the two undocumented options; left unchanged."
-  - "(gopherstack-6flj) ApplicationVersionDescription.BuildArn is not modeled -- no CodeBuild integration anywhere in this backend, so there is no real build ARN to source."
-  - "(gopherstack-6flj) EnvironmentDescription.Resources (LoadBalancerDescription) and EnvironmentLinks are not modeled -- no real Domain/Listener/environment-group-linking data source exists in this backend to derive them from without fabricating."
-  - "(gopherstack-6flj) ManagedActionHistoryItem.FailureDescription/FailureType are not modeled -- every managed action this backend applies synchronously succeeds, so there is no failure state to describe."
-  - "(gopherstack-6flj) DescribePlatformVersion's PlatformDescription is missing most real fields (Frameworks/Maintainer/OperatingSystem*/ProgrammingLanguages/etc.) -- no S3 platform-definition-bundle parsing anywhere in this backend, so there is no real platform metadata beyond the four fields PlatformVersion tracks."
-  - "(gopherstack-6flj) PlatformBranchSummary.BranchOrder/SupportedTierList are not modeled -- allPlatformBranches is a static curated list; assigning real-looking order numbers or tier lists without a verified per-branch source would be fabrication, not disclosure."
-  - "(gopherstack-6flj) EventDescription.RequestId is not modeled -- no per-call unique request-ID generation exists anywhere in this handler (every op's ResponseMetadata.RequestID is a fixed literal), not something specific to events to invent in isolation."
-  - "(gopherstack-6flj) DescribeEnvironmentHealthOutput.ApplicationMetrics/Causes/InstancesHealth are not modeled at all -- no request-metrics or per-instance health data exists in this backend (same root cause as DescribeInstancesHealth's always-empty list). AttributeNames filtering of the fields this backend DOES track was fixed 2026-09-18, see ops table."
-  - "(gopherstack-6flj) DescribeEnvironments' IncludeDeleted/IncludedDeletedBackTo filter is not modeled -- TerminateEnvironment removes the environment record outright, so there is no deleted-environment history to include; retrofitting a tombstone would touch environment identity/uniqueness and cascade-delete invariants across the whole service, out of scope for this pass."
-  - "(2026-09-12, gopherstack-n3zi) ListAvailableSolutionStacksOutput.SolutionStackDetails (PermittedFileTypes per solution stack) is not modeled -- no per-solution-stack file-type table exists in this backend; disclosed rather than fabricated."
-  - "(2026-09-12, gopherstack-n3zi) ComposeEnvironmentsInput.VersionLabels (env.yaml-manifest-driven new-environment creation) is parsed nowhere -- ComposeEnvironments here just lists the application's existing environments. Full manifest parsing is a structural gap (no env.yaml support anywhere in this backend)."
-  - "(reqfielddiff tier-1, 2026-09-18) TerminateEnvironment.TerminateResources is not read -- this backend deletes the environment record unconditionally and models no separate underlying-resource (EC2/ASG/ELB) lifecycle for retain-vs-terminate to gate. (bd: unfiled)"
+  - "DescribeConfigurationOptions returns one curated ~48-option catalog regardless of SolutionStackName/PlatformArn; real AWS varies hundreds of options per platform."
+  - "CreateApplication on a duplicate ApplicationName errors via ErrAlreadyExists; the AWS docs and pinned SDK do not say whether real AWS errors or returns the existing application."
+  - "No CodeBuild/EC2/ELB/CloudWatch data source: ApplicationVersionDescription.BuildArn, EnvironmentDescription.Resources/EnvironmentLinks, DescribeEnvironmentHealth ApplicationMetrics/Causes/InstancesHealth and TerminateEnvironment.TerminateResources are not modeled."
+  - "ManagedActionHistoryItem.FailureDescription/FailureType are not modeled: every managed action succeeds synchronously, so no failure state exists."
+  - "Platform metadata is not modeled: DescribePlatformVersion's Frameworks/Maintainer/OperatingSystem*/ProgrammingLanguages etc., PlatformBranchSummary.BranchOrder/SupportedTierList and SolutionStackDetails.PermittedFileTypes have no verified data source."
+  - "EventDescription.RequestId is not modeled: no handler generates per-call request IDs (every ResponseMetadata.RequestID is a fixed literal)."
+  - "ComposeEnvironmentsInput.VersionLabels is not read: env.yaml manifest parsing and new-environment creation are unmodeled."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; store.Table/Index-backed maps, coarse lockmetrics.RWMutex per backend -- consistent with pkgs-catalog.md guidance. createDefaultConfigurationTemplate is a private, non-locking helper always called with b.mu already held by its caller (CreateApplication/CreateApplicationVersionWithParams) -- verified no double-lock/deadlock. No new leak surface introduced this pass."}
 ---
 
 ## Notes
+
+### 2026-09-30: items_still_open burn-down
+
+Re-read all 13 items against HEAD and the pinned SDK; none fixable without inventing data
+(e.g. SolutionStackDescription.PermittedFileTypes has no per-platform values in the SDK).
+Consolidated same-reason items into 8 one-line entries; no code changes.
 
 ### 2026-09-18: ledger burn-down -- 2 real fixes, 12 items confirmed structural
 
@@ -265,9 +265,8 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
 - `TerminateEnvironment` deletes the environment from the store immediately after
   capturing a `Status: Terminated` snapshot for the response. This matches AWS's default
   `DescribeEnvironments` behavior (default `IncludeDeleted=false` excludes terminated
-  environments), but `IncludeDeleted=true`/`IncludedDeletedBackTo` are not implemented --
-  a client explicitly asking to see recently-terminated environments will get nothing.
-  Not fixed this pass (low traffic); flagged here so it isn't rediscovered from scratch.
+  environments); `IncludeDeleted=true`/`IncludedDeletedBackTo` are served from a bounded
+  (100 per region) terminated-environment history since 2026-10-01.
 
 **2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
 masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
@@ -446,3 +445,11 @@ Gates: `go build ./...` clean (whole module). `go vet ./services/elasticbeanstal
 clean. `go test -race -count=1 ./services/elasticbeanstalk/... ./pkgs/persistence/...`
 clean. `golangci-lint run --new-from-rev=HEAD ./services/elasticbeanstalk/...` 0 issues.
 No persisted struct fields added -- no `snapshot_inventory.json` change, no version bump.
+
+## 2026-10-01 (items_still_open burn-down)
+
+`DescribeEnvironments` `IncludeDeleted`/`IncludedDeletedBackTo` now work: terminated environments are kept
+as a persisted per-region history capped at 100 (`DeletedEnvironments` in the snapshot, additive, no version
+bump) with `DateUpdated` set to the termination time. Proof: `TestDescribeEnvironments_IncludeDeleted` and
+`TestDeletedEnvironments_BoundedAndPersisted`. The remaining 7 items are unmodeled subsystems or
+unverifiable AWS behavior; `EventDescription.RequestId` would need per-call request IDs the SDK never sends.

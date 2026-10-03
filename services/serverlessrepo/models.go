@@ -93,11 +93,11 @@ type CloudFormationTemplate struct {
 	Status          string    `json:"status"`
 	TemplateURL     string    `json:"templateUrl,omitempty"`
 	// AppName identifies the owning application. TemplateID is already
-	// globally unique (it is generated as "<appName>-<unixNano>"), so it
-	// remains the store.Table[CloudFormationTemplate] primary key (see
-	// store_setup.go); AppName exists purely to drive the additive "byApp"
-	// secondary index used for DeleteApplication's cascade delete. It is not
-	// part of the Serverless Application Repository wire API, hence json:"-".
+	// globally unique (a UUID), so it remains the
+	// store.Table[CloudFormationTemplate] primary key (see store_setup.go);
+	// AppName exists purely to drive the additive "byApp" secondary index
+	// used for DeleteApplication's cascade delete. It is not part of the
+	// Serverless Application Repository wire API, hence json:"-".
 	AppName string `json:"-"`
 }
 

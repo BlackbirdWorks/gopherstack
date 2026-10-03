@@ -16,7 +16,15 @@ const (
 )
 
 type startPipelineExecutionInput struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	Variables []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"variables"`
+	SourceRevisions []struct {
+		ActionName    string `json:"actionName"`
+		RevisionValue string `json:"revisionValue"`
+	} `json:"sourceRevisions"`
 }
 
 type pipelineExecutionOutput struct {
@@ -31,7 +39,18 @@ func (h *Handler) handleStartPipelineExecution(
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.StartPipelineExecution(ctx, in.Name)
+	opts := StartExecutionOptions{Variables: make(map[string]string, len(in.Variables))}
+	for _, v := range in.Variables {
+		opts.Variables[v.Name] = v.Value
+	}
+
+	for _, r := range in.SourceRevisions {
+		opts.SourceRevisions = append(
+			opts.SourceRevisions, SourceRevision{ActionName: r.ActionName, RevisionID: r.RevisionValue},
+		)
+	}
+
+	exec, err := h.Backend.StartPipelineExecutionWith(ctx, in.Name, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +128,10 @@ func pipelineExecutionDetail(exec *PipelineExecution) map[string]any {
 		out["rollbackMetadata"] = rollbackMetadataObject(exec.RollbackTargetExecutionID)
 	}
 
+	if len(exec.Variables) > 0 {
+		out["variables"] = exec.Variables
+	}
+
 	return out
 }
 
@@ -139,6 +162,14 @@ func pipelineExecutionSummary(exec *PipelineExecution) map[string]any {
 
 	if exec.RollbackTargetExecutionID != "" {
 		out["rollbackMetadata"] = rollbackMetadataObject(exec.RollbackTargetExecutionID)
+	}
+
+	if exec.StopReason != "" {
+		out["stopTrigger"] = map[string]any{"reason": exec.StopReason}
+	}
+
+	if len(exec.SourceRevisions) > 0 {
+		out["sourceRevisions"] = exec.SourceRevisions
 	}
 
 	return out

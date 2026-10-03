@@ -163,8 +163,33 @@ type HostVolume struct {
 
 // Volume specifies a volume available to containers.
 type Volume struct {
-	Host *HostVolume `json:"host,omitempty"`
-	Name string      `json:"name"`
+	Host                   *HostVolume             `json:"host,omitempty"`
+	EfsVolumeConfiguration *EFSVolumeConfiguration `json:"efsVolumeConfiguration,omitempty"`
+	S3FilesVolumeConfig    *S3FilesVolumeConfig    `json:"s3filesVolumeConfiguration,omitempty"`
+	Name                   string                  `json:"name"`
+}
+
+// EFSAuthorizationConfig is the authorization config of an EFS volume.
+type EFSAuthorizationConfig struct {
+	AccessPointID string `json:"accessPointId,omitempty"`
+	IAM           string `json:"iam,omitempty"`
+}
+
+// EFSVolumeConfiguration describes an Amazon EFS file system used as job storage.
+type EFSVolumeConfiguration struct {
+	AuthorizationConfig   *EFSAuthorizationConfig `json:"authorizationConfig,omitempty"`
+	TransitEncryptionPort *int32                  `json:"transitEncryptionPort,omitempty"`
+	FileSystemID          string                  `json:"fileSystemId"`
+	RootDirectory         string                  `json:"rootDirectory,omitempty"`
+	TransitEncryption     string                  `json:"transitEncryption,omitempty"`
+}
+
+// S3FilesVolumeConfig describes an S3Files file system used as job storage.
+type S3FilesVolumeConfig struct {
+	TransitEncryptionPort *int32 `json:"transitEncryptionPort,omitempty"`
+	FileSystemArn         string `json:"fileSystemArn"`
+	AccessPointArn        string `json:"accessPointArn,omitempty"`
+	RootDirectory         string `json:"rootDirectory,omitempty"`
 }
 
 // MountPoint maps a volume into a container.
@@ -351,10 +376,17 @@ type ImagePullSecret struct {
 
 // EksVolume specifies a volume available to EKS pod containers.
 type EksVolume struct {
-	HostPath *EksHostPath `json:"hostPath,omitempty"`
-	EmptyDir *EksEmptyDir `json:"emptyDir,omitempty"`
-	Secret   *EksSecret   `json:"secret,omitempty"`
-	Name     string       `json:"name"`
+	HostPath              *EksHostPath              `json:"hostPath,omitempty"`
+	EmptyDir              *EksEmptyDir              `json:"emptyDir,omitempty"`
+	Secret                *EksSecret                `json:"secret,omitempty"`
+	PersistentVolumeClaim *EksPersistentVolumeClaim `json:"persistentVolumeClaim,omitempty"`
+	Name                  string                    `json:"name"`
+}
+
+// EksPersistentVolumeClaim mounts a Kubernetes PersistentVolumeClaim into an EKS pod.
+type EksPersistentVolumeClaim struct {
+	ReadOnly  *bool  `json:"readOnly,omitempty"`
+	ClaimName string `json:"claimName"`
 }
 
 // EksMetadata holds labels and annotations for an EKS pod.

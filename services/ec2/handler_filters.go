@@ -19,6 +19,10 @@ import (
 
 // Common EC2 filter key name constants — shared across filter match functions.
 const (
+	filterKeySnapshotID       = "snapshot-id"
+	filterKeyPlatform         = "platform"
+	filterKeyGroupID          = "group-id"
+	filterKeyTaskState        = "task-state"
 	filterKeyVPCID            = "vpc-id"
 	filterKeySubnetID         = "subnet-id"
 	filterKeyState            = "state"
@@ -52,6 +56,10 @@ const (
 	filterKeyVpcEndpointID    = "vpc-endpoint-id"
 	filterKeyProductDesc      = "product-description"
 	filterKeyOutpostArn       = "outpost-arn"
+	filterKeyRIID             = "reserved-instances-id"
+	filterKeyTMFilterID       = "traffic-mirror-filter-id"
+	filterKeyProtocol         = "protocol"
+	filterKeyTagValue         = "tag-value"
 )
 
 // applyFilterList runs the standard AND-across-names/OR-within-values filter
@@ -435,7 +443,7 @@ snapLoop:
 
 func snapshotMatchesFilter(s *Snapshot, filterName string, values []string, b Backend) bool {
 	switch filterName {
-	case "snapshot-id":
+	case filterKeySnapshotID:
 		return anyEqual(s.SnapshotID, values)
 	case filterKeyVolumeID:
 		return anyEqual(s.VolumeID, values)
@@ -762,7 +770,7 @@ func imageMatchesFilter(a *AMIStub, filterName string, values []string, b Backen
 		return anyEqual(a.Name, values)
 	case "architecture":
 		return anyEqual(a.Architecture, values)
-	case "platform":
+	case filterKeyPlatform:
 		return anyEqual(a.Platform, values)
 	case filterKeyState:
 		st := a.State
@@ -1109,10 +1117,52 @@ instanceLoop:
 	return out
 }
 
+type compiledInstanceFilter struct {
+	name   string
+	tagKey string
+	values []string
+	isTag  bool
+}
+
+// compileInstanceFilters returns a predicate equivalent to applyInstanceFilters'
+// per-instance test, or nil when there are no filters.
+func compileInstanceFilters(filters map[string][]string) func(*Instance, map[string]string) bool {
+	if len(filters) == 0 {
+		return nil
+	}
+
+	compiled := make([]compiledInstanceFilter, 0, len(filters))
+
+	for name, values := range filters {
+		f := compiledInstanceFilter{name: name, values: values}
+		f.tagKey, f.isTag = strings.CutPrefix(name, "tag:")
+		compiled = append(compiled, f)
+	}
+
+	return func(inst *Instance, tags map[string]string) bool {
+		for i := range compiled {
+			f := &compiled[i]
+			if f.isTag {
+				if v, ok := tags[f.tagKey]; !ok || !slices.Contains(f.values, v) {
+					return false
+				}
+
+				continue
+			}
+
+			if !instanceMatchesFilter(inst, f.name, f.values, nil) {
+				return false
+			}
+		}
+
+		return true
+	}
+}
+
 // instanceMatchesFilter returns true if the instance matches any value in the filter.
 func instanceMatchesFilter(inst *Instance, filterName string, values []string, tags map[string]string) bool {
 	switch filterName {
-	case "instance-state-name":
+	case filterKeyInstStateName:
 		return anyEqual(inst.State.Name, values)
 	case filterKeyImageID:
 		return anyEqual(inst.ImageID, values)
@@ -1185,7 +1235,7 @@ func sgMatchesFilter(sg *SecurityGroup, filterName string, values []string, b Ba
 		return anyEqual(sg.VPCID, values)
 	case "group-name":
 		return anyEqual(sg.Name, values)
-	case "group-id":
+	case filterKeyGroupID:
 		return anyEqual(sg.ID, values)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
@@ -1703,7 +1753,7 @@ func instanceStatusMatchesFilter(
 		return anyEqual(inst.Placement.AvailabilityZone, values)
 	case "instance-state-code":
 		return anyEqual(itoa(inst.State.Code), values)
-	case "instance-state-name":
+	case filterKeyInstStateName:
 		return anyEqual(inst.State.Name, values)
 	case "instance-status.status", "system-status.status":
 		return anyEqual(health.Status, values)
@@ -1880,7 +1930,7 @@ clLoop:
 
 func classicLinkInstanceMatchesFilter(link *ClassicLinkInstance, filterName string, values []string, b Backend) bool {
 	switch filterName {
-	case "group-id":
+	case filterKeyGroupID:
 		return anyContains(link.Groups, values)
 	case filterKeyVPCID:
 		return anyEqual(link.VpcID, values)
@@ -2545,15 +2595,8 @@ func clientVpnEndpointMatchesFilter(ep *ClientVpnEndpoint, filterName string, va
 	return true
 }
 
-// applyVpnConnectionFilters supports the DescribeVpnConnections filters this
-// backend has data for: customer-gateway-id, state, option.static-routes-only,
-// type, vpn-connection-id, vpn-gateway-id, tag:<key>, tag-key
-// (api_op_DescribeVpnConnections.go doc comment).
-// customer-gateway-configuration, route.destination-cidr-block, and bgp-asn
-// are documented but unmodeled or unsuitable for equality filtering.
-// transit-gateway-id is documented but unmodeled: CreateVpnConnection only
-// ever attaches to a VpnGatewayId, never a TransitGatewayId, so
-// VpnConnection.TransitGatewayID is never populated (PARITY.md).
+// applyVpnConnectionFilters supports the filters this backend has data for
+// (customer-gateway-id, state, type, vpn/transit-gateway-id, tag:<key>, etc).
 func applyVpnConnectionFilters(
 	conns []*VpnConnection, filters map[string][]string, b Backend,
 ) []*VpnConnection {
@@ -2589,6 +2632,8 @@ func vpnConnectionMatchesFilter(c *VpnConnection, filterName string, values []st
 		return anyEqual(c.CustomerGatewayID, values)
 	case "vpn-gateway-id":
 		return anyEqual(c.VpnGatewayID, values)
+	case filterKeyTransitGatewayID:
+		return anyEqual(c.TransitGatewayID, values)
 	case "option.static-routes-only":
 		want := anyEqual("true", values)
 
@@ -3486,7 +3531,7 @@ func reservedInstanceMatchesFilter(ri *ReservedInstance, filterName string, valu
 		return anyEqual(ri.InstanceType, values)
 	case filterKeyProductDesc:
 		return anyEqual(ri.ProductDescription, values)
-	case "reserved-instances-id":
+	case filterKeyRIID:
 		return anyEqual(ri.ReservedInstancesID, values)
 	case "start":
 		return anyEqual(ri.Start.UTC().Format(time.RFC3339), values)
@@ -3514,7 +3559,7 @@ func trafficMirrorFilterMatchesFilter(f *TrafficMirrorFilter, filterName string,
 	switch filterName {
 	case filterKeyDescription:
 		return anyEqual(f.Description, values)
-	case "traffic-mirror-filter-id":
+	case filterKeyTMFilterID:
 		return anyEqual(f.TrafficMirrorFilterID, values)
 	}
 
@@ -3544,7 +3589,7 @@ func trafficMirrorSessionMatchesFilter(s *TrafficMirrorSession, filterName strin
 		return anyEqual(strconv.Itoa(s.PacketLength), values)
 	case "session-number":
 		return anyEqual(strconv.Itoa(s.SessionNumber), values)
-	case "traffic-mirror-filter-id":
+	case filterKeyTMFilterID:
 		return anyEqual(s.TrafficMirrorFilterID, values)
 	case "traffic-mirror-session-id":
 		return anyEqual(s.TrafficMirrorSessionID, values)
@@ -3726,7 +3771,7 @@ func networkInsightsPathMatchesFilter(p *NetworkInsightsPath, filterName string,
 	switch filterName {
 	case "destination":
 		return anyEqual(p.DestinationID, values)
-	case "protocol":
+	case filterKeyProtocol:
 		return anyEqual(p.Protocol, values)
 	case "source":
 		return anyEqual(p.SourceID, values)
@@ -4030,7 +4075,7 @@ func fpgaImageMatchesFilter(img *FpgaImage, filterName string, values []string, 
 // fabricated.
 func applyImportImageTaskFilters(tasks []*ImageImportTask, filters map[string][]string) []*ImageImportTask {
 	return applyFilterList(tasks, filters, func(t *ImageImportTask, name string, values []string) bool {
-		if name == "task-state" {
+		if name == filterKeyTaskState {
 			return anyEqual(t.Status, values)
 		}
 
@@ -4066,7 +4111,7 @@ func instanceEventWindowMatchesFilter(ew *InstanceEventWindow, filterName string
 		return anyEqual(ew.Name, values)
 	case filterKeyInstanceID:
 		return anyContains(ew.InstanceIDs, values)
-	case "tag-value":
+	case filterKeyTagValue:
 		for _, v := range b.TagsForResource(ew.InstanceEventWindowID) {
 			if anyEqual(v, values) {
 				return true

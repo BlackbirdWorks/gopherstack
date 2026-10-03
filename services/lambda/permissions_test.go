@@ -497,3 +497,54 @@ func TestAddPermission_RevisionId(t *testing.T) {
 		policyPath+"/s1?RevisionId="+rev3, "")
 	assert.Equal(t, http.StatusNoContent, okDelRec.Code)
 }
+
+func TestPermission_PolicyJSONEscapesValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		sourceArn string
+		sid       string
+	}{
+		{name: "double quote in source arn", sourceArn: `arn:aws:s3:::bu"cket`, sid: "sid1"},
+		{name: "quote and backslash in sid", sourceArn: "arn:aws:s3:::bucket", sid: `s"id\1`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newInMemoryHandler(t)
+			createFunctionForTest(t, h, "fn")
+
+			reqBody, err := json.Marshal(map[string]string{
+				"StatementId": tt.sid, "Action": "lambda:InvokeFunction",
+				"Principal": "s3.amazonaws.com", "SourceArn": tt.sourceArn,
+			})
+			require.NoError(t, err)
+
+			addRec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/policy", string(reqBody))
+			require.Equal(t, http.StatusCreated, addRec.Code)
+
+			getRec := callInMemoryHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/policy", "")
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var out lambda.GetPolicyOutput
+			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+			require.NotNil(t, out.Policy)
+
+			type statement struct {
+				Condition map[string]map[string]string `json:"Condition"`
+				Sid       string                       `json:"Sid"`
+			}
+
+			var doc struct {
+				Statement []statement `json:"Statement"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(*out.Policy), &doc))
+			require.Len(t, doc.Statement, 1)
+			assert.Equal(t, tt.sid, doc.Statement[0].Sid)
+			assert.Equal(t, tt.sourceArn, doc.Statement[0].Condition["ArnLike"]["AWS:SourceArn"])
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -516,26 +517,28 @@ func TestCloudWatchLogsBackend_CreateLogAnomalyDetector_VisibilityTimeValidation
 func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_SetsLastModified(t *testing.T) {
 	t.Parallel()
 
-	b := cloudwatchlogs.NewInMemoryBackend()
-	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := cloudwatchlogs.NewInMemoryBackend()
+		_, err := b.CreateLogGroup(context.Background(), "g", "", "")
+		require.NoError(t, err)
 
-	groupARN := "arn:aws:logs:us-east-1:123456789012:log-group:g"
-	arn, err := b.CreateLogAnomalyDetector([]string{groupARN}, "d", "", "", "", 0)
-	require.NoError(t, err)
+		groupARN := "arn:aws:logs:us-east-1:123456789012:log-group:g"
+		arn, err := b.CreateLogAnomalyDetector([]string{groupARN}, "d", "", "", "", 0)
+		require.NoError(t, err)
 
-	before, err := b.GetLogAnomalyDetector(arn)
-	require.NoError(t, err)
-	createdAt := before.LastModifiedTimeStamp
+		before, err := b.GetLogAnomalyDetector(arn)
+		require.NoError(t, err)
+		createdAt := before.LastModifiedTimeStamp
 
-	time.Sleep(2 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 
-	err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", 30, true)
-	require.NoError(t, err)
+		err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", 30, true)
+		require.NoError(t, err)
 
-	after, err := b.GetLogAnomalyDetector(arn)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, after.LastModifiedTimeStamp, createdAt)
+		after, err := b.GetLogAnomalyDetector(arn)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, after.LastModifiedTimeStamp, createdAt)
+	})
 }
 
 func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_VisibilityTimeValidation(t *testing.T) {

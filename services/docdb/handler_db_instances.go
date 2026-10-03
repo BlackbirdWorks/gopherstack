@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (any, error) {
@@ -179,6 +180,8 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		CACertificateIdentifier:      inst.CACertificateIdentifier,
 		CopyTagsToSnapshot:           inst.CopyTagsToSnapshot,
 		InstanceCreateTime:           inst.InstanceCreateTime,
+		DbiResourceID:                inst.DbiResourceID,
+		LatestRestorableTime:         time.Now().UTC().Format(time.RFC3339),
 		PerformanceInsightsKMSKeyID:  inst.PerformanceInsightsKMSKeyID,
 		PerformanceInsightsEnabled:   inst.PerformanceInsightsEnabled,
 		EnabledCloudwatchLogsExports: xmlLogTypeList{Members: logTypes},
@@ -199,6 +202,8 @@ type xmlDBInstance struct {
 	PreferredMaintenanceWindow   string         `xml:"PreferredMaintenanceWindow,omitempty"`
 	CACertificateIdentifier      string         `xml:"CACertificateIdentifier,omitempty"`
 	InstanceCreateTime           string         `xml:"InstanceCreateTime,omitempty"`
+	DbiResourceID                string         `xml:"DbiResourceId,omitempty"`
+	LatestRestorableTime         string         `xml:"LatestRestorableTime,omitempty"`
 	PerformanceInsightsKMSKeyID  string         `xml:"PerformanceInsightsKMSKeyId,omitempty"`
 	EnabledCloudwatchLogsExports xmlLogTypeList `xml:"EnabledCloudwatchLogsExports"`
 	StorageEncrypted             bool           `xml:"StorageEncrypted"`

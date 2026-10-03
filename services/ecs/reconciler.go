@@ -145,7 +145,7 @@ func (r *Reconciler) reconcileService(
 		return nil
 	}
 
-	running := r.backend.CountRunningTasksForService(snap.clusterName, svc.ServiceName)
+	running := snap.running
 	desired := svc.DesiredCount
 
 	// A deployment whose circuit breaker has tripped to FAILED without rolling

@@ -53,14 +53,19 @@ func (h *Handler) deleteRestAPIAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
+	// Deployment IDs are freshly random and never reused, so the trie cache
+	// (now keyed by deploymentID -- see routingTrie's doc) never overwrites a
+	// stale entry on its own; evict every deployment this API owned before
+	// they're gone from the backend and can no longer be listed.
+	depls, _ := h.Backend.GetDeployments(input.RestAPIID)
+
 	if err := h.Backend.DeleteRestAPI(input.RestAPIID); err != nil {
 		return 0, nil, err
 	}
 
-	// Evict the cached routing trie -- otherwise every RestApi ID ever routed to
-	// stays in h.trieCache forever, since fresh random IDs never reuse a deleted
-	// entry's key for the cache to overwrite.
-	h.trieCache.Delete(input.RestAPIID)
+	for _, d := range depls {
+		h.trieCache.Delete(d.ID)
+	}
 
 	return http.StatusAccepted, map[string]any{}, nil
 }

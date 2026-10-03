@@ -49,7 +49,7 @@ overall: A            # 2026-08-30 pass: two real filter bugs found and fixed, b
 ops:
   CreateSecret: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added missing ClientRequestToken idempotency contract (matches/mismatches an existing version's content on name collision). Fixed 2026-08-10 (gopherstack-9wuh): Type (api_op_CreateSecret.go's CreateSecretInput.Type, 'the exact string that identifies the partner that holds the external secret') was a real settable input field with no corresponding struct field in gopherstack's CreateSecretInput -- accepted on the wire then silently dropped by json.Unmarshal (unknown-field-ignored), not even a stub. Added the field, wired into secret.Type, echoed by DescribeSecret/ListSecrets."}
   GetSecretValue: {wire: ok, errors: ok, state: ok, persist: ok, note: "VersionId+VersionStage resolution correct; access-day clock now uses injectable b.now()"}
-  PutSecretValue: {wire: ok, errors: ok, state: fixed, persist: ok, note: "AWSCURRENT/AWSPREVIOUS rotation on staging labels correct; clock consistency fixed. Fixed 2026-09-06 (gopherstack-ngkw): a replica secret was writable directly via PutSecretValue, so it could diverge from its primary instead of only receiving values through replication. Secrets Manager User Guide ('Promote a replica secret to a standalone secret'): 'A replica secret can't be updated independently from its primary secret, except for its encryption key.' PutSecretValue has no KMS-key parameter, so it is always rejected on a replica now (InvalidRequestException via new ErrReplicaNotWritable -- modeled: PutSecretValue's deserializeOpError in aws-sdk-go-v2/service/secretsmanager@v1.44.4 deserializers.go includes InvalidRequestException). A primary/standalone secret is unaffected. See TestReplicaWriteGuard_BlockedOnReplica/putsecretvalue, TestReplicaWriteGuard_PrimaryUnaffectedByReplicas/putsecretvalue."}
+  PutSecretValue: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Version pruning keeps versions under 24h old past 100 (api_op_PutSecretValue.go) up to a 500 hard cap (AWS throttles instead). AWSCURRENT/AWSPREVIOUS rotation on staging labels correct; clock consistency fixed. Fixed 2026-09-06 (gopherstack-ngkw): a replica secret was writable directly via PutSecretValue, so it could diverge from its primary instead of only receiving values through replication. Secrets Manager User Guide ('Promote a replica secret to a standalone secret'): 'A replica secret can't be updated independently from its primary secret, except for its encryption key.' PutSecretValue has no KMS-key parameter, so it is always rejected on a replica now (InvalidRequestException via new ErrReplicaNotWritable -- modeled: PutSecretValue's deserializeOpError in aws-sdk-go-v2/service/secretsmanager@v1.44.4 deserializers.go includes InvalidRequestException). A primary/standalone secret is unaffected. See TestReplicaWriteGuard_BlockedOnReplica/putsecretvalue, TestReplicaWriteGuard_PrimaryUnaffectedByReplicas/putsecretvalue."}
   DeleteSecret: {wire: ok, errors: ok, state: ok, persist: ok, note: "force-delete vs 7-30d recovery window, mutual exclusivity with RecoveryWindowInDays, already correct"}
   RestoreSecret: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSecrets: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "IncludeDeleted field name was wrong (real key IncludePlannedDeletion); SortBy was entirely unsupported; NextRotationDate was missing from SecretListEntry. All three fixed. RLock no longer lazily mutates the region map (see leaks). Fixed 2026-08-10 (gopherstack-9wuh): the 'owning-service' filter (FilterNameStringType, a prefix match against DescribeSecretOutput.OwningService) unconditionally returned true for every secret regardless of the filter value -- more permissive than real AWS, which would match zero secrets here since no CreateSecret/UpdateSecret input field can ever set OwningService (verified: absent from both api_op_CreateSecret.go's and api_op_UpdateSecret.go's Input structs; only AWS itself sets it, for service-linked secrets like RDS-managed rotation, which this mock does not model). A real client filtering ListSecrets by owning-service=rds.amazonaws.com would have wrongly gotten back every user-created secret. Fixed to match against the (always-empty) field, which now correctly matches nothing for any non-empty filter value; three tests that asserted the old always-pass behavior as correct were corrected (TestListSecrets_FilterOwningServicePassesAll -> FilterOwningServiceMatchesNone, FilterOwningServiceWithOtherFilters, OwningServiceHTTP). FIXED 2026-08-30 -- Filter.Values' documented '!' negation prefix (types/types.go@v1.44.4) was unimplemented in anyMatchPrefix, so a negated value never matched anything (silent empty-list bug, not silent pass-all); see the overall header note for full citation."}
@@ -81,23 +81,9 @@ families:
   concurrency-locking: {status: fixed, note: "see leaks — RLock-guarded reads were lazily mutating the coarse per-region maps; fixed with non-mutating *StoreRO accessors"}
 gaps: []
 items_still_open:
-  - 2026-08-30 (this pass): types.Filter.Values' doc comment (types/types.go@v1.44.4) says "description"
-    and "all" keys are prefix-matched case-INsensitively, while name/tag-key/tag-value/primary-region/
-    owning-service are case-sensitive; this mock's anyMatchPrefix is case-sensitive uniformly. The same
-    doc also says "all" "breaks the filter value string into words and then searches all attributes",
-    not a single whole-string prefix match, which is what this mock's "all" case does instead. Both are
-    real, doc-cited divergences from documented AWS behavior, DISCLOSED not fixed -- the exact
-    word-splitting algorithm isn't specified precisely enough in the SDK's doc comment to implement with
-    confidence, and inventing one would be exactly the fabrication this campaign warns against; case-
-    insensitivity alone could be fixed cheaply but was left alongside the word-breaking gap rather than
-    partially fixed, since a client relying on "all" is already getting whole-string-not-word prefix
-    matching regardless of case.
-  - CLOSED 2026-08-10 (gopherstack-9wuh, part 2): RotateSecret no longer accepts rotation with no RotationLambdaARN ever configured — see the RotateSecret ops entry above for the full citation and fix. The "dozens of tests depend on it" justification was circular (those tests were the artifact of the gap, not independent evidence for keeping it) and has been corrected rather than preserved.
-  - managed-external-secret fields, reclassified 2026-08-10 (gopherstack-9wuh, part 3 — three-way split per field, verified against aws-sdk-go-v2/service/secretsmanager@v1.44.4 api_op_*.go, not assumed):
-    - OwningService is **genuinely absent from any input this mock could wire it from**: confirmed absent from both CreateSecretInput and UpdateSecretInput in api_op_CreateSecret.go/api_op_UpdateSecret.go@v1.44.4 — in real AWS it is set only by AWS itself, for service-linked/managed secrets (e.g. RDS-managed rotation), which this mock does not model at all (see deferred). This one really does require a managed-service model that doesn't exist here, so it stays permanently unset — that's correct, not a gap. What WAS a gap: the "owning-service" ListSecrets filter used to unconditionally return true regardless of filter value, which is more permissive than AWS (a real client filtering by owning-service=rds.amazonaws.com would wrongly get back every secret instead of none). FIXED — see ListSecrets ops entry above.
-  - 2026-08-14 (gopherstack-3tpf mechanical struct-field diff, cmd/structfielddiff, all 23 ops against aws-sdk-go-v2/service/secretsmanager@v1.44.4 -- wire-complete otherwise, every Input/Output/nested field matched): two more real request members silently dropped, same class as the Type fix above, both DISCLOSED not fixed -- see gopherstack-zurl for the full citation and why each is unsafe to enforce today rather than a two-line add:
-    - CreateSecretInput.ForceOverwriteReplicaSecret (bool) -- attempting a real fix surfaced that gopherstack's replication status never distinguishes a destination-name-collision Failed from syncReplicationStatusLocked's own no-current-version Failed, so a naive fix's Failed status gets silently promoted to InSync by the very next sync call. Reverted rather than shipped half-working.
-    - PutSecretValueInput.RotationToken (string) -- a cross-account rotation identity token with nothing in gopherstack's rotation model to validate it against (no session/trust engine), structurally the same as sts's disclosed JWTPayloadSizeExceededException gap.
+  - Filter key "all" is documented to break the value into words (types.Filter.Key); the word-matching rule is unspecified, so whole-value prefix matching is kept.
+  - PutSecretValueInput.RotationToken is a cross-account rotation identity token with no session/trust engine to validate it against.
+  - OwningService and managed (service-owned) rotation need a managed-service model; no input can set them, so they stay unset.
 deferred:
   - Managed rotation (AWS-service-owned secrets, e.g. RDS-managed rotation) — out of scope, not modeled at all
   - Cross-account resource-policy principal evaluation beyond the wildcard-principal BlockPublicPolicy heuristic
@@ -105,6 +91,30 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 ---
 
 ## Notes
+
+- **2026-10-01 (items_still_open burn-down)**: ListSecrets/BatchGetSecretValue filters now follow
+  `types.Filter.Key`: description and all are case-insensitive; tag-key/tag-value are prefix (were
+  exact) and honour "!" negation; "all" also searches tags. CreateSecret and ReplicateSecretToRegions
+  now honour `ForceOverwriteReplicaSecret`: a foreign same-named secret in the target Region makes that
+  replica `Failed` instead of being silently overwritten, and Force replaces it. Proven by
+  `filter_and_replica_overwrite_test.go`. The CLOSED RotateSecret entry was dropped.
+- **2026-09-26 (gopherstack-lr8qu, rotation window)**: `RotationRules.Duration` was stored
+  but never validated or used — rotation.go fired exactly at the cron/rate boundary with no
+  window concept. Per rotate-secrets_schedule.html ("Secrets Manager rotates your secret at
+  any time during the rotation window"), firing at the window START is a valid deterministic
+  choice, kept as-is; fixed the actual gaps: (1) `rate()` schedules now align their window
+  start per docs — day-based to midnight UTC, hour-based to the top of the hour — instead of
+  literally `lastRotated + interval` at an arbitrary time of day (`nextRotationOccurrence`,
+  rotation.go); cron() was already hour-aligned. (2) `Duration` is now validated: format/length
+  per `API_RotationRulesType.html` (`[0-9]+h`, length 2-3), and "must not extend into the next
+  rotation window or the next UTC day" against the schedule's window limit
+  (`scheduleWindowLimit`/`cronHourlyWindowLimit`). (3) `AutomaticallyAfterDays` and
+  `ScheduleExpression` are now mutually exclusive per the same doc page (previously
+  unenforced). No persisted-field or wire-shape changes — `DescribeSecret`'s `RotationRules`/
+  `NextRotationDate` echo unchanged shapes, just correct values. New tests:
+  `rotation_window_test.go` (table-driven validation + window-alignment cases, one
+  `synctest`-based end-to-end firing test). `go test -race -count=3
+  ./services/secretsmanager/...` and `golangci-lint run ./services/secretsmanager/...` clean.
 
 - **2026-09-19 (gopherstack-1x2u0 leak-audit follow-up)**: retrofitted the ~340 test
   call sites constructing `InMemoryBackend` to register
@@ -275,7 +285,7 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
   reflects a live-docs check from the 2026-07-11 pass. Left as-is per the existing tradeoff — dozens
   of tests depend on the lenient behavior and gopherstack does not model AWS managed rotation.
   Spot-checked `FilterNameStringType` (7 values, all handled in `secretMatchesFilter`), `SortByType`
-  (4 values, all handled in `sortSecretListEntries`), and `RotationRulesType`
+  (4 values, all handled in `sortSecrets`), and `RotationRulesType`
   (`AutomaticallyAfterDays`/`Duration`/`ScheduleExpression`) against `types/enums.go`/`types/types.go`
   — all match exactly, no further drift found. Gates
   (`build`/`vet`/`test -race`/`gofmt`/`golangci-lint`/banned-nolint grep) all pass clean.

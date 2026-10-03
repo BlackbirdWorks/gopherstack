@@ -2,6 +2,7 @@ package appconfig
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -137,51 +138,53 @@ func TestBackend_ExtensionAssociation_CascadeDeleteOnApplication(t *testing.T) {
 func TestDeploymentTimers_DrainToZero(t *testing.T) {
 	t.Parallel()
 
-	b := NewInMemoryBackend("123456789012", "us-east-1")
+	synctest.Test(t, func(t *testing.T) {
+		b := NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("timer-leak-app", "", nil)
-	require.NoError(t, err)
+		app, err := b.CreateApplication("timer-leak-app", "", nil)
+		require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "timer-leak-env", "", nil, nil)
-	require.NoError(t, err)
+		env, err := b.CreateEnvironment(app.ID, "timer-leak-env", "", nil, nil)
+		require.NoError(t, err)
 
-	profile, err := b.CreateConfigurationProfile(
-		app.ID, "timer-leak-profile", "", "hosted", "AWS.Freeform", "", "", nil,
-		nil,
-	)
-	require.NoError(t, err)
+		profile, err := b.CreateConfigurationProfile(
+			app.ID, "timer-leak-profile", "", "hosted", "AWS.Freeform", "", "", nil,
+			nil,
+		)
+		require.NoError(t, err)
 
-	_, err = b.CreateHostedConfigurationVersion(
-		app.ID, profile.ID, "application/json", "", "", []byte(`{}`), nil,
-	)
-	require.NoError(t, err)
+		_, err = b.CreateHostedConfigurationVersion(
+			app.ID, profile.ID, "application/json", "", "", []byte(`{}`), nil,
+		)
+		require.NoError(t, err)
 
-	// A non-zero duration and bake time forces real DEPLOYING -> BAKING
-	// progression (registers a timer), rather than the synchronous
-	// zero-duration path (which never touches deploymentTimers at all).
-	strategy, err := b.CreateDeploymentStrategy("timer-leak-strat", "", 10, 5, 25, "LINEAR", "NONE", nil)
-	require.NoError(t, err)
+		// A non-zero duration and bake time forces real DEPLOYING -> BAKING
+		// progression (registers a timer), rather than the synchronous
+		// zero-duration path (which never touches deploymentTimers at all).
+		strategy, err := b.CreateDeploymentStrategy("timer-leak-strat", "", 10, 5, 25, "LINEAR", "NONE", nil)
+		require.NoError(t, err)
 
-	const deployments = 5
+		const deployments = 5
 
-	for range deployments {
-		_, startErr := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
-		require.NoError(t, startErr)
-	}
+		for range deployments {
+			_, startErr := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
+			require.NoError(t, startErr)
+		}
 
-	deploymentTimerCount := func() int {
-		b.mu.RLock("test.deploymentTimerCount")
-		defer b.mu.RUnlock()
+		deploymentTimerCount := func() int {
+			b.mu.RLock("test.deploymentTimerCount")
+			defer b.mu.RUnlock()
 
-		return len(b.deploymentTimers)
-	}
+			return len(b.deploymentTimers)
+		}
 
-	assert.Positive(t, deploymentTimerCount(), "sanity: progression must actually register timers")
+		assert.Positive(t, deploymentTimerCount(), "sanity: progression must actually register timers")
 
-	deadline := time.Now().Add(2 * time.Second)
-	for deploymentTimerCount() > 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
+		// growthFactor 25 needs 4 steps (8ms each) to reach 100%, then an 8ms
+		// bake; cross all of it plus a reconcile tick.
+		time.Sleep(150 * time.Millisecond)
+		synctest.Wait()
 
-	assert.Equal(t, 0, deploymentTimerCount(), "every deployment timer must drain once its deployment completes")
+		assert.Equal(t, 0, deploymentTimerCount(), "every deployment timer must drain once its deployment completes")
+	})
 }

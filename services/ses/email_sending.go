@@ -262,6 +262,7 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 	}
 
 	b.publishEmailNotifications(email, targets)
+	b.relayEmail(email, in.RawMessage)
 
 	return msgID, nil
 }
@@ -360,6 +361,7 @@ func (b *InMemoryBackend) sendTemplatedEmailChecked(in SendTemplatedEmailInput, 
 	}
 
 	b.publishEmailNotifications(email, targets)
+	b.relayEmail(email, nil)
 
 	return msgID, nil
 }
@@ -652,4 +654,30 @@ func containsAny(ss []string, substr string) bool {
 	}
 
 	return false
+}
+
+// DeleteEmail removes the captured email with the given MessageID and reports whether it existed.
+func (b *InMemoryBackend) DeleteEmail(messageID string) bool {
+	b.mu.Lock("DeleteEmail")
+	defer b.mu.Unlock()
+
+	for i := range b.emails {
+		if b.emails[i].MessageID == messageID {
+			b.emails = append(b.emails[:i], b.emails[i+1:]...)
+			b.emailsByID.Delete(messageID)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// ClearEmails drops every captured email.
+func (b *InMemoryBackend) ClearEmails() {
+	b.mu.Lock("ClearEmails")
+	defer b.mu.Unlock()
+
+	b.emails = nil
+	b.emailsByID.Reset()
 }

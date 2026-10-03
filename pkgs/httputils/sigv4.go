@@ -193,8 +193,8 @@ func parseAuthorizationHeader(auth string) (parsedAuthHeader, *SigV4Error) {
 	}
 
 	// Credential scope: AKID/date/region/service/aws4_request.
-	scope := parseValidSigV4Scope(p.credential)
-	if scope == nil {
+	scope, validScope := parseValidSigV4Scope(p.credential)
+	if !validScope {
 		return p, malformed
 	}
 

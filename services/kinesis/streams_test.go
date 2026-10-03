@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -195,27 +197,34 @@ func TestDeleteStream_ByARN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			streamName := "delete-by-" + tt.name
-			doRequest(t, h, "CreateStream", map[string]any{"StreamName": streamName, "ShardCount": 1})
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				streamName := "delete-by-" + tt.name
+				doRequest(t, h, "CreateStream", map[string]any{"StreamName": streamName, "ShardCount": 1})
+				time.Sleep(streamSettleWait)
 
-			b := h.Backend.(*kinesis.InMemoryBackend)
-			desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: streamName})
-			require.NoError(t, err)
+				b := h.Backend.(*kinesis.InMemoryBackend)
+				desc, err := b.DescribeStream(
+					context.Background(),
+					&kinesis.DescribeStreamInput{StreamName: streamName},
+				)
+				require.NoError(t, err)
 
-			var deleteBody map[string]any
-			if tt.useARN {
-				deleteBody = map[string]any{"StreamARN": desc.StreamARN}
-			} else {
-				deleteBody = map[string]any{"StreamName": streamName}
-			}
+				var deleteBody map[string]any
+				if tt.useARN {
+					deleteBody = map[string]any{"StreamARN": desc.StreamARN}
+				} else {
+					deleteBody = map[string]any{"StreamName": streamName}
+				}
 
-			rec := doRequest(t, h, "DeleteStream", deleteBody)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+				rec := doRequest(t, h, "DeleteStream", deleteBody)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+				time.Sleep(streamSettleWait)
 
-			// Verify stream is gone.
-			descRec := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
-			assert.Equal(t, http.StatusBadRequest, descRec.Code)
+				// Verify stream is gone.
+				descRec := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
+				assert.Equal(t, http.StatusBadRequest, descRec.Code)
+			})
 		})
 	}
 }
@@ -366,11 +375,14 @@ func TestListStreams_Pagination(t *testing.T) {
 func TestDeleteStream_ClosesTags(t *testing.T) {
 	t.Parallel()
 
-	bk := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	bk := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
+	clock.Advance(streamSettleWait)
 
 	// Delete should not panic (Close is safe to call).
 	require.NoError(t, bk.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "tagged-stream"}))
+	clock.Advance(streamSettleWait)
 
 	// Recreating with the same name should succeed (Tags registry released).
 	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
@@ -542,7 +554,8 @@ func TestCreateStream_WithTags(t *testing.T) {
 func TestStreamLifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	clock := newFakeClock(time.Now())
+	h := newTestHandlerWithBackend(t, kinesis.NewInMemoryBackend().WithClock(clock.Now))
 
 	// CreateStream
 	rec := doRequest(t, h, "CreateStream", map[string]any{
@@ -550,6 +563,7 @@ func TestStreamLifecycle(t *testing.T) {
 		"ShardCount": 2,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+	clock.Advance(streamSettleWait)
 
 	// ListStreams
 	rec = doRequest(t, h, "ListStreams", nil)
@@ -602,6 +616,7 @@ func TestStreamLifecycle(t *testing.T) {
 		"StreamName": "my-stream",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+	clock.Advance(streamSettleWait)
 
 	// Verify gone
 	rec = doRequest(t, h, "DescribeStream", map[string]any{
@@ -746,8 +761,8 @@ func TestCreateStream_ProvisionedNotAffectedByOnDemandLimit(t *testing.T) {
 func TestCreateStream_OnDemandLimit_DeleteFreesSlot(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	b := h.Backend.(*kinesis.InMemoryBackend)
+	clock := newFakeClock(time.Now())
+	b := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 
 	b.SetOnDemandStreamCountLimit(1)
 
@@ -764,8 +779,12 @@ func TestCreateStream_OnDemandLimit_DeleteFreesSlot(t *testing.T) {
 		StreamMode: "ON_DEMAND",
 	}))
 
+	clock.Advance(streamSettleWait)
+
 	// Delete the first stream to free the slot.
 	require.NoError(t, b.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "od-del-stream"}))
+
+	clock.Advance(streamSettleWait)
 
 	// Now the second stream should succeed.
 	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{

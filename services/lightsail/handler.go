@@ -11,8 +11,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -27,6 +29,18 @@ var errUnknownOperation = errors.New("unknown Lightsail operation")
 // Handler is the HTTP handler for the Amazon Lightsail API.
 type Handler struct {
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[Handler]
+}
+
+// EnableRegions makes h serve every other region through lazily built
+// per-region siblings whose timers run under ctx.
+func (h *Handler) EnableRegions(ctx context.Context) {
+	h.peers = regionpeers.New(h.Backend.region, func(region string) *Handler {
+		nb := NewInMemoryBackend(ctx, h.Backend.accountID, region)
+		nb.SetCloudFormationBackend(h.Backend.currentCloudFormationBackend())
+
+		return &Handler{Backend: nb}
+	})
 }
 
 // NewHandler creates a new Lightsail handler.
@@ -36,7 +50,13 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Shutdown stops the backend's scheduled state-transition timers so none
 // outlives the service. Invoked on server shutdown via service.Shutdowner.
-func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+func (h *Handler) Shutdown(_ context.Context) {
+	h.Backend.Close()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Close()
+	}
+}
 
 var _ service.Shutdowner = (*Handler)(nil)
 
@@ -131,7 +151,13 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // Reset clears all stored state in the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Close()
+	}
+}
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return "lightsail" }
@@ -201,6 +227,10 @@ func extractFirstResourceByKeys(body map[string]json.RawMessage, keys ...string)
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(ctx)
 
 		return service.HandleTarget(

@@ -127,13 +127,15 @@ func (b *InMemoryBackend) ListRestoreJobs() []*RestoreJob {
 // only, not by the full (Region,AccountId,State,ResourceType) key real AWS
 // documents -- kept consistent with that existing precedent rather than
 // introducing a different fidelity level for this one sibling op.
-func (b *InMemoryBackend) ListRestoreJobSummaries() []map[string]any {
+func (b *InMemoryBackend) ListRestoreJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListRestoreJobSummaries")
 	defer b.mu.RUnlock()
 
 	counts := make(map[string]int)
 	for _, j := range b.restoreJobs.All() {
-		counts[j.Status]++
+		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.Status, "") {
+			counts[j.Status]++
+		}
 	}
 
 	summaries := make([]map[string]any, 0, len(counts))

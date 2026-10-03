@@ -180,6 +180,10 @@ func parseListModelInvocationJobsQuery(c *echo.Context) *ListModelInvocationJobs
 }
 
 func (h *Handler) handleListModelInvocationJobs(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	jobs, outToken := h.Backend.ListModelInvocationJobs(parseListModelInvocationJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 

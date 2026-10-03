@@ -72,6 +72,7 @@ type InMemoryBackend struct {
 	executedStatements map[string][]ExecutedStatement
 	txCounter          map[string]int
 	engine             *sqlEngine
+	real               *realEngine
 	mu                 *lockmetrics.RWMutex
 	nowFunc            func() time.Time
 	accountID          string
@@ -144,6 +145,10 @@ func (b *InMemoryBackend) Close() {
 	defer b.mu.Unlock()
 
 	b.engine.close()
+
+	if b.real != nil {
+		b.real.close()
+	}
 }
 
 // Reset clears all backend state. Useful for test isolation.
@@ -155,6 +160,10 @@ func (b *InMemoryBackend) Reset() {
 	b.executedStatements = make(map[string][]ExecutedStatement)
 	b.txCounter = make(map[string]int)
 	b.engine.reset()
+
+	if b.real != nil {
+		b.real.reset()
+	}
 }
 
 // appendStatementLocked records an executed statement and trims the buffer to

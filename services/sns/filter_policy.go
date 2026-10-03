@@ -3,6 +3,7 @@ package sns
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 )
@@ -15,8 +16,9 @@ import (
 //   - Total attribute conditions ≤ maxFilterPolicyConditions (150).
 //   - Object-condition operator names are restricted to the AWS-supported set
 //     (`prefix`, `suffix`, `equals-ignore-case`, `anything-but`, `exists`,
-//     `numeric`).
+//     `numeric`, `wildcard`, `cidr`).
 //   - Numeric operand shape (operator/number pairs) is well-formed.
+//   - CIDR operand is a valid IPv4/IPv6 address or CIDR block.
 //
 // Nesting depth (for nested-object filter policies) is not yet enforced —
 // issue #1679 item 13.
@@ -217,14 +219,51 @@ func validateConditionShapes(key string, conditions []json.RawMessage) error {
 			}
 		}
 
-		numericRaw, ok := obj["numeric"]
-		if !ok {
-			continue
+		if numericRaw, ok := obj["numeric"]; ok {
+			if err := validateNumericOperands(key, numericRaw); err != nil {
+				return err
+			}
 		}
 
-		if err := validateNumericOperands(key, numericRaw); err != nil {
-			return err
+		if cidrRaw, ok := obj["cidr"]; ok {
+			if err := validateCIDROperand(key, cidrRaw); err != nil {
+				return err
+			}
 		}
+	}
+
+	return nil
+}
+
+// validateCIDROperand enforces that a "cidr" condition operand is a string
+// containing a valid IPv4/IPv6 address (bare host route) or CIDR block,
+// rejecting it eagerly at Subscribe/SetSubscriptionAttributes time rather
+// than letting it silently never match at evaluation (matchCIDR).
+func validateCIDROperand(key string, raw json.RawMessage) error {
+	var operand string
+	if err := json.Unmarshal(raw, &operand); err != nil {
+		return fmt.Errorf(
+			"%w: FilterPolicy attribute %q cidr operand must be a string",
+			ErrInvalidParameter, key,
+		)
+	}
+
+	if strings.Contains(operand, "/") {
+		if _, _, err := net.ParseCIDR(operand); err != nil {
+			return fmt.Errorf(
+				"%w: FilterPolicy attribute %q cidr operand %q is not a valid CIDR block",
+				ErrInvalidParameter, key, operand,
+			)
+		}
+
+		return nil
+	}
+
+	if net.ParseIP(operand) == nil {
+		return fmt.Errorf(
+			"%w: FilterPolicy attribute %q cidr operand %q is not a valid IP address",
+			ErrInvalidParameter, key, operand,
+		)
 	}
 
 	return nil

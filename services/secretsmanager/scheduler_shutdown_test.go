@@ -2,6 +2,7 @@ package secretsmanager //nolint:testpackage // existing issue.
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -54,31 +55,34 @@ func TestStopRotationScheduler(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_ = t.Context()
 
-			b := NewInMemoryBackend()
-			t.Cleanup(b.StopRotationScheduler)
+			synctest.Test(t, func(t *testing.T) {
+				_ = t.Context()
 
-			if tc.start {
-				b.ensureRotationScheduler()
-				// Give the goroutine a moment to be scheduled.
-				time.Sleep(5 * time.Millisecond)
-			}
+				b := NewInMemoryBackend()
+				t.Cleanup(b.StopRotationScheduler)
 
-			assertStopsPromptly(t, 2*time.Second, b.StopRotationScheduler)
+				if tc.start {
+					b.ensureRotationScheduler()
+					// Give the goroutine a moment to be scheduled.
+					time.Sleep(5 * time.Millisecond)
+				}
 
-			if tc.stopTwice {
-				// A second stop must not panic (close-of-closed-channel) and
-				// must remain a no-op.
 				assertStopsPromptly(t, 2*time.Second, b.StopRotationScheduler)
-			}
 
-			// The stop channel must be closed (loop is guaranteed unblocked).
-			select {
-			case <-b.schedulerStop:
-			default:
-				t.Fatal("schedulerStop channel was not closed after StopRotationScheduler")
-			}
+				if tc.stopTwice {
+					// A second stop must not panic (close-of-closed-channel) and
+					// must remain a no-op.
+					assertStopsPromptly(t, 2*time.Second, b.StopRotationScheduler)
+				}
+
+				// The stop channel must be closed (loop is guaranteed unblocked).
+				select {
+				case <-b.schedulerStop:
+				default:
+					t.Fatal("schedulerStop channel was not closed after StopRotationScheduler")
+				}
+			})
 		})
 	}
 }

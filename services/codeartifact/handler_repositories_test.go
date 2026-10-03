@@ -398,11 +398,7 @@ func TestHandler_DeleteRepositoryCascade(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=repcas-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=repcas-domain&repository=repcas-repo", nil)
-	doRequest(
-		t, h, http.MethodGet,
-		"/v1/package/version?domain=repcas-domain&repository=repcas-repo&format=npm&package=mypkg&version=1.0.0",
-		nil,
-	)
+	seedVersion(t, h, "repcas-domain", "repcas-repo", "npm", "", "mypkg", "1.0.0")
 
 	delRec := doRequest(t, h, http.MethodDelete, "/v1/repository?domain=repcas-domain&repository=repcas-repo", nil)
 	assert.Equal(t, http.StatusOK, delRec.Code)

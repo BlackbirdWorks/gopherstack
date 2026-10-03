@@ -67,6 +67,14 @@ func (b *InMemoryBackend) registerStartLifecycleLocked(task *Task, clusterName s
 // This is invoked from the reconciler's background loop and is also called
 // directly by tests with a controlled clock for deterministic assertions.
 func (b *InMemoryBackend) stepTaskLifecycle(now time.Time) {
+	b.mu.RLock("stepTaskLifecycleIdle")
+	idle := len(b.lifecycle) == 0
+	b.mu.RUnlock()
+
+	if idle {
+		return
+	}
+
 	// Collect tasks that finished stopping so their containers can be torn down
 	// outside the lock (Docker calls must not serialize the backend).
 	var toStopRunner []*Task

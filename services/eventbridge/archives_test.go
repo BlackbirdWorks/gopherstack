@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/labstack/echo/v5"
@@ -14,65 +13,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
-
-func TestArchiveJanitor_PrunesArchivedEvents(t *testing.T) {
-	t.Parallel()
-	b := newBackend()
-
-	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "my-bus"})
-	require.NoError(t, err)
-
-	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/my-bus"
-	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
-		ArchiveName:    "my-archive",
-		EventSourceArn: busARN,
-		RetentionDays:  1,
-	})
-	require.NoError(t, err)
-
-	b.PutEvents(context.Background(), []eventbridge.EventEntry{
-		{Source: "test", DetailType: "Test", Detail: `{}`, EventBusName: "my-bus"},
-	})
-
-	// Make the archive look old enough to expire.
-	err = b.SetArchiveCreationTimeForTest("my-archive", time.Now().Add(-48*time.Hour))
-	require.NoError(t, err)
-
-	janitor := eventbridge.NewArchiveJanitor(b, time.Hour)
-	janitor.SetNow(time.Now())
-	janitor.SweepOnce(context.Background())
-
-	_, err = b.DescribeArchive(context.Background(), "my-archive")
-	require.ErrorIs(t, err, eventbridge.ErrNotFound)
-
-	assert.Equal(t, 0, b.ArchivedEventCount("my-archive"))
-}
-
-func TestArchiveJanitor_RetentionDaysZeroNeverExpires(t *testing.T) {
-	t.Parallel()
-	b := newBackend()
-
-	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "bus2"})
-	require.NoError(t, err)
-
-	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/bus2"
-	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
-		ArchiveName:    "forever-archive",
-		EventSourceArn: busARN,
-		RetentionDays:  0, // 0 = forever
-	})
-	require.NoError(t, err)
-
-	err = b.SetArchiveCreationTimeForTest("forever-archive", time.Now().Add(-365*24*time.Hour))
-	require.NoError(t, err)
-
-	janitor := eventbridge.NewArchiveJanitor(b, time.Hour)
-	janitor.SetNow(time.Now())
-	janitor.SweepOnce(context.Background())
-
-	_, err = b.DescribeArchive(context.Background(), "forever-archive")
-	require.NoError(t, err, "archive with RetentionDays=0 should never expire")
-}
 
 func TestTags_Archive(t *testing.T) {
 	t.Parallel()

@@ -2,6 +2,7 @@ package kinesis_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -23,7 +24,8 @@ import (
 func TestUpdateMaxRecordSize_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "max-record-size-stream"
@@ -33,6 +35,8 @@ func TestUpdateMaxRecordSize_RoundTrip(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -67,7 +71,8 @@ func TestUpdateMaxRecordSize_RoundTrip(t *testing.T) {
 func TestUpdateMaxRecordSize_OutOfRangeRejected(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "max-record-size-oor"
@@ -77,6 +82,8 @@ func TestUpdateMaxRecordSize_OutOfRangeRejected(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)

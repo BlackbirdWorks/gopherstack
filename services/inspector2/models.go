@@ -344,16 +344,23 @@ type CoverageEntry struct {
 // own global vulnerability intelligence database in real Inspector2, which
 // gopherstack has no equivalent data source for.
 type Vulnerability struct {
-	VendorCreatedAt        time.Time `json:"vendorCreatedAt"`
-	VendorUpdatedAt        time.Time `json:"vendorUpdatedAt"`
-	ID                     string    `json:"id"`
-	Description            string    `json:"description,omitempty"`
-	Source                 string    `json:"source,omitempty"`
-	SourceURL              string    `json:"sourceUrl,omitempty"`
-	VendorSeverity         string    `json:"vendorSeverity,omitempty"`
-	Cwes                   []string  `json:"cwes,omitempty"`
-	ReferenceUrls          []string  `json:"referenceUrls,omitempty"`
-	RelatedVulnerabilities []string  `json:"relatedVulnerabilities,omitempty"`
+	VendorCreatedAt        time.Time        `json:"vendorCreatedAt"`
+	VendorUpdatedAt        time.Time        `json:"vendorUpdatedAt"`
+	Cvss2                  *CvssScore       `json:"cvss2,omitempty"`
+	Cvss3                  *CvssScore       `json:"cvss3,omitempty"`
+	Cvss4                  *CvssScore       `json:"cvss4,omitempty"`
+	Epss                   *Epss            `json:"epss,omitempty"`
+	ExploitObserved        *ExploitObserved `json:"exploitObserved,omitempty"`
+	CisaData               *CisaData        `json:"cisaData,omitempty"`
+	AtigData               *AtigData        `json:"atigData,omitempty"`
+	ID                     string           `json:"id"`
+	Description            string           `json:"description,omitempty"`
+	Source                 string           `json:"source,omitempty"`
+	SourceURL              string           `json:"sourceUrl,omitempty"`
+	VendorSeverity         string           `json:"vendorSeverity,omitempty"`
+	Cwes                   []string         `json:"cwes,omitempty"`
+	ReferenceUrls          []string         `json:"referenceUrls,omitempty"`
+	RelatedVulnerabilities []string         `json:"relatedVulnerabilities,omitempty"`
 }
 
 // AccountPermission represents an Inspector2 account-level permission,

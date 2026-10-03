@@ -18,6 +18,7 @@ type createDefaultSubnetResponse struct {
 		AvailabilityZone string `xml:"availabilityZone"`
 		State            string `xml:"state"`
 		IsDefault        bool   `xml:"defaultForAz"`
+		Ipv6Native       bool   `xml:"ipv6Native"`
 	} `xml:"subnet"`
 }
 
@@ -42,7 +43,7 @@ type disassociateSubnetCIDRResponse struct {
 
 func (h *Handler) handleCreateDefaultSubnet(vals url.Values, reqID string) (any, error) {
 	az := vals.Get("AvailabilityZone")
-	subnet, err := h.Backend.CreateDefaultSubnet(az)
+	subnet, err := h.Backend.CreateDefaultSubnetWithOptions(az, vals.Get("Ipv6Native") == ec2BooleanTrue)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +53,7 @@ func (h *Handler) handleCreateDefaultSubnet(vals url.Values, reqID string) (any,
 	resp.Subnet.CIDRBlock = subnet.CIDRBlock
 	resp.Subnet.AvailabilityZone = subnet.AvailabilityZone
 	resp.Subnet.IsDefault = subnet.IsDefault
+	resp.Subnet.Ipv6Native = subnet.Ipv6Native
 	resp.Subnet.State = stateAvailableImg
 
 	return resp, nil
@@ -218,6 +220,8 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	reservations = applySubnetCidrReservationFilters(reservations, parseEC2Filters(vals), h.Backend)
+
 	resp := &getSubnetCidrReservationsResponse{RequestID: reqID}
 	for _, r := range reservations {
 		item := toSubnetCidrReservationItem(r, h.Backend.TagsForResource(r.SubnetCIDRReservationID))
@@ -366,6 +370,7 @@ func toSubnetItem(s *Subnet, tags map[string]string) subnetItem {
 		State:               stateAvailable,
 		MapPublicIPOnLaunch: s.MapPublicIPOnLaunch,
 		DefaultForAz:        s.IsDefault,
+		Ipv6Native:          s.Ipv6Native,
 		TagSet:              tagItemsFromMap(tags),
 	}
 }
@@ -386,6 +391,7 @@ type subnetItem struct {
 	TagSet              []simpleTagItem `xml:"tagSet>item"`
 	MapPublicIPOnLaunch bool            `xml:"mapPublicIpOnLaunch"`
 	DefaultForAz        bool            `xml:"defaultForAz"`
+	Ipv6Native          bool            `xml:"ipv6Native"`
 }
 
 type subnetItemSet struct {

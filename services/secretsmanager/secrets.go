@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -213,6 +215,10 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 			})
 		}
 		b.replicationConfigsStore(region)[input.Name] = replicas
+	}
+
+	if input.ForceOverwriteReplicaSecret {
+		b.overwriteReplicaCollisionsLocked(secret, input.AddReplicaRegions)
 	}
 
 	b.syncReplicationStatusLocked(region, secret)
@@ -442,7 +448,7 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 	defer b.mu.RUnlock()
 
 	secretsInRegion := b.secretsInRegion(region)
-	entries := make([]SecretListEntry, 0, len(secretsInRegion))
+	entries := make([]*Secret, 0, len(secretsInRegion))
 
 	for _, s := range secretsInRegion {
 		if s.DeletedDate != nil && !input.IncludePlannedDeletion {
@@ -453,10 +459,10 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 			continue
 		}
 
-		entries = append(entries, secretToListEntry(s))
+		entries = append(entries, s)
 	}
 
-	sortSecretListEntries(entries, input.SortBy, input.SortOrder)
+	sortSecrets(entries, input.SortBy, input.SortOrder)
 
 	startIdx := parseToken(input.NextToken)
 	maxResults := int64(defaultMaxResults)
@@ -479,48 +485,50 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 		end = len(entries)
 	}
 
+	page := make([]SecretListEntry, 0, end-startIdx)
+	for _, s := range entries[startIdx:end] {
+		page = append(page, secretToListEntry(s))
+	}
+
 	return &ListSecretsOutput{
-		SecretList: entries[startIdx:end],
+		SecretList: page,
 		NextToken:  nextToken,
 	}, nil
 }
 
-// sortSecretListEntries orders entries by the requested SortBy key ("name" (default),
+// sortSecrets orders secrets by the requested SortBy key ("name" (default),
 // "created-date", "last-changed-date", "last-accessed-date"), honouring SortOrder
 // ("asc" default, or "desc"). Unset date fields sort as the earliest possible value.
 // Matches the AWS SortByType enum (ListSecrets request field "SortBy").
-func sortSecretListEntries(entries []SecretListEntry, sortBy, sortOrder string) {
+func sortSecrets(secrets []*Secret, sortBy, sortOrder string) {
 	desc := strings.EqualFold(sortOrder, "desc")
 
-	var less func(i, j int) bool
+	var less func(a, b *Secret) bool
 
 	switch strings.ToLower(strings.TrimSpace(sortBy)) {
 	case "created-date":
-		less = func(i, j int) bool {
-			return float64PtrLess(entries[i].CreatedDate, entries[j].CreatedDate, entries[i].Name, entries[j].Name)
-		}
+		less = func(a, b *Secret) bool { return float64PtrLess(a.CreatedDate, b.CreatedDate, a.Name, b.Name) }
 	case "last-changed-date":
-		less = func(i, j int) bool {
-			return float64PtrLess(
-				entries[i].LastChangedDate, entries[j].LastChangedDate, entries[i].Name, entries[j].Name,
-			)
-		}
+		less = func(a, b *Secret) bool { return float64PtrLess(a.LastChangedDate, b.LastChangedDate, a.Name, b.Name) }
 	case "last-accessed-date":
-		less = func(i, j int) bool {
-			return float64PtrLess(
-				entries[i].LastAccessedDate, entries[j].LastAccessedDate, entries[i].Name, entries[j].Name,
-			)
-		}
+		less = func(a, b *Secret) bool { return float64PtrLess(a.LastAccessedDate, b.LastAccessedDate, a.Name, b.Name) }
 	default:
-		less = func(i, j int) bool { return entries[i].Name < entries[j].Name }
+		less = func(a, b *Secret) bool { return a.Name < b.Name }
 	}
 
-	sort.Slice(entries, func(i, j int) bool {
+	slices.SortFunc(secrets, func(a, b *Secret) int {
 		if desc {
-			return less(j, i)
+			a, b = b, a
 		}
 
-		return less(i, j)
+		switch {
+		case less(a, b):
+			return -1
+		case less(b, a):
+			return 1
+		default:
+			return 0
+		}
 	})
 }
 
@@ -563,17 +571,14 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 	case "name":
 		return anyMatchPrefix(f.Values, s.Name)
 	case "description":
-		return anyMatchPrefix(f.Values, s.Description)
+		return anyMatchPrefixFold(f.Values, s.Description)
 	case "tag-key":
 		return secretHasTagKey(s, f.Values)
 	case "tag-value":
 		return secretHasTagValue(s, f.Values)
 	case "all":
 		// "all" matches any of the filterable string fields.
-		return anyMatchPrefix(f.Values, s.Name) ||
-			anyMatchPrefix(f.Values, s.Description) ||
-			secretHasTagKey(s, f.Values) ||
-			secretHasTagValue(s, f.Values)
+		return matchPrefix(f.Values, secretAllAttributes(s), hasPrefixFold)
 	case "primary-region":
 		// In a single-region mock every secret belongs to the single region;
 		// the filter always passes (no cross-region replication routing needed).
@@ -591,19 +596,32 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 	}
 }
 
-// anyMatchPrefix returns true if target matches values under prefix semantics,
-// honouring AWS's documented negation prefix: "You can prefix your search value with
-// an exclamation mark ( ! ) in order to perform negation filters" (types.Filter.Values
-// doc comment, aws-sdk-go-v2/service/secretsmanager@v1.44.4 types/types.go -- Filter is
-// the shared type both ListSecretsInput and BatchGetSecretValueInput carry as Filters).
-// A negated value excludes any target with that prefix; if any positive (non-negated)
-// values are present, at least one must also match.
+// anyMatchPrefix applies the "!" negation prefix documented on types.Filter.Values
+// (secretsmanager@v1.48.0 types/types.go) over a single target.
 func anyMatchPrefix(values []string, target string) bool {
+	return matchPrefix(values, []string{target}, strings.HasPrefix)
+}
+
+// anyMatchPrefixFold is anyMatchPrefix for the keys documented as not case-sensitive.
+func anyMatchPrefixFold(values []string, target string) bool {
+	return matchPrefix(values, []string{target}, hasPrefixFold)
+}
+
+func hasPrefixFold(target, prefix string) bool {
+	return strings.HasPrefix(strs.Fold(target), strs.Fold(prefix))
+}
+
+// matchPrefix applies prefix and "!" negation semantics across every target: a negated
+// value excludes the secret if any target has the prefix, and any positive value needs a match.
+func matchPrefix(values, targets []string, hasPrefix func(target, prefix string) bool) bool {
 	hasPositive, positiveMatch := false, false
 
 	for _, v := range values {
-		if negated, ok := strings.CutPrefix(v, "!"); ok {
-			if strings.HasPrefix(target, negated) {
+		negated, isNeg := strings.CutPrefix(v, "!")
+		matched := slices.ContainsFunc(targets, func(t string) bool { return hasPrefix(t, negated) })
+
+		if isNeg {
+			if matched {
 				return false
 			}
 
@@ -611,44 +629,40 @@ func anyMatchPrefix(values []string, target string) bool {
 		}
 
 		hasPositive = true
-		if strings.HasPrefix(target, v) {
-			positiveMatch = true
-		}
+		positiveMatch = positiveMatch || slices.ContainsFunc(targets, func(t string) bool { return hasPrefix(t, v) })
 	}
 
 	return !hasPositive || positiveMatch
 }
 
-// secretHasTagKey returns true if the secret has at least one of the given tag keys.
-func secretHasTagKey(s *Secret, keys []string) bool {
-	if s.Tags == nil {
-		return false
-	}
-
-	tagMap := s.Tags.Clone()
-	for _, k := range keys {
-		if _, ok := tagMap[k]; ok {
-			return true
-		}
-	}
-
-	return false
+func secretAllAttributes(s *Secret) []string {
+	return slices.Concat([]string{s.Name, s.Description}, tagKeys(s), tagValues(s))
 }
 
-// secretHasTagValue returns true if the secret has at least one tag with any of the given values.
-func secretHasTagValue(s *Secret, values []string) bool {
+func tagKeys(s *Secret) []string {
 	if s.Tags == nil {
-		return false
+		return nil
 	}
 
-	tagMap := s.Tags.Clone()
-	for _, v := range tagMap {
-		if slices.Contains(values, v) {
-			return true
-		}
+	return slices.Collect(maps.Keys(s.Tags.Clone()))
+}
+
+func tagValues(s *Secret) []string {
+	if s.Tags == nil {
+		return nil
 	}
 
-	return false
+	return slices.Collect(maps.Values(s.Tags.Clone()))
+}
+
+// secretHasTagKey reports whether a tag key matches the filter values (prefix, case-sensitive).
+func secretHasTagKey(s *Secret, keys []string) bool {
+	return matchPrefix(keys, tagKeys(s), strings.HasPrefix)
+}
+
+// secretHasTagValue reports whether a tag value matches the filter values (prefix, case-sensitive).
+func secretHasTagValue(s *Secret, values []string) bool {
+	return matchPrefix(values, tagValues(s), strings.HasPrefix)
 }
 
 // DescribeSecret returns metadata about a secret.
@@ -819,7 +833,7 @@ func (b *InMemoryBackend) updateSecretVersion(
 	secret.LastChangedDate = &now
 	b.syncReplicationStatusLocked(region, secret)
 
-	pruneVersions(secret)
+	pruneVersions(secret, now)
 
 	return versionID, nil
 }

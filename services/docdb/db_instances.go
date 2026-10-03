@@ -72,6 +72,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 
 	inst := &DBInstance{
+		DbiResourceID:               newResourceID("db-"),
 		region:                      region,
 		DBInstanceIdentifier:        id,
 		DBClusterIdentifier:         clusterID,

@@ -9,6 +9,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// cloneJob copies job so callers reading its fields after the lock releases
+// don't race a concurrent in-place mutator like advanceJob.
+func cloneJob(job *TranslationJob) *TranslationJob {
+	cp := *job
+
+	return &cp
+}
+
 // StartTextTranslationJob creates a new async translation job.
 func (b *InMemoryBackend) StartTextTranslationJob(
 	jobName, dataAccessRoleARN, sourceLang string,
@@ -56,7 +64,7 @@ func (b *InMemoryBackend) StartTextTranslationJob(
 	}
 	b.jobs.Put(job)
 
-	return job, nil
+	return cloneJob(job), nil
 }
 
 // StopTextTranslationJob requests stop of a translation job.
@@ -81,7 +89,7 @@ func (b *InMemoryBackend) StopTextTranslationJob(jobID string) (*TranslationJob,
 		job.EndAt = time.Now().UTC()
 	}
 
-	return job, nil
+	return cloneJob(job), nil
 }
 
 // DescribeTextTranslationJob retrieves a translation job and advances it one
@@ -103,7 +111,7 @@ func (b *InMemoryBackend) DescribeTextTranslationJob(jobID string) (*Translation
 
 	advanceJob(job)
 
-	return job, nil
+	return cloneJob(job), nil
 }
 
 // advanceJob moves job one step through its lifecycle. Called from
@@ -206,5 +214,12 @@ func (b *InMemoryBackend) ListTextTranslationJobs(
 		ids[i] = job.JobID
 	}
 
-	return paginate(ids, func(id string) *TranslationJob { return tableGet(b.jobs, id) }, maxResults, nextToken)
+	return paginate(ids, func(id string) *TranslationJob {
+		j := tableGet(b.jobs, id)
+		if j == nil {
+			return nil
+		}
+
+		return cloneJob(j)
+	}, maxResults, nextToken)
 }

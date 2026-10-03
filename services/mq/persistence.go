@@ -70,12 +70,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
+	var stale []*liveBroker
+
+	defer func() { b.reapDetached(stale...) }()
+
 	if err := persistence.UnmarshalSnapshot(ctx, "mq", data, &snap); err != nil {
 		return err
 	}
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
+
+	stale = b.detachAllBrokersLocked()
 
 	if snap.Version != mqSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
@@ -109,6 +115,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	fixNilResourceMaps(b)
 	reestablishTagPointers(b)
+	b.relaunchBrokersLocked()
 
 	return nil
 }

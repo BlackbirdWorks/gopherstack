@@ -91,7 +91,14 @@ func testListStackInstanceResourceDriftsNarrowShape(t *testing.T) {
 
 	_, err := backend.CreateStackSet("drift-summary-ss", "desc", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
-	_, err = backend.CreateStackInstances(ctx, "drift-summary-ss", []string{"111111111111"}, nil, []string{"us-east-1"})
+	_, err = backend.CreateStackInstances(
+		ctx,
+		"drift-summary-ss",
+		[]string{"111111111111"},
+		nil,
+		[]string{"us-east-1"},
+		"",
+	)
 	require.NoError(t, err)
 
 	instances, err := backend.ListStackInstances(

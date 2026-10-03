@@ -284,6 +284,22 @@ func (h *Handler) handleListUpdates(c *echo.Context, clusterName string) error {
 		})
 	}
 
+	for key, field := range map[string]func(*Update) string{
+		keyAddonName:     func(u *Update) string { return u.AddonName },
+		"capabilityName": func(u *Update) string { return u.CapabilityName },
+	} {
+		want := c.Request().URL.Query().Get(key)
+		if want == "" {
+			continue
+		}
+
+		ids = slices.DeleteFunc(ids, func(id string) bool {
+			u, descErr := h.Backend.DescribeUpdate(clusterName, id)
+
+			return descErr != nil || field(u) != want
+		})
+	}
+
 	maxResults, nextToken := eksPaginationParams(c)
 	p := page.New(ids, nextToken, maxResults, eksDefaultPageSize)
 

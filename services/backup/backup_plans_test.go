@@ -133,7 +133,7 @@ func TestListBackupPlansPagination(t *testing.T) {
 
 	t.Run("paginate all plans", func(t *testing.T) {
 		t.Parallel()
-		var all []*backup.Plan
+		var all []backup.PlanListEntry
 		nextToken := ""
 		for {
 			got, next := b.ListBackupPlansPaged(
