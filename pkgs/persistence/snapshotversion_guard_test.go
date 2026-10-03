@@ -135,6 +135,63 @@ func TestScanServiceSnapshotsCoversStoreGoConst(t *testing.T) {
 	}
 }
 
+// TestScanRecordsCustomJSONMarshalers pins that a type with MarshalJSON/UnmarshalJSON gets a
+// marker row in its expanded fields and a plain struct does not.
+func TestScanRecordsCustomJSONMarshalers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		extra       string
+		wantMarkers []string
+		wantAbsent  []string
+	}{
+		{
+			name:        "pointer receiver marshal",
+			extra:       "func (i *Item) MarshalJSON() ([]byte, error) { return nil, nil }",
+			wantMarkers: []string{"Item.{MarshalJSON}"},
+			wantAbsent:  []string{"Item.{UnmarshalJSON}"},
+		},
+		{
+			name: "value marshal and unmarshal",
+			extra: "func (i Item) MarshalJSON() ([]byte, error) { return nil, nil }\n" +
+				"func (i *Item) UnmarshalJSON([]byte) error { return nil }",
+			wantMarkers: []string{"Item.{MarshalJSON}", "Item.{UnmarshalJSON}"},
+		},
+		{
+			name:       "plain struct",
+			wantAbsent: []string{"Item.{MarshalJSON}", "Item.{UnmarshalJSON}"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			src := "package widget\n\nconst widgetSnapshotVersion = 1\n\n" +
+				"type backendSnapshot struct {\n\tVersion int\n\tItems []Item `json:\"items\"`\n}\n\n" +
+				"type Item struct{ Name string `json:\"name\"` }\n\n" + tt.extra + "\n"
+
+			root := t.TempDir()
+			svcDir := filepath.Join(root, "widget")
+			require.NoError(t, os.Mkdir(svcDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(svcDir, "persistence.go"), []byte(src), 0o644))
+
+			live, err := scanServiceSnapshots(root)
+			require.NoError(t, err)
+
+			fields := live["widget"].Fields
+			for _, m := range tt.wantMarkers {
+				assert.Contains(t, fields, m)
+			}
+
+			for _, m := range tt.wantAbsent {
+				assert.NotContains(t, fields, m)
+			}
+		})
+	}
+}
+
 // TestScanServiceSnapshotsFailsLoudOnUnresolvedConst covers the fail-loud half of
 // gopherstack-hciy: a const declaration shape the AST scan cannot resolve (here, two
 // names sharing one ValueSpec) must not be silently dropped from coverage the way
@@ -223,6 +280,13 @@ func diffSnapshots(live, golden map[string]snapshotInfo) []string {
 					"out of date, run with -update to refresh it (this is bookkeeping, "+
 					"not a version-bump case: every old field is still present unchanged, "+
 					"so the diff is additive only and needs no bump)", name))
+		case !fieldsEqual(got.Fields, want.Fields) && changesConfinedToCustomJSON(got.Fields, want.Fields):
+			violations = append(violations, fmt.Sprintf(
+				"%s: backendSnapshot fields changed without a version bump; every changed "+
+					"or removed field belongs to a type with a custom MarshalJSON/UnmarshalJSON, "+
+					"whose tags do not describe its on-disk shape, so this is not judged "+
+					"as data loss. Read the marshaler to confirm the encoded bytes are "+
+					"unchanged, then run with -update", name))
 		case !fieldsEqual(got.Fields, want.Fields):
 			violations = append(violations, fmt.Sprintf(
 				"%s: backendSnapshot fields changed without a version bump, and at least "+
@@ -263,12 +327,61 @@ func TestDiffSnapshots(t *testing.T) {
 		"Tables map[string]json.RawMessage `json:\"tables\"`",
 	}
 
+	customOld := []string{
+		"Broker.Password string `json:\"-\"`",
+		"Broker.{MarshalJSON}",
+		"Plain.Name string `json:\"name\"`",
+	}
+	customTagChanged := []string{
+		"Broker.Password string `json:\"password,omitempty\"`",
+		"Broker.{MarshalJSON}",
+		"Plain.Name string `json:\"name\"`",
+	}
+	plainTagChanged := []string{
+		"Broker.Password string `json:\"-\"`",
+		"Broker.{MarshalJSON}",
+		"Plain.Name string `json:\"Name\"`",
+	}
+	customMarkerDropped := []string{
+		"Broker.Password string `json:\"password,omitempty\"`",
+		"Plain.Name string `json:\"name\"`",
+	}
+	customAndPlainChanged := []string{
+		"Broker.Password string `json:\"password,omitempty\"`",
+		"Broker.{MarshalJSON}",
+		"Plain.Name string `json:\"Name\"`",
+	}
+
 	tests := []struct {
 		live    map[string]snapshotInfo
 		golden  map[string]snapshotInfo
 		name    string
 		wantErr string
 	}{
+		{
+			name:    "custom marshaler tag change is not data loss",
+			live:    map[string]snapshotInfo{"svc": {Fields: customTagChanged, Version: 1}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: customOld, Version: 1}},
+			wantErr: "custom MarshalJSON",
+		},
+		{
+			name:    "plain struct tag change beside a custom marshaler stays strict",
+			live:    map[string]snapshotInfo{"svc": {Fields: plainTagChanged, Version: 1}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: customOld, Version: 1}},
+			wantErr: "NOT the additive case",
+		},
+		{
+			name:    "dropping the custom marshaler keeps the strict warning",
+			live:    map[string]snapshotInfo{"svc": {Fields: customMarkerDropped, Version: 1}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: customOld, Version: 1}},
+			wantErr: "NOT the additive case",
+		},
+		{
+			name:    "custom and plain changes together stay strict",
+			live:    map[string]snapshotInfo{"svc": {Fields: customAndPlainChanged, Version: 1}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: customOld, Version: 1}},
+			wantErr: "NOT the additive case",
+		},
 		{
 			name:   "unchanged",
 			live:   map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
@@ -440,6 +553,46 @@ func isFieldSupersetOnly(oldFields, newFields []string) bool {
 	return true
 }
 
+const (
+	customMarshalMarker   = "{MarshalJSON}"
+	customUnmarshalMarker = "{UnmarshalJSON}"
+)
+
+// changesConfinedToCustomJSON reports whether every removed descriptor belongs to a type
+// carrying a custom JSON marker in both field sets; ordinary structs never qualify.
+func changesConfinedToCustomJSON(oldFields, newFields []string) bool {
+	present := make(map[string]bool, len(newFields))
+	for _, f := range newFields {
+		present[f] = true
+	}
+
+	oldSet := make(map[string]bool, len(oldFields))
+	for _, f := range oldFields {
+		oldSet[f] = true
+	}
+
+	removed := 0
+
+	for _, f := range oldFields {
+		if present[f] {
+			continue
+		}
+
+		removed++
+
+		owner, _, _ := strings.Cut(f, ".")
+		if !hasCustomJSONMarker(oldSet, owner) || !hasCustomJSONMarker(present, owner) {
+			return false
+		}
+	}
+
+	return removed > 0
+}
+
+func hasCustomJSONMarker(set map[string]bool, owner string) bool {
+	return set[owner+"."+customMarshalMarker] || set[owner+"."+customUnmarshalMarker]
+}
+
 func addedFields(oldFields, newFields []string) []string {
 	old := make(map[string]bool, len(oldFields))
 	for _, f := range oldFields {
@@ -603,6 +756,7 @@ func scanServiceDir(dir string) (snapshotInfo, bool, error) {
 	}
 
 	registeredRoots, _ := collectRegisteredTypeRoots(files, funcLookup)
+	customJSON := collectCustomJSONMethods(files)
 
 	hasVersionStruct := false
 
@@ -624,11 +778,11 @@ func scanServiceDir(dir string) (snapshotInfo, bool, error) {
 	sort.Strings(snapshotRoots)
 
 	for _, root := range snapshotRoots {
-		expandFields(fset, root, structDecls, visited, &fields)
+		expandFields(fset, root, structDecls, customJSON, visited, &fields)
 	}
 
 	for _, root := range registeredRoots {
-		expandFields(fset, root, structDecls, visited, &fields)
+		expandFields(fset, root, structDecls, customJSON, visited, &fields)
 	}
 
 	sort.Strings(fields)
@@ -809,6 +963,39 @@ func baseTypeName(expr ast.Expr) (string, bool) {
 	}
 }
 
+// collectCustomJSONMethods maps a type name to the custom-JSON markers it carries, one
+// per MarshalJSON/UnmarshalJSON method declared on it (value or pointer receiver).
+func collectCustomJSONMethods(files map[string]*ast.File) map[string][]string {
+	out := make(map[string][]string)
+
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 {
+				continue
+			}
+
+			recv, ok := baseTypeName(fd.Recv.List[0].Type)
+			if !ok {
+				continue
+			}
+
+			switch fd.Name.Name {
+			case "MarshalJSON":
+				out[recv] = append(out[recv], customMarshalMarker)
+			case "UnmarshalJSON":
+				out[recv] = append(out[recv], customUnmarshalMarker)
+			}
+		}
+	}
+
+	for _, markers := range out {
+		sort.Strings(markers)
+	}
+
+	return out
+}
+
 // namedTypeRefs returns the same-package type names a field's type expression refers to,
 // unwrapping pointers, slices/arrays and maps. A name that turns out to be a builtin or a
 // non-struct type simply won't be found in structDecls by the caller and expansion stops
@@ -836,6 +1023,7 @@ func expandFields(
 	fset *token.FileSet,
 	root string,
 	structDecls map[string]*ast.StructType,
+	customJSON map[string][]string,
 	visited map[string]bool,
 	out *[]string,
 ) {
@@ -854,9 +1042,13 @@ func expandFields(
 		*out = append(*out, root+"."+d)
 	}
 
+	for _, marker := range customJSON[root] {
+		*out = append(*out, root+"."+marker)
+	}
+
 	for _, field := range st.Fields.List {
 		for _, ref := range namedTypeRefs(field.Type) {
-			expandFields(fset, ref, structDecls, visited, out)
+			expandFields(fset, ref, structDecls, customJSON, visited, out)
 		}
 	}
 }
