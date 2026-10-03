@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,22 +21,30 @@ import (
 
 const kinesisTagsRTRegion = "us-east-1"
 
+// plainBodyDoer hides the request body's io.WriterTo from net/http.
+type plainBodyDoer struct{ inner *awshttp.BuildableClient }
+
+func (d plainBodyDoer) Do(r *http.Request) (*http.Response, error) {
+	if r.Body != nil && r.Body != http.NoBody {
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{r.Body, r.Body}
+	}
+
+	return d.inner.Do(r)
+}
+
 // newTestKinesisClient stands up the real aws-sdk-go-v2 kinesis client
 // against an httptest server running this package's Handler, wired through
 // the same pkgs/service registry/router used in production.
 //
-// Keep-alives are disabled: SubscribeToShard tests issue several ordinary
-// calls (CreateStream, DescribeStream, ...) on this client before opening
-// the event stream, and under heavy scheduler contention (-race, shuffled
-// t.Parallel load) net/http's Transport can reuse the keep-alive
-// connection from one of those calls for the SubscribeToShard request; a
-// stale-idle-connection race in that reuse path
-// (net/http.(*persistConn).writeLoop tearing down the conn while the
-// SDK's event-stream reader is still blocked reading it) surfaces to the
-// caller as "use of closed network connection" instead of the clean EOF a
-// fresh connection gets (gopherstack-i8q7). Forcing a new connection per
-// request removes the reuse window entirely; it does not change what any
-// test observes over the wire.
+// Keep-alives are disabled so a SubscribeToShard stream never shares a
+// connection with an earlier call. Request bodies are also stripped of
+// io.WriterTo: smithy's safeWriteToReadCloser.WriteTo returns io.EOF once the
+// SDK closes the body, and net/http's writeLoop treats that as a write error
+// and closes the connection under a live event stream when the server
+// answers before the loop finishes (gopherstack-i8q7).
 func newTestKinesisClient(t *testing.T, h *kinesis.Handler) *kinesissdk.Client {
 	t.Helper()
 
@@ -58,9 +67,9 @@ func newTestKinesisClient(t *testing.T, h *kinesis.Handler) *kinesissdk.Client {
 
 	return kinesissdk.NewFromConfig(cfg, func(o *kinesissdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
-		o.HTTPClient = awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+		o.HTTPClient = plainBodyDoer{awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 			tr.DisableKeepAlives = true
-		})
+		})}
 	})
 }
 
