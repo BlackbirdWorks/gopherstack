@@ -533,7 +533,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 52 | 7 gaps |
-| [RDS Data](services/rdsdata/README.md) | A | 6 | 3 gaps |
+| [RDS Data](services/rdsdata/README.md) | A | 6 | 4 gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 3 gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 5 gaps; 1 deferred |
 | [Timestream Query](services/timestreamquery/README.md) | A | 12 | 5 gaps; 1 deferred |
