@@ -14,25 +14,16 @@ const maxProbeBody = 1 << 20
 
 var errNotReady = errors.New("readyz not ok")
 
-// probeK3s fetches the server CA from /cacerts, then requires /readyz to answer 200 for the bearer token.
-func probeK3s(ctx context.Context, addr, token string) ([]byte, error) {
-	//nolint:gosec // bootstrap fetch of the public CA; every later request verifies against it
-	ca, err := httpGet(ctx, addr, "/cacerts", "", &tls.Config{InsecureSkipVerify: true})
-	if err != nil {
-		return nil, err
-	}
-
+// probeK3s requires /readyz to answer 200 for the bearer token over TLS verified against the pre-provisioned CA.
+func probeK3s(ctx context.Context, addr, token string, caPEM []byte) error {
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(ca) {
-		return nil, fmt.Errorf("%w: /cacerts returned no certificate", errNotReady)
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return fmt.Errorf("%w: cluster CA is not a certificate", errNotReady)
 	}
 
-	verified := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-	if _, err = httpGet(ctx, addr, "/readyz", token, verified); err != nil {
-		return nil, err
-	}
+	_, err := httpGet(ctx, addr, "/readyz", token, &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12})
 
-	return ca, nil
+	return err
 }
 
 func httpGet(ctx context.Context, addr, path, token string, tlsCfg *tls.Config) ([]byte, error) {

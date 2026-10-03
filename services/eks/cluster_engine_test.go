@@ -3,11 +3,17 @@ package eks_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -57,6 +63,7 @@ type fakeClusterRuntime struct {
 	removed []string
 	mu      sync.Mutex
 	serve   bool
+	wrongCA bool
 }
 
 func (f *fakeClusterRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
@@ -72,7 +79,7 @@ func (f *fakeClusterRuntime) CreateAndStart(_ context.Context, spec container.Sp
 
 	if f.serve {
 		_, host, _, _ := container.ParsePortSpec(spec.Ports[0])
-		stop := serveFakeK3s(host)
+		stop := serveFakeK3s(host, spec, f.wrongCA)
 
 		if f.started == nil {
 			f.started = map[string]func(){}
@@ -112,13 +119,9 @@ func (f *fakeClusterRuntime) removedIDs() []string {
 	return append([]string(nil), f.removed...)
 }
 
-// serveFakeK3s answers /cacerts and an authenticated /readyz on the published host port.
-func serveFakeK3s(hostPort string) func() {
+// serveFakeK3s answers an authenticated /readyz on the published host port with a leaf signed by the spec's CA.
+func serveFakeK3s(hostPort string, spec container.Spec, wrongCA bool) func() {
 	mux := http.NewServeMux()
-	srv := httptest.NewUnstartedServer(mux)
-	mux.HandleFunc("/cacerts", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}))
-	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+testToken {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -134,11 +137,66 @@ func serveFakeK3s(hostPort string) func() {
 		return func() {}
 	}
 
+	srv := httptest.NewUnstartedServer(mux)
 	srv.Listener = l
-	srv.TLS = &tls.Config{MinVersion: tls.VersionTLS12}
+	srv.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{fakeLeaf(spec, wrongCA)}}
 	srv.StartTLS()
 
 	return srv.Close
+}
+
+func specEnv(spec container.Spec, key string) string {
+	for _, kv := range spec.Env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
+		}
+	}
+
+	return ""
+}
+
+func selfSignedCA() (string, string) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "other-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	keyDER, _ := x509.MarshalECPrivateKey(key)
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+}
+
+func fakeLeaf(spec container.Spec, wrongCA bool) tls.Certificate {
+	certPEM, keyPEM := specEnv(spec, "GOPHERSTACK_EKS_CA_CERT"), specEnv(spec, "GOPHERSTACK_EKS_CA_KEY")
+	if wrongCA {
+		certPEM, keyPEM = selfSignedCA()
+	}
+
+	caBlk, _ := pem.Decode([]byte(certPEM))
+	keyBlk, _ := pem.Decode([]byte(keyPEM))
+	caCert, _ := x509.ParseCertificate(caBlk.Bytes)
+	caKey, _ := x509.ParseECPrivateKey(keyBlk.Bytes)
+	leafKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "k3s"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, _ := x509.CreateCertificate(rand.Reader, tmpl, caCert, &leafKey.PublicKey, caKey)
+
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: leafKey}
 }
 
 type gatedClusterProbe struct {
@@ -384,16 +442,18 @@ func TestDockerCluster_DefaultProbe(t *testing.T) {
 		name       string
 		token      string
 		wantStatus string
+		wrongCA    bool
 	}{
 		{name: "token_accepted", token: testToken, wantStatus: "ACTIVE"},
 		{name: "token_rejected", token: "some-other-token-0123456789", wantStatus: "FAILED"},
+		{name: "untrusted_ca_rejected", token: testToken, wantStatus: "FAILED", wrongCA: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rt := &fakeClusterRuntime{serve: true}
+			rt := &fakeClusterRuntime{serve: true, wrongCA: tt.wrongCA}
 			b := dockerClusterBackend(t, rt, eks.ClusterEngineConfig{Token: tt.token, StartTimeout: 3 * time.Second})
 
 			_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)

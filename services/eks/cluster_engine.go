@@ -46,11 +46,17 @@ const (
 	tokenFileName        = "/etc/gopherstack-eks-tokens.csv"
 	envAdminAuth         = "GOPHERSTACK_EKS_ADMIN_AUTH"
 	envHost              = "GOPHERSTACK_EKS_HOST"
+	envCACert            = "GOPHERSTACK_EKS_CA_CERT"
+	envCAKey             = "GOPHERSTACK_EKS_CA_KEY"
+	k3sTLSDir            = "/var/lib/rancher/k3s/server/tls"
 )
 
-// k3sScript writes the static token file, then replaces the shell with the k3s server.
+// k3sScript writes the token file and the pre-provisioned server CA, then replaces the shell with the k3s server.
 const k3sScript = `printf '%s,admin,admin,"system:masters"\n' "$` + envAdminAuth + `" > ` + tokenFileName +
-	` && exec /bin/k3s server --tls-san "$` + envHost + `"` +
+	` && umask 077 && mkdir -p ` + k3sTLSDir +
+	` && printf '%s\n' "$` + envCACert + `" > ` + k3sTLSDir + `/server-ca.crt` +
+	` && printf '%s\n' "$` + envCAKey + `" > ` + k3sTLSDir + `/server-ca.key` +
+	` && unset ` + envCAKey + ` && exec /bin/k3s server --tls-san "$` + envHost + `"` +
 	` --disable traefik --disable servicelb --disable metrics-server` +
 	` --kube-apiserver-arg=token-auth-file=` + tokenFileName
 
@@ -114,7 +120,7 @@ type ClusterEngineConfig struct {
 	// Ports hands out host ports; nil falls back to OS-chosen free ports.
 	Ports  *portalloc.Allocator
 	Logger *slog.Logger
-	// Probe returns the server CA (PEM) once the API server at addr answers /readyz for token.
+	// Probe overrides the readiness check; it returns the server CA (PEM) once addr answers /readyz for token.
 	Probe func(ctx context.Context, addr, token string) ([]byte, error)
 	// Host is the address clients use to reach the API server; default 127.0.0.1.
 	Host string
@@ -164,10 +170,6 @@ func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
 		cfg.StartTimeout = clusterStartTimeout
 	}
 
-	if cfg.Probe == nil {
-		cfg.Probe = probeK3s
-	}
-
 	b.mu.Lock("EnableClusters")
 	defer b.mu.Unlock()
 
@@ -190,12 +192,15 @@ func (e *clusterEngine) image(version string) string {
 	return img
 }
 
-func (e *clusterEngine) spec(name, version string, port int) container.Spec {
+func (e *clusterEngine) spec(name, version string, port int, ca *clusterCA) container.Spec {
 	return container.Spec{
 		Name:       "gopherstack-eks-" + name + "-" + uuid.NewString()[:8],
 		Image:      e.image(version),
 		Entrypoint: []string{"/bin/sh", "-c", k3sScript},
-		Env:        []string{envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host},
+		Env: []string{
+			envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host,
+			envCACert + "=" + string(ca.certPEM), envCAKey + "=" + string(ca.keyPEM),
+		},
 		Ports: []string{
 			container.PortSpec(container.BindHostFor(e.cfg.Host), strconv.Itoa(port), strconv.Itoa(k3sAPIPort)),
 		},
@@ -337,7 +342,15 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, version, port))
+	ca, err := newClusterCA(name)
+	if err != nil {
+		e.releasePort(port)
+		b.failCluster(ctx, name, lc, err)
+
+		return
+	}
+
+	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, version, port, ca))
 	if err != nil {
 		e.releasePort(port)
 		b.failCluster(ctx, name, lc, err)
@@ -351,14 +364,14 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 		return
 	}
 
-	ca, err := e.awaitReady(ctx, e.addr(lc))
+	caPEM, err := e.awaitReady(ctx, e.addr(lc), ca.certPEM)
 	if err != nil {
 		b.failCluster(ctx, name, lc, err)
 
 		return
 	}
 
-	b.markClusterActive(name, lc, ca)
+	b.markClusterActive(name, lc, caPEM)
 }
 
 func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string, port int) bool {
@@ -414,7 +427,15 @@ func (b *InMemoryBackend) failCluster(ctx context.Context, name string, lc *live
 	b.clusterEng.reap([]*liveCluster{lc})
 }
 
-func (e *clusterEngine) awaitReady(ctx context.Context, addr string) ([]byte, error) {
+func (e *clusterEngine) probe(ctx context.Context, addr string, ca []byte) ([]byte, error) {
+	if e.cfg.Probe != nil {
+		return e.cfg.Probe(ctx, addr, e.cfg.Token)
+	}
+
+	return ca, probeK3s(ctx, addr, e.cfg.Token, ca)
+}
+
+func (e *clusterEngine) awaitReady(ctx context.Context, addr string, ca []byte) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.cfg.StartTimeout)
 	defer cancel()
 
@@ -423,12 +444,12 @@ func (e *clusterEngine) awaitReady(ctx context.Context, addr string) ([]byte, er
 
 	for {
 		pctx, pcancel := context.WithTimeout(ctx, clusterProbeTimeout)
-		ca, err := e.cfg.Probe(pctx, addr, e.cfg.Token)
+		got, err := e.probe(pctx, addr, ca)
 
 		pcancel()
 
 		if err == nil {
-			return ca, nil
+			return got, nil
 		}
 
 		select {

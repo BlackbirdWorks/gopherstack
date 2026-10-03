@@ -265,12 +265,82 @@ func TestRelayQueueBoundAndClose(t *testing.T) {
 func TestHeaderInjectionRejected(t *testing.T) {
 	t.Parallel()
 
-	_, err := smtprelay.Message{
-		From: "a@example.com",
-		To:   []string{"x@example.com\r\nBcc: evil@example.com"},
-		Text: "t",
+	const evil = "\r\nBcc: evil@example.com"
+
+	tests := []struct {
+		name string
+		msg  smtprelay.Message
+	}{
+		{name: "to", msg: smtprelay.Message{From: "a@example.com", To: []string{"x@example.com" + evil}}},
+		{name: "cc", msg: smtprelay.Message{From: "a@example.com", Cc: []string{"x@example.com" + evil}}},
+		{name: "from", msg: smtprelay.Message{From: "a@example.com" + evil, To: []string{"x@example.com"}}},
+		{name: "reply_to", msg: smtprelay.Message{
+			From: "a@example.com", To: []string{"x@example.com"}, ReplyTo: []string{"r@example.com" + evil},
+		}},
+		{name: "message_id", msg: smtprelay.Message{
+			ID: "id" + evil, From: "a@example.com", To: []string{"x@example.com"},
+		}},
+		{name: "bare_lf", msg: smtprelay.Message{From: "a@example.com\nBcc: evil@example.com"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.msg.Text = "t"
+
+			_, err := tt.msg.Bytes()
+			require.ErrorIs(t, err, smtprelay.ErrHeaderInjection)
+		})
+	}
+}
+
+func TestSubjectInjectionNeutralised(t *testing.T) {
+	t.Parallel()
+
+	raw, err := smtprelay.Message{
+		From: "a@example.com", To: []string{"x@example.com"}, Text: "t",
+		Subject: "hi\r\nBcc: evil@example.com",
 	}.Bytes()
-	require.ErrorIs(t, err, smtprelay.ErrHeaderInjection)
+	require.NoError(t, err)
+
+	msg, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	require.NoError(t, err)
+	assert.Empty(t, msg.Header.Get("Bcc"))
+}
+
+func TestEnvelopeInjectionNeverAddsRecipients(t *testing.T) {
+	t.Parallel()
+
+	rawMsg := []byte("From: a@example.com\r\nTo: b@example.com\r\nBcc: evil@example.com\r\n\r\nbody\r\n")
+
+	tests := []struct {
+		name string
+		msg  smtprelay.Message
+	}{
+		{name: "raw", msg: smtprelay.Message{
+			From: "a@example.com", Raw: rawMsg,
+			To: []string{"b@example.com", "x@example.com>\r\nRCPT TO:<evil@example.com"},
+		}},
+		{name: "raw_header_bcc_ignored", msg: smtprelay.Message{
+			From: "a@example.com", Raw: rawMsg, To: []string{"b@example.com"},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := smtptest.Start(t, smtptest.Options{})
+			r := smtprelay.New(smtprelay.Config{Host: srv.Addr()})
+			defer r.Close()
+
+			require.True(t, r.Enqueue(tt.msg))
+
+			sess := next(t, srv)
+			assert.Equal(t, []string{"b@example.com"}, sess.Rcpts)
+		})
+	}
 }
 
 func TestConfigFromEnv(t *testing.T) {
