@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 86 (86 ok) |
 | Feature families | 11 (11 ok) |
-| Known gaps | 14 |
+| Known gaps | 15 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -29,6 +29,7 @@
 - Transformers, Integrations (GetIntegration/PutIntegration field-diffed; ListIntegrations filters now real), and AccountPolicy top-level shapes remain spot-checked flat, not exhaustively re-audited field-by-field op-by-op. Resource Policies and Index Policies were field-diffed for real in a prior pass and are no longer deferred.
 - StartLiveTail streaming transport (intentionally out of scope; validation-only by design -- the real op is a Smithy event stream this unary-JSON-response handler cannot emulate).
 - Import tasks: ImportStatistics/ErrorMessage and DescribeImportTaskBatches execution state need a real external-source import engine (ImportFilter itself is now stored and echoed).
+- Subscription-filter denial messages are documented text, not SDK-verified; a delivery denied after PutSubscriptionFilter is dropped silently (2026-10-03).
 
 ## More
 

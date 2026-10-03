@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,7 +18,6 @@
 - chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: shared pkgs/chaos infrastructure with no per-service extension point (bd: gopherstack-ayfw).
 - No real inference or classifier: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply, InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones.
 - AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed and no AWS-documented trigger exists to key a Failed transition off.
-- GetAsyncInvoke not-found returns ResourceNotFoundException/404, which the pinned SDK does not declare for that op (deserializers.go:796-859), so errors.As on the typed exception fails; real AWS behaviour is unverified, tests assume the current shape.
 - Converse guardrailConfig is opaque and not checked for identifier-requires-version: no AWS doc states that rule for the Converse body (InvokeModel's header rule is documented).
 
 ## More

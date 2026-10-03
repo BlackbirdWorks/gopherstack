@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 88 (88 ok) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | found_and_fixed |
 
@@ -19,6 +19,7 @@
 - DeleteOTAUpdate's ForceDeleteAWSJob/DeleteStream are not honored: CreateOTAUpdate fabricates the AWS job id and never creates a Job or an OTA-owned stream (needs a real OTA job/stream pipeline), and the SDK names no exception for the non-terminal-job case.
 - Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path).
 - Rule actions other than sqs/lambda/sns (s3, dynamoDB, kinesis, ...) and errorAction are stored and returned verbatim but never executed by the embedded broker; sns is also not dispatched there.
+- Only SQS and Lambda rule actions execute; SNS and other action types are not dispatched; errorAction envelope omits cloudwatchTraceId and clientId (2026-10-03).
 
 ## More
 

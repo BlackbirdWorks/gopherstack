@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 26 (25 ok, 1 gap) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,6 +19,7 @@
 - Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
 - ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).
 - object_lambda: GetObject only resolves a Lambda wired by bucket name, not access-point-ARN routing; needs ARN-as-bucket routing on every route plus an s3control lookup.
+- Notification destinations are validated only at PutBucketNotificationConfiguration; per-configuration error details are not emitted (2026-10-03).
 
 ## More
 

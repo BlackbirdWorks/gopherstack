@@ -514,7 +514,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 6 gaps |
-| [S3](services/s3/README.md) | A | 26 | 4 gaps |
+| [S3](services/s3/README.md) | A | 26 | 5 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
@@ -562,13 +562,13 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 4 gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 7 gaps; 2 deferred |
-| [EventBridge](services/eventbridge/README.md) | A | 66 | 2 gaps; 2 deferred |
+| [EventBridge](services/eventbridge/README.md) | A | 66 | 3 gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 4 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps |
-| [SNS](services/sns/README.md) | A | 34 | 2 gaps; 2 deferred |
+| [SNS](services/sns/README.md) | A | 34 | 3 gaps; 2 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 3 gaps; 4 deferred |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
 | [Step Functions](services/stepfunctions/README.md) | A | 37 | 8 gaps |
@@ -588,7 +588,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis](services/kinesis/README.md) | A | 39 | 5 gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 5 gaps; 1 deferred |
-| [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 gaps |
+| [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 5 gaps |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 5 gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 5 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
@@ -639,7 +639,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 10 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 3 gaps; 5 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 14 gaps |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 15 gaps |
 | [Config](services/awsconfig/README.md) | A | 102 | 6 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 4 gaps; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 3 gaps; 1 deferred |
@@ -671,7 +671,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 3 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 3 gaps; 2 deferred |
-| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 5 gaps |
+| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 4 gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 4 gaps; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 3 gaps |
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
@@ -699,7 +699,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
-| [IoT Core](services/iot/README.md) | A | 88 | 4 gaps |
+| [IoT Core](services/iot/README.md) | A | 88 | 5 gaps |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 3 gaps; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 gaps |
 
