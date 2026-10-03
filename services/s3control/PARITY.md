@@ -204,16 +204,6 @@ families:
 gaps: []
 
 items_still_open:
-  - "2026-08-30 (region-isolation sweep): every resource family (AccessPoint, ObjectLambdaAccessPoint,
-    OutpostsBucket, BatchJob, AccessGrant*, StorageLensGroup/Config) is keyed by AccountID+Name only --
-    no region dimension -- so two real aws-sdk-go-v2 clients signing for different regions against ONE
-    gopherstack process collide on a same-named resource (proven with a throwaway test, since deleted).
-    Not the same bug class as cloudwatchlogs/memorydb (no sibling op here scopes by region while this one
-    doesn't; it's uniform across all ~90 ops), and this task's guidance treats a uniform
-    single-region-per-backend-instance design as legitimate. A full fix needs a region parameter threaded
-    through ~16 AccessPoint backend methods (111+ call sites) times five more resource families --
-    tracked, not attempted (would need the services/ssm getRegion(ctx)+per-region store.Table pattern).
-    Excludes MultiRegionAccessPoint, which is correctly already global by design."
   - "s3control.ErrAlreadyExists dead sentinel (errors.go) REMOVED this pass -- verified unreachable
     (repo-wide grep, zero call sites) and its real-AWS duplicate-CreateAccessPoint behavior is
     unverifiable (deserializers.go's awsRestxml_deserializeOpErrorCreateAccessPoint has zero modeled
@@ -1120,3 +1110,13 @@ Gates: `gofmt -l` clean; `go build ./services/s3control/...` and `go vet
 ./services/s3control/...` and `go test -count=1 ./pkgs/persistence/` pass;
 `golangci-lint run ./services/s3control/...` 0 issues; `git diff --stat
 go.mod go.sum` empty. No persisted-field change.
+
+## 2026-10-03 (gopherstack-7v0p multi-region)
+
+One process now serves every region: `Handler.Handler()` routes a request whose SigV4/`X-Amz-Region` region
+differs from the home region to a lazily built sibling `Handler` (own `InMemoryBackend`, region-correct ARNs)
+via `pkgs/regionpeers`. Same-named access points, jobs, grants and the rest coexist per region. The
+region-isolation `items_still_open` entry is closed. Snapshots gain an additive `regions` key only when a
+sibling exists (no version bump; legacy snapshots restore unchanged). Proof: `TestHandler_MultiRegionIsolation`,
+`TestHandler_MultiRegionPersistence`, and `TestRegionIsolation/s3control` at the repo root. Limitation:
+non-home regions are not visible to the tagging-API bridge or the dashboard.

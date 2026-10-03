@@ -1546,3 +1546,13 @@ id up to 255 chars) and is echoed on the UpdateBucket response; `GetBuckets.Incl
 for a single named bucket, per the SDK doc. Proof: `TestBucketCORS` (typed client). Removed as non-gaps:
 single-region-by-design (gopherstack-7v0p), `SetupInstanceHttps.EmailAddress` (absent from SDK types),
 no `AWS::Lightsail::*` CFN type / no ListTagsForResource op.
+
+## 2026-10-03 (gopherstack-7v0p multi-region)
+
+Lightsail no longer relies on one backend instance per region: `Provider.Init` calls `Handler.EnableRegions`,
+so a request signed for another region is served by a lazily built sibling `Handler` (own backend and
+async-timer group, region-correct ARNs) via `pkgs/regionpeers`. Same-named resources coexist per region.
+Snapshots gain an additive `regions` key only when a sibling exists (no version bump). `NewHandler` alone
+stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`,
+`TestRegionIsolation/lightsail`. Limitation: non-home regions are not visible to the tagging-API bridge,
+the CloudFormation export path or the dashboard.

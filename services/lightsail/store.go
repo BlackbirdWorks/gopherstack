@@ -100,6 +100,13 @@ func (b *InMemoryBackend) SetCloudFormationBackend(cfn CloudFormationBackend) {
 	b.cfnBackend = cfn
 }
 
+func (b *InMemoryBackend) currentCloudFormationBackend() CloudFormationBackend {
+	b.mu.RLock("currentCloudFormationBackend")
+	defer b.mu.RUnlock()
+
+	return b.cfnBackend
+}
+
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 

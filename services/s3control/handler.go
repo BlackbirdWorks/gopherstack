@@ -11,7 +11,9 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -29,16 +31,29 @@ const (
 // Handler is the Echo HTTP handler for S3 Control operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[Handler]
 }
 
-// NewHandler creates a new S3 Control handler.
+// NewHandler creates a new S3 Control handler that serves other regions
+// through lazily built per-region siblings.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.peers = regionpeers.New(backend.region, h.newPeer)
+
+	return h
 }
 
-// Reset clears all backend state.
+func (h *Handler) newPeer(region string) *Handler {
+	nb := NewInMemoryBackendWithConfig(h.Backend.accountID, region)
+	nb.SetObjectLambdaConfigSink(h.Backend.currentObjectLambdaSink())
+
+	return &Handler{Backend: nb}
+}
+
+// Reset clears all backend state, including every non-home region.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+	h.peers.Drain()
 }
 
 // Name returns the service name.
@@ -271,6 +286,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+		if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		path := r.URL.Path
 		method := r.Method
 
