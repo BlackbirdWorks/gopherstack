@@ -1,13 +1,10 @@
 package kinesis_test
 
 import (
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -15,32 +12,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 const kinesisTagsRTRegion = "us-east-1"
 
-// plainBodyDoer hides the request body's io.WriterTo from net/http.
-type plainBodyDoer struct{ inner *awshttp.BuildableClient }
-
-func (d plainBodyDoer) Do(r *http.Request) (*http.Response, error) {
-	if r.Body != nil && r.Body != http.NoBody {
-		r.Body = struct {
-			io.Reader
-			io.Closer
-		}{r.Body, r.Body}
-	}
-
-	return d.inner.Do(r)
-}
-
 // newTestKinesisClient stands up the real aws-sdk-go-v2 kinesis client
 // against an httptest server running this package's Handler, wired through
 // the same pkgs/service registry/router used in production.
 //
-// Bodies hide io.WriterTo: smithy's WriteTo returns io.EOF after close, which net/http
-// treats as a write error and closes a live event stream (gopherstack-8wa8j).
+// Uses sdktest.PlainBodyHTTPClient to keep live event streams open (gopherstack-8wa8j).
 func newTestKinesisClient(t *testing.T, h *kinesis.Handler) *kinesissdk.Client {
 	t.Helper()
 
@@ -63,9 +46,7 @@ func newTestKinesisClient(t *testing.T, h *kinesis.Handler) *kinesissdk.Client {
 
 	return kinesissdk.NewFromConfig(cfg, func(o *kinesissdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
-		o.HTTPClient = plainBodyDoer{awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
-			tr.DisableKeepAlives = true
-		})}
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 

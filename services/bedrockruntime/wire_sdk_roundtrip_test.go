@@ -1,12 +1,10 @@
 package bedrockruntime_test
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	bedrockruntimesdk "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
@@ -15,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 )
@@ -58,9 +57,7 @@ func newTestBedrockRuntimeSDKClient(
 
 	return bedrockruntimesdk.NewFromConfig(cfg, func(o *bedrockruntimesdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
-		o.HTTPClient = awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
-			tr.DisableKeepAlives = true
-		})
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 

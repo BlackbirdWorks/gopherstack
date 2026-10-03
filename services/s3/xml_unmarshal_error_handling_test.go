@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -46,6 +47,7 @@ func newRealS3ClientTest(t *testing.T) *sdk_s3.Client {
 	return sdk_s3.NewFromConfig(cfg, func(o *sdk_s3.Options) {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String(srv.URL)
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 
