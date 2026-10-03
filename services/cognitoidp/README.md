@@ -16,7 +16,7 @@
 
 - domains: Routing and Version (DomainDescriptionType) remain unpopulated -- no multi-region-domain-routing model or app-version tracking exists in this backend; left absent rather than fabricated.
 - MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents.
-- OAuth2/OIDC endpoints (gopherstack-1ryp5): no federated IdP redirect, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, nonce is not carried into ID tokens minted by the refresh grant, PreTokenGeneration V2_0/V3_0 accessTokenGeneration/idTokenGeneration responses are applied only to client_credentials (user sign-in still reads the V1_0 claimsOverrideDetails shape), hosted login cannot answer MFA_SETUP or EMAIL_OTP/SMS challenges it has no delivery for beyond the generated code.
+- OAuth2/OIDC endpoints (gopherstack-1ryp5): no federated IdP redirect, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, nonce is not carried into ID tokens minted by the refresh grant, hosted login cannot answer MFA_SETUP or EMAIL_OTP/SMS challenges it has no delivery for beyond the generated code.
 
 ## More
 

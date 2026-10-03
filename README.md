@@ -489,7 +489,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 4 gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 5 gaps; 1 deferred |
-| [EKS](services/eks/README.md) | A | 70 | 3 gaps; 1 deferred |
+| [EKS](services/eks/README.md) | A | 70 | 4 gaps; 1 deferred |
 
 ### Storage
 
@@ -517,7 +517,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 5 gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 6 gaps |
+| [RDS](services/rds/README.md) | A | 52 | 7 gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 3 gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 3 gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 5 gaps; 1 deferred |

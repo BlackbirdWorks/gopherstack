@@ -8,12 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 70 (70 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- EKS docker engine: IAM (k8s-aws-v1) token authentication, managed nodegroup/Fargate/addon workloads and Insights computed from the live API server are not modeled (gopherstack-7neth follow-up).
 - Needs a live Kubernetes API server or hybrid-nodes model (bd gopherstack-7neth): Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks, Nodegroup.Health.Issues and FargateProfile.Health.Issues (always empty), and DeleteCertificateAuthority's only-successor protection (every CA here is CreatedBy=CUSTOMER).
 - No published derivation: ArgoCd IdcManagedApplicationArn/ServerUrl, CertificateAuthority.ScheduledEvents, the CA RollbackAvailable expiry window (no duration documented), and EksAnywhereSubscription.LicenseArns/Licenses (no per-license record) are left empty rather than fabricated.
 - CreateCluster.BootstrapSelfManagedAddons has no effect: no default addons are auto-installed, and types.Cluster does not echo the flag, so a client cannot observe it.
