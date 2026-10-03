@@ -379,6 +379,7 @@ type Executor struct {
 	glue                 GlueIntegration
 	glueSyncWaiter       GlueSyncWaiter
 	eventbridge          EventBridgeIntegration
+	sdk                  SDKIntegration
 	history              HistoryRecorder
 	mapRunNotifier       MapRunNotifier
 	distributedMapRunner DistributedMapRunner
@@ -998,7 +999,7 @@ func (e *Executor) executeTask(
 		}
 
 		if next, out, matched, catchErr := e.checkCatchers(
-			executionARN, stateName, state, input, taskErr,
+			executionARN, stateName, state, pathInput, taskErr,
 		); matched {
 			return next, out, catchErr
 		}
@@ -1311,6 +1312,12 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any, hear
 	if isActivityResource(state.Resource) {
 		return e.invokeActivityTask(ctx, state, input, heartbeatSeconds)
 	}
+	if isLambdaInvokeResource(state.Resource) {
+		return e.invokeLambdaOptimized(ctx, input)
+	}
+	if call, ok := sdkCallFor(state.Resource); ok && e.sdk != nil {
+		return e.invokeSDKTask(ctx, input, call)
+	}
 	if isLambdaResource(state.Resource) {
 		return e.invokeLambdaTask(ctx, state, input)
 	}
@@ -1394,6 +1401,10 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	const statusOK = 200
 	if statusCode >= 400 || statusCode < statusOK {
 		return nil, fmt.Errorf("%w: %d", ErrLambdaStatusError, statusCode)
+	}
+
+	if ferr := lambdaFunctionError(respBytes); ferr != nil {
+		return nil, ferr
 	}
 
 	var result any
@@ -1795,6 +1806,12 @@ func checkSyncPatternSupported(resource string) error {
 }
 
 func parseServiceIntegrationResource(resource string) (string, string) {
+	if base, ok := strings.CutSuffix(resource, ".sync:2"); ok {
+		action, _ := parseServiceIntegrationResource(base)
+
+		return action, "sync:2"
+	}
+
 	parts := strings.Split(resource, ":")
 	action := parts[len(parts)-1]
 	pattern := ""

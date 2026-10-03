@@ -103,6 +103,7 @@ type InMemoryBackend struct {
 	glueIntegration asl.GlueIntegration
 	glueSyncWaiter  asl.GlueSyncWaiter
 	ebIntegration   asl.EventBridgeIntegration
+	sdkIntegration  asl.SDKIntegration
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
 	mockConfig      *asl.MockConfig
@@ -306,6 +307,13 @@ func (b *InMemoryBackend) SetLambdaInvoker(invoker asl.LambdaInvoker) {
 	b.lambdaInvoker = invoker
 }
 
+// SetSDKIntegration configures the generic AWS SDK integration for Task states.
+func (b *InMemoryBackend) SetSDKIntegration(sdk asl.SDKIntegration) {
+	b.mu.Lock("SetSDKIntegration")
+	defer b.mu.Unlock()
+	b.sdkIntegration = sdk
+}
+
 // SetSQSIntegration configures the SQS integration for Task states.
 func (b *InMemoryBackend) SetSQSIntegration(sqs asl.SQSIntegration) {
 	b.mu.Lock("SetSQSIntegration")
@@ -391,6 +399,7 @@ type integrationsSnapshot struct {
 	glueIntegration asl.GlueIntegration
 	glueSyncWaiter  asl.GlueSyncWaiter
 	ebIntegration   asl.EventBridgeIntegration
+	sdkIntegration  asl.SDKIntegration
 	s3Reader        asl.S3Reader
 	s3ResultWriter  asl.S3Writer
 	mockRun         *asl.MockRun
@@ -409,6 +418,7 @@ func (b *InMemoryBackend) snapshotIntegrationsLocked() integrationsSnapshot {
 		glueIntegration: b.glueIntegration,
 		glueSyncWaiter:  b.glueSyncWaiter,
 		ebIntegration:   b.ebIntegration,
+		sdkIntegration:  b.sdkIntegration,
 		s3Reader:        b.s3Reader,
 		s3ResultWriter:  b.s3ResultWriter,
 	}
@@ -426,6 +436,7 @@ func applyIntegrations(executor *asl.Executor, s integrationsSnapshot) {
 	executor.SetGlueIntegration(s.glueIntegration)
 	executor.SetGlueSyncWaiter(s.glueSyncWaiter)
 	executor.SetEventBridgeIntegration(s.ebIntegration)
+	executor.SetSDKIntegration(s.sdkIntegration)
 	executor.SetS3Reader(s.s3Reader)
 	executor.SetS3ResultWriter(s.s3ResultWriter)
 	executor.SetMockRun(s.mockRun)

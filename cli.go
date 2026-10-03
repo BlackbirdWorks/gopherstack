@@ -12319,8 +12319,58 @@ func setupChaosAndRegistry(
 	}
 
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
+	wireStepFunctionsSDKIntegration(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
 
 	return nil
+}
+
+// wireStepFunctionsSDKIntegration lets Step Functions Task states call every
+// registered service in-process; with IAM enforcement on, calls run as the execution role.
+func wireStepFunctionsSDKIntegration(e http.Handler, services []service.Registerable, region string, enforceIAM bool) {
+	byName := serviceByName(services)
+
+	sfnH, ok := byName["StepFunctions"].(*sfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	bk, ok := sfnH.Backend.(*sfnbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	var roles sfnbackend.RoleAssumer
+
+	if stsH, stsOk := byName["STS"].(*stsbackend.Handler); stsOk && enforceIAM {
+		if stsBk, bkOk := stsH.Backend.(*stsbackend.InMemoryBackend); bkOk {
+			roles = &sfnRoleAssumer{sts: stsBk}
+		}
+	}
+
+	bk.SetSDKIntegration(sfnbackend.NewSDKIntegrationWithRoles(e, region, roles))
+}
+
+// sfnRoleAssumer issues execution-role credentials to states.amazonaws.com via STS.
+type sfnRoleAssumer struct {
+	sts *stsbackend.InMemoryBackend
+}
+
+func (r *sfnRoleAssumer) AssumeExecutionRole(roleArn string) (sfnbackend.RoleCredentials, error) {
+	out, err := r.sts.AssumeRoleForService("states.amazonaws.com", roleArn, "states-execution")
+	if err != nil {
+		return sfnbackend.RoleCredentials{}, err
+	}
+
+	c := out.AssumeRoleResult.Credentials
+
+	exp, parseErr := time.Parse(time.RFC3339, c.Expiration)
+	if parseErr != nil {
+		return sfnbackend.RoleCredentials{}, parseErr
+	}
+
+	return sfnbackend.RoleCredentials{
+		AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken, Expires: exp,
+	}, nil
 }
 
 // compressionMiddleware returns the runtime response-compression middleware for

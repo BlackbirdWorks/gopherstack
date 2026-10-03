@@ -321,6 +321,10 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// machine ARN, even when stateMachineArn (the caller-supplied argument)
 	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
 	baseSMArn := sm.StateMachineArn
+	if name == "" {
+		name = uuid.NewString()
+	}
+
 	execArn := b.execARN(baseSMArn, sm.Name, name)
 
 	mockRun, mockErr := b.mockRunLocked(sm.Name, testCase, hasTestCase)

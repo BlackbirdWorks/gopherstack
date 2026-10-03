@@ -65,13 +65,14 @@ type trustEval struct {
 	action           string
 	callerArn        string
 	federatedArn     string
+	servicePrincipal string
 	externalID       string
 	strictConditions bool
 }
 
 // hasPrincipal reports whether the evaluation carries a caller principal.
 func (e trustEval) hasPrincipal() bool {
-	return e.callerArn != "" || e.federatedArn != ""
+	return e.callerArn != "" || e.federatedArn != "" || e.servicePrincipal != ""
 }
 
 // principalLabel returns a human-readable identifier for error messages.
@@ -82,6 +83,10 @@ func (e trustEval) principalLabel() string {
 
 	if e.federatedArn != "" {
 		return e.federatedArn
+	}
+
+	if e.servicePrincipal != "" {
+		return e.servicePrincipal
 	}
 
 	return "the caller"
@@ -299,6 +304,14 @@ func principalMatches(raw json.RawMessage, ev trustEval) bool {
 	for _, fed := range p.federated {
 		if federatedPrincipalMatches(fed, ev.federatedArn) {
 			return true
+		}
+	}
+
+	if ev.servicePrincipal != "" {
+		for _, svc := range p.service {
+			if strings.EqualFold(svc, ev.servicePrincipal) {
+				return true
+			}
 		}
 	}
 
