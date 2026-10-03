@@ -72,6 +72,8 @@ type SendEmailInput struct {
 	Cc                   []string
 	Bcc                  []string
 	ReplyTo              []string
+	// RawMessage is the verbatim MIME for SendRawEmail; used only for SMTP relay.
+	RawMessage []byte
 }
 
 // SendTemplatedEmailInput contains all parameters for sending a templated email.

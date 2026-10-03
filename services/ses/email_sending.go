@@ -262,6 +262,7 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 	}
 
 	b.publishEmailNotifications(email, targets)
+	b.relayEmail(email, in.RawMessage)
 
 	return msgID, nil
 }
@@ -360,6 +361,7 @@ func (b *InMemoryBackend) sendTemplatedEmailChecked(in SendTemplatedEmailInput, 
 	}
 
 	b.publishEmailNotifications(email, targets)
+	b.relayEmail(email, nil)
 
 	return msgID, nil
 }

@@ -522,3 +522,22 @@ Gates: `go build ./...` (whole module, clean). `go vet
 (pass, including all pre-existing SendRawEmail tests unmodified).
 `golangci-lint run --new-from-rev=HEAD ./services/ses/...` (0 issues).
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-03: optional real SMTP delivery (gopherstack-frq01)
+
+When `SMTP_HOST` is set (optional `SMTP_USER`/`SMTP_PASS`; port defaults to 25),
+accepted SendEmail, SendRawEmail, SendTemplatedEmail and SendBulkTemplatedEmail
+messages are additionally relayed over `net/smtp` by `pkgs/smtprelay`, beside
+the unchanged mailbox simulator (which still feeds `/_aws/ses`). Same env
+interface as LocalStack: https://docs.localstack.cloud/aws/services/ses/ and
+https://docs.localstack.cloud/aws/capabilities/config/configuration/ (Emails
+section: `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`; `SMTP_EMAIL` is Cognito-only
+there and is not read by SES).
+
+- Delivery is async (bounded queue, one worker, stopped on Shutdown); failures
+  are logged without credentials or bodies and never change the API response.
+- STARTTLS is used when offered; AUTH PLAIN is sent only over TLS or to
+  localhost. Bcc is in RCPT TO only; raw messages pass through verbatim.
+- Mailbox-simulator recipients are never relayed; messages the backend rejects
+  (unverified source, quota, missing template) are never queued.
+- No persisted fields changed; no version bump.

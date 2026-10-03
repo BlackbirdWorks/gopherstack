@@ -11,7 +11,10 @@ import (
 var ErrNilAppContext = errors.New("sesv2: nil app context")
 
 // Provider implements service.Provider for the SES v2 service.
-type Provider struct{}
+type Provider struct {
+	// Getenv overrides os.Getenv for the SMTP_* relay settings; nil uses the process environment.
+	Getenv func(string) string
+}
 
 // Name returns the logical name of the provider.
 func (p *Provider) Name() string {
@@ -35,6 +38,10 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	}
 
 	handler := NewHandler(backend)
+
+	if r := relayFromEnv(p.Getenv); r != nil {
+		handler.WithSMTPRelay(r)
+	}
 
 	return handler, nil
 }

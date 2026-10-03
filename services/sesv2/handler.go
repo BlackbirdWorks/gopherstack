@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
 )
 
 const (
@@ -172,6 +173,7 @@ const (
 // Handler is the Echo HTTP handler for SES v2 operations.
 type Handler struct {
 	Backend StorageBackend
+	relay   *smtprelay.Relay
 }
 
 // NewHandler creates a new SES v2 handler with the given backend.

@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
@@ -37,6 +38,7 @@ const (
 type Handler struct {
 	Backend    StorageBackend
 	janitor    *Janitor
+	relay      *smtprelay.Relay
 	janitorRun worker.SingleRun
 }
 
@@ -79,6 +81,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Shutdown stops the janitor worker and waits for it to exit.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.janitorRun.Stop(ctx)
+
+	if h.relay != nil {
+		h.relay.Close()
+	}
 }
 
 // Reset clears all in-memory state. Used by the POST /_gopherstack/reset endpoint.

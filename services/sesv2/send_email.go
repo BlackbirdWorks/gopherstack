@@ -29,6 +29,20 @@ type Email struct {
 	To        []string  `json:"to"`
 }
 
+// OutboundEmail is everything one SendEmail call carries; Cc/Bcc/ReplyTo/Raw only feed SMTP relay.
+type OutboundEmail struct {
+	Template *bulkEmailTemplate
+	From     string
+	Subject  string
+	BodyHTML string
+	BodyText string
+	Raw      []byte
+	To       []string
+	Cc       []string
+	Bcc      []string
+	ReplyTo  []string
+}
+
 // SendEmail captures an outbound email and returns a message ID.
 func (b *InMemoryBackend) SendEmail(
 	from string,
@@ -36,54 +50,65 @@ func (b *InMemoryBackend) SendEmail(
 	subject, bodyHTML, bodyText string,
 	template *bulkEmailTemplate,
 ) (string, error) {
-	if from == "" {
+	return b.SendMessage(OutboundEmail{
+		From: from, To: to, Subject: subject, BodyHTML: bodyHTML, BodyText: bodyText, Template: template,
+	})
+}
+
+// SendMessage captures an outbound email, relays it over SMTP when configured, and returns the message ID.
+func (b *InMemoryBackend) SendMessage(out OutboundEmail) (string, error) {
+	if out.From == "" {
 		return "", fmt.Errorf("%w: FromEmailAddress is required", ErrInvalidInput)
 	}
 
-	if template != nil {
-		tmplSubject, tmplHTML, tmplText, vars, err := b.resolveBulkTemplate(template)
+	if out.Template != nil {
+		tmplSubject, tmplHTML, tmplText, vars, err := b.resolveBulkTemplate(out.Template)
 		if err != nil {
 			return "", err
 		}
 
-		subject = renderTemplateVars(tmplSubject, vars)
-		bodyHTML = renderTemplateVars(tmplHTML, vars)
-		bodyText = renderTemplateVars(tmplText, vars)
+		out.Subject = renderTemplateVars(tmplSubject, vars)
+		out.BodyHTML = renderTemplateVars(tmplHTML, vars)
+		out.BodyText = renderTemplateVars(tmplText, vars)
 	}
 
 	msgID := "sesv2-" + uuid.New().String()
 
 	email := Email{
 		MessageID: msgID,
-		From:      from,
-		To:        to,
-		Subject:   subject,
-		BodyHTML:  bodyHTML,
-		BodyText:  bodyText,
+		From:      out.From,
+		To:        out.To,
+		Subject:   out.Subject,
+		BodyHTML:  out.BodyHTML,
+		BodyText:  out.BodyText,
 		Timestamp: time.Now(),
 	}
 
+	if err := b.storeEmail(email); err != nil {
+		return "", err
+	}
+
+	b.relayEmail(email, out)
+
+	return msgID, nil
+}
+
+func (b *InMemoryBackend) storeEmail(email Email) error {
 	b.mu.Lock("SendEmail")
 	defer b.mu.Unlock()
 
-	if err := b.checkFromIdentityLocked(from); err != nil {
-		return "", err
+	if err := b.checkFromIdentityLocked(email.From); err != nil {
+		return err
 	}
 	b.emails = append(b.emails, email)
-	// Compact only when the slice has grown to twice the cap so trimming is
-	// amortized O(1) per send rather than O(maxRetainedEmails) on every send
-	// past the cap. The dropped prefix becomes unreachable once the slice
-	// header advances and is collected on the next reslice/grow.
+	// Compact only at twice the cap so trimming stays amortized O(1) per send.
 	if len(b.emails) >= emailCompactionHighWater {
-		// Reslice into a fresh backing array so the dropped tail can be GC'd
-		// immediately rather than held by the original (now larger) backing
-		// array.
 		trimmed := make([]Email, maxRetainedEmails, emailCompactionHighWater)
 		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
 		b.emails = trimmed
 	}
 
-	return msgID, nil
+	return nil
 }
 
 // checkFromIdentity verifies the from address against registered identities,
@@ -228,7 +253,10 @@ func (b *InMemoryBackend) SendBulkEmail(
 		html := renderTemplateVars(baseHTML, vars)
 		text := renderTemplateVars(baseText, vars)
 
-		msgID, _ := b.SendEmail(fromEmailAddress, entry.Destination.ToAddresses, subject, html, text, nil)
+		msgID, _ := b.SendMessage(OutboundEmail{
+			From: fromEmailAddress, To: entry.Destination.ToAddresses, Cc: entry.Destination.CcAddresses,
+			Bcc: entry.Destination.BccAddresses, Subject: subject, BodyHTML: html, BodyText: text,
+		})
 		if msgID == "" {
 			msgID = "sesv2-bulk-" + uuid.New().String()
 		}

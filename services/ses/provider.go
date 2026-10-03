@@ -16,7 +16,10 @@ type ConfigProvider interface {
 }
 
 // Provider implements service.Provider for the SES service.
-type Provider struct{}
+type Provider struct {
+	// Getenv overrides os.Getenv for the SMTP_* relay settings; nil uses the process environment.
+	Getenv func(string) string
+}
 
 // Name returns the logical name of the provider.
 func (p *Provider) Name() string {
@@ -38,6 +41,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	backend := NewInMemoryBackend().WithEmailTTL(settings.EmailTTL)
 	handler := NewHandler(backend)
+
+	if r := relayFromEnv(p.Getenv); r != nil {
+		handler.WithSMTPRelay(r)
+	}
+
 	handler.WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
 
 	return handler, nil
