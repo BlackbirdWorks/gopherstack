@@ -23,6 +23,11 @@ const (
 // regionContextKey is the context key under which the per-request AWS region is stored.
 type regionContextKey struct{}
 
+// WithRegion returns ctx carrying region as the request region.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // getRegion extracts the region from ctx, falling back to defaultRegion when unset.
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {

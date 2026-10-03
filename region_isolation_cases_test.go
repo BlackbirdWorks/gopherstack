@@ -328,7 +328,7 @@ func kinesisCase() regionCase {
 
 func ecsCase() regionCase {
 	return regionCase{
-		name: "ecs", knownCollision: true,
+		name: "ecs",
 		create: func(ctx context.Context, cfg aws.Config, name string) error {
 			_, err := ecs.NewFromConfig(cfg).
 				CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(name)})
@@ -370,7 +370,7 @@ func dynamodbCase() regionCase {
 
 func ec2Case() regionCase {
 	return regionCase{
-		name: "ec2", knownCollision: true,
+		name: "ec2",
 		create: func(ctx context.Context, cfg aws.Config, name string) error {
 			_, err := ec2.NewFromConfig(cfg).CreateKeyPair(ctx, &ec2.CreateKeyPairInput{KeyName: aws.String(name)})
 

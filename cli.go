@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -3242,26 +3243,45 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireEFSCrossService(byName["EFS"], byName["EC2"])
 }
 
+// ec2Regions gives services that are not region-aware themselves a view over
+// every region's EC2 backend, home region first.
+type ec2Regions struct {
+	handler *ec2backend.Handler
+}
+
+// any reports whether fn holds for some region's backend.
+func (r ec2Regions) any(fn func(ec2backend.Backend) bool) bool {
+	return slices.ContainsFunc(r.handler.RegionBackends(), fn)
+}
+
+// forARN returns the backend for the region named by arn, or the home backend.
+func (r ec2Regions) forARN(arn string) *ec2backend.InMemoryBackend {
+	bk, _ := r.handler.BackendFor(arnRegion(arn)).(*ec2backend.InMemoryBackend)
+
+	return bk
+}
+
 // directConnectEC2ResolverAdapter adapts the EC2 backend to the
 // directconnect.EC2GatewayResolver interface.
 type directConnectEC2ResolverAdapter struct {
-	backend *ec2backend.InMemoryBackend
+	regions ec2Regions
 }
 
 func (a *directConnectEC2ResolverAdapter) ResolveVpnGateway(id string) bool {
-	return len(a.backend.DescribeVpnGateways([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeVpnGateways([]string{id})) > 0 })
 }
 
 func (a *directConnectEC2ResolverAdapter) ResolveTransitGateway(id string) bool {
-	return len(a.backend.DescribeTransitGateways([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeTransitGateways([]string{id})) > 0 })
 }
 
 func (a *directConnectEC2ResolverAdapter) VirtualGateways() []string {
-	vgws := a.backend.DescribeVpnGateways(nil)
-	ids := make([]string, 0, len(vgws))
+	var ids []string
 
-	for _, v := range vgws {
-		ids = append(ids, v.VpnGatewayID)
+	for _, b := range a.regions.handler.RegionBackends() {
+		for _, v := range b.DescribeVpnGateways(nil) {
+			ids = append(ids, v.VpnGatewayID)
+		}
 	}
 
 	return ids
@@ -3280,12 +3300,7 @@ func wireDirectConnectEC2(directconnectReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{backend: ec2Bk})
+	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // arnResourceID extracts the trailing resource-id segment of an ARN's
@@ -3304,37 +3319,44 @@ func arnResourceID(arnStr string) string {
 // networkManagerEC2ResolverAdapter adapts the EC2 backend to the
 // networkmanager.EC2Resolver interface.
 type networkManagerEC2ResolverAdapter struct {
-	backend *ec2backend.InMemoryBackend
+	regions ec2Regions
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveVpc(vpcArn string) bool {
-	return len(a.backend.DescribeVpcs([]string{arnResourceID(vpcArn)})) > 0
+	return len(a.regions.forARN(vpcArn).DescribeVpcs([]string{arnResourceID(vpcArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveSubnet(subnetArn string) bool {
-	return len(a.backend.DescribeSubnets([]string{arnResourceID(subnetArn)})) > 0
+	return len(a.regions.forARN(subnetArn).DescribeSubnets([]string{arnResourceID(subnetArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveCustomerGateway(customerGatewayArn string) bool {
-	cgws, err := a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
+	cgws, err := a.regions.forARN(customerGatewayArn).
+		DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
 
 	return err == nil && len(cgws) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGateway(transitGatewayArn string) bool {
-	return len(a.backend.DescribeTransitGateways([]string{arnResourceID(transitGatewayArn)})) > 0
+	bk := a.regions.forARN(transitGatewayArn)
+
+	return len(bk.DescribeTransitGateways([]string{arnResourceID(transitGatewayArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveVpnConnection(vpnConnectionArn string) bool {
-	return len(a.backend.DescribeVpnConnections([]string{arnResourceID(vpnConnectionArn)})) > 0
+	return len(a.regions.forARN(vpnConnectionArn).DescribeVpnConnections([]string{arnResourceID(vpnConnectionArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayConnectPeer(transitGatewayConnectPeerArn string) bool {
-	return len(a.backend.DescribeTransitGatewayConnectPeers([]string{arnResourceID(transitGatewayConnectPeerArn)})) > 0
+	bk := a.regions.forARN(transitGatewayConnectPeerArn)
+
+	return len(bk.DescribeTransitGatewayConnectPeers([]string{arnResourceID(transitGatewayConnectPeerArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayRouteTable(transitGatewayRouteTableArn string) bool {
-	return len(a.backend.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
+	bk := a.regions.forARN(transitGatewayRouteTableArn)
+
+	return len(bk.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
 }
 
 // TransitGatewayRouteTableForAttachment resolves a TGW VPC attachment to
@@ -3346,18 +3368,19 @@ func (a *networkManagerEC2ResolverAdapter) TransitGatewayRouteTableForAttachment
 	transitGatewayAttachmentArn string,
 ) (string, bool) {
 	attachmentID := arnResourceID(transitGatewayAttachmentArn)
+	backend := a.regions.forARN(transitGatewayAttachmentArn)
 
-	atts := a.backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
+	atts := backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
 	if len(atts) == 0 || atts[0].State != "available" {
 		return "", false
 	}
 
-	for _, rt := range a.backend.DescribeTransitGatewayRouteTables(nil) {
+	for _, rt := range backend.DescribeTransitGatewayRouteTables(nil) {
 		if rt.TransitGatewayID != atts[0].TransitGatewayID {
 			continue
 		}
 
-		assocs, err := a.backend.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
+		assocs, err := backend.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
 		if err != nil {
 			continue
 		}
@@ -3381,15 +3404,16 @@ func (a *networkManagerEC2ResolverAdapter) CustomerGatewayArnsForTransitGateway(
 	transitGatewayArn string,
 ) []string {
 	tgwID := arnResourceID(transitGatewayArn)
+	backend := a.regions.forARN(transitGatewayArn)
 
 	var out []string
 
-	for _, vc := range a.backend.DescribeVpnConnections(nil) {
+	for _, vc := range backend.DescribeVpnConnections(nil) {
 		if vc.TransitGatewayID != tgwID || vc.CustomerGatewayID == "" {
 			continue
 		}
 
-		out = append(out, "arn:aws:ec2:"+a.backend.Region+":"+a.backend.AccountID+
+		out = append(out, "arn:aws:ec2:"+backend.Region+":"+backend.AccountID+
 			":customer-gateway/"+vc.CustomerGatewayID)
 	}
 
@@ -3399,9 +3423,14 @@ func (a *networkManagerEC2ResolverAdapter) CustomerGatewayArnsForTransitGateway(
 func (a *networkManagerEC2ResolverAdapter) TransitGatewayRoutes(
 	routeTableID string,
 ) []networkmanagerbackend.EC2TransitGatewayRoute {
-	routes, err := a.backend.SearchTransitGatewayRoutes(routeTableID, nil)
-	if err != nil {
-		return nil
+	var routes []*ec2backend.TransitGatewayRoute
+
+	for _, b := range a.regions.handler.RegionBackends() {
+		if found, err := b.SearchTransitGatewayRoutes(routeTableID, nil); err == nil {
+			routes = found
+
+			break
+		}
 	}
 
 	out := make([]networkmanagerbackend.EC2TransitGatewayRoute, 0, len(routes))
@@ -3434,12 +3463,7 @@ func wireNetworkManagerEC2(networkmanagerReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	networkmanagerH.Backend.SetEC2Resolver(&networkManagerEC2ResolverAdapter{backend: ec2Bk})
+	networkmanagerH.Backend.SetEC2Resolver(&networkManagerEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // networkManagerDirectConnectResolverAdapter adapts the DirectConnect
@@ -3476,19 +3500,19 @@ func wireNetworkManagerDirectConnect(networkmanagerReg, directconnectReg service
 
 // elbEC2ResolverAdapter adapts the EC2 backend to the elb.EC2Resolver interface.
 type elbEC2ResolverAdapter struct {
-	backend ec2backend.Backend
+	regions ec2Regions
 }
 
 func (a *elbEC2ResolverAdapter) SecurityGroupExists(id string) bool {
-	return len(a.backend.DescribeSecurityGroups([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeSecurityGroups([]string{id})) > 0 })
 }
 
 func (a *elbEC2ResolverAdapter) SubnetExists(id string) bool {
-	return len(a.backend.DescribeSubnets([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeSubnets([]string{id})) > 0 })
 }
 
 func (a *elbEC2ResolverAdapter) InstanceExists(id string) bool {
-	return len(a.backend.DescribeInstances([]string{id}, "")) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeInstances([]string{id}, "")) > 0 })
 }
 
 // elbCertificateResolverAdapter adapts the ACM and IAM backends to the
@@ -3554,7 +3578,7 @@ func wireELBCrossService(elbReg, ec2Reg, acmReg, iamReg service.Registerable) {
 	}
 
 	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
-		elbBk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+		elbBk.SetEC2Resolver(&elbEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 	}
 
 	var acmBk *acmbackend.InMemoryBackend
@@ -3624,7 +3648,7 @@ func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable
 	}
 
 	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
-		elbv2Bk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+		elbv2Bk.SetEC2Resolver(&elbEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 	}
 
 	var acmBk *acmbackend.InMemoryBackend
@@ -3644,29 +3668,35 @@ func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable
 
 // efsEC2ResolverAdapter adapts the EC2 backend to the efs.EC2Resolver interface.
 type efsEC2ResolverAdapter struct {
-	backend ec2backend.Backend
+	regions ec2Regions
 }
 
-func (a *efsEC2ResolverAdapter) SubnetExists(id string) bool {
-	return len(a.backend.DescribeSubnets([]string{id})) > 0
-}
-
-func (a *efsEC2ResolverAdapter) SubnetVPC(id string) string {
-	subnets := a.backend.DescribeSubnets([]string{id})
-	if len(subnets) == 0 {
-		return ""
+func (a *efsEC2ResolverAdapter) subnet(id string) *ec2backend.Subnet {
+	for _, b := range a.regions.handler.RegionBackends() {
+		if subnets := b.DescribeSubnets([]string{id}); len(subnets) > 0 {
+			return subnets[0]
+		}
 	}
 
-	return subnets[0].VPCID
+	return nil
+}
+
+func (a *efsEC2ResolverAdapter) SubnetExists(id string) bool { return a.subnet(id) != nil }
+
+func (a *efsEC2ResolverAdapter) SubnetVPC(id string) string {
+	if sn := a.subnet(id); sn != nil {
+		return sn.VPCID
+	}
+
+	return ""
 }
 
 func (a *efsEC2ResolverAdapter) SubnetAZ(id string) string {
-	subnets := a.backend.DescribeSubnets([]string{id})
-	if len(subnets) == 0 {
-		return ""
+	if sn := a.subnet(id); sn != nil {
+		return sn.AvailabilityZone
 	}
 
-	return subnets[0].AvailabilityZone
+	return ""
 }
 
 // wireEFSCrossService wires the EFS backend to EC2 so CreateMountTarget
@@ -3684,7 +3714,7 @@ func wireEFSCrossService(efsReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{backend: ec2H.Backend})
+	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit
@@ -4559,7 +4589,7 @@ func wireEventBridgeExtendedTargets(
 
 	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
 		if ecsBk, bkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); bkOk {
-			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk}
+			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk, handler: ecsH}
 		}
 	}
 
@@ -4657,6 +4687,19 @@ func (a *ebFirehoseAdapter) PutRecord(ctx context.Context, deliveryStreamARN, da
 // and eventbridge.ECSTaskRunnerWithParams interfaces.
 type ebECSTaskRunnerAdapter struct {
 	backend *ecsbackend.InMemoryBackend
+	handler *ecsbackend.Handler
+}
+
+const arnFieldCount = 6
+
+// arnRegion returns the region field of an ARN, or "" when s is not an ARN.
+func arnRegion(s string) string {
+	parts := strings.SplitN(s, ":", arnFieldCount)
+	if len(parts) < arnFieldCount || parts[0] != "arn" {
+		return ""
+	}
+
+	return parts[3]
 }
 
 func (a *ebECSTaskRunnerAdapter) RunTask(ctx context.Context, clusterARN string, payload []byte) error {
@@ -4795,7 +4838,15 @@ func (a *ebECSTaskRunnerAdapter) RunTaskWithParams(
 	payload []byte,
 ) error {
 	runInput := buildECSRunInput(clusterARN, params, payload)
-	_, _, err := a.backend.RunTask(runInput)
+	bk := a.backend
+
+	if a.handler != nil {
+		if regional, ok := a.handler.BackendFor(arnRegion(clusterARN)).(*ecsbackend.InMemoryBackend); ok {
+			bk = regional
+		}
+	}
+
+	_, _, err := bk.RunTask(runInput)
 
 	return err
 }
@@ -5970,6 +6021,13 @@ func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
 	if ec2H, okEC2 := ec2Reg.(*ec2backend.Handler); okEC2 {
 		if ec2Bk, isEC2 := ec2H.Backend.(*ec2backend.InMemoryBackend); isEC2 {
 			cwBk.SetEC2Actioner(&cwEC2ActionerAdapter{backend: ec2Bk})
+			cwH.SetEC2ActionerFactory(func(region string) cwbackend.EC2InstanceActioner {
+				if bk, regionOK := ec2H.BackendFor(region).(*ec2backend.InMemoryBackend); regionOK {
+					return &cwEC2ActionerAdapter{backend: bk}
+				}
+
+				return nil
+			})
 		}
 	}
 
@@ -6539,6 +6597,9 @@ func wireEcsCWLogs(ecsReg, cwlogsReg service.Registerable) {
 	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
 		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
 			ecsBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
+			ecsH.SetCWLogsFactory(func(region string) ecsbackend.CWLogsBackend {
+				return &cwLogsAdapter{backend: cwlogsBk, region: region}
+			})
 		}
 	}
 }
@@ -7032,15 +7093,24 @@ func wireTimestreamQueryTags(tsqReg, tswReg service.Registerable) {
 // cwLogsAdapter adapts the CloudWatch Logs InMemoryBackend to the lambda.CWLogsBackend interface.
 type cwLogsAdapter struct {
 	backend *cwlogsbackend.InMemoryBackend
+	region  string
+}
+
+func (a *cwLogsAdapter) ctx() context.Context {
+	if a.region == "" {
+		return context.Background()
+	}
+
+	return cwlogsbackend.WithRegion(context.Background(), a.region)
 }
 
 func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	if _, err := a.backend.CreateLogGroup(context.Background(), groupName, "", ""); err != nil &&
+	if _, err := a.backend.CreateLogGroup(a.ctx(), groupName, "", ""); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogGroupAlreadyExists) {
 		return err
 	}
 
-	if _, err := a.backend.CreateLogStream(context.Background(), groupName, streamName); err != nil &&
+	if _, err := a.backend.CreateLogStream(a.ctx(), groupName, streamName); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
 		return err
 	}
@@ -7056,7 +7126,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 		events[i] = cwlogsbackend.InputLogEvent{Message: msg, Timestamp: now}
 	}
 
-	_, err := a.backend.PutLogEvents(context.Background(), groupName, streamName, "", events)
+	_, err := a.backend.PutLogEvents(a.ctx(), groupName, streamName, "", events)
 
 	return err
 }
@@ -12989,8 +13059,10 @@ func wireEC2DNS(ec2Reg service.Registerable, dns ec2backend.DNSRegistrar) {
 		return
 	}
 
-	if ec2Bk, bkOk := ec2H.Backend.(*ec2backend.InMemoryBackend); bkOk {
-		ec2Bk.SetDNSRegistrar(dns)
+	for _, bk := range ec2H.RegionBackends() {
+		if ec2Bk, bkOk := bk.(*ec2backend.InMemoryBackend); bkOk {
+			ec2Bk.SetDNSRegistrar(dns)
+		}
 	}
 }
 

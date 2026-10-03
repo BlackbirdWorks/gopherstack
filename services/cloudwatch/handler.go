@@ -107,6 +107,18 @@ type Handler struct {
 	peers     *regionpeers.Set[Handler]
 	workerCtx atomic.Pointer[context.Context]
 	stop      context.CancelFunc
+	ec2For    atomic.Pointer[func(region string) EC2InstanceActioner]
+}
+
+// SetEC2ActionerFactory sets how each region's alarm EC2 actions reach that region's EC2.
+func (h *Handler) SetEC2ActionerFactory(f func(region string) EC2InstanceActioner) {
+	h.ec2For.Store(&f)
+
+	for _, p := range h.peers.All() {
+		if bk, ok := p.Backend.(*InMemoryBackend); ok {
+			bk.SetEC2Actioner(f(bk.region))
+		}
+	}
 }
 
 // arnRegionFields splits an ARN into its first five fields plus the resource tail.
@@ -123,6 +135,11 @@ func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackendWithConfig(home.accountID, region)
 		nb.inheritWiring(home)
+
+		if f := h.ec2For.Load(); f != nil {
+			nb.SetEC2Actioner((*f)(region))
+		}
+
 		p := NewHandler(nb)
 
 		if ctxp := h.workerCtx.Load(); ctxp != nil {

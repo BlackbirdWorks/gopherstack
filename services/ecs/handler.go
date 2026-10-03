@@ -12,10 +12,12 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -35,9 +37,12 @@ var errUnknownAction = errors.New("UnknownOperationException")
 
 // Handler is the Echo HTTP handler for ECS operations.
 type Handler struct {
-	Backend Backend
-	ops     map[string]service.JSONOpFunc
-	region  string
+	Backend   Backend
+	ops       map[string]service.JSONOpFunc
+	peers     *regionpeers.Set[Handler]
+	cwLogsFor func(region string) CWLogsBackend
+	stop      context.CancelFunc
+	region    string
 }
 
 // NewHandler creates a new ECS handler.
@@ -216,6 +221,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for ECS requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"ECS", "application/x-amz-json-1.1",
@@ -348,6 +357,8 @@ func (h *Handler) Reset() {
 	if r, ok := h.Backend.(interface{ Reset() }); ok {
 		r.Reset()
 	}
+
+	h.closePeers()
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -432,6 +443,10 @@ func errorCode(err error) string {
 func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Purge(ctx, cutoff)
+	}
+
+	for _, p := range h.peers.All() {
+		p.Purge(ctx, cutoff)
 	}
 }
 

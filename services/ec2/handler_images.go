@@ -805,7 +805,7 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	// Default: your user-defined AMI tags are not copied (ec2@v1.319.1
 	// api_op_CopyImage.go's CopyImageTags doc comment).
 	if vals.Get("CopyImageTags") == ec2BooleanTrue {
-		if srcTags := h.Backend.TagsForResource(sourceImageID); len(srcTags) > 0 {
+		if srcTags := h.sourceTags(sourceImageID); len(srcTags) > 0 {
 			if err = h.Backend.CreateTags([]string{image.ImageID}, srcTags); err != nil {
 				return nil, err
 			}

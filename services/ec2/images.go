@@ -853,10 +853,16 @@ func (b *InMemoryBackend) CopyImageEncrypted(
 		return nil, fmt.Errorf("%w: KmsKeyId requires Encrypted to be true", ErrInvalidParameterCombination)
 	}
 
+	remote, remoteSnaps := b.peerImage(sourceImageID)
+
 	b.mu.Lock("CopyImage")
 	defer b.mu.Unlock()
 
 	src := b.lookupImageLocked(sourceImageID)
+	if src == nil {
+		src = remote
+	}
+
 	if src == nil {
 		return nil, fmt.Errorf("%w: source AMI %s not found", ErrInvalidParameter, sourceImageID)
 	}
@@ -879,7 +885,7 @@ func (b *InMemoryBackend) CopyImageEncrypted(
 		SourceImageID:  src.ImageID,
 		OwnerID:        b.AccountID,
 	}
-	newImage.BlockDeviceMappings = b.copyImageMappingsLocked(src.BlockDeviceMappings, encrypted, kmsKeyID)
+	newImage.BlockDeviceMappings = b.copyImageMappingsLocked(src.BlockDeviceMappings, encrypted, kmsKeyID, remoteSnaps)
 	b.images.Put(newImage)
 
 	cp := *newImage
@@ -890,7 +896,7 @@ func (b *InMemoryBackend) CopyImageEncrypted(
 // copyImageMappingsLocked copies the EBS snapshots behind mappings. Must be
 // called with b.mu held.
 func (b *InMemoryBackend) copyImageMappingsLocked(
-	mappings []ImageBlockDeviceMapping, encrypted bool, kmsKeyID string,
+	mappings []ImageBlockDeviceMapping, encrypted bool, kmsKeyID string, foreign map[string]*Snapshot,
 ) []ImageBlockDeviceMapping {
 	if len(mappings) == 0 {
 		return nil
@@ -901,6 +907,10 @@ func (b *InMemoryBackend) copyImageMappingsLocked(
 
 	for i := range out {
 		snap, ok := b.snapshots.Get(out[i].SnapshotID)
+		if !ok {
+			snap, ok = foreign[out[i].SnapshotID]
+		}
+
 		if out[i].SnapshotID == "" || !ok {
 			continue
 		}

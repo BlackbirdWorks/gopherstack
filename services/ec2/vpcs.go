@@ -264,8 +264,8 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool
 	}
 }
 
-// CreateVpcPeeringConnection creates a new pending VPC peering connection.
-func (b *InMemoryBackend) CreateVpcPeeringConnection(
+// createVpcPeeringConnectionLocal creates a new pending VPC peering connection.
+func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 	requesterVPCID, accepterVPCID, peerOwnerID, peerRegion string,
 ) (*VpcPeeringConnection, error) {
 	if requesterVPCID == "" || accepterVPCID == "" {
@@ -293,6 +293,7 @@ func (b *InMemoryBackend) CreateVpcPeeringConnection(
 		AccepterVpcID:          accepterVPCID,
 		AccepterOwnerID:        peerOwnerID,
 		AccepterRegion:         peerRegion,
+		RequesterRegion:        b.Region,
 		State:                  "pending-acceptance",
 	}
 	b.vpcPeeringConnections.Put(pc)
@@ -302,8 +303,8 @@ func (b *InMemoryBackend) CreateVpcPeeringConnection(
 	return &cp, nil
 }
 
-// DeleteVpcPeeringConnection removes a VPC peering connection.
-func (b *InMemoryBackend) DeleteVpcPeeringConnection(id string) error {
+// deleteVpcPeeringConnectionLocal removes a VPC peering connection.
+func (b *InMemoryBackend) deleteVpcPeeringConnectionLocal(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: VpcPeeringConnectionId is required", ErrInvalidParameter)
 	}

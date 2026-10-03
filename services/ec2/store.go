@@ -331,6 +331,8 @@ type InMemoryBackend struct {
 	// comment for why this must be lazy rather than resolved at
 	// construction time.
 	appConfig                           any
+	regionBackend                       func(region string) *InMemoryBackend
+	allBackends                         func() []*InMemoryBackend
 	addressTransfers                    map[string]*AddressTransfer
 	capacityReservations                *store.Table[CapacityReservation]
 	vpcs                                *store.Table[VPC]

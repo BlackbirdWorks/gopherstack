@@ -75,10 +75,16 @@ type dockerAPI interface {
 
 // DockerCompute backs EC2 instances with real Docker containers running sshd.
 type DockerCompute struct {
-	api          dockerAPI
-	usedSSHPorts map[int]struct{}
-	cfg          DockerComputeConfig
-	mu           sync.Mutex
+	api   dockerAPI
+	ports *sshPortPool
+	cfg   DockerComputeConfig
+}
+
+// sshPortPool is shared by every region's view of one Docker daemon so two
+// regions never hand out the same host SSH port.
+type sshPortPool struct {
+	used map[int]struct{}
+	mu   sync.Mutex
 }
 
 // NewDockerCompute creates a Compute provider backed by the local Docker
@@ -102,7 +108,7 @@ func newDockerComputeWithAPI(api dockerAPI, cfg DockerComputeConfig) *DockerComp
 		cfg.SSHHostIP = defaultSSHHostIP
 	}
 
-	return &DockerCompute{api: api, cfg: cfg, usedSSHPorts: make(map[int]struct{})}
+	return &DockerCompute{api: api, cfg: cfg, ports: &sshPortPool{used: make(map[int]struct{})}}
 }
 
 // Ping verifies the Docker daemon is reachable.
@@ -112,6 +118,13 @@ func (d *DockerCompute) Ping(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (d *DockerCompute) forRegion(region string) Compute {
+	cp := *d
+	cp.cfg.Region = region
+
+	return &cp
 }
 
 // Close releases the underlying Docker client.
@@ -448,12 +461,12 @@ func (d *DockerCompute) reserveSSHPort() (int, error) {
 		return 0, nil
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.ports.mu.Lock()
+	defer d.ports.mu.Unlock()
 
 	for p := d.cfg.SSHPortMin; p <= d.cfg.SSHPortMax; p++ {
-		if _, used := d.usedSSHPorts[p]; !used {
-			d.usedSSHPorts[p] = struct{}{}
+		if _, used := d.ports.used[p]; !used {
+			d.ports.used[p] = struct{}{}
 
 			return p, nil
 		}
@@ -467,9 +480,9 @@ func (d *DockerCompute) releaseSSHPort(port int) {
 		return
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	delete(d.usedSSHPorts, port)
+	d.ports.mu.Lock()
+	defer d.ports.mu.Unlock()
+	delete(d.ports.used, port)
 }
 
 // releaseProviderPort frees the host port previously mapped to the container,

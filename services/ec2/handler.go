@@ -15,9 +15,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -51,6 +53,8 @@ type Handler struct {
 	// context but should still be cancelled at service shutdown.
 	// Falls back to context.Background until StartWorker has run.
 	svcCtx    context.Context
+	peers     *regionpeers.Set[Handler]
+	stop      context.CancelFunc
 	AccountID string `json:"accountID,omitempty"`
 	Region    string `json:"region,omitempty"`
 }
@@ -67,6 +71,7 @@ func NewHandler(backend Backend) *Handler {
 // Reset clears all backend resource state and re-caches the dispatch table.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+	h.closePeers()
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -111,6 +116,8 @@ func (h *Handler) Shutdown(_ context.Context) {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
 		mem.StopLifecycleReconciler()
 	}
+
+	h.closePeers()
 }
 
 // Name returns the service name.
@@ -405,6 +412,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+
+		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(ctx)
 
 		reqID := newRequestID()

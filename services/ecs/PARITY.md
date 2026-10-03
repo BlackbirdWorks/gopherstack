@@ -1200,3 +1200,7 @@ correctness issue.
 Gates: `gofmt -l`, `go build ./services/ecs/...`, `go vet`,
 `go test -race -count=1 ./services/ecs/...` all clean. No persisted
 struct fields changed; no snapshot version bump.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+ECS is region-isolated: a request signed for another region is served by a lazily built sibling Handler (own clusters, services, tasks, task definitions, reconciler and janitor, region-correct ARNs) via `pkgs/regionpeers`. With the docker runtime each sibling gets its own runner over the shared Docker client, so container-exit completion, awslogs forwarding and stop route to that region's tasks; awslogs sinks resolve per region (`SetCWLogsFactory`). `Handler.BackendFor(region)` lets EventBridge ECS targets pick the cluster ARN's region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegion*`, `TestHandler_PeerDockerRunner`, `TestRegionIsolation/ecs`, `TestInitializeServices_EC2ECSRegionWiring`. Limitation: ELBv2, Step Functions, Scheduler, the tagging bridge and the dashboard are not region-aware themselves and keep using the home-region ECS backend; ELBv2 registration therefore targets the single ELBv2 store from every region.

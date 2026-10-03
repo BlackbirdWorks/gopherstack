@@ -17,10 +17,16 @@ func (b *InMemoryBackend) CopySnapshot(
 		return nil, fmt.Errorf("%w: SourceSnapshotId is required", ErrInvalidParameter)
 	}
 
+	remote := b.peerSnapshot(sourceSnapshotID)
+
 	b.mu.Lock("CopySnapshot")
 	defer b.mu.Unlock()
 
 	src, ok := b.snapshots.Get(sourceSnapshotID)
+	if !ok && remote != nil {
+		src, ok = remote, true
+	}
+
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, sourceSnapshotID)
 	}
