@@ -97,3 +97,45 @@ func TestSet_SnapshotRestore(t *testing.T) {
 		})
 	}
 }
+
+func TestSet_All(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		regions []string
+		want    []string
+	}{
+		{name: "none", want: []string{}},
+		{name: "home-ignored", regions: []string{"us-east-1"}, want: []string{}},
+		{
+			name:    "sorted",
+			regions: []string{"eu-west-1", "ap-south-1", "eu-west-1"},
+			want:    []string{"ap-south-1", "eu-west-1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newSet()
+			for _, r := range tc.regions {
+				s.Get(r)
+			}
+
+			all := s.All()
+			got := make([]string, 0, len(all))
+
+			for _, p := range all {
+				got = append(got, p.region)
+			}
+
+			assert.Equal(t, tc.want, got)
+			assert.Len(t, s.All(), len(tc.want))
+		})
+	}
+
+	var nilSet *regionpeers.Set[fake]
+	assert.Empty(t, nilSet.All())
+}

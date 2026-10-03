@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 
@@ -389,65 +390,49 @@ func initTagsFromInput(name string, inputTags *tags.Tags) *tags.Tags {
 // store_setup.go), with a secondary "byAPI" [store.Index] answering "all
 // children of REST API X" -- replacing the old map[string]*apiData nesting.
 type InMemoryBackend struct {
-	account *Account
-
-	restApis *store.Table[RestAPI]
-
-	resources      *store.Table[Resource]
-	resourcesByAPI *store.Index[Resource]
-
-	deployments      *store.Table[Deployment]
-	deploymentsByAPI *store.Index[Deployment]
-
-	stages      *store.Table[Stage]
-	stagesByAPI *store.Index[Stage]
-
-	authorizers      *store.Table[Authorizer]
-	authorizersByAPI *store.Index[Authorizer]
-
-	requestValidators      *store.Table[RequestValidator]
-	requestValidatorsByAPI *store.Index[RequestValidator]
-
-	documentationParts      *store.Table[DocumentationPart]
-	documentationPartsByAPI *store.Index[DocumentationPart]
-
-	documentationVersions      *store.Table[DocumentationVersion]
 	documentationVersionsByAPI *store.Index[DocumentationVersion]
-
-	models      *store.Table[Model]
-	modelsByAPI *store.Index[Model]
-
+	models                     *store.Table[Model]
+	restApis                   *store.Table[RestAPI]
+	resources                  *store.Table[Resource]
+	resourcesByAPI             *store.Index[Resource]
+	deployments                *store.Table[Deployment]
+	deploymentsByAPI           *store.Index[Deployment]
+	stages                     *store.Table[Stage]
+	stagesByAPI                *store.Index[Stage]
+	authorizers                *store.Table[Authorizer]
+	authorizersByAPI           *store.Index[Authorizer]
+	requestValidators          *store.Table[RequestValidator]
+	requestValidatorsByAPI     *store.Index[RequestValidator]
+	documentationParts         *store.Table[DocumentationPart]
+	documentationPartsByAPI    *store.Index[DocumentationPart]
+	documentationVersions      *store.Table[DocumentationVersion]
+	mu                         *lockmetrics.RWMutex
+	account                    *Account
+	modelsByAPI                *store.Index[Model]
 	// resourceVersions (restAPIID → counter) is bumped whenever a REST API's
 	// resource set is mutated. The data-plane proxy uses it to invalidate its
 	// cached routing trie. Left as a plain map: not a resource collection, so
 	// it doesn't fit store.Table's shape (see store_setup.go's
 	// registerAllTables doc).
-	resourceVersions map[string]uint64
-
-	apiKeys        *store.Table[APIKey]
-	apiKeysByValue map[string]string // key value → key ID, O(1) data-plane lookup
-
-	usage *usageTracker // usage-plan quota + throttle state
-
+	resourceVersions             map[string]uint64
+	apiKeys                      *store.Table[APIKey]
+	apiKeysByValue               map[string]string             // key value → key ID, O(1) data-plane lookup
+	usage                        *usageTracker                 // usage-plan quota + throttle state
 	basePathMappings             *store.Table[BasePathMapping] // key: domainName + "#" + basePath
 	domainNames                  *store.Table[DomainName]
 	domainNameAccessAssociations *store.Table[DomainNameAccessAssociation]
-
-	usagePlans          *store.Table[UsagePlan]
-	usagePlanKeys       *store.Table[UsagePlanKey] // key: usagePlanID + "#" + keyID
-	usagePlanKeysByPlan *store.Index[UsagePlanKey]
-
-	gatewayResponses   *store.Table[GatewayResponse]   // key: restAPIID + "#" + responseType
-	clientCertificates *store.Table[ClientCertificate] // key: clientCertificateID
-	vpcLinks           *store.Table[VpcLink]
-
+	usagePlans                   *store.Table[UsagePlan]
+	usagePlanKeys                *store.Table[UsagePlanKey] // key: usagePlanID + "#" + keyID
+	usagePlanKeysByPlan          *store.Index[UsagePlanKey]
+	gatewayResponses             *store.Table[GatewayResponse]   // key: restAPIID + "#" + responseType
+	clientCertificates           *store.Table[ClientCertificate] // key: clientCertificateID
+	vpcLinks                     *store.Table[VpcLink]
 	// usageOverrides (usagePlanID → keyID → remaining quota) is set via
 	// UpdateUsage. Left as a plain map: the value (int64) carries no identity
 	// field of its own to key a store.Table by.
 	usageOverrides map[string]map[string]int64
-
-	registry *store.Registry
-	mu       *lockmetrics.RWMutex
+	registry       *store.Registry
+	region         string
 }
 
 // defaultAccount returns the API Gateway account settings AWS assigns to a
@@ -467,6 +452,7 @@ func defaultAccount() *Account {
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		account:          defaultAccount(),
+		region:           config.DefaultRegion,
 		registry:         store.NewRegistry(),
 		resourceVersions: make(map[string]uint64),
 		apiKeysByValue:   make(map[string]string),

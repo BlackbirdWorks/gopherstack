@@ -1685,3 +1685,7 @@ clean; `go test -race -count=1 -p 2 ./services/cognitoidp/...` and
 `./pkgs/persistence/...` both `ok`; `golangci-lint run --concurrency 2
 --new-from-rev=HEAD ./services/cognitoidp/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+Cognito user pools are region-isolated: each non-home region gets a lazily built sibling `Handler` (own pools, clients, users, tokens, hosted-login sessions, janitor; pool IDs `<region>_...`, ARNs and Lambda trigger `region` per region) via `pkgs/regionpeers`; siblings inherit the Lambda trigger invoker. Requests route to the owner region by the identifier they carry: pool-ID or ARN region, else the app client, access-token key id, domain or auth session, else the request region. This covers unsigned auth operations, `/oauth2/*`, hosted login, `/<pool>/.well-known/*` and domain-host discovery/JWKS. Routing only chooses the backend; each backend still validates credentials, secrets, PKCE and tokens exactly as before. `Handler.GetJWTPublicKey` searches every region for the API Gateway/AppSync JWT authorizers. Snapshots gain an additive `regions` key only when a sibling exists (no version bump). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_RoutesByOwningResource`, `TestHandler_OAuthDiscoveryAndJWKSRouteToOwningPool`, `TestHandler_HostedAuthorizeRoutesByClient`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/cognitoidp`. Limitation: non-home regions are not visible to the tagging-API bridge or the dashboard.

@@ -71,7 +71,7 @@ func sesRetroMessages(services []service.Registerable) []sesRetroMessage {
 				}
 			}
 		case *sesv2backend.Handler:
-			if b, ok := h.Backend.(*sesv2backend.InMemoryBackend); ok {
+			for _, b := range h.MailBackends() {
 				for _, e := range b.ListEmails() {
 					out = append(out, sesRetroMessage{
 						ID: e.MessageID, Region: b.Region(), Source: e.From, Subject: e.Subject,
@@ -122,7 +122,7 @@ func sesMailStores(services []service.Registerable) []sesMailStore {
 				out = append(out, b)
 			}
 		case *sesv2backend.Handler:
-			if b, ok := h.Backend.(*sesv2backend.InMemoryBackend); ok {
+			for _, b := range h.MailBackends() {
 				out = append(out, b)
 			}
 		}

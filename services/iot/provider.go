@@ -36,6 +36,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	broker := NewBroker(backend, backend.MQTTPort())
 	handler := NewHandler(backend, broker)
+	handler.EnableRegions()
 
 	return handler, nil
 }

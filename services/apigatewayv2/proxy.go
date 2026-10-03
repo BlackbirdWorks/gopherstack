@@ -69,6 +69,12 @@ func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
 
 // handleProxy performs the actual WebSocket or HTTP API routing.
 func (h *Handler) handleProxy(c *echo.Context, apiID, stageName, resourcePath string) error {
+	if owner := h.invokeOwner(apiID); owner != h {
+		return owner.handleProxy(c, apiID, stageName, resourcePath)
+	}
+
+	c.SetRequest(h.invokeRequest(c.Request()))
+
 	// 1. Get the API
 	api, err := h.Backend.GetAPI(apiID)
 	if err != nil {

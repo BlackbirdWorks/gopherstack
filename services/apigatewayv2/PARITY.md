@@ -1129,3 +1129,7 @@ the census flagged as uncovered. Zero bugs found; confirms the existing
 
 - v2 already keyed on identity-source values; but IAM-policy decisions were cached without the route ARN (a cached Allow for GET /a allowed GET /b). The key now includes the route ARN unless simple responses are used.
 - Authorizers with no identity source are never cached (a shared key would span callers); the decision cache is bounded at 1024 entries with expired-first eviction.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+API Gateway v2 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own APIs, routes, stages, domain names, portals, authorizer cache) via `pkgs/regionpeers`; siblings inherit the Lambda/JWKS/management-API/HTTP wiring. Data-plane invokes (`/v2proxy/...`, `_user_request_`) find the API by id across regions and run in its region, so authorizer route ARNs and event `domainName` name that region; portal ARNs and endpoints use the backend region. `Handler.Reset` now also resets the backend and siblings. Snapshots gain an additive `regions` key only when a sibling exists (no version bump). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_InvokeResolvesAPIInOwningRegion`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/apigatewayv2`. Limitation: WebSocket connections share one management-API backend across regions.

@@ -220,7 +220,7 @@ func (f *flexibleStrings) UnmarshalJSON(data []byte) error {
 // buildRouteArn constructs the execute-api ARN for a matched route, used as the
 // routeArn/methodArn in authorizer events and as the resource an IAM policy is
 // evaluated against.
-func buildRouteArn(apiID, stage, method, resourcePath string) string {
+func buildRouteArn(region, apiID, stage, method, resourcePath string) string {
 	if resourcePath == "" {
 		resourcePath = "/"
 	}
@@ -230,7 +230,7 @@ func buildRouteArn(apiID, stage, method, resourcePath string) string {
 	}
 
 	// arn:aws:execute-api:region:account:apiId/stage/METHOD/resource-path
-	return "arn:aws:execute-api:" + defaultRegion + ":" + config.DefaultAccountID + ":" +
+	return "arn:aws:execute-api:" + region + ":" + config.DefaultAccountID + ":" +
 		apiID + "/" + stage + "/" + method + resourcePath
 }
 
@@ -267,7 +267,7 @@ func (h *Handler) enforceRequestAuthorizer(
 	cacheKey := auth.AuthorizerID + "\n" + strings.Join(idValues, "\n")
 	if !auth.EnableSimpleResponses || authorizerUsesV1Payload(auth) {
 		// IAM-policy decisions are per route ARN; only simple responses are route-agnostic.
-		cacheKey += "\n" + buildRouteArn(apiID, stageName, req.Method, resourcePath)
+		cacheKey += "\n" + buildRouteArn(regionFromCtx(req.Context()), apiID, stageName, req.Method, resourcePath)
 	}
 
 	cacheable := len(auth.IdentitySource) > 0
@@ -276,7 +276,7 @@ func (h *Handler) enforceRequestAuthorizer(
 	}
 
 	method := req.Method
-	routeArn := buildRouteArn(apiID, stageName, method, resourcePath)
+	routeArn := buildRouteArn(regionFromCtx(req.Context()), apiID, stageName, method, resourcePath)
 
 	payload, buildErr := buildAuthorizerPayload(req, auth, apiID, stageName, route.RouteKey, resourcePath, routeArn)
 	if buildErr != nil {
@@ -370,7 +370,7 @@ func buildAuthorizerPayload(
 		RequestContext: httpAPIRequestContext{
 			AccountID:  config.DefaultAccountID,
 			APIID:      apiID,
-			DomainName: apiID + ".execute-api." + defaultRegion + ".amazonaws.com",
+			DomainName: apiID + ".execute-api." + regionFromCtx(req.Context()) + ".amazonaws.com",
 			RouteKey:   routeKey,
 			Stage:      stageName,
 			HTTP: httpAPIHTTPContext{

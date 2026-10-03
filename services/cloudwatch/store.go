@@ -153,6 +153,18 @@ func (b *InMemoryBackend) countTotalMetrics() int {
 	return b.totalMetrics
 }
 
+// inheritWiring copies the cross-service clients wired on src so a regional sibling reaches the same targets.
+func (b *InMemoryBackend) inheritWiring(src *InMemoryBackend) {
+	src.mu.RLock("inheritWiring")
+	defer src.mu.RUnlock()
+
+	b.snsPublisher = src.snsPublisher
+	b.lambdaInvoker = src.lambdaInvoker
+	b.ec2Actioner = src.ec2Actioner
+	b.asgExecutor = src.asgExecutor
+	b.firehosePutter = src.firehosePutter
+}
+
 // SetSNSPublisher registers an SNS publisher used to fire alarm action notifications.
 func (b *InMemoryBackend) SetSNSPublisher(pub SNSPublisher) {
 	b.mu.Lock("SetSNSPublisher")

@@ -27,6 +27,7 @@ type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
 	server  atomic.Pointer[mqtt.Server]
 	backend *InMemoryBackend
+	others  func() []*InMemoryBackend
 	port    int
 }
 
@@ -54,6 +55,7 @@ func (b *Broker) Start(ctx context.Context) error {
 
 	hook := &ruleHook{
 		backend: b.backend,
+		others:  b.others,
 		ctx:     ctx,
 	}
 
@@ -327,6 +329,7 @@ type ruleHook struct {
 	mqtt.HookBase
 
 	backend *InMemoryBackend
+	others  func() []*InMemoryBackend
 	ctx     context.Context //nolint:containedctx // required to propagate broker lifecycle context into hook callbacks
 }
 
@@ -343,7 +346,7 @@ func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet,
 	dispatcher := h.backend.GetDispatcher()
 	log := logger.Load(h.ctx)
 
-	for _, rule := range h.backend.GetRules() {
+	for _, rule := range h.allRules() {
 		if !EvaluateRule(rule, pk.TopicName, pk.Payload) {
 			continue
 		}
@@ -353,6 +356,19 @@ func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet,
 	}
 
 	return pk, nil
+}
+
+// allRules returns the home region's rules plus every regional sibling's.
+func (h *ruleHook) allRules() []*TopicRule {
+	rules := h.backend.GetRules()
+
+	if h.others != nil {
+		for _, ob := range h.others() {
+			rules = append(rules, ob.GetRules()...)
+		}
+	}
+
+	return rules
 }
 
 func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, payload []byte) {

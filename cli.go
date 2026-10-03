@@ -5276,14 +5276,12 @@ func wireAPIGatewayCognito(apigwReg, apigwv2Reg, cognitoReg service.Registerable
 		return
 	}
 
-	cognitoBk := cognitoH.Backend
-
 	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
-		apigwH.SetJWKSProvider(cognitoBk)
+		apigwH.SetJWKSProvider(cognitoH)
 	}
 
 	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
-		apigwv2H.SetJWKSProvider(cognitoBk)
+		apigwv2H.SetJWKSProvider(cognitoH)
 	}
 }
 
@@ -5983,10 +5981,10 @@ func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
 }
 
 // fisAlarmStateSubscriber pins the compile-time check that CloudWatch's
-// InMemoryBackend satisfies fisbackend.AlarmStateSubscriber structurally, with
+// Handler satisfies fisbackend.AlarmStateSubscriber structurally, with
 // no adapter needed: both sides of the interface are designed in this repo, so
 // their SubscribeAlarmStateChange signatures are kept identical on purpose.
-var _ fisbackend.AlarmStateSubscriber = (*cwbackend.InMemoryBackend)(nil)
+var _ fisbackend.AlarmStateSubscriber = (*cwbackend.Handler)(nil)
 
 // wireFISStopConditions connects FIS experiment stop conditions to CloudWatch's
 // alarm-state-change subscription, so an experiment stops when the alarm named
@@ -6008,12 +6006,7 @@ func wireFISStopConditions(fisReg, cwReg service.Registerable) {
 		return
 	}
 
-	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	setter.SetAlarmStateSubscriber(cwBk)
+	setter.SetAlarmStateSubscriber(cwH)
 }
 
 // cwEC2ActionerAdapter adapts the EC2 backend to the cloudwatch.EC2InstanceActioner interface.
@@ -7347,7 +7340,7 @@ func wireAppSyncCognito(appSyncReg, cognitoReg service.Registerable) {
 	}
 
 	if cognitoH, cogOk := cognitoReg.(*cognitoidpbackend.Handler); cogOk {
-		appSyncBk.SetJWKSProvider(cognitoH.Backend)
+		appSyncBk.SetJWKSProvider(cognitoH)
 	}
 }
 

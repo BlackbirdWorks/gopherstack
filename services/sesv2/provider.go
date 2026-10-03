@@ -43,5 +43,7 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		handler.WithSMTPRelay(r)
 	}
 
+	handler.EnableRegions()
+
 	return handler, nil
 }

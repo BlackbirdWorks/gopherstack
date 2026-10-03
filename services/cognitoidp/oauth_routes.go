@@ -104,7 +104,7 @@ func (h *Handler) rootWellKnownOp(r *http.Request) string {
 		return ""
 	}
 
-	if _, ok := h.Backend.domainPoolID(r.Host); !ok {
+	if !h.hostHasDomain(r.Host) {
 		return ""
 	}
 
@@ -113,6 +113,16 @@ func (h *Handler) rootWellKnownOp(r *http.Request) string {
 	}
 
 	return "GetJWKS"
+}
+
+func (h *Handler) hostHasDomain(host string) bool {
+	for _, p := range h.handlers() {
+		if _, ok := p.Backend.domainPoolID(host); ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 // poolPathPrefix returns the pool ID when path is exactly /<pool><suffix>, else "".

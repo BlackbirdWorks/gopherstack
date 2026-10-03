@@ -2309,3 +2309,7 @@ Regression: TestMatchIoTPath_JobsFamilyDisambiguation.
 Gates: `go build ./...`, `go vet ./services/iot/...`, `go test -race
 -count=1 ./services/iot/...` (pass), `golangci-lint run ./services/iot/...`
 (0 issues). No persisted field changed, no snapshot version bump.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+IoT is region-isolated: each non-home region gets a lazily built sibling `Handler` (own things, policies, certificates, rules, jobs, tags; region-correct ARNs and `DescribeEndpoint` host) via `pkgs/regionpeers`. All regions share the home MQTT broker; its rule hook evaluates the rules of every region and dispatches them through the home rule dispatcher. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionRulesFireOnSharedBroker`, `TestRegionIsolation/iot`. Limitations: MQTT topics are not region-scoped (one shared broker); the iotanalytics thing-registry adapter reads the home region only; non-home regions are not visible to the tagging-API bridge or the dashboard.

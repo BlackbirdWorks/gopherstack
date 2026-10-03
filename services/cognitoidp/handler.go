@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -51,6 +52,8 @@ type Handler struct {
 	Backend *InMemoryBackend `json:"backend,omitempty"`
 	janitor *Janitor
 	ops     map[string]service.JSONOpFunc
+	peers   *regionpeers.Set[Handler]
+	stop    context.CancelFunc
 	region  string
 }
 
@@ -86,7 +89,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 }
 
 // Reset clears all backend state. Useful for test isolation.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+	h.closePeers()
+}
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "CognitoIDP" }
@@ -328,6 +334,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if o := h.owner(c); o != h {
+			return o.Handler()(c)
+		}
+
 		if op := h.oauthOp(c.Request()); op != "" {
 			return h.handleOAuth(c, op)
 		}

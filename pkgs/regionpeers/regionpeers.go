@@ -45,6 +45,23 @@ func (s *Set[T]) Get(region string) *T {
 	return p
 }
 
+// All returns the siblings built so far, ordered by region, without removing them.
+func (s *Set[T]) All() []*T {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := make([]*T, 0, len(s.peers))
+	for _, r := range slices.Sorted(maps.Keys(s.peers)) {
+		out = append(out, s.peers[r])
+	}
+
+	return out
+}
+
 // Drain removes and returns every sibling so the caller can reset or close them.
 func (s *Set[T]) Drain() []*T {
 	if s == nil {

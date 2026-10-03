@@ -356,24 +356,33 @@ func copyStringSliceMap(m map[string][]string) map[string][]string {
 	return cp
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Returns nil for non-snapshottable backends.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
+// Returns nil for non-snapshottable backends.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot(ctx)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return h.peers.Snapshot(s.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Non-snapshottable backends are skipped.
+// Restore implements persistence.Persistable. Non-snapshottable backends are skipped.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(ctx, data)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	if err := s.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+		func(p *Handler) { p.Reset() },
+	)
 }
 
 // The helpers below each cover one group of raw (non-Table) backend state —

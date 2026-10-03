@@ -8,15 +8,18 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -98,9 +101,73 @@ const formFalse = "false"
 
 // Handler is the Echo HTTP service handler for CloudWatch operations.
 type Handler struct {
-	Backend StorageBackend
-	tags    map[string]*tags.Tags
-	tagsMu  *lockmetrics.RWMutex
+	Backend   StorageBackend
+	tags      map[string]*tags.Tags
+	tagsMu    *lockmetrics.RWMutex
+	peers     *regionpeers.Set[Handler]
+	workerCtx atomic.Pointer[context.Context]
+	stop      context.CancelFunc
+}
+
+// arnRegionFields splits an ARN into its first five fields plus the resource tail.
+const arnRegionFields = 6
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own janitor once StartWorker has run.
+func (h *Handler) EnableRegions() {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		nb := NewInMemoryBackendWithConfig(home.accountID, region)
+		nb.inheritWiring(home)
+		p := NewHandler(nb)
+
+		if ctxp := h.workerCtx.Load(); ctxp != nil {
+			var pctx context.Context
+
+			pctx, p.stop = context.WithCancel(*ctxp)
+			go NewJanitor(nb).Run(pctx)
+		}
+
+		return p
+	})
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling
+// for any other region (built on first use).
+func (h *Handler) BackendFor(region string) StorageBackend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
+}
+
+// SubscribeAlarmStateChange subscribes to the alarm named by alarmArn in that ARN's region.
+func (h *Handler) SubscribeAlarmStateChange(alarmArn string, cb func(newState string)) func() {
+	parts := strings.SplitN(alarmArn, ":", arnRegionFields)
+
+	region := ""
+	if len(parts) == arnRegionFields {
+		region = parts[3]
+	}
+
+	if bk, ok := h.BackendFor(region).(*InMemoryBackend); ok {
+		return bk.SubscribeAlarmStateChange(alarmArn, cb)
+	}
+
+	return func() {}
+}
+
+func (h *Handler) closePeers() {
+	for _, p := range h.peers.Drain() {
+		if p.stop != nil {
+			p.stop()
+		}
+	}
 }
 
 // NewHandler creates a new CloudWatch handler.
@@ -159,6 +226,8 @@ func (h *Handler) Name() string { return "CloudWatch" }
 // StartWorker starts the background janitor for metric sweeping.
 // It implements service.BackgroundWorker.
 func (h *Handler) StartWorker(ctx context.Context) error {
+	h.workerCtx.Store(&ctx)
+
 	if cwBk, ok := h.Backend.(*InMemoryBackend); ok {
 		janitor := NewJanitor(cwBk)
 		go janitor.Run(ctx)
@@ -347,6 +416,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+
+		if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
+			return p.Handler()(c)
+		}
 
 		if err := inflateRequestBody(r); err != nil {
 			if isCBORRequest(r) {
@@ -736,6 +809,8 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	h.closePeers()
 
 	h.tagsMu.Lock("Reset")
 	h.tags = make(map[string]*tags.Tags)

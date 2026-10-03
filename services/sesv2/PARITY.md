@@ -887,3 +887,7 @@ https://docs.localstack.cloud/aws/capabilities/config/configuration/).
   not filtered from relay because SendEmail does not model them today.
 - SendEmail now reads ReplyToAddresses for the relayed Reply-To header only.
 - No persisted fields changed; no version bump.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+SESv2 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own identities, configuration sets, templates, contact lists, suppression list; region-correct ARNs) via `pkgs/regionpeers`; siblings share the home SMTP relay. `Handler.MailBackends()` returns every region's backend, so `/_aws/ses` retrospection (GET and DELETE) aggregates messages from all regions. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionMailAggregates`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/sesv2`. Limitation: non-home regions are not visible to the dashboard.

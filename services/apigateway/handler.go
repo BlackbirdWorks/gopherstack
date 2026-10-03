@@ -17,9 +17,11 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -48,8 +50,9 @@ type Handler struct {
 	lambda       LambdaInvoker
 	sqsSender    SQSSender
 	snsPublisher SNSPublisher
-	authCache    *authorizerCache
 	httpClient   *http.Client
+	authCache    *authorizerCache
+	peers        *regionpeers.Set[Handler]
 	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
 	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
 	// growth.
@@ -62,8 +65,69 @@ type Handler struct {
 	// evicted only when their deployment is deleted (see deleteDeploymentAction /
 	// deleteRestAPIAction).
 	trieCache sync.Map
+	region    string
 	// dispatchOnce guards the one-time build of dispatchCache.
 	dispatchOnce sync.Once
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own backend, authorizer cache and routing tries.
+func (h *Handler) EnableRegions() {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	h.region = home.region
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		nb := NewInMemoryBackend()
+		nb.region = region
+
+		p := NewHandler(nb)
+		p.region = region
+		p.lambda, p.sqsSender, p.snsPublisher = h.lambda, h.sqsSender, h.snsPublisher
+		p.jwksProvider, p.httpClient = h.jwksProvider, h.httpClient
+
+		return p
+	})
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling
+// for any other region (built on first use).
+func (h *Handler) BackendFor(region string) StorageBackend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
+}
+
+// invokeOwner returns the handler whose backend holds REST API apiID (h when none does),
+// so data-plane calls, which carry no usable region, reach the API's own region.
+func (h *Handler) invokeOwner(apiID string) *Handler {
+	if _, err := h.Backend.GetRestAPI(apiID); err == nil {
+		return h
+	}
+
+	for _, p := range h.peers.All() {
+		if _, err := p.Backend.GetRestAPI(apiID); err == nil {
+			return p
+		}
+	}
+
+	return h
+}
+
+// invokeRequest returns r carrying h's region so execute-api ARNs name the API's region.
+func (h *Handler) invokeRequest(r *http.Request) *http.Request {
+	if h.region == "" {
+		return r
+	}
+
+	m := *awsmeta.Get(r.Context())
+	m.Region = h.region
+
+	return r.WithContext(awsmeta.Set(r.Context(), &m))
 }
 
 // NewHandler creates a new API Gateway handler with a default HTTP client timeout.
@@ -392,6 +456,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		// Path format: /restapis/{apiId}/{stageName}/_user_request_/{resourcePath}
 		if isUserRequestPath(c.Request().URL.Path) {
 			return h.handleUserRequestEcho(c)
+		}
+
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
 		}
 
 		// REST API paths: /restapis/..., /apikeys, /domainnames/..., /usageplans/...
@@ -749,8 +817,8 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 	r := c.Request().Clone(c.Request().Context())
 	r.URL.Path = "/" + stageName + resourcePath
 
-	fn := h.handleProxyRequest(apiID, stageName)
-	fn(c.Response(), r)
+	owner := h.invokeOwner(apiID)
+	owner.handleProxyRequest(apiID, stageName)(c.Response(), owner.invokeRequest(r))
 
 	return nil
 }
@@ -787,8 +855,8 @@ func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
 	r := c.Request().Clone(c.Request().Context())
 	r.URL.Path = "/" + stageName + resourcePath
 
-	fn := h.handleProxyRequest(apiID, stageName)
-	fn(c.Response(), r)
+	owner := h.invokeOwner(apiID)
+	owner.handleProxyRequest(apiID, stageName)(c.Response(), owner.invokeRequest(r))
 
 	return nil
 }
@@ -936,6 +1004,10 @@ func (h *Handler) Reset() {
 	}
 
 	h.clearTrieCache()
+
+	for _, p := range h.peers.Drain() {
+		p.Reset()
+	}
 }
 
 func (h *Handler) clearTrieCache() {

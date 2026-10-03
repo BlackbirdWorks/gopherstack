@@ -92,617 +92,749 @@ func tail(in []string, sep string) []string {
 
 func regionIsolationCases() []regionCase {
 	return []regionCase{
-		{
-			name: "ssm",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := ssm.NewFromConfig(cfg).PutParameter(ctx, &ssm.PutParameterInput{
-					Name: aws.String("/" + name), Value: aws.String("v"), Type: ssmtypes.ParameterTypeString,
-				})
+		ssmCase(),
+		cloudwatchlogsCase(),
+		memorydbCase(),
+		s3controlCase(),
+		lightsailCase(),
+		sqsCase(),
+		snsCase(),
+		secretsmanagerCase(),
+		eventbridgeCase(),
+		kinesisCase(),
+		ecsCase(),
+		dynamodbCase(),
+		ec2Case(),
+		ecrCase(),
+		glueCase(),
+		athenaCase(),
+		backupCase(),
+		iotCase(),
+		codecommitCase(),
+		s3Case(),
+		iamCase(),
+		route53Case(),
+		stepfunctionsCase(),
+		kmsCase(),
+		cloudwatchCase(),
+		apigatewayCase(),
+		apigatewayv2Case(),
+		cognitoidpCase(),
+		efsCase(),
+		firehoseCase(),
+		servicediscoveryCase(),
+		elasticacheCase(),
+		sesv2Case(),
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := ssm.NewFromConfig(cfg).DescribeParameters(ctx, &ssm.DescribeParametersInput{})
-				if err != nil {
-					return nil, err
-				}
+func ssmCase() regionCase {
+	return regionCase{
+		name: "ssm",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := ssm.NewFromConfig(cfg).PutParameter(ctx, &ssm.PutParameterInput{
+				Name: aws.String("/" + name), Value: aws.String("v"), Type: ssmtypes.ParameterTypeString,
+			})
 
-				names := strs(out.Parameters, func(p ssmtypes.ParameterMetadata) *string { return p.Name })
-
-				return tail(names, "/"), nil
-			},
+			return err
 		},
-		{
-			name: "cloudwatchlogs",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := cloudwatchlogs.NewFromConfig(cfg).CreateLogGroup(
-					ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(name)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := ssm.NewFromConfig(cfg).DescribeParameters(ctx, &ssm.DescribeParametersInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := cloudwatchlogs.NewFromConfig(cfg).DescribeLogGroups(
-					ctx, &cloudwatchlogs.DescribeLogGroupsInput{})
-				if err != nil {
-					return nil, err
-				}
+			names := strs(out.Parameters, func(p ssmtypes.ParameterMetadata) *string { return p.Name })
 
-				return strs(out.LogGroups, func(g cwltypes.LogGroup) *string { return g.LogGroupName }), nil
-			},
+			return tail(names, "/"), nil
 		},
-		{
-			name: "memorydb",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := memorydb.NewFromConfig(cfg).
-					CreateACL(ctx, &memorydb.CreateACLInput{ACLName: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := memorydb.NewFromConfig(cfg).DescribeACLs(ctx, &memorydb.DescribeACLsInput{})
-				if err != nil {
-					return nil, err
-				}
+func cloudwatchlogsCase() regionCase {
+	return regionCase{
+		name: "cloudwatchlogs",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := cloudwatchlogs.NewFromConfig(cfg).CreateLogGroup(
+				ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(name)})
 
-				return strs(out.ACLs, func(a memorydbtypes.ACL) *string { return a.Name }), nil
-			},
+			return err
 		},
-		{
-			name: "s3control",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := s3control.NewFromConfig(cfg).CreateAccessPoint(ctx, &s3control.CreateAccessPointInput{
-					AccountId: aws.String(regionAccount), Name: aws.String(name), Bucket: aws.String("b-" + name),
-				})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := cloudwatchlogs.NewFromConfig(cfg).DescribeLogGroups(
+				ctx, &cloudwatchlogs.DescribeLogGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := s3control.NewFromConfig(cfg).ListAccessPoints(
-					ctx, &s3control.ListAccessPointsInput{AccountId: aws.String(regionAccount)})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.AccessPointList, func(a s3controltypes.AccessPoint) *string { return a.Name }), nil
-			},
+			return strs(out.LogGroups, func(g cwltypes.LogGroup) *string { return g.LogGroupName }), nil
 		},
-		{
-			name: "lightsail",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := lightsail.NewFromConfig(cfg).CreateKeyPair(
-					ctx, &lightsail.CreateKeyPairInput{KeyPairName: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := lightsail.NewFromConfig(cfg).GetKeyPairs(ctx, &lightsail.GetKeyPairsInput{})
-				if err != nil {
-					return nil, err
-				}
+func memorydbCase() regionCase {
+	return regionCase{
+		name: "memorydb",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := memorydb.NewFromConfig(cfg).
+				CreateACL(ctx, &memorydb.CreateACLInput{ACLName: aws.String(name)})
 
-				return strs(out.KeyPairs, func(k lightsailtypes.KeyPair) *string { return k.Name }), nil
-			},
+			return err
 		},
-		{
-			name: "sqs",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := sqs.NewFromConfig(cfg).CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(name)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := memorydb.NewFromConfig(cfg).DescribeACLs(ctx, &memorydb.DescribeACLsInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := sqs.NewFromConfig(cfg).ListQueues(ctx, &sqs.ListQueuesInput{})
-
-				return tail(out.QueueUrls, "/"), err
-			},
+			return strs(out.ACLs, func(a memorydbtypes.ACL) *string { return a.Name }), nil
 		},
-		{
-			name: "sns",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := sns.NewFromConfig(cfg).CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := sns.NewFromConfig(cfg).ListTopics(ctx, &sns.ListTopicsInput{})
-				if err != nil {
-					return nil, err
-				}
+func s3controlCase() regionCase {
+	return regionCase{
+		name: "s3control",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := s3control.NewFromConfig(cfg).CreateAccessPoint(ctx, &s3control.CreateAccessPointInput{
+				AccountId: aws.String(regionAccount), Name: aws.String(name), Bucket: aws.String("b-" + name),
+			})
 
-				return tail(strs(out.Topics, func(t snstypes.Topic) *string { return t.TopicArn }), ":"), nil
-			},
+			return err
 		},
-		{
-			name: "secretsmanager",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := secretsmanager.NewFromConfig(cfg).CreateSecret(
-					ctx, &secretsmanager.CreateSecretInput{Name: aws.String(name), SecretString: aws.String("v")})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := s3control.NewFromConfig(cfg).ListAccessPoints(
+				ctx, &s3control.ListAccessPointsInput{AccountId: aws.String(regionAccount)})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := secretsmanager.NewFromConfig(cfg).ListSecrets(ctx, &secretsmanager.ListSecretsInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.SecretList, func(s smtypes.SecretListEntry) *string { return s.Name }), nil
-			},
+			return strs(out.AccessPointList, func(a s3controltypes.AccessPoint) *string { return a.Name }), nil
 		},
-		{
-			name: "eventbridge",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := eventbridge.NewFromConfig(cfg).CreateEventBus(
-					ctx, &eventbridge.CreateEventBusInput{Name: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := eventbridge.NewFromConfig(cfg).ListEventBuses(ctx, &eventbridge.ListEventBusesInput{})
-				if err != nil {
-					return nil, err
-				}
+func lightsailCase() regionCase {
+	return regionCase{
+		name: "lightsail",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := lightsail.NewFromConfig(cfg).CreateKeyPair(
+				ctx, &lightsail.CreateKeyPairInput{KeyPairName: aws.String(name)})
 
-				return strs(out.EventBuses, func(b ebtypes.EventBus) *string { return b.Name }), nil
-			},
+			return err
 		},
-		{
-			name: "kinesis",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := kinesis.NewFromConfig(cfg).CreateStream(
-					ctx, &kinesis.CreateStreamInput{StreamName: aws.String(name), ShardCount: aws.Int32(1)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := lightsail.NewFromConfig(cfg).GetKeyPairs(ctx, &lightsail.GetKeyPairsInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := kinesis.NewFromConfig(cfg).ListStreams(ctx, &kinesis.ListStreamsInput{})
-
-				return out.StreamNames, err
-			},
+			return strs(out.KeyPairs, func(k lightsailtypes.KeyPair) *string { return k.Name }), nil
 		},
-		{
-			name: "ecs", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := ecs.NewFromConfig(cfg).
-					CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := ecs.NewFromConfig(cfg).ListClusters(ctx, &ecs.ListClustersInput{})
+func sqsCase() regionCase {
+	return regionCase{
+		name: "sqs",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := sqs.NewFromConfig(cfg).CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(name)})
 
-				return tail(out.ClusterArns, "/"), err
-			},
+			return err
 		},
-		{
-			name: "dynamodb",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := dynamodb.NewFromConfig(cfg).CreateTable(ctx, &dynamodb.CreateTableInput{
-					TableName:   aws.String(name),
-					BillingMode: "PAY_PER_REQUEST",
-					AttributeDefinitions: []dynamodbtypes.AttributeDefinition{
-						{AttributeName: aws.String("k"), AttributeType: "S"},
-					},
-					KeySchema: []dynamodbtypes.KeySchemaElement{
-						{AttributeName: aws.String("k"), KeyType: "HASH"},
-					},
-				})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := sqs.NewFromConfig(cfg).ListQueues(ctx, &sqs.ListQueuesInput{})
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := dynamodb.NewFromConfig(cfg).ListTables(ctx, &dynamodb.ListTablesInput{})
-
-				return out.TableNames, err
-			},
+			return tail(out.QueueUrls, "/"), err
 		},
-		{
-			name: "ec2", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := ec2.NewFromConfig(cfg).CreateKeyPair(ctx, &ec2.CreateKeyPairInput{KeyName: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := ec2.NewFromConfig(cfg).DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{})
-				if err != nil {
-					return nil, err
-				}
+func snsCase() regionCase {
+	return regionCase{
+		name: "sns",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := sns.NewFromConfig(cfg).CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(name)})
 
-				return strs(out.KeyPairs, func(k ec2types.KeyPairInfo) *string { return k.KeyName }), nil
-			},
+			return err
 		},
-		{
-			name: "ecr",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := ecr.NewFromConfig(cfg).CreateRepository(
-					ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := sns.NewFromConfig(cfg).ListTopics(ctx, &sns.ListTopicsInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := ecr.NewFromConfig(cfg).DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.Repositories, func(r ecrtypes.Repository) *string { return r.RepositoryName }), nil
-			},
+			return tail(strs(out.Topics, func(t snstypes.Topic) *string { return t.TopicArn }), ":"), nil
 		},
-		{
-			name: "glue",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := glue.NewFromConfig(cfg).CreateDatabase(ctx, &glue.CreateDatabaseInput{
-					DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(name)},
-				})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := glue.NewFromConfig(cfg).GetDatabases(ctx, &glue.GetDatabasesInput{})
-				if err != nil {
-					return nil, err
-				}
+func secretsmanagerCase() regionCase {
+	return regionCase{
+		name: "secretsmanager",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := secretsmanager.NewFromConfig(cfg).CreateSecret(
+				ctx, &secretsmanager.CreateSecretInput{Name: aws.String(name), SecretString: aws.String("v")})
 
-				return strs(out.DatabaseList, func(d gluetypes.Database) *string { return d.Name }), nil
-			},
+			return err
 		},
-		{
-			name: "athena",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := athena.NewFromConfig(cfg).
-					CreateWorkGroup(ctx, &athena.CreateWorkGroupInput{Name: aws.String(name)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := secretsmanager.NewFromConfig(cfg).ListSecrets(ctx, &secretsmanager.ListSecretsInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := athena.NewFromConfig(cfg).ListWorkGroups(ctx, &athena.ListWorkGroupsInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.WorkGroups, func(w athenatypes.WorkGroupSummary) *string { return w.Name }), nil
-			},
+			return strs(out.SecretList, func(s smtypes.SecretListEntry) *string { return s.Name }), nil
 		},
-		{
-			name: "backup",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := backup.NewFromConfig(cfg).CreateBackupVault(
-					ctx, &backup.CreateBackupVaultInput{BackupVaultName: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := backup.NewFromConfig(cfg).ListBackupVaults(ctx, &backup.ListBackupVaultsInput{})
-				if err != nil {
-					return nil, err
-				}
+func eventbridgeCase() regionCase {
+	return regionCase{
+		name: "eventbridge",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := eventbridge.NewFromConfig(cfg).CreateEventBus(
+				ctx, &eventbridge.CreateEventBusInput{Name: aws.String(name)})
 
-				return strs(
-					out.BackupVaultList,
-					func(v backuptypes.BackupVaultListMember) *string { return v.BackupVaultName },
-				), nil
-			},
+			return err
 		},
-		{
-			name: "iot", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := iot.NewFromConfig(cfg).CreateThing(ctx, &iot.CreateThingInput{ThingName: aws.String(name)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := eventbridge.NewFromConfig(cfg).ListEventBuses(ctx, &eventbridge.ListEventBusesInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := iot.NewFromConfig(cfg).ListThings(ctx, &iot.ListThingsInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.Things, func(t iottypes.ThingAttribute) *string { return t.ThingName }), nil
-			},
+			return strs(out.EventBuses, func(b ebtypes.EventBus) *string { return b.Name }), nil
 		},
-		{
-			name: "codecommit",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := codecommit.NewFromConfig(cfg).CreateRepository(
-					ctx, &codecommit.CreateRepositoryInput{RepositoryName: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := codecommit.NewFromConfig(cfg).ListRepositories(ctx, &codecommit.ListRepositoriesInput{})
-				if err != nil {
-					return nil, err
-				}
+func kinesisCase() regionCase {
+	return regionCase{
+		name: "kinesis",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := kinesis.NewFromConfig(cfg).CreateStream(
+				ctx, &kinesis.CreateStreamInput{StreamName: aws.String(name), ShardCount: aws.Int32(1)})
 
-				return strs(
-					out.Repositories,
-					func(r codecommittypes.RepositoryNameIdPair) *string { return r.RepositoryName },
-				), nil
-			},
+			return err
 		},
-		{
-			name: "s3", uniqueNames: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true }).
-					CreateBucket(ctx, &s3.CreateBucketInput{
-						Bucket: aws.String(name),
-						CreateBucketConfiguration: &s3types.CreateBucketConfiguration{
-							LocationConstraint: s3types.BucketLocationConstraint(cfg.Region),
-						},
-					})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := kinesis.NewFromConfig(cfg).ListStreams(ctx, &kinesis.ListStreamsInput{})
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true }).ListBuckets(
-					ctx, &s3.ListBucketsInput{BucketRegion: aws.String(cfg.Region)})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.Buckets, func(b s3types.Bucket) *string { return b.Name }), nil
-			},
+			return out.StreamNames, err
 		},
-		{
-			name: "iam", global: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := iam.NewFromConfig(cfg).CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(name)})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := iam.NewFromConfig(cfg).ListUsers(ctx, &iam.ListUsersInput{})
-				if err != nil {
-					return nil, err
-				}
+func ecsCase() regionCase {
+	return regionCase{
+		name: "ecs", knownCollision: true,
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := ecs.NewFromConfig(cfg).
+				CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(name)})
 
-				return strs(out.Users, func(u iamtypes.User) *string { return u.UserName }), nil
-			},
+			return err
 		},
-		{
-			name: "route53", global: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := route53.NewFromConfig(cfg).CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
-					Name: aws.String(name + ".example.com"), CallerReference: aws.String(name),
-				})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := ecs.NewFromConfig(cfg).ListClusters(ctx, &ecs.ListClustersInput{})
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := route53.NewFromConfig(cfg).ListHostedZones(ctx, &route53.ListHostedZonesInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.HostedZones, func(z route53types.HostedZone) *string { return z.Name }), nil
-			},
+			return tail(out.ClusterArns, "/"), err
 		},
-		{
-			name: "stepfunctions",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := sfn.NewFromConfig(cfg).CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-					Name:       aws.String(name),
-					Definition: aws.String(`{"StartAt":"p","States":{"p":{"Type":"Pass","End":true}}}`),
-					RoleArn:    aws.String("arn:aws:iam::000000000000:role/r"),
-				})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := sfn.NewFromConfig(cfg).ListStateMachines(ctx, &sfn.ListStateMachinesInput{})
-				if err != nil {
-					return nil, err
-				}
+func dynamodbCase() regionCase {
+	return regionCase{
+		name: "dynamodb",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := dynamodb.NewFromConfig(cfg).CreateTable(ctx, &dynamodb.CreateTableInput{
+				TableName:   aws.String(name),
+				BillingMode: "PAY_PER_REQUEST",
+				AttributeDefinitions: []dynamodbtypes.AttributeDefinition{
+					{AttributeName: aws.String("k"), AttributeType: "S"},
+				},
+				KeySchema: []dynamodbtypes.KeySchemaElement{
+					{AttributeName: aws.String("k"), KeyType: "HASH"},
+				},
+			})
 
-				return strs(out.StateMachines, func(m sfntypes.StateMachineListItem) *string { return m.Name }), nil
-			},
+			return err
 		},
-		{
-			name: "kms",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				c := kms.NewFromConfig(cfg)
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := dynamodb.NewFromConfig(cfg).ListTables(ctx, &dynamodb.ListTablesInput{})
 
-				k, err := c.CreateKey(ctx, &kms.CreateKeyInput{})
-				if err != nil {
-					return err
-				}
-
-				_, err = c.CreateAlias(ctx, &kms.CreateAliasInput{
-					AliasName: aws.String("alias/" + name), TargetKeyId: k.KeyMetadata.KeyId,
-				})
-
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := kms.NewFromConfig(cfg).ListAliases(ctx, &kms.ListAliasesInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return tail(strs(out.Aliases, func(a kmstypes.AliasListEntry) *string { return a.AliasName }), "/"), nil
-			},
+			return out.TableNames, err
 		},
-		{
-			name: "cloudwatch", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := cloudwatch.NewFromConfig(cfg).PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
-					AlarmName: aws.String(name), MetricName: aws.String("m"), Namespace: aws.String("n"),
-					Statistic: "Average", Period: aws.Int32(60), EvaluationPeriods: aws.Int32(1),
-					Threshold: aws.Float64(1), ComparisonOperator: "GreaterThanThreshold",
-				})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := cloudwatch.NewFromConfig(cfg).DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{})
-				if err != nil {
-					return nil, err
-				}
+func ec2Case() regionCase {
+	return regionCase{
+		name: "ec2", knownCollision: true,
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := ec2.NewFromConfig(cfg).CreateKeyPair(ctx, &ec2.CreateKeyPairInput{KeyName: aws.String(name)})
 
-				return strs(out.MetricAlarms, func(a cwtypes.MetricAlarm) *string { return a.AlarmName }), nil
-			},
+			return err
 		},
-		{
-			name: "apigateway", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := apigateway.NewFromConfig(cfg).
-					CreateRestApi(ctx, &apigateway.CreateRestApiInput{Name: aws.String(name)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := ec2.NewFromConfig(cfg).DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := apigateway.NewFromConfig(cfg).GetRestApis(ctx, &apigateway.GetRestApisInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.Items, func(a apigatewaytypes.RestApi) *string { return a.Name }), nil
-			},
+			return strs(out.KeyPairs, func(k ec2types.KeyPairInfo) *string { return k.KeyName }), nil
 		},
-		{
-			name: "apigatewayv2", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := apigatewayv2.NewFromConfig(cfg).CreateApi(ctx, &apigatewayv2.CreateApiInput{
-					Name: aws.String(name), ProtocolType: "HTTP",
-				})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := apigatewayv2.NewFromConfig(cfg).GetApis(ctx, &apigatewayv2.GetApisInput{})
-				if err != nil {
-					return nil, err
-				}
+func ecrCase() regionCase {
+	return regionCase{
+		name: "ecr",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := ecr.NewFromConfig(cfg).CreateRepository(
+				ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
 
-				return strs(out.Items, func(a apigwv2types.Api) *string { return a.Name }), nil
-			},
+			return err
 		},
-		{
-			name: "cognitoidp", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := cognitoidentityprovider.NewFromConfig(cfg).CreateUserPool(
-					ctx, &cognitoidentityprovider.CreateUserPoolInput{PoolName: aws.String(name)})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := ecr.NewFromConfig(cfg).DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := cognitoidentityprovider.NewFromConfig(cfg).ListUserPools(
-					ctx, &cognitoidentityprovider.ListUserPoolsInput{MaxResults: aws.Int32(60)})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.UserPools, func(p cognitotypes.UserPoolDescriptionType) *string { return p.Name }), nil
-			},
+			return strs(out.Repositories, func(r ecrtypes.Repository) *string { return r.RepositoryName }), nil
 		},
-		{
-			name: "efs",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := efs.NewFromConfig(cfg).CreateFileSystem(ctx, &efs.CreateFileSystemInput{
-					CreationToken: aws.String(name),
-					Tags:          []efstypes.Tag{{Key: aws.String("Name"), Value: aws.String(name)}},
-				})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := efs.NewFromConfig(cfg).DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{})
-				if err != nil {
-					return nil, err
-				}
+func glueCase() regionCase {
+	return regionCase{
+		name: "glue",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := glue.NewFromConfig(cfg).CreateDatabase(ctx, &glue.CreateDatabaseInput{
+				DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(name)},
+			})
 
-				return strs(
-					out.FileSystems,
-					func(f efstypes.FileSystemDescription) *string { return f.CreationToken },
-				), nil
-			},
+			return err
 		},
-		{
-			name: "firehose",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := firehose.NewFromConfig(cfg).CreateDeliveryStream(ctx, &firehose.CreateDeliveryStreamInput{
-					DeliveryStreamName: aws.String(name),
-					ExtendedS3DestinationConfiguration: &firehosetypes.ExtendedS3DestinationConfiguration{
-						BucketARN: aws.String(
-							"arn:aws:s3:::b",
-						),
-						RoleARN: aws.String("arn:aws:iam::000000000000:role/r"),
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := glue.NewFromConfig(cfg).GetDatabases(ctx, &glue.GetDatabasesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.DatabaseList, func(d gluetypes.Database) *string { return d.Name }), nil
+		},
+	}
+}
+
+func athenaCase() regionCase {
+	return regionCase{
+		name: "athena",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := athena.NewFromConfig(cfg).
+				CreateWorkGroup(ctx, &athena.CreateWorkGroupInput{Name: aws.String(name)})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := athena.NewFromConfig(cfg).ListWorkGroups(ctx, &athena.ListWorkGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.WorkGroups, func(w athenatypes.WorkGroupSummary) *string { return w.Name }), nil
+		},
+	}
+}
+
+func backupCase() regionCase {
+	return regionCase{
+		name: "backup",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := backup.NewFromConfig(cfg).CreateBackupVault(
+				ctx, &backup.CreateBackupVaultInput{BackupVaultName: aws.String(name)})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := backup.NewFromConfig(cfg).ListBackupVaults(ctx, &backup.ListBackupVaultsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(
+				out.BackupVaultList,
+				func(v backuptypes.BackupVaultListMember) *string { return v.BackupVaultName },
+			), nil
+		},
+	}
+}
+
+func iotCase() regionCase {
+	return regionCase{
+		name: "iot",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := iot.NewFromConfig(cfg).CreateThing(ctx, &iot.CreateThingInput{ThingName: aws.String(name)})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := iot.NewFromConfig(cfg).ListThings(ctx, &iot.ListThingsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Things, func(t iottypes.ThingAttribute) *string { return t.ThingName }), nil
+		},
+	}
+}
+
+func codecommitCase() regionCase {
+	return regionCase{
+		name: "codecommit",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := codecommit.NewFromConfig(cfg).CreateRepository(
+				ctx, &codecommit.CreateRepositoryInput{RepositoryName: aws.String(name)})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := codecommit.NewFromConfig(cfg).ListRepositories(ctx, &codecommit.ListRepositoriesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(
+				out.Repositories,
+				func(r codecommittypes.RepositoryNameIdPair) *string { return r.RepositoryName },
+			), nil
+		},
+	}
+}
+
+func s3Case() regionCase {
+	return regionCase{
+		name: "s3", uniqueNames: true,
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true }).
+				CreateBucket(ctx, &s3.CreateBucketInput{
+					Bucket: aws.String(name),
+					CreateBucketConfiguration: &s3types.CreateBucketConfiguration{
+						LocationConstraint: s3types.BucketLocationConstraint(cfg.Region),
 					},
 				})
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := firehose.NewFromConfig(cfg).ListDeliveryStreams(ctx, &firehose.ListDeliveryStreamsInput{})
-
-				return out.DeliveryStreamNames, err
-			},
+			return err
 		},
-		{
-			name: "servicediscovery",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := servicediscovery.NewFromConfig(cfg).CreatePrivateDnsNamespace(
-					ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{Name: aws.String(name + ".local"), Vpc: aws.String("vpc-1")})
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true }).ListBuckets(
+				ctx, &s3.ListBucketsInput{BucketRegion: aws.String(cfg.Region)})
+			if err != nil {
+				return nil, err
+			}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := servicediscovery.NewFromConfig(cfg).
-					ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{})
-				if err != nil {
-					return nil, err
-				}
-
-				return strs(out.Namespaces, func(n sdtypes.NamespaceSummary) *string {
-					return aws.String(strings.TrimSuffix(aws.ToString(n.Name), ".local"))
-				}), nil
-			},
+			return strs(out.Buckets, func(b s3types.Bucket) *string { return b.Name }), nil
 		},
-		{
-			name: "elasticache",
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := elasticache.NewFromConfig(cfg).
-					CreateCacheSubnetGroup(ctx, &elasticache.CreateCacheSubnetGroupInput{
-						CacheSubnetGroupName: aws.String(name), CacheSubnetGroupDescription: aws.String("d"),
-						SubnetIds: []string{"subnet-1"},
-					})
+	}
+}
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := elasticache.NewFromConfig(cfg).DescribeCacheSubnetGroups(
-					ctx, &elasticache.DescribeCacheSubnetGroupsInput{})
-				if err != nil {
-					return nil, err
-				}
+func iamCase() regionCase {
+	return regionCase{
+		name: "iam", global: true,
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := iam.NewFromConfig(cfg).CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(name)})
 
-				return strs(
-					out.CacheSubnetGroups,
-					func(g elasticachetypes.CacheSubnetGroup) *string { return g.CacheSubnetGroupName },
-				), nil
-			},
+			return err
 		},
-		{
-			name: "sesv2", knownCollision: true,
-			create: func(ctx context.Context, cfg aws.Config, name string) error {
-				_, err := sesv2.NewFromConfig(cfg).CreateEmailTemplate(ctx, &sesv2.CreateEmailTemplateInput{
-					TemplateName:    aws.String(name),
-					TemplateContent: &sesv2types.EmailTemplateContent{Subject: aws.String("s"), Text: aws.String("t")},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := iam.NewFromConfig(cfg).ListUsers(ctx, &iam.ListUsersInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Users, func(u iamtypes.User) *string { return u.UserName }), nil
+		},
+	}
+}
+
+func route53Case() regionCase {
+	return regionCase{
+		name: "route53", global: true,
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := route53.NewFromConfig(cfg).CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
+				Name: aws.String(name + ".example.com"), CallerReference: aws.String(name),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := route53.NewFromConfig(cfg).ListHostedZones(ctx, &route53.ListHostedZonesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.HostedZones, func(z route53types.HostedZone) *string { return z.Name }), nil
+		},
+	}
+}
+
+func stepfunctionsCase() regionCase {
+	return regionCase{
+		name: "stepfunctions",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := sfn.NewFromConfig(cfg).CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+				Name:       aws.String(name),
+				Definition: aws.String(`{"StartAt":"p","States":{"p":{"Type":"Pass","End":true}}}`),
+				RoleArn:    aws.String("arn:aws:iam::000000000000:role/r"),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := sfn.NewFromConfig(cfg).ListStateMachines(ctx, &sfn.ListStateMachinesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.StateMachines, func(m sfntypes.StateMachineListItem) *string { return m.Name }), nil
+		},
+	}
+}
+
+func kmsCase() regionCase {
+	return regionCase{
+		name: "kms",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			c := kms.NewFromConfig(cfg)
+
+			k, err := c.CreateKey(ctx, &kms.CreateKeyInput{})
+			if err != nil {
+				return err
+			}
+
+			_, err = c.CreateAlias(ctx, &kms.CreateAliasInput{
+				AliasName: aws.String("alias/" + name), TargetKeyId: k.KeyMetadata.KeyId,
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := kms.NewFromConfig(cfg).ListAliases(ctx, &kms.ListAliasesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return tail(strs(out.Aliases, func(a kmstypes.AliasListEntry) *string { return a.AliasName }), "/"), nil
+		},
+	}
+}
+
+func cloudwatchCase() regionCase {
+	return regionCase{
+		name: "cloudwatch",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := cloudwatch.NewFromConfig(cfg).PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
+				AlarmName: aws.String(name), MetricName: aws.String("m"), Namespace: aws.String("n"),
+				Statistic: "Average", Period: aws.Int32(60), EvaluationPeriods: aws.Int32(1),
+				Threshold: aws.Float64(1), ComparisonOperator: "GreaterThanThreshold",
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := cloudwatch.NewFromConfig(cfg).DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.MetricAlarms, func(a cwtypes.MetricAlarm) *string { return a.AlarmName }), nil
+		},
+	}
+}
+
+func apigatewayCase() regionCase {
+	return regionCase{
+		name: "apigateway",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := apigateway.NewFromConfig(cfg).
+				CreateRestApi(ctx, &apigateway.CreateRestApiInput{Name: aws.String(name)})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := apigateway.NewFromConfig(cfg).GetRestApis(ctx, &apigateway.GetRestApisInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Items, func(a apigatewaytypes.RestApi) *string { return a.Name }), nil
+		},
+	}
+}
+
+func apigatewayv2Case() regionCase {
+	return regionCase{
+		name: "apigatewayv2",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := apigatewayv2.NewFromConfig(cfg).CreateApi(ctx, &apigatewayv2.CreateApiInput{
+				Name: aws.String(name), ProtocolType: "HTTP",
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := apigatewayv2.NewFromConfig(cfg).GetApis(ctx, &apigatewayv2.GetApisInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Items, func(a apigwv2types.Api) *string { return a.Name }), nil
+		},
+	}
+}
+
+func cognitoidpCase() regionCase {
+	return regionCase{
+		name: "cognitoidp",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := cognitoidentityprovider.NewFromConfig(cfg).CreateUserPool(
+				ctx, &cognitoidentityprovider.CreateUserPoolInput{PoolName: aws.String(name)})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := cognitoidentityprovider.NewFromConfig(cfg).ListUserPools(
+				ctx, &cognitoidentityprovider.ListUserPoolsInput{MaxResults: aws.Int32(60)})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.UserPools, func(p cognitotypes.UserPoolDescriptionType) *string { return p.Name }), nil
+		},
+	}
+}
+
+func efsCase() regionCase {
+	return regionCase{
+		name: "efs",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := efs.NewFromConfig(cfg).CreateFileSystem(ctx, &efs.CreateFileSystemInput{
+				CreationToken: aws.String(name),
+				Tags:          []efstypes.Tag{{Key: aws.String("Name"), Value: aws.String(name)}},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := efs.NewFromConfig(cfg).DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(
+				out.FileSystems,
+				func(f efstypes.FileSystemDescription) *string { return f.CreationToken },
+			), nil
+		},
+	}
+}
+
+func firehoseCase() regionCase {
+	return regionCase{
+		name: "firehose",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := firehose.NewFromConfig(cfg).CreateDeliveryStream(ctx, &firehose.CreateDeliveryStreamInput{
+				DeliveryStreamName: aws.String(name),
+				ExtendedS3DestinationConfiguration: &firehosetypes.ExtendedS3DestinationConfiguration{
+					BucketARN: aws.String(
+						"arn:aws:s3:::b",
+					),
+					RoleARN: aws.String("arn:aws:iam::000000000000:role/r"),
+				},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := firehose.NewFromConfig(cfg).ListDeliveryStreams(ctx, &firehose.ListDeliveryStreamsInput{})
+
+			return out.DeliveryStreamNames, err
+		},
+	}
+}
+
+func servicediscoveryCase() regionCase {
+	return regionCase{
+		name: "servicediscovery",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := servicediscovery.NewFromConfig(cfg).CreatePrivateDnsNamespace(
+				ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{Name: aws.String(name + ".local"), Vpc: aws.String("vpc-1")})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := servicediscovery.NewFromConfig(cfg).
+				ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Namespaces, func(n sdtypes.NamespaceSummary) *string {
+				return aws.String(strings.TrimSuffix(aws.ToString(n.Name), ".local"))
+			}), nil
+		},
+	}
+}
+
+func elasticacheCase() regionCase {
+	return regionCase{
+		name: "elasticache",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := elasticache.NewFromConfig(cfg).
+				CreateCacheSubnetGroup(ctx, &elasticache.CreateCacheSubnetGroupInput{
+					CacheSubnetGroupName: aws.String(name), CacheSubnetGroupDescription: aws.String("d"),
+					SubnetIds: []string{"subnet-1"},
 				})
 
-				return err
-			},
-			list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
-				out, err := sesv2.NewFromConfig(cfg).ListEmailTemplates(ctx, &sesv2.ListEmailTemplatesInput{})
-				if err != nil {
-					return nil, err
-				}
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := elasticache.NewFromConfig(cfg).DescribeCacheSubnetGroups(
+				ctx, &elasticache.DescribeCacheSubnetGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
 
-				return strs(
-					out.TemplatesMetadata,
-					func(m sesv2types.EmailTemplateMetadata) *string { return m.TemplateName },
-				), nil
-			},
+			return strs(
+				out.CacheSubnetGroups,
+				func(g elasticachetypes.CacheSubnetGroup) *string { return g.CacheSubnetGroupName },
+			), nil
+		},
+	}
+}
+
+func sesv2Case() regionCase {
+	return regionCase{
+		name: "sesv2",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := sesv2.NewFromConfig(cfg).CreateEmailTemplate(ctx, &sesv2.CreateEmailTemplateInput{
+				TemplateName:    aws.String(name),
+				TemplateContent: &sesv2types.EmailTemplateContent{Subject: aws.String("s"), Text: aws.String("t")},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := sesv2.NewFromConfig(cfg).ListEmailTemplates(ctx, &sesv2.ListEmailTemplatesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(
+				out.TemplatesMetadata,
+				func(m sesv2types.EmailTemplateMetadata) *string { return m.TemplateName },
+			), nil
 		},
 	}
 }

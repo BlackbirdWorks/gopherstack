@@ -373,7 +373,7 @@ func buildV2Payload(
 		RequestContext: httpAPIRequestContext{
 			AccountID:    config.DefaultAccountID,
 			APIID:        apiID,
-			DomainName:   apiID + ".execute-api." + defaultRegion + ".amazonaws.com",
+			DomainName:   apiID + ".execute-api." + regionFromCtx(req.Context()) + ".amazonaws.com",
 			DomainPrefix: apiID,
 			RouteKey:     routeKey,
 			Stage:        stageName,

@@ -1340,3 +1340,7 @@ even before a sweep runs. Alarms on an evicted series read INSUFFICIENT_DATA.
 Added `leak_main_test.go`. StartWorker's janitor goroutine is only started
 by explicit test/production calls, all already ctx-cancelled; `go test
 -race -count=2` clean, no leak found, no production change needed.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+CloudWatch is region-isolated: each non-home region gets a lazily built sibling `Handler` (own metrics, alarms, dashboards, history, tags, plus its own janitor once `StartWorker` has run) via `pkgs/regionpeers`; siblings inherit the SNS/Lambda/EC2/Auto Scaling/Firehose action wiring, and alarm action ARNs carry their own region. `Handler.SubscribeAlarmStateChange` routes by the alarm ARN's region, so FIS stop conditions work for any region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_SubscribeAlarmStateChangeRoutesByARNRegion`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/cloudwatch`. Limitation: metric emitters in other services (SQS, CloudWatch Logs metric filters) call `PutMetricData` without a region, so their metrics still land in the home region; they need a region argument on their emitter interfaces.
