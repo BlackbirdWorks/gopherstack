@@ -883,3 +883,7 @@ just this package.
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Audited clean: DescribeEvents default window/Duration, engine-version DefaultOnly, offerings Duration, ShowCacheClustersNotInReplicationGroups. No change.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: CreateReplicationGroup.PreferredCacheClusterAZs)
+
+Still recorded, with the root cause stated precisely: non-cluster-mode replication groups have no node topology at all. CreateReplicationGroup's NumCacheClusters is not read either, NodeGroups[0] is only built for NumNodeGroups>0, and MemberClusters is never emitted, so there is no primary/replica node to carry an Availability Zone. Honoring the field means modeling that topology and keeping IncreaseReplicaCount/DecreaseReplicaCount/TestFailover/ModifyReplicationGroup consistent with it; that cross-op redesign is out of scope for a single-field fix.

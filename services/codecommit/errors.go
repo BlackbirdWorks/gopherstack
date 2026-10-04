@@ -169,3 +169,37 @@ func ValidateRepositoryName(name string) error {
 
 	return nil
 }
+
+// Errors raised by the merge operations' conflict handling inputs.
+var (
+	// ErrManualMergeRequired is returned when a merge still has unresolved conflicts.
+	ErrManualMergeRequired = awserr.New("ManualMergeRequiredException", awserr.ErrInvalidParameter)
+	// ErrInvalidConflictDetailLevel is returned for a conflictDetailLevel outside FILE_LEVEL/LINE_LEVEL.
+	ErrInvalidConflictDetailLevel = awserr.New("InvalidConflictDetailLevelException", awserr.ErrInvalidParameter)
+	// ErrInvalidConflictResolutionStrategy is returned for an unknown conflictResolutionStrategy.
+	ErrInvalidConflictResolutionStrategy = awserr.New(
+		"InvalidConflictResolutionStrategyException", awserr.ErrInvalidParameter,
+	)
+	// ErrInvalidConflictResolution is returned for a malformed conflictResolution.
+	ErrInvalidConflictResolution = awserr.New("InvalidConflictResolutionException", awserr.ErrInvalidParameter)
+	// ErrReplacementTypeRequired is returned for a replaceContents entry without a replacementType.
+	ErrReplacementTypeRequired = awserr.New("ReplacementTypeRequiredException", awserr.ErrInvalidParameter)
+	// ErrInvalidReplacementType is returned for an unknown replacementType.
+	ErrInvalidReplacementType = awserr.New("InvalidReplacementTypeException", awserr.ErrInvalidParameter)
+	// ErrReplacementContentRequired is returned for USE_NEW_CONTENT without content.
+	ErrReplacementContentRequired = awserr.New("ReplacementContentRequiredException", awserr.ErrInvalidParameter)
+	// ErrMultipleConflictResolutionEntries is returned when a file has more than one resolution entry.
+	ErrMultipleConflictResolutionEntries = awserr.New(
+		"MultipleConflictResolutionEntriesException", awserr.ErrInvalidParameter,
+	)
+	// ErrPathRequired is returned for a resolution entry without a file path.
+	ErrPathRequired = awserr.New("PathRequiredException", awserr.ErrInvalidParameter)
+	// ErrInvalidFileMode is returned for a file mode outside NORMAL/EXECUTABLE/SYMLINK.
+	ErrInvalidFileMode = awserr.New("InvalidFileModeException", awserr.ErrInvalidParameter)
+	// ErrFileModeRequired is returned for a setFileModes entry without a file mode.
+	ErrFileModeRequired = awserr.New("FileModeRequiredException", awserr.ErrInvalidParameter)
+	// ErrInvalidMaxConflictFiles is returned for a non-positive maxConflictFiles.
+	ErrInvalidMaxConflictFiles = awserr.New("InvalidMaxConflictFilesException", awserr.ErrInvalidParameter)
+	// ErrInvalidMaxMergeHunks is returned for a non-positive maxMergeHunks.
+	ErrInvalidMaxMergeHunks = awserr.New("InvalidMaxMergeHunksException", awserr.ErrInvalidParameter)
+)

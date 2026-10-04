@@ -84,10 +84,15 @@ const asyncInvocationEnqueueTimeout = 5 * time.Minute
 // waiting for space in a runtime async invocation queue.
 const maxAsyncEnqueueWaiters = 128
 
-// checkRecursiveLoop returns an error when fn is already in the invocation chain and
-// its RecursiveLoop config is set to "Deny".
+// recursiveLoopTerminateDepth is how many times a function may already appear
+// in its invocation chain before RecursiveLoop=Terminate stops it.
+const recursiveLoopTerminateDepth = 16
+
+// checkRecursiveLoop rejects an invocation of a function that already appears
+// recursiveLoopTerminateDepth times in the chain unless RecursiveLoop is Allow.
 func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName string) error {
-	if !invocationChainContains(ctx, functionName) {
+	chain, _ := ctx.Value(invocationChainKeyType{}).([]string)
+	if count(chain, functionName) < recursiveLoopTerminateDepth {
 		return nil
 	}
 
@@ -100,19 +105,26 @@ func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName s
 		rc = b.functionRecursionConfigs[functionName]
 	}()
 
-	mode := "Terminate"
-	if rc != nil {
-		mode = rc.RecursiveLoop
+	if rc != nil && rc.RecursiveLoop == "Allow" {
+		return nil
 	}
 
-	if mode == "Deny" {
-		return fmt.Errorf(
-			"%w: recursive invocation detected for function %s with RecursiveLoop=Deny",
-			ErrInvalidParameterValue, functionName,
-		)
+	return fmt.Errorf(
+		"%w: recursive loop detected for function %s with RecursiveLoop=Terminate",
+		ErrInvalidParameterValue, functionName,
+	)
+}
+
+func count(chain []string, name string) int {
+	n := 0
+
+	for _, c := range chain {
+		if c == name {
+			n++
+		}
 	}
 
-	return nil
+	return n
 }
 
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
@@ -135,8 +147,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 		return nil, "", "", http.StatusNoContent, nil
 	}
 
-	// Enforce RecursiveLoop=Deny: reject self-invocations when the function name
-	// is already in the current invocation chain.
+	// Enforce RecursiveLoop: stop a function invoked as part of a deep loop.
 	if loopErr := b.checkRecursiveLoop(ctx, fn.FunctionName); loopErr != nil {
 		return nil, "", "", http.StatusBadRequest, loopErr
 	}

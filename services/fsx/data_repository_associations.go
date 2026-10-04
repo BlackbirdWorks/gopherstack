@@ -41,11 +41,12 @@ func (a *storedDataRepositoryAssoc) toPublic() *DataRepositoryAssociation {
 }
 
 type createDataRepositoryAssociationInput struct {
-	ImportedFileChunkSize *int32 `json:"ImportedFileChunkSize,omitempty"`
-	FileSystemID          string `json:"FileSystemId"`
-	FileSystemPath        string `json:"FileSystemPath"`
-	DataRepositoryPath    string `json:"DataRepositoryPath"`
-	Tags                  []Tag  `json:"Tags,omitempty"`
+	ImportedFileChunkSize       *int32 `json:"ImportedFileChunkSize,omitempty"`
+	BatchImportMetaDataOnCreate *bool  `json:"BatchImportMetaDataOnCreate,omitempty"`
+	FileSystemID                string `json:"FileSystemId"`
+	FileSystemPath              string `json:"FileSystemPath"`
+	DataRepositoryPath          string `json:"DataRepositoryPath"`
+	Tags                        []Tag  `json:"Tags,omitempty"`
 }
 
 // CreateDataRepositoryAssociation creates a data repository association.
@@ -87,6 +88,10 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 
 	b.dataRepositoryAssocs.Put(a)
 	b.tags[arn] = tags
+
+	if input.BatchImportMetaDataOnCreate != nil && *input.BatchImportMetaDataOnCreate {
+		b.startImportTaskLocked(a, now)
+	}
 
 	return a.toPublic(), nil
 }
@@ -202,4 +207,27 @@ func (b *InMemoryBackend) UpdateDataRepositoryAssociation(
 
 func (b *InMemoryBackend) draARN(id string) string {
 	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("association/%s", id))
+}
+
+// startImportTaskLocked runs the metadata import a DRA created with
+// BatchImportMetaDataOnCreate triggers. Caller holds the write lock.
+func (b *InMemoryBackend) startImportTaskLocked(a *storedDataRepositoryAssoc, now time.Time) {
+	id := newDataRepositoryTaskID()
+	taskARN := b.drtARN(id)
+	disabled := false
+
+	b.dataRepositoryTasks.Put(&storedDataRepositoryTask{
+		CreationTime:  now,
+		DeadlineAt:    now.Add(dataRepositoryTaskCompletionDelay),
+		Report:        &CompletionReport{Enabled: &disabled},
+		Tags:          map[string]string{},
+		TaskID:        id,
+		FileSystemID:  a.FileSystemID,
+		AssociationID: a.AssociationID,
+		Type:          "IMPORT_METADATA_FROM_REPOSITORY",
+		Lifecycle:     drtLifecycleExecuting,
+		ResourceARN:   taskARN,
+		Paths:         []string{a.FileSystemPath},
+	})
+	b.tags[taskARN] = map[string]string{}
 }

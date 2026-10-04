@@ -1838,3 +1838,7 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 `Handler.BackendFor(region)` returns the per-region backend (home for ""), so the RDS Data API finds an Aurora cluster in the region its ARN names. Proof: `TestHandler_BackendFor`. No change to isolation or snapshots.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: 6 findings)
+
+All six stay recorded, each with a concrete reason. DescribeDBSnapshots/DescribeDBClusterSnapshots IncludePublic and IncludeShared add other accounts' public or shared manual snapshots; every snapshot here belongs to the single account, so the result cannot change. ModifyDBInstance.CertificateRotationRestart needs a per-instance CACertificateIdentifier, which no DBInstance carries (ModifyDBInstance drops CACertificateIdentifier as well), so there is no rotation to restart for. SwitchoverBlueGreenDeployment.SwitchoverTimeout bounds a switchover that completes synchronously, so it can never expire.

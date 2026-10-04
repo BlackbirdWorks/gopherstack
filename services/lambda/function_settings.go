@@ -38,7 +38,13 @@ func (b *InMemoryBackend) PutRuntimeManagementConfig(
 		return nil, ErrFunctionNotFound
 	}
 
-	if input.UpdateRuntimeOn == "" {
+	switch input.UpdateRuntimeOn {
+	case "Auto", "FunctionUpdate":
+	case "Manual":
+		if input.RuntimeVersionArn == "" {
+			return nil, ErrInvalidParameterValue
+		}
+	default:
 		return nil, ErrInvalidParameterValue
 	}
 
@@ -85,7 +91,7 @@ func (b *InMemoryBackend) PutFunctionRecursionConfig(
 		return nil, ErrFunctionNotFound
 	}
 
-	if input.RecursiveLoop == "" {
+	if input.RecursiveLoop != "Allow" && input.RecursiveLoop != "Terminate" {
 		return nil, ErrInvalidParameterValue
 	}
 

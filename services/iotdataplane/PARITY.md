@@ -413,3 +413,7 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 iotdataplane is region-isolated: shadows, retained messages and connections live per region, and an IoT rule shadow lookup reads the rule's region. All regions share the single embedded MQTT broker, so a publish is delivered to subscribers of any region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestIoTShadowTarget_ReadsRuleRegion`, `TestRegionIsolation/iotdataplane`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined)
+
+ListSubscriptions.MaxResults is a tool false positive (read through `parsePageSize`, handler.go). SendDirectMessage.Timeout stays recorded: honoring it needs a PUBACK wait (and the 504 on expiry), which requires a packet hook in the services/iot broker behind MQTTPublisher; that package is outside this pass's ownership.

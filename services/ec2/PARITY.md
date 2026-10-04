@@ -6321,3 +6321,10 @@ EC2 is region-isolated: a request signed for another region is served by a lazil
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 Emits AWS/EC2 StatusCheckFailed, StatusCheckFailed_Instance and StatusCheckFailed_System (InstanceId; viewing_metrics_with_cloudwatch.html) as 0 every minute for each running instance, from the lifecycle reconciler goroutine (no new goroutine); the emulator never fails a check. Utilisation metrics are recorded, not emitted, because no runtime produces them.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: 16 findings)
+
+Implemented: ProvisionByoipCidr.PubliclyAdvertisable (IPv6 only, api_op_ProvisionByoipCidr.go:99): false puts the range in the documented `provisioned-not-publicly-advertisable` state, visible through DescribeByoipCidrs (`TestProvisionByoipCidr_PubliclyAdvertisable_RealClient`); IPv4 ranges ignore it. Provisioning still leaves other ranges in `pending-provision`, and WithdrawByoipCidr still reports `advertised`; both are older BYOIP lifecycle gaps not touched here.
+
+Recorded again, each with the missing observable: CreateImage.NoReboot, StopInstances.Force/SkipOsShutdown and TerminateInstances.SkipOsShutdown (no guest OS; the Compute interface has no graceful-versus-forced knob); CreateNatGateway.AvailabilityZoneAddresses (regional NAT gateways are not modeled: no AvailabilityMode/VpcId, NatGateway is a single zonal address); DescribeInstanceTypes.IncludeUnsupportedInRegion (one global catalog, no per-region availability); DescribeReservedInstancesOfferings.MaxInstanceCount (offerings have no instance-count dimension); GetConsoleOutput.Latest (one static console string); GetIpamAddressHistory.StartTime/EndTime and GetIpamDiscoveredRoutes/GetIpamRouteProtectionFindings.MaxResults (these ops always return an empty set, no discovery pipeline); ImportImage.RoleName/ImportSnapshot.RoleName (no output echoes it and the import path checks no IAM role); ModifyCapacityReservation.Accept (documented Reserved).
+

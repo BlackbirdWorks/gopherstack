@@ -1690,3 +1690,7 @@ all clean.
 ## 2026-10-04 (gopherstack-9lr6d, policy notification region)
 
 The janitor passes the parameter's region on the context of `NotifyParameterPolicyAction`, so EventBridge receives the event in the parameter's region. Proof: `TestSSMJanitor_PolicyNotificationCarriesParameterRegion`.
+
+## 2026-10-04 (reqfielddiff tier-1: CreateAssociationBatch.AssociationDispatchAssumeRole)
+
+Earlier note called this a false positive because the entry-level field is read, but the pinned SDK declares the member on CreateAssociationBatchInput itself (api_op_CreateAssociationBatch.go:55) and not on CreateAssociationBatchRequestEntry. It is now decoded and applied as the dispatch role of every association in the batch that has none of its own (`TestCreateAssociationBatch_DispatchAssumeRole_RealClient`).

@@ -14,6 +14,7 @@ type batchDescribeMergeConflictsInput struct {
 	SourceCommitSpecifier      string   `json:"sourceCommitSpecifier"`
 	MergeOption                string   `json:"mergeOption"`
 	FilePaths                  []string `json:"filePaths"`
+	mergeQueryWire
 }
 
 // validMergeOptions are the AWS-accepted values for the mergeOption parameter.
@@ -55,12 +56,18 @@ func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
 		)
 	}
 
+	q, err := in.query()
+	if err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.BatchDescribeMergeConflicts(
 		in.RepositoryName,
 		in.DestinationCommitSpecifier,
 		in.SourceCommitSpecifier,
 		in.MergeOption,
 		in.FilePaths,
+		q,
 	)
 	if err != nil {
 		return nil, err
@@ -71,13 +78,22 @@ func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
 		errs = []ConflictError{}
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"conflicts":       result.Conflicts,
 		keyDestCommitID:   result.DestinationCommitID,
 		keySourceCommitID: result.SourceCommitID,
-		keyBaseCommitID:   result.BaseCommitID,
 		keyErrors:         errs,
-	}, nil
+	}
+	setIfNotEmpty(out, keyBaseCommitID, result.BaseCommitID)
+	setIfNotEmpty(out, "nextToken", result.NextToken)
+
+	return out, nil
+}
+
+func setIfNotEmpty(m map[string]any, key, value string) {
+	if value != "" {
+		m[key] = value
+	}
 }
 
 func (h *Handler) handleMergePullRequest(ctx context.Context, option string, body []byte) (any, error) {
@@ -88,6 +104,7 @@ func (h *Handler) handleMergePullRequest(ctx context.Context, option string, bod
 		CommitMessage  string `json:"commitMessage"`
 		AuthorName     string `json:"authorName"`
 		Email          string `json:"email"`
+		mergeSettingsWire
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -96,15 +113,21 @@ func (h *Handler) handleMergePullRequest(ctx context.Context, option string, bod
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
 	}
 
+	settings, err := req.settings()
+	if err != nil {
+		return nil, err
+	}
+
 	opts := MergePullRequestOptions{
 		CommitMessage: req.CommitMessage,
 		AuthorName:    req.AuthorName,
 		Email:         req.Email,
 		MergedBy:      awsmeta.CallerArn(ctx),
+		Settings:      settings,
 	}
 
 	var pr *PullRequest
-	var err error
+
 	switch option {
 	case mergeOptionFastForward:
 		pr, err = h.Backend.MergePullRequestByFastForward(
@@ -159,6 +182,7 @@ func (h *Handler) handleGetMergeOptions(body []byte) (any, error) {
 		RepositoryName             string `json:"repositoryName"`
 		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
+		mergeSettingsWire
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -167,26 +191,31 @@ func (h *Handler) handleGetMergeOptions(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	sourceID, err := h.Backend.ResolveCommitSpecifier(req.RepositoryName, req.SourceCommitSpecifier)
-	if err != nil {
-		return nil, err
-	}
-	destID, err := h.Backend.ResolveCommitSpecifier(req.RepositoryName, req.DestinationCommitSpecifier)
+	settings, err := req.settings()
 	if err != nil {
 		return nil, err
 	}
 
-	options, err := h.Backend.GetMergeOptions(req.RepositoryName, sourceID, destID)
+	res, err := h.Backend.GetMergeOptions(
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, settings,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
+	options := res.Options
+	if options == nil {
+		options = []string{}
+	}
+
+	out := map[string]any{
 		"mergeOptions":    options,
-		keySourceCommitID: sourceID,
-		keyDestCommitID:   destID,
-		keyBaseCommitID:   h.Backend.MergeBase(req.RepositoryName, sourceID, destID),
-	}, nil
+		keySourceCommitID: res.SourceCommitID,
+		keyDestCommitID:   res.DestinationCommitID,
+	}
+	setIfNotEmpty(out, keyBaseCommitID, res.BaseCommitID)
+
+	return out, nil
 }
 
 func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) {
@@ -198,6 +227,7 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 		AuthorName                 string `json:"authorName"`
 		Email                      string `json:"email"`
 		CommitMessage              string `json:"commitMessage"`
+		mergeSettingsWire
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -217,9 +247,14 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 		)
 	}
 
+	settings, err := req.settings()
+	if err != nil {
+		return nil, err
+	}
+
 	commit, err := h.Backend.CreateUnreferencedMergeCommit(
-		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier,
-		req.AuthorName, req.Email, req.CommitMessage,
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.MergeOption,
+		req.AuthorName, req.Email, req.CommitMessage, settings,
 	)
 	if err != nil {
 		return nil, err
@@ -231,26 +266,12 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 	}, nil
 }
 
-// handleGetMergeCommit does not decode a mergeOption field: real
-// GetMergeCommitInput has no such member (codecommit@v1.36.4
-// api_op_GetMergeCommit.go / awsAwsjson11_serializeOpDocumentGetMergeCommitInput
-// in serializers.go), so a real client never sends one.
-//
-// sourceCommitId/destinationCommitId are resolved to real commit IDs before
-// being echoed: real GetMergeCommitOutput documents both as "The commit ID
-// of the source/destination commit specifier that was used in the merge
-// evaluation" -- a client-supplied specifier can be a branch name (as this
-// package's own resolveCommitSpecifier accepts), so echoing the raw
-// specifier back previously handed a typed client a branch name where it
-// expected a commit ID whenever the caller passed one. baseCommitId is a
-// real, required GetMergeCommitOutput member this backend cannot honestly
-// compute (no real merge-base algorithm over tracked commits) and remains
-// absent rather than fabricated -- see PARITY.md.
 func (h *Handler) handleGetMergeCommit(body []byte) (any, error) {
 	var req struct {
 		RepositoryName             string `json:"repositoryName"`
 		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
+		mergeSettingsWire
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -259,27 +280,23 @@ func (h *Handler) handleGetMergeCommit(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	sourceCommitID, err := h.Backend.ResolveCommitSpecifier(req.RepositoryName, req.SourceCommitSpecifier)
+	settings, err := req.settings()
 	if err != nil {
 		return nil, err
 	}
 
-	destCommitID, err := h.Backend.ResolveCommitSpecifier(req.RepositoryName, req.DestinationCommitSpecifier)
+	res, err := h.Backend.GetMergeCommit(
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, settings,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	commit, err := h.Backend.GetMergeCommit(req.RepositoryName, sourceCommitID, destCommitID)
-	if err != nil {
-		return nil, err
-	}
+	out := map[string]any{keySourceCommitID: res.SourceCommitID, keyDestCommitID: res.DestinationCommitID}
+	setIfNotEmpty(out, "mergedCommitId", res.MergedCommitID)
+	setIfNotEmpty(out, keyBaseCommitID, res.BaseCommitID)
 
-	return map[string]any{
-		keySourceCommitID: sourceCommitID,
-		keyDestCommitID:   destCommitID,
-		"mergedCommitId":  commit.CommitID,
-		keyBaseCommitID:   h.Backend.MergeBase(req.RepositoryName, sourceCommitID, destCommitID),
-	}, nil
+	return out, nil
 }
 
 func (h *Handler) handleGetMergeConflicts(body []byte) (any, error) {
@@ -288,6 +305,7 @@ func (h *Handler) handleGetMergeConflicts(body []byte) (any, error) {
 		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
 		MergeOption                string `json:"mergeOption"`
+		mergeQueryWire
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -315,26 +333,36 @@ func (h *Handler) handleGetMergeConflicts(body []byte) (any, error) {
 		)
 	}
 
-	mergeable, sourceCommitID, destCommitID, err := h.Backend.GetMergeConflicts(
-		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.MergeOption,
+	q, err := req.query()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := h.Backend.GetMergeConflicts(
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.MergeOption, q,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"mergeable":            mergeable,
-		keySourceCommitID:      sourceCommitID,
-		keyDestCommitID:        destCommitID,
-		keyBaseCommitID:        h.Backend.MergeBase(req.RepositoryName, sourceCommitID, destCommitID),
-		"conflictMetadataList": []any{},
-	}, nil
+	conflicts := res.Conflicts
+	if conflicts == nil {
+		conflicts = []ConflictMetadata{}
+	}
+
+	out := map[string]any{
+		"mergeable":            res.Mergeable,
+		keySourceCommitID:      res.SourceCommitID,
+		keyDestCommitID:        res.DestinationCommitID,
+		"conflictMetadataList": conflicts,
+	}
+	setIfNotEmpty(out, keyBaseCommitID, res.BaseCommitID)
+	setIfNotEmpty(out, "nextToken", res.NextToken)
+
+	return out, nil
 }
 
-// handleDescribeMergeConflicts describes merge conflicts for a single file by
-// delegating to the same backend logic BatchDescribeMergeConflicts uses,
-// scoped to one filePath. This validates the repository/required fields and
-// reads real backend state instead of echoing the request back unexamined.
+// handleDescribeMergeConflicts describes one file's conflict, paging its hunks.
 func (h *Handler) handleDescribeMergeConflicts(body []byte) (any, error) {
 	var req struct {
 		RepositoryName             string `json:"repositoryName"`
@@ -342,6 +370,7 @@ func (h *Handler) handleDescribeMergeConflicts(body []byte) (any, error) {
 		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
 		MergeOption                string `json:"mergeOption"`
 		FilePath                   string `json:"filePath"`
+		mergeQueryWire
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -374,27 +403,34 @@ func (h *Handler) handleDescribeMergeConflicts(body []byte) (any, error) {
 		)
 	}
 
-	result, err := h.Backend.BatchDescribeMergeConflicts(
+	q, err := req.query()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := h.Backend.DescribeMergeConflicts(
 		req.RepositoryName, req.DestinationCommitSpecifier, req.SourceCommitSpecifier,
-		req.MergeOption, []string{req.FilePath},
+		req.MergeOption, req.FilePath, q,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	meta := ConflictMetadata{FilePath: req.FilePath}
-	hunks := []MergeHunk{}
-	if len(result.Conflicts) > 0 {
-		meta = result.Conflicts[0].ConflictMetadata
-		hunks = result.Conflicts[0].MergeHunks
+	hunks := res.Hunks
+	if hunks == nil {
+		hunks = []MergeHunk{}
 	}
 
-	return map[string]any{
-		keyDestCommitID:    result.DestinationCommitID,
-		keySourceCommitID:  result.SourceCommitID,
+	out := map[string]any{
+		keyDestCommitID:    res.DestinationCommitID,
+		keySourceCommitID:  res.SourceCommitID,
 		"mergeHunks":       hunks,
-		"conflictMetadata": meta,
-	}, nil
+		"conflictMetadata": res.Metadata,
+	}
+	setIfNotEmpty(out, keyBaseCommitID, res.BaseCommitID)
+	setIfNotEmpty(out, "nextToken", res.NextToken)
+
+	return out, nil
 }
 
 type mergeBranchesRequest struct {
@@ -405,15 +441,19 @@ type mergeBranchesRequest struct {
 	CommitMessage              string `json:"commitMessage"`
 	AuthorName                 string `json:"authorName"`
 	Email                      string `json:"email"`
+	mergeSettingsWire
 }
 
-func (r mergeBranchesRequest) options() MergeBranchesOptions {
+func (r mergeBranchesRequest) options() (MergeBranchesOptions, error) {
+	settings, err := r.settings()
+
 	return MergeBranchesOptions{
 		TargetBranch:  r.TargetBranch,
 		CommitMessage: r.CommitMessage,
 		AuthorName:    r.AuthorName,
 		Email:         r.Email,
-	}
+		Settings:      settings,
+	}, err
 }
 
 func (h *Handler) handleMergeBranchesBySquash(body []byte) (any, error) {
@@ -425,8 +465,13 @@ func (h *Handler) handleMergeBranchesBySquash(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
+	opts, err := req.options()
+	if err != nil {
+		return nil, err
+	}
+
 	commit, err := h.Backend.MergeBranchesBySquash(
-		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.options(),
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, opts,
 	)
 	if err != nil {
 		return nil, err
@@ -447,8 +492,13 @@ func (h *Handler) handleMergeBranchesByThreeWay(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
+	opts, err := req.options()
+	if err != nil {
+		return nil, err
+	}
+
 	commit, err := h.Backend.MergeBranchesByThreeWay(
-		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.options(),
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, opts,
 	)
 	if err != nil {
 		return nil, err

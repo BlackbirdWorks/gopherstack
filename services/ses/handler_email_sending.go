@@ -218,7 +218,14 @@ type sendTemplatedEmailResponse struct {
 func (h *Handler) handleSendBounce(vals url.Values, reqID string) (any, error) {
 	recipients := parseBouncedRecipients(vals, "BouncedRecipientInfoList")
 
-	msgID, err := h.Backend.SendBounce(vals.Get("OriginalMessageId"), vals.Get("BounceSender"), recipients)
+	opts := SendBounceOptions{
+		Explanation:     vals.Get("Explanation"),
+		ReportingMta:    vals.Get("MessageDsn.ReportingMta"),
+		ArrivalDate:     vals.Get("MessageDsn.ArrivalDate"),
+		ExtensionFields: parseSESTags(vals, "MessageDsn.ExtensionFields"),
+	}
+
+	msgID, err := h.Backend.SendBounce(vals.Get("OriginalMessageId"), vals.Get("BounceSender"), recipients, opts)
 	if err != nil {
 		return nil, err
 	}

@@ -9,17 +9,18 @@ import (
 )
 
 type storedDataRepositoryTask struct {
-	CreationTime time.Time         `json:"creationTime"`
-	DeadlineAt   time.Time         `json:"deadlineAt"`
-	EndTime      time.Time         `json:"endTime"`
-	Report       *CompletionReport `json:"report,omitempty"`
-	Tags         map[string]string `json:"tags"`
-	TaskID       string            `json:"taskId"`
-	FileSystemID string            `json:"fileSystemId"`
-	Type         string            `json:"type"`
-	Lifecycle    string            `json:"lifecycle"`
-	ResourceARN  string            `json:"resourceArn"`
-	Paths        []string          `json:"paths,omitempty"`
+	CreationTime  time.Time         `json:"creationTime"`
+	DeadlineAt    time.Time         `json:"deadlineAt"`
+	EndTime       time.Time         `json:"endTime"`
+	Report        *CompletionReport `json:"report,omitempty"`
+	Tags          map[string]string `json:"tags"`
+	TaskID        string            `json:"taskId"`
+	AssociationID string            `json:"associationId,omitempty"`
+	FileSystemID  string            `json:"fileSystemId"`
+	Type          string            `json:"type"`
+	Lifecycle     string            `json:"lifecycle"`
+	ResourceARN   string            `json:"resourceArn"`
+	Paths         []string          `json:"paths,omitempty"`
 }
 
 func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
@@ -192,7 +193,7 @@ func (b *InMemoryBackend) CancelDataRepositoryTask(taskID string) error {
 }
 
 // DescribeDataRepositoryTasks returns tasks filtered by ID or Filters. Tasks never
-// target a file cache, so file-cache-id matches none; data-repository-association-id is ignored.
+// target a file cache, so file-cache-id matches none.
 func (b *InMemoryBackend) DescribeDataRepositoryTasks(
 	ids []string,
 	filters []wireFilter,
@@ -227,6 +228,8 @@ func (b *InMemoryBackend) DescribeDataRepositoryTasks(
 					return t.FileSystemID, true
 				case "task-lifecycle":
 					return t.Lifecycle, true
+				case "data-repository-association-id":
+					return t.AssociationID, true
 				case "file-cache-id":
 					return "", true
 				default:

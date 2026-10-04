@@ -886,7 +886,7 @@ func runIpamPolicy(t *testing.T, backend *ec2.InMemoryBackend, client *ec2sdk.Cl
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(disableOrgOut.Success))
 
-	_, err = backend.ProvisionByoipCidr("203.0.113.0/24", "test byoip")
+	_, err = backend.ProvisionByoipCidr("203.0.113.0/24", "test byoip", nil)
 	require.NoError(t, err)
 	pool, err := backend.CreateIpamPool(ipam.IpamID, "ipv4", "us-east-1", "")
 	require.NoError(t, err)

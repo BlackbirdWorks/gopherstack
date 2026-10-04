@@ -1634,3 +1634,7 @@ OpenSearch is region-isolated: each non-home region gets a lazily built sibling 
 ## 2026-10-04 domain endpoint region
 
 A request whose Host is a domain endpoint (`search-name-acct.region.es.amazonaws.com`) resolves the domain in the endpoint's region, not the signing region; this supersedes the 2026-10-04 multi-region limitation above. Proof: `TestHandler_DomainEndpointHostSelectsDomainRegion`.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: UpdateDomainConfig.AdvancedOptions/SnapshotOptions)
+
+Tool false positives: both are decoded and applied (`handler_domain_options.go` applyReqToUpdateInput, `domain_config.go`) and covered by the real-client domain-options tests noted above. No code change.

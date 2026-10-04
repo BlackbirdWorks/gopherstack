@@ -105,7 +105,7 @@ func (b *InMemoryBackend) DeletePackageVersions(
 func (b *InMemoryBackend) CopyPackageVersions(
 	ctx context.Context,
 	domainName, srcRepo, dstRepo, format, namespace, name string,
-	versions []string,
+	versions []string, includeFromUpstream bool,
 ) (map[string]PackageVersionOutcome, map[string]string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -124,8 +124,9 @@ func (b *InMemoryBackend) CopyPackageVersions(
 	successful := make(map[string]PackageVersionOutcome)
 	failed := make(map[string]string)
 	for _, v := range versions {
-		srcKey := packageVersionKey(domainName, srcRepo, format, namespace, name, v)
-		src, ok := b.packageVersions.Get(regionKey(region, srcKey))
+		src, ok := b.copySourceVersionLocked(
+			region, domainName, srcRepo, format, namespace, name, v, includeFromUpstream,
+		)
 		if !ok {
 			failed[v] = packageVersionErrorNotFound
 
@@ -158,6 +159,41 @@ func (b *InMemoryBackend) CopyPackageVersions(
 	}
 
 	return successful, failed, nil
+}
+
+// copySourceVersionLocked finds version v in srcRepo and, with includeFromUpstream,
+// in its upstream chain (breadth-first). Caller holds the lock.
+func (b *InMemoryBackend) copySourceVersionLocked(
+	region, domainName, srcRepo, format, namespace, name, v string, includeFromUpstream bool,
+) (*PackageVersion, bool) {
+	queue := []string{srcRepo}
+	seen := map[string]bool{srcRepo: true}
+
+	for len(queue) > 0 {
+		repo := queue[0]
+		queue = queue[1:]
+
+		key := packageVersionKey(domainName, repo, format, namespace, name, v)
+		if pv, ok := b.packageVersions.Get(regionKey(region, key)); ok {
+			return pv, true
+		}
+		if !includeFromUpstream {
+			break
+		}
+
+		r, ok := b.repositories.Get(regionKey(region, repoKey(domainName, repo)))
+		if !ok {
+			continue
+		}
+		for _, up := range r.UpstreamRepositories {
+			if !seen[up] {
+				seen[up] = true
+				queue = append(queue, up)
+			}
+		}
+	}
+
+	return nil, false
 }
 
 // DisposePackageVersions moves specified versions of a package to the Disposed status.

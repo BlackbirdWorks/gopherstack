@@ -83,7 +83,7 @@ items_still_open:
   - "DomainPackageDetails.PackageVersion/ReferencePath/LastUpdated: package associations store only domain names, so association-time version, path and timestamp are not tracked."
   - "Domains never pass through Processing: all changes apply synchronously, so Processing/DomainProcessingStatus/OptionStatus.State are always settled (deliberate; a timed delay would be invented state)."
   - "VPCOptions.VPCId/AvailabilityZones are never populated: they need a cross-service EC2 lookup wired in cli.go (same accepted gap as services/opensearch)."
-  - "DescribeDomainAutoTunes.MaxResults and DescribeDomainChangeProgress.ChangeId have no effect: no auto-tune action history or config-change history subsystem exists."
+  - "DescribeDomainAutoTunes.MaxResults has no effect: no auto-tune action history exists to page (the opensearch placeholder derived from maintenance schedules is not reproduced here)."
 deferred: []              # this pass's target deferred item (DescribeElasticsearchDomainConfig per-field OptionStatus) is now implemented; remaining edges tracked under gaps above
 leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore close domain Tags before replacing state (verified in persistence.go). This pass also fixed domainCopy (store.go) to deep-clone AdvancedOptions/VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions -- previously AdvancedOptions (and now the five new option fields) were shallow-copied, so a caller mutating the map/slice on a DescribeDomain result would have silently mutated the backend's stored state. Not a resource leak, but a real aliasing bug fixed alongside the new fields it would otherwise have applied to as well. 2026-08-10: extended the same deep-clone treatment to AdvancedSecurityOptions.SAMLOptions (and its Idp pointer) and AutoTuneOptions.MaintenanceSchedules (and each element's Duration pointer), which would otherwise have reintroduced the identical aliasing bug for the newly-added nested pointers/slices."}
 ---
@@ -864,3 +864,7 @@ disclosed structural gaps above).
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 elasticsearch already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/elasticsearch`. No code change to the resource store.
+
+## 2026-10-04 (reqfielddiff tier-1: DescribeDomainChangeProgress.ChangeId)
+
+DescribeDomainChangeProgress now returns ChangeId, Status (COMPLETED), ConfigChangeStatus and, for the latest change, StartTime/LastUpdatedTime. A change is one domain configuration version; its ChangeId is derived deterministically from the domain and version (no stored history), the last 100 versions resolve, an omitted `changeid` selects the latest, and an unknown id is ResourceNotFoundException (declared by the op). Earlier changes carry no times because none were stored. Proof: `TestDescribeDomainChangeProgress_ChangeId_RealClient`. The earlier note that the response has no Status member was wrong for v1.45.4 (deserializers.go:10169 reads it).

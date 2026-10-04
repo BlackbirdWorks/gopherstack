@@ -2297,3 +2297,7 @@ Added `leak_main_test.go` (goleak TestMain). No leak found.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Redshift (classic and Serverless) is region-isolated: each non-home region gets a lazily built sibling handler with its own clusters, subnet/parameter groups, snapshots and serverless namespaces/workgroups, and region-correct endpoints. Siblings inherit the DNS registrar and reconciler tuning, run their own cluster reconciler, and are stopped on shutdown, reset and restore. Classic snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore); Redshift Serverless state is not persisted today and stays so. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestRegionIsolation/redshift`. Limitation: the Redshift Data API is not region-aware.
+
+## 2026-10-04 (reqfielddiff tier-1: GetClusterCredentials.DbGroups, RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier)
+
+DbGroups (wire key `DbGroups.DbGroup.N`) is now validated against the documented name rules (`^[a-z][a-z0-9_+.@-]{0,63}$`, api_op_GetClusterCredentials.go:116); reserved words are not checked (`TestGetClusterCredentials_DbGroups_RealClient`). Group membership for the session has no observable effect without a SQL engine. EnableCaseSensitiveIdentifier stays recorded: it governs identifier case in the restored database objects, which this backend does not create, and TableRestoreStatus echoes names as supplied.

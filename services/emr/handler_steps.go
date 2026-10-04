@@ -2,6 +2,7 @@ package emr
 
 import (
 	"context"
+	"fmt"
 )
 
 // --- ListSteps ---
@@ -79,8 +80,9 @@ func (h *Handler) handleListBootstrapActions(
 // --- CancelSteps ---
 
 type cancelStepsInput struct {
-	ClusterID string   `json:"ClusterId"`
-	StepIDs   []string `json:"StepIds"`
+	ClusterID              string   `json:"ClusterId"`
+	StepCancellationOption string   `json:"StepCancellationOption"`
+	StepIDs                []string `json:"StepIds"`
 }
 
 type cancelStepsOutput struct {
@@ -91,6 +93,14 @@ func (h *Handler) handleCancelSteps(
 	ctx context.Context,
 	in *cancelStepsInput,
 ) (*cancelStepsOutput, error) {
+	switch in.StepCancellationOption {
+	case "", "SEND_INTERRUPT", "TERMINATE_PROCESS":
+	default:
+		return nil, fmt.Errorf(
+			"%w: StepCancellationOption must be SEND_INTERRUPT or TERMINATE_PROCESS", ErrValidation,
+		)
+	}
+
 	results, err := h.Backend.CancelSteps(ctx, in.ClusterID, in.StepIDs)
 	if err != nil {
 		return nil, err

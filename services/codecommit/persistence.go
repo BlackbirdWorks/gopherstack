@@ -198,6 +198,7 @@ type backendSnapshot struct {
 	PREvents          map[string][]PullRequestEvent            `json:"prEvents"`
 	CommentReactions  map[string][]Reaction                    `json:"commentReactions"`
 	FileHistory       map[string]map[string][]FileHistoryEntry `json:"fileHistory"`
+	Blobs             map[string]map[string][]byte             `json:"blobs,omitempty"`
 	Triggers          map[string][]RepositoryTrigger           `json:"triggers"`
 	AccountID         string                                   `json:"accountId"`
 	Region            string                                   `json:"region"`
@@ -248,6 +249,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PREvents:          b.prEvents,
 		CommentReactions:  b.commentReactions,
 		FileHistory:       b.fileHistory,
+		Blobs:             b.blobs,
 		Triggers:          b.triggers,
 		AccountID:         b.accountID,
 		Region:            b.region,
@@ -291,6 +293,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.prEvents = make(map[string][]PullRequestEvent)
 		b.commentReactions = make(map[string][]Reaction)
 		b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
+		b.blobs = make(map[string]map[string][]byte)
 		b.triggers = make(map[string][]RepositoryTrigger)
 		b.nextPRCounter = 0
 
@@ -391,6 +394,11 @@ func (b *InMemoryBackend) restorePlainMaps(s *backendSnapshot) {
 	b.fileHistory = s.FileHistory
 	if b.fileHistory == nil {
 		b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
+	}
+
+	b.blobs = s.Blobs
+	if b.blobs == nil {
+		b.blobs = make(map[string]map[string][]byte)
 	}
 
 	b.triggers = s.Triggers

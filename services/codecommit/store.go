@@ -84,6 +84,8 @@ type InMemoryBackend struct {
 	// fileHistory maps repoName -> filePath -> []FileHistoryEntry (ordered,
 	// oldest first); plain persisted map (slice value, no identity).
 	fileHistory map[string]map[string][]FileHistoryEntry
+	// blobs maps repoName -> blobID -> content for every blob a commit tree references.
+	blobs map[string]map[string][]byte
 	// triggers maps repoName -> triggers; plain persisted map (slice value).
 	triggers      map[string][]RepositoryTrigger
 	mu            *lockmetrics.RWMutex
@@ -104,6 +106,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		prEvents:          make(map[string][]PullRequestEvent),
 		commentReactions:  make(map[string][]Reaction),
 		fileHistory:       make(map[string]map[string][]FileHistoryEntry),
+		blobs:             make(map[string]map[string][]byte),
 		triggers:          make(map[string][]RepositoryTrigger),
 		accountID:         accountID,
 		region:            region,
@@ -137,6 +140,7 @@ func (b *InMemoryBackend) Reset() {
 	b.prEvents = make(map[string][]PullRequestEvent)
 	b.commentReactions = make(map[string][]Reaction)
 	b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
+	b.blobs = make(map[string]map[string][]byte)
 	b.triggers = make(map[string][]RepositoryTrigger)
 	b.nextPRCounter = 0
 }

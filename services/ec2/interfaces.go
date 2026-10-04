@@ -1778,7 +1778,7 @@ type Backend interface {
 	DescribeNetworkInsightsAccessScopeAnalyses(ids []string, scopeID string) []*NetworkInsightsAccessScopeAnalysis
 
 	// ---- batch5: BYOIP ----
-	ProvisionByoipCidr(cidr, description string) (*ByoipCidr, error)
+	ProvisionByoipCidr(cidr, description string, publiclyAdvertisable *bool) (*ByoipCidr, error)
 	DeprovisionByoipCidr(cidr string) (*ByoipCidr, error)
 	WithdrawByoipCidr(cidr string) (*ByoipCidr, error)
 

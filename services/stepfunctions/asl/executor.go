@@ -369,6 +369,7 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
+	inspection           map[string]any
 	lambda               LambdaInvoker
 	mapItemValue         any
 	callback             TaskTokenCallbackInvoker
@@ -439,6 +440,20 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 		history:       history,
 		execSem:       semaphore.NewWeighted(maxConcurrentSubExecutors),
 		jsonPathCache: newJSONPathCache(maxJSONPathCacheEntries),
+	}
+}
+
+// EnableInspection makes the executor record the tested state's per-stage
+// data; it is read back with Inspection.
+func (e *Executor) EnableInspection() { e.inspection = map[string]any{} }
+
+// Inspection returns the recorded stage data keyed by InspectionData's wire
+// member names, e.g. input and afterInputPath.
+func (e *Executor) Inspection() map[string]any { return e.inspection }
+
+func (e *Executor) inspect(key string, value any) {
+	if e.inspection != nil {
+		e.inspection[key] = value
 	}
 }
 
@@ -672,10 +687,14 @@ func (e *Executor) runJSONPathState(
 	state *State,
 	value any,
 ) (string, any, error) {
+	e.inspect("input", value)
+
 	effectiveInput, err := applyPath(state.InputPath, value, e.jsonPathCache)
 	if err != nil {
 		return "", nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
 	}
+
+	e.inspect("afterInputPath", effectiveInput)
 
 	taskInput := effectiveInput
 	if len(state.Parameters) > 0 {
@@ -686,10 +705,14 @@ func (e *Executor) runJSONPathState(
 		}
 	}
 
+	e.inspect("afterParameters", taskInput)
+
 	nextState, result, err := e.executeState(ctx, executionARN, current, state, effectiveInput, taskInput)
 	if err != nil {
 		return "", nil, err
 	}
+
+	e.inspect("result", result)
 
 	if len(state.assignVals) > 0 && !e.caught {
 		assignData := effectiveInput
@@ -737,11 +760,15 @@ func (e *Executor) applyStateOutputTransforms(
 		}
 	}
 
+	e.inspect("afterResultSelector", result)
+
 	// Apply ResultPath: merge result into original input.
 	finalOutput, err := applyResultPath(state.ResultPath, input, result)
 	if err != nil {
 		return nil, fmt.Errorf("ResultPath error in state %q: %w", stateName, err)
 	}
+
+	e.inspect("afterResultPath", finalOutput)
 
 	// Apply OutputPath.
 	finalOutput, err = applyPath(state.OutputPath, finalOutput)

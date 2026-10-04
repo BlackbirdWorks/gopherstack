@@ -1288,3 +1288,7 @@ Fixed (describe_addon_versions_filters_test.go): DescribeAddonVersions honours a
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 EKS is region-isolated: each non-home region gets a lazily built sibling `Handler` (own clusters, nodegroups, addons, access entries, updates; region-correct ARNs) via `pkgs/regionpeers`. Siblings reuse the home docker cluster-engine config (shared runtime and bounded port allocator; only the home backend closes the runtime) and are stopped on shutdown, reset and restore. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestHandler_MultiRegionDockerClusters`, `TestRegionIsolation/eks`. EKS makes no EC2/IAM calls, so no cross-service routing changed; the tagging bridge now lists and resolves by ARN region.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: CreateCluster.BootstrapSelfManagedAddons)
+
+Still recorded: with the default (true) EKS installs vpc-cni, coredns and kube-proxy as self-managed add-ons, which ListAddons/DescribeAddon never report (they are visible only through the Kubernetes API), and types.Cluster does not echo the flag; no EKS API call can observe the difference.

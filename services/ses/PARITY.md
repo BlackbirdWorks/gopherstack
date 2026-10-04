@@ -129,7 +129,7 @@ items_still_open:
   - "GetSendStatistics Rejects is always 0: AWS only rejects via virus scan (EICAR), and this backend has no content scanner (gopherstack-uve)."
   - "SendRawEmail FromArn and SendTemplatedEmail/SendBulkTemplatedEmail TemplateArn are accepted but not captured: no cross-account identity/policy/template model exists to act on them, and the SDK models no format to validate."
   - "Receipt rule actions never fire: there is no inbound-mail path (no SMTP listener; SES exposes no inject-message API), so this is structural."
-  - "SendBounce Explanation/MessageDsn are accepted but dropped: SendBounce stores no bounce-message content to alter."
+  - "SendBounce is addressed to the bounced recipients: there is no inbound mailbox to resolve the original message sender from, and OriginalMessageId is not checked against received mail."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "services/sesv2/ — separate REST-JSON service, out of scope this pass per task constraints (bd: gopherstack-029)"
 leaks: {status: clean, note: "janitor sweep uses pkgs/worker.Group ticker with proper ctx cancellation via WithJanitor/StartWorker/Shutdown; sweepExpiredEmails is O(k) amortized (slice prefix trim, not full rescan); emailsByID map kept in sync on every eviction path (appendEmailLocked cap-eviction, sweepExpiredEmails, Restore pruning); maxRetainedEmails (10000) bounds the emails slice; no unbounded identity/template/config-set/receipt-rule maps found (all are keyed by caller-supplied names with no synthetic churn); no goroutines leaked outside the single janitor ticker."}
@@ -545,3 +545,7 @@ there and is not read by SES).
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 SES v1 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own identities, configuration sets, templates, receipt rules, sent mail) via `pkgs/regionpeers`; siblings share the home SMTP relay and SNS publisher and run their own email janitor. `Handler.MailBackends()` feeds `/_aws/ses` retrospection so it aggregates every region. The provider now takes its region and account from the configured defaults. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionSendIdentityPerRegion`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/ses`.
+
+## 2026-10-04 (reqfielddiff tier-1: SendBounce.Explanation / MessageDsn)
+
+SendBounce now records the bounce as a captured Email (retrievable by the returned MessageId): From is BounceSender, To the bounced recipients, subject "Delivery Status Notification (Failure)", body the Explanation (or an auto-generated text naming the original message and recipients) followed by Reporting-MTA (default `dns; inbound-smtp.<region>.amazonaws.com`, as the SDK documents), Arrival-Date and the MessageDsn extension fields. Proof: `TestSendBounce_ExplanationAndMessageDsn_RealClient`. Per-recipient BounceType/RecipientDsnFields are still not read.

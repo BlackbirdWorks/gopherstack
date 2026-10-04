@@ -267,7 +267,8 @@ type FailedCreateAssociation struct {
 
 // CreateAssociationBatchInput is the request payload for CreateAssociationBatch.
 type CreateAssociationBatchInput struct {
-	Entries []CreateAssociationBatchRequestEntry `json:"Entries"`
+	AssociationDispatchAssumeRole string                               `json:"AssociationDispatchAssumeRole,omitempty"`
+	Entries                       []CreateAssociationBatchRequestEntry `json:"Entries"`
 }
 
 // CreateAssociationBatchOutput is the response payload for CreateAssociationBatch.

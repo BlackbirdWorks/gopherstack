@@ -474,6 +474,39 @@ var errCodeLookup = []errCodeEntry{
 		errType:  "InvalidContinuationTokenException",
 	},
 	{sentinel: ErrInvalidActorArn, code: http.StatusBadRequest, errType: "InvalidActorArnException"},
+	{sentinel: ErrManualMergeRequired, code: http.StatusBadRequest, errType: "ManualMergeRequiredException"},
+	{
+		sentinel: ErrInvalidConflictDetailLevel,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidConflictDetailLevelException",
+	},
+	{
+		sentinel: ErrInvalidConflictResolutionStrategy,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidConflictResolutionStrategyException",
+	},
+	{
+		sentinel: ErrInvalidConflictResolution,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidConflictResolutionException",
+	},
+	{sentinel: ErrReplacementTypeRequired, code: http.StatusBadRequest, errType: "ReplacementTypeRequiredException"},
+	{sentinel: ErrInvalidReplacementType, code: http.StatusBadRequest, errType: "InvalidReplacementTypeException"},
+	{
+		sentinel: ErrReplacementContentRequired,
+		code:     http.StatusBadRequest,
+		errType:  "ReplacementContentRequiredException",
+	},
+	{
+		sentinel: ErrMultipleConflictResolutionEntries,
+		code:     http.StatusBadRequest,
+		errType:  "MultipleConflictResolutionEntriesException",
+	},
+	{sentinel: ErrPathRequired, code: http.StatusBadRequest, errType: "PathRequiredException"},
+	{sentinel: ErrInvalidFileMode, code: http.StatusBadRequest, errType: "InvalidFileModeException"},
+	{sentinel: ErrFileModeRequired, code: http.StatusBadRequest, errType: "FileModeRequiredException"},
+	{sentinel: ErrInvalidMaxConflictFiles, code: http.StatusBadRequest, errType: "InvalidMaxConflictFilesException"},
+	{sentinel: ErrInvalidMaxMergeHunks, code: http.StatusBadRequest, errType: "InvalidMaxMergeHunksException"},
 	{sentinel: errInvalidRequest, code: http.StatusBadRequest, errType: "ValidationException"},
 }
 

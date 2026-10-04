@@ -420,3 +420,7 @@ all `ok`; `golangci-lint run ./services/detective/...` and
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 detective is region-isolated: each region has its own behavior graph (one per region, as in AWS) with its members, investigations and tags. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/detective`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: CreateMembers.DisableEmailNotification)
+
+Still recorded: the flag only suppresses the invitation email Detective sends to the invited account's root address (api_op_CreateMembers.go:79); no mailbox the caller can read exists in this emulator and no response member echoes the flag, so there is nothing observable to implement.

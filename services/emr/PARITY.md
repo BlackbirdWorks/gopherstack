@@ -861,3 +861,7 @@ Fixed (list_filters_test.go): ListClusters has no implicit state filter ("Provid
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 emr already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/emr`. No code change to the resource store.
+
+## 2026-10-04 (reqfielddiff tier-1: CancelSteps.StepCancellationOption)
+
+The option is now validated (SEND_INTERRUPT or TERMINATE_PROCESS, anything else InvalidRequestException; `TestCancelSteps_StepCancellationOption_RealClient`). The distinction itself still has nothing to act on: steps go PENDING to COMPLETED/CANCELLED with no RUNNING state, so the structural gap above stands for the semantics.

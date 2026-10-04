@@ -100,6 +100,7 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 		b.files.Delete(fileKey(name, f.FilePath))
 	}
 	delete(b.fileHistory, name)
+	delete(b.blobs, name)
 	delete(b.triggers, name)
 
 	// Cascade: remove compared-commit comments (and their reactions) that

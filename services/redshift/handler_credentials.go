@@ -4,9 +4,24 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 )
+
+var dbGroupNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_+.@-]{0,63}$`)
+
+// validateDBGroups enforces GetClusterCredentialsInput.DbGroups' documented
+// name constraints (api_op_GetClusterCredentials.go).
+func validateDBGroups(groups []string) error {
+	for _, g := range groups {
+		if !dbGroupNamePattern.MatchString(g) {
+			return fmt.Errorf("%w: invalid database group name %q", ErrInvalidParameter, g)
+		}
+	}
+
+	return nil
+}
 
 // parseDurationSecondsParam reads the shared GetClusterCredentials(WithIAM)
 // DurationSeconds request parameter. ok is false when the caller omitted it
@@ -52,6 +67,10 @@ func (h *Handler) handleGetClusterCredentials(vals url.Values) (any, error) {
 	var durationPtr *int
 	if hasDuration {
 		durationPtr = &duration
+	}
+
+	if groupErr := validateDBGroups(parseStringList(vals, "DbGroups.DbGroup.")); groupErr != nil {
+		return nil, groupErr
 	}
 
 	creds, err := h.Backend.GetClusterCredentials(clusterID, dbUser, autoCreate, durationPtr)

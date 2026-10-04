@@ -482,17 +482,25 @@ func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.R
 }
 
 func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *http.Request, domainName string) {
-	if err := h.Backend.DescribeDomainChangeProgress(h.reqContext(r), domainName); err != nil {
+	change, err := h.Backend.DescribeDomainChangeProgress(h.reqContext(r), domainName, r.URL.Query().Get("changeid"))
+	if err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
 	}
 
-	// types.ChangeProgressStatusDetails has no "Status" member; the real
-	// deserializer reads "ConfigChangeStatus" (deserializers.go:10112,
-	// elasticsearchservice@v1.45.4) -- the fabricated key left every real
-	// client's ConfigChangeStatus permanently empty. The enum value itself is
-	// mixed-case ("Completed", types.ConfigChangeStatusCompleted,
-	// enums.go:83), not "COMPLETED".
-	h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": map[string]any{"ConfigChangeStatus": "Completed"}})
+	// ConfigChangeStatus is mixed-case ("Completed", enums.go:83), unlike the
+	// overall Status enum's "COMPLETED" (OverallChangeStatus).
+	status := map[string]any{
+		"ChangeId":           change.ChangeID,
+		"ConfigChangeStatus": "Completed",
+		"Status":             "COMPLETED",
+	}
+
+	if !change.StartTime.IsZero() {
+		status["StartTime"] = awstime.Epoch(change.StartTime)
+		status["LastUpdatedTime"] = awstime.Epoch(change.StartTime)
+	}
+
+	h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": status})
 }

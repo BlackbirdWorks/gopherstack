@@ -163,7 +163,8 @@ func (h *Handler) handleDeletePackageVersions(
 }
 
 type copyPackageVersionsBody struct {
-	Versions []string `json:"versions"`
+	IncludeFromUpstream *bool    `json:"includeFromUpstream"`
+	Versions            []string `json:"versions"`
 }
 
 func (h *Handler) handleCopyPackageVersions(
@@ -203,6 +204,7 @@ func (h *Handler) handleCopyPackageVersions(
 		namespace,
 		name,
 		in.Versions,
+		in.IncludeFromUpstream != nil && *in.IncludeFromUpstream,
 	)
 	if err != nil {
 		return h.handleError(c, err)

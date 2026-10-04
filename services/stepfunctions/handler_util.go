@@ -90,25 +90,52 @@ func (h *Handler) utilActions() map[string]actionFn {
 const bareStateName = "TestStateName"
 
 type testStateInput struct {
-	Definition string `json:"definition"`
-	Input      string `json:"input"`
-	RoleArn    string `json:"roleArn,omitempty"`
+	Definition      string `json:"definition"`
+	Input           string `json:"input"`
+	RoleArn         string `json:"roleArn,omitempty"`
+	InspectionLevel string `json:"inspectionLevel,omitempty"`
 }
 
 type testStateOutput struct {
-	Output    string `json:"output,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Cause     string `json:"cause,omitempty"`
-	Status    string `json:"status"`
-	NextState string `json:"nextState,omitempty"`
+	InspectionData map[string]string `json:"inspectionData,omitempty"`
+	Output         string            `json:"output,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	Cause          string            `json:"cause,omitempty"`
+	Status         string            `json:"status"`
+	NextState      string            `json:"nextState,omitempty"`
+}
+
+// inspectionDataFor renders the executor's recorded stage data as the
+// JSON-string members of types.InspectionData. INFO (the default) returns none.
+func inspectionDataFor(level string, executor *asl.Executor) map[string]string {
+	if level == "" || level == "INFO" {
+		return nil
+	}
+
+	out := map[string]string{}
+
+	for key, value := range executor.Inspection() {
+		if raw, err := json.Marshal(value); err == nil {
+			out[key] = string(raw)
+		}
+	}
+
+	return out
+}
+
+func validInspectionLevel(level string) bool {
+	return level == "" || level == "INFO" || level == "DEBUG" || level == "TRACE"
 }
 
 // handleTestState executes a single state definition in isolation and returns its output.
-// The definition is a JSON object mapping a single state name to its state definition.
 func (h *Handler) handleTestState(body []byte) (any, error) {
 	var input testStateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
+	}
+
+	if !validInspectionLevel(input.InspectionLevel) {
+		return nil, fmt.Errorf("%w: inspectionLevel must be INFO, DEBUG or TRACE", ErrValidation)
 	}
 
 	// Wrap the state definition in a minimal state machine.
@@ -168,6 +195,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 	}
 
 	executor := asl.NewExecutor(sm, lambdaInvoker, nil)
+	executor.EnableInspection()
 
 	stateInput := input.Input
 	if stateInput == "" {
@@ -176,20 +204,28 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 
 	result, execErr := executor.Execute(h.svcCtx, "test-state", stateInput)
 	if execErr != nil {
-		out := &testStateOutput{Status: "FAILED", Error: execErr.Error()}
+		out := &testStateOutput{
+			Status:         "FAILED",
+			Error:          execErr.Error(),
+			InspectionData: inspectionDataFor(input.InspectionLevel, executor),
+		}
 
 		return out, nil //nolint:nilerr // execution errors are encoded in the response body
 	}
 
 	if result.Failed {
-		return &testStateOutput{Status: "FAILED", Error: result.Error, Cause: result.Cause}, nil
+		return &testStateOutput{
+			Status: "FAILED", Error: result.Error, Cause: result.Cause,
+			InspectionData: inspectionDataFor(input.InspectionLevel, executor),
+		}, nil
 	}
 
 	outputBytes, _ := json.Marshal(result.Output)
 
 	return &testStateOutput{
-		Status:    "SUCCEEDED",
-		Output:    string(outputBytes),
-		NextState: nextStateName,
+		Status:         "SUCCEEDED",
+		Output:         string(outputBytes),
+		NextState:      nextStateName,
+		InspectionData: inspectionDataFor(input.InspectionLevel, executor),
 	}, nil
 }

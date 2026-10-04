@@ -457,3 +457,7 @@ unverifiable AWS behavior; `EventDescription.RequestId` would need per-call requ
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 elasticbeanstalk already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/elasticbeanstalk`. No code change to the resource store.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: TerminateEnvironment.TerminateResources)
+
+Still recorded: false retains the environment's Auto Scaling group and load balancer outside Beanstalk management (api_op_TerminateEnvironment.go:66), but this backend creates no EC2/ELB resources and the environment becomes Terminated either way, so no Beanstalk or EC2 call can observe the flag.

@@ -104,6 +104,7 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 		filePaths     []string
 		wantCode      int
 		wantConflicts int
+		wantErrors    int
 	}{
 		{
 			name:          "no_file_paths",
@@ -113,11 +114,12 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 			wantConflicts: 0,
 		},
 		{
-			name:          "two_file_paths",
+			name:          "unknown_file_paths",
 			mergeOption:   "SQUASH_MERGE",
 			filePaths:     []string{"a.go", "b.go"},
 			wantCode:      http.StatusOK,
-			wantConflicts: 2,
+			wantConflicts: 0,
+			wantErrors:    2,
 		},
 		{
 			name:        "invalid_merge_option",
@@ -152,6 +154,7 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				conflicts := resp["conflicts"].([]any)
 				assert.Len(t, conflicts, tt.wantConflicts)
+				assert.Len(t, resp["errors"], tt.wantErrors)
 			}
 		})
 	}
@@ -526,13 +529,14 @@ func TestHandler_CreateUnreferencedMergeCommit(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "unref-repo"})
+	setupRepoAndBranch(t, h, "unref-repo")
+	createBranchFromMain(t, h, "unref-repo", "feature")
 
 	rec := doRequest(t, h, "CreateUnreferencedMergeCommit", map[string]any{
 		"repositoryName":             "unref-repo",
-		"sourceCommitSpecifier":      "abc",
-		"destinationCommitSpecifier": "def",
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"sourceCommitSpecifier":      "feature",
+		"destinationCommitSpecifier": "main",
+		"mergeOption":                "THREE_WAY_MERGE",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -596,7 +600,7 @@ func TestHandler_CreateUnreferencedMergeCommit_Success(t *testing.T) {
 		"repositoryName":             "repo",
 		"sourceCommitSpecifier":      commitID,
 		"destinationCommitSpecifier": commitID,
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"mergeOption":                "THREE_WAY_MERGE",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -832,13 +836,20 @@ func TestHandler_DescribeMergeConflicts(t *testing.T) {
 
 	h := newTestHandler(t)
 	setupRepoAndBranch(t, h, "dmc-repo")
+
+	seed := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "dmc-repo",
+		"branchName":     "main",
+		"putFiles":       []map[string]any{{"filePath": "main.go", "fileContent": "cGFja2FnZSBtYWlu"}},
+	})
+	require.Equal(t, http.StatusOK, seed.Code)
 	createBranchFromMain(t, h, "dmc-repo", "feature")
 
 	rec := doRequest(t, h, "DescribeMergeConflicts", map[string]any{
 		"repositoryName":             "dmc-repo",
 		"sourceCommitSpecifier":      "feature",
 		"destinationCommitSpecifier": "main",
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"mergeOption":                "SQUASH_MERGE",
 		"filePath":                   "main.go",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -865,7 +876,7 @@ func TestHandler_DescribeMergeConflicts_RepositoryNotFound(t *testing.T) {
 		"repositoryName":             "no-such-repo",
 		"sourceCommitSpecifier":      "abc",
 		"destinationCommitSpecifier": "def",
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"mergeOption":                "THREE_WAY_MERGE",
 		"filePath":                   "main.go",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)

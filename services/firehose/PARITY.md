@@ -714,3 +714,7 @@ This service emits no in-process CloudWatch metrics today; recorded in items_sti
 ## 2026-10-04: region from the cross-service context (gopherstack-12q3n)
 
 Delivery streams were already region-keyed. The backend now also reads the region from the shared request metadata on the context, and the SNS, EventBridge, Pipes, IoT and CloudWatch Logs adapters deliver into the stream ARN's region. KinesisStreamAsSource polls the source stream in the stream ARN's region (the reader takes the ARN), and the Lambda transform resolves the function by its ARN region. Proof: `TestRegionIsolation/firehose`, `TestInitializeServices_SNSInvokesLambdaInARNRegion`. Limitation: OpenSearch is single-region, so its destinations have no per-region lookup.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: DeleteDeliveryStream.AllowForceDelete)
+
+Still recorded: the flag bypasses a failure to retire the KMS grant Firehose takes for a customer-managed key (api_op_DeleteDeliveryStream.go:62). This backend creates no KMS grants on StartDeliveryStreamEncryption, so retirement cannot fail and a forced delete is indistinguishable from a normal one.

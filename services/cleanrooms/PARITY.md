@@ -713,3 +713,7 @@ FIXED: GetCollaboration/UpdateCollaboration returned ResourceNotFoundException, 
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 cleanrooms is region-isolated: collaborations, memberships and configured tables live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/cleanrooms`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (reqfielddiff tier-1: PopulateIdMappingTable.JobType)
+
+JobType (INCREMENTAL/BATCH/DELETE_ONLY, api_op_PopulateIdMappingTable.go:58) was never read. It is now validated (unknown value is ValidationException, `TestPopulateIdMappingTable_JobType_RealClient`). The job itself runs in Entity Resolution, which this backend does not model, so the value selects no processing and the returned idMappingJobId has no readable job state.

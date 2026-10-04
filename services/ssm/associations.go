@@ -157,6 +157,10 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 			continue
 		}
 
+		if entry.AssociationDispatchAssumeRole == "" {
+			entry.AssociationDispatchAssumeRole = input.AssociationDispatchAssumeRole
+		}
+
 		assocID := uuid.NewString()
 		assoc := Association{
 			AssociationID:                 assocID,

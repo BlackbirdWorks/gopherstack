@@ -711,3 +711,7 @@ FIXED: UntagResource and `extractQueryParam` hand-split the raw query string wit
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 macie2 is region-isolated: allow lists, custom data identifiers, jobs and findings filters live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/macie2`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. CloudFormation provisions it in the stack's region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (reqfielddiff tier-1: MaximumMatchDistance, re-examined)
+
+Both findings were already read, but TestCustomDataIdentifier did not apply the documented 1-300 range and measured the keyword distance from the start of the match. It now validates the range (shared with Create) and counts the distance from the end of the closest preceding keyword to the end of the matched text, as the SDK states (api_op_TestCustomDataIdentifier.go:60). Proof: `TestTestCustomDataIdentifier_MaximumMatchDistance_RealClient`.

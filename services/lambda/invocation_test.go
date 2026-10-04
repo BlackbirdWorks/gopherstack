@@ -22,53 +22,78 @@ import (
 
 // ---- RecursiveLoop enforcement ----
 
-func TestRecursiveLoop_Deny_BlocksSelfInvoke(t *testing.T) {
+func TestRecursiveLoop_TerminatesDeepLoops(t *testing.T) {
 	t.Parallel()
 
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
-	closeBackend(t, bk)
+	cases := []struct {
+		name         string
+		recursive    string
+		depth        int
+		wantRejected bool
+	}{
+		{name: "default_shallow", depth: 1},
+		{name: "default_deep", depth: 16, wantRejected: true},
+		{name: "terminate_shallow", recursive: "Terminate", depth: 15},
+		{name: "terminate_deep", recursive: "Terminate", depth: 16, wantRejected: true},
+		{name: "allow_deep", recursive: "Allow", depth: 40},
+	}
 
-	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
-		FunctionName: "recursive-fn",
-		FunctionArn:  "arn:aws:lambda:us-east-1:123456789012:function:recursive-fn",
-		Runtime:      "python3.12",
-		Handler:      "index.handler",
-		Role:         "arn:aws:iam:::role/r",
-		PackageType:  "Zip",
-		State:        lambda.FunctionStateActive,
-	}))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, putErr := bk.PutFunctionRecursionConfig("recursive-fn", &lambda.PutFunctionRecursionConfigInput{
-		RecursiveLoop: "Deny",
-	})
-	require.NoError(t, putErr)
+			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+			closeBackend(t, bk)
 
-	// Simulate a self-invocation: inject the function name into the context chain
-	ctx := context.Background()
-	// Use the exported helpers from export_test.go — but RecursiveLoop tests need internal access.
-	// Instead, call InvokeFunctionWithQualifier twice simulating nesting by wrapping context.
-	// We test via the backend directly, injecting the chain.
-	_, _, _, _, err := bk.InvokeFunctionWithQualifier(
-		lambda.WithInvocationChainForTest(ctx, "recursive-fn"),
-		"recursive-fn",
-		"",
-		"", "",
-		lambda.InvocationTypeRequestResponse,
-		[]byte("{}"),
-	)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, lambda.ErrInvalidParameterValue)
+			require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
+				FunctionName: "recursive-fn",
+				FunctionArn:  "arn:aws:lambda:us-east-1:123456789012:function:recursive-fn",
+				Runtime:      "python3.12",
+				Handler:      "index.handler",
+				Role:         "arn:aws:iam:::role/r",
+				PackageType:  "Zip",
+				State:        lambda.FunctionStateActive,
+			}))
+
+			if tc.recursive != "" {
+				_, putErr := bk.PutFunctionRecursionConfig("recursive-fn", &lambda.PutFunctionRecursionConfigInput{
+					RecursiveLoop: tc.recursive,
+				})
+				require.NoError(t, putErr)
+			}
+
+			chain := make([]string, tc.depth)
+			for i := range chain {
+				chain[i] = "recursive-fn"
+			}
+
+			_, _, _, _, err := bk.InvokeFunctionWithQualifier(
+				lambda.WithInvocationChainBatchForTest(context.Background(), chain),
+				"recursive-fn", "", "", "",
+				lambda.InvocationTypeRequestResponse,
+				[]byte("{}"),
+			)
+
+			if tc.wantRejected {
+				assert.ErrorIs(t, err, lambda.ErrInvalidParameterValue)
+
+				return
+			}
+
+			assert.NotErrorIs(t, err, lambda.ErrInvalidParameterValue)
+		})
+	}
 }
 
-func TestRecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
+func TestRecursionConfig_RejectsUnknownValues(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
 	closeBackend(t, bk)
 
 	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
-		FunctionName: "recursive-terminate-fn",
-		FunctionArn:  "arn:aws:lambda:us-east-1:123456789012:function:recursive-terminate-fn",
+		FunctionName: "cfg-fn",
+		FunctionArn:  "arn:aws:lambda:us-east-1:123456789012:function:cfg-fn",
 		Runtime:      "python3.12",
 		Handler:      "index.handler",
 		Role:         "arn:aws:iam:::role/r",
@@ -76,24 +101,66 @@ func TestRecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
 		State:        lambda.FunctionStateActive,
 	}))
 
-	_, putErr := bk.PutFunctionRecursionConfig("recursive-terminate-fn", &lambda.PutFunctionRecursionConfigInput{
-		RecursiveLoop: "Terminate",
-	})
-	require.NoError(t, putErr)
+	cases := []struct {
+		put     func() error
+		name    string
+		wantErr bool
+	}{
+		{name: "recursive_deny", wantErr: true, put: func() error {
+			_, err := bk.PutFunctionRecursionConfig(
+				"cfg-fn",
+				&lambda.PutFunctionRecursionConfigInput{RecursiveLoop: "Deny"},
+			)
 
-	// With Terminate mode, self-invocation should NOT return ErrInvalidParameterValue
-	// (it will fail for other reasons like no runtime, but not for recursion rejection)
-	ctx := lambda.WithInvocationChainForTest(context.Background(), "recursive-terminate-fn")
-	_, _, _, _, err := bk.InvokeFunctionWithQualifier(
-		ctx,
-		"recursive-terminate-fn",
-		"",
-		"", "",
-		lambda.InvocationTypeRequestResponse,
-		[]byte("{}"),
-	)
-	// Should not be a recursion-denial error
-	assert.NotErrorIs(t, err, lambda.ErrInvalidParameterValue)
+			return err
+		}},
+		{name: "runtime_bogus", wantErr: true, put: func() error {
+			_, err := bk.PutRuntimeManagementConfig(
+				"cfg-fn",
+				&lambda.PutRuntimeManagementConfigInput{UpdateRuntimeOn: "Sometimes"},
+			)
+
+			return err
+		}},
+		{name: "runtime_manual_needs_arn", wantErr: true, put: func() error {
+			_, err := bk.PutRuntimeManagementConfig(
+				"cfg-fn",
+				&lambda.PutRuntimeManagementConfigInput{UpdateRuntimeOn: "Manual"},
+			)
+
+			return err
+		}},
+		{name: "runtime_manual_with_arn", put: func() error {
+			_, err := bk.PutRuntimeManagementConfig("cfg-fn", &lambda.PutRuntimeManagementConfigInput{
+				UpdateRuntimeOn: "Manual", RuntimeVersionArn: "arn:aws:lambda:us-east-1::runtime:abc",
+			})
+
+			return err
+		}},
+		{name: "runtime_function_update", put: func() error {
+			_, err := bk.PutRuntimeManagementConfig(
+				"cfg-fn",
+				&lambda.PutRuntimeManagementConfigInput{UpdateRuntimeOn: "FunctionUpdate"},
+			)
+
+			return err
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.put()
+			if tc.wantErr {
+				assert.ErrorIs(t, err, lambda.ErrInvalidParameterValue)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
 }
 
 // ---- InvokeWithResponseStream ----
