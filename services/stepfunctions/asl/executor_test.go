@@ -1446,7 +1446,7 @@ func TestExecutor_TaskState(t *testing.T) {
 				}
 			}`,
 			input:             `{"pk": "123"}`,
-			wantResultError:   "TaskFailed",
+			wantResultError:   "States.TaskFailed",
 			wantCauseContains: "DynamoDB integration not configured",
 		},
 		{
@@ -1552,7 +1552,7 @@ func TestExecutor_TaskState(t *testing.T) {
 				}
 			}`,
 			input:           `{}`,
-			wantResultError: "TaskFailed",
+			wantResultError: "States.TaskFailed",
 		},
 		{
 			name:   "non_json_response",
@@ -1871,7 +1871,7 @@ func TestExecutor_Retry(t *testing.T) {
 }
 }`,
 			input:         `{}`,
-			wantResultErr: "TaskFailed",
+			wantResultErr: "States.TaskFailed",
 			counter:       &noRetryCount,
 			wantCallCount: 1,
 		},

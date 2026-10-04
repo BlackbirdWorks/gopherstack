@@ -12369,7 +12369,7 @@ func wireStepFunctionsSDKIntegration(e http.Handler, services []service.Register
 		}
 	}
 
-	bk.SetSDKIntegration(sfnbackend.NewSDKIntegrationWithRoles(e, region, roles))
+	bk.SetSDKIntegration(sfnbackend.NewSDKIntegrationWithHTTP(e, region, roles, sfnConnectionsFor(byName)))
 }
 
 // sfnRoleAssumer issues execution-role credentials to states.amazonaws.com via STS.

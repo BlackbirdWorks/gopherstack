@@ -334,7 +334,7 @@ func TestStartExecution_WaitForTaskToken(t *testing.T) {
 				return b.SendTaskFailure(token, "WorkerFailed", "worker failure")
 			},
 			wantStatus:      "FAILED",
-			wantError:       "TaskFailed",
+			wantError:       "States.TaskFailed",
 			wantCauseSubstr: "ActivityTaskFailed: WorkerFailed",
 		},
 	}

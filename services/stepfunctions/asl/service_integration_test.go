@@ -290,7 +290,7 @@ func TestExecutor_SQS(t *testing.T) {
 				}
 			}`,
 			setMock:           false,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "SQS integration not configured",
 		},
 		{
@@ -306,7 +306,7 @@ func TestExecutor_SQS(t *testing.T) {
 				}
 			}`,
 			setMock:           true,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "unsupported SQS action",
 		},
 	}
@@ -430,7 +430,7 @@ func TestExecutor_SQS_IntegrationPatterns(t *testing.T) {
 					}
 				}
 			}`,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "task token callback invoker not configured",
 			wantCallbackCalls: 0,
 		},
@@ -452,7 +452,7 @@ func TestExecutor_SQS_IntegrationPatterns(t *testing.T) {
 			}`,
 			setCallback:       true,
 			callbackErr:       assert.AnError,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: assert.AnError.Error(),
 			wantCallbackCalls: 1,
 		},
@@ -558,7 +558,7 @@ func TestExecutor_SNS(t *testing.T) {
 				}
 			}`,
 			setMock:           false,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "SNS integration not configured",
 		},
 		{
@@ -574,7 +574,7 @@ func TestExecutor_SNS(t *testing.T) {
 				}
 			}`,
 			setMock:           true,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "unsupported SNS action",
 		},
 	}
@@ -981,7 +981,7 @@ func TestExecutor_DynamoDB(t *testing.T) {
 				}
 			}`,
 			mock:              nil,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "DynamoDB integration not configured",
 		},
 		{
@@ -997,7 +997,7 @@ func TestExecutor_DynamoDB(t *testing.T) {
 				}
 			}`,
 			mock:              &mockDynamoDB{},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "unsupported DynamoDB action",
 		},
 		{
@@ -1013,7 +1013,7 @@ func TestExecutor_DynamoDB(t *testing.T) {
 				}
 			}`,
 			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
 		},
 	}
@@ -1250,7 +1250,7 @@ func TestExecutor_DynamoDB_NewOps(t *testing.T) {
 				}
 			}`,
 			mock:              nil,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "DynamoDB integration not configured",
 		},
 		{
@@ -1266,7 +1266,7 @@ func TestExecutor_DynamoDB_NewOps(t *testing.T) {
 				}
 			}`,
 			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
 		},
 		{
@@ -1282,7 +1282,7 @@ func TestExecutor_DynamoDB_NewOps(t *testing.T) {
 				}
 			}`,
 			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
 		},
 		{
@@ -1298,7 +1298,7 @@ func TestExecutor_DynamoDB_NewOps(t *testing.T) {
 				}
 			}`,
 			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
 		},
 		{
@@ -1314,7 +1314,7 @@ func TestExecutor_DynamoDB_NewOps(t *testing.T) {
 				}
 			}`,
 			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
 		},
 	}

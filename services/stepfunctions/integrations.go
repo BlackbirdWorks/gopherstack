@@ -519,7 +519,7 @@ func (a *glueSyncAdapter) SFNPollSyncJobRun(_ context.Context, jobName, runID st
 	case "SUCCEEDED":
 		return asl.GlueSyncPoll{Done: true, Result: map[string]any{"JobRun": run}}, nil
 	// statusFailed == "FAILED", coincidentally shared with execution status.
-	case "STOPPED", statusFailed, "TIMEOUT", "ERROR", "EXPIRED":
+	case ecsTaskStatusStopped, statusFailed, "TIMEOUT", "ERROR", "EXPIRED":
 		reason := run.ErrorMessage
 		if reason == "" {
 			reason = fmt.Sprintf("Glue job run %s/%s ended in state %s", jobName, runID, run.JobRunState)

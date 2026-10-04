@@ -24,7 +24,12 @@ func TestSDKCallFor(t *testing.T) {
 			SDKCall{Service: "sfn", Action: "startExecution", Pattern: "sync:2", Optimized: true}, true},
 		{"optimized_athena_sync", "arn:aws:states:::athena:startQueryExecution.sync",
 			SDKCall{Service: "athena", Action: "startQueryExecution", Pattern: "sync", Optimized: true}, true},
-		{"legacy_ecs", "arn:aws:states:::ecs:runTask.sync", SDKCall{}, false},
+		{"optimized_ecs_sync", "arn:aws:states:::ecs:runTask.sync",
+			SDKCall{Service: "ecs", Action: "runTask", Pattern: "sync", Optimized: true}, true},
+		{"optimized_glue_sync", "arn:aws:states:::glue:startJobRun.sync",
+			SDKCall{Service: "glue", Action: "startJobRun", Pattern: "sync", Optimized: true}, true},
+		{"http_invoke", "arn:aws:states:::http:invoke",
+			SDKCall{Service: "http", Action: "invoke", Optimized: true}, true},
 		{"lambda_arn", "arn:aws:lambda:us-east-1:000000000000:function:f", SDKCall{}, false},
 	}
 

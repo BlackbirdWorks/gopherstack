@@ -71,12 +71,108 @@ func syncSpecFor(svc, action string) (syncSpec, bool) {
 			pollParams: func(s map[string]any) any { return map[string]any{"Ids": []any{child(s, "Build")["Id"]}} },
 			state:      func(p map[string]any) string { return str(first(p["Builds"])["BuildStatus"]) },
 			running:    []string{"IN_PROGRESS"},
-			failed:     []string{statusFailed, "FAULT", "STOPPED", statusTimedOut},
+			failed:     []string{statusFailed, "FAULT", ecsTaskStatusStopped, statusTimedOut},
 			result:     func(p map[string]any, _ string) any { return map[string]any{"Build": first(p["Builds"])} },
 		}, true
+	case "ecs.runTask":
+		return ecsRunTaskSyncSpec(), true
+	case "glue.startJobRun":
+		return glueStartJobRunSyncSpec(), true
 	default:
 		return syncSpec{}, false
 	}
+}
+
+func ecsRunTaskSyncSpec() syncSpec {
+	return syncSpec{
+		pollAction: "describeTasks",
+		pollParams: func(s map[string]any) any {
+			tasks, _ := s["Tasks"].([]any)
+			arns := make([]any, 0, len(tasks))
+			cluster := ""
+
+			for _, t := range tasks {
+				m, _ := t.(map[string]any)
+				arns = append(arns, m["TaskArn"])
+				cluster = str(m["ClusterArn"])
+			}
+
+			return map[string]any{"Cluster": cluster, "Tasks": arns}
+		},
+		state:   ecsSyncState,
+		running: []string{statusRunning},
+		failed:  []string{statusFailed},
+		result:  func(p map[string]any, _ string) any { return p },
+	}
+}
+
+// ecsSyncState is RUNNING until every task is STOPPED, FAILED on a missing
+// task or a container that exited non-zero.
+func ecsSyncState(p map[string]any) string {
+	tasks, _ := p["Tasks"].([]any)
+	if failures, _ := p["Failures"].([]any); len(failures) > 0 || len(tasks) == 0 {
+		return statusFailed
+	}
+
+	state := ecsTaskStatusStopped
+
+	for _, t := range tasks {
+		m, _ := t.(map[string]any)
+		if str(m["LastStatus"]) != ecsTaskStatusStopped {
+			return statusRunning
+		}
+
+		containers, _ := m["Containers"].([]any)
+		for _, c := range containers {
+			cm, _ := c.(map[string]any)
+			if code, ok := cm["ExitCode"].(float64); ok && code != 0 {
+				state = statusFailed
+			}
+		}
+	}
+
+	return state
+}
+
+func glueStartJobRunSyncSpec() syncSpec {
+	return syncSpec{
+		pollAction: "getJobRun",
+		pollParams: func(s map[string]any) any {
+			return map[string]any{"JobName": s["JobName"], "RunId": s["JobRunId"]}
+		},
+		state:   func(p map[string]any) string { return str(child(p, "JobRun")["JobRunState"]) },
+		running: []string{"STARTING", statusRunning, "STOPPING", "WAITING"},
+		failed:  []string{ecsTaskStatusStopped, statusFailed, "TIMEOUT", "ERROR", "EXPIRED"},
+		result:  func(p map[string]any, _ string) any { return p },
+	}
+}
+
+// withStartedFields adds the request's JobName to Glue StartJobRun's response, as the optimized integration does.
+func withStartedFields(call asl.SDKCall, out any) any {
+	m, ok := out.(map[string]any)
+	params, _ := call.Params.(map[string]any)
+
+	if !ok || call.Service+"."+call.Action != "glue.startJobRun" || params["JobName"] == nil {
+		return out
+	}
+
+	m["JobName"] = params["JobName"]
+
+	return m
+}
+
+// runTaskFailures fails a .sync run of ECS RunTask that returned Failures, as AmazonECS.Unknown.
+func runTaskFailures(call asl.SDKCall, out any) error {
+	m, _ := out.(map[string]any)
+	failures, _ := m["Failures"].([]any)
+
+	if call.Service+"."+call.Action != "ecs.runTask" || call.Pattern == "" || len(failures) == 0 {
+		return nil
+	}
+
+	cause, _ := json.Marshal(failures)
+
+	return &asl.FailError{ErrCode: "AmazonECS.Unknown", Cause: string(cause)}
 }
 
 // executionSyncResult shapes DescribeExecution: .sync keeps Output an escaped

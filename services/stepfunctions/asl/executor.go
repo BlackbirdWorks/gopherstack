@@ -1013,7 +1013,7 @@ func (e *Executor) executeTask(
 			stepFunctionsErrorCode(taskErr), stepFunctionsErrorCause(taskErr),
 		)
 
-		return "", nil, &FailError{ErrCode: "TaskFailed", Cause: taskErr.Error()}
+		return "", nil, uncaughtTaskFailure(taskErr)
 	}
 }
 
@@ -3874,7 +3874,7 @@ func catchesError(errorEquals []string, err error) bool {
 			if errCode == errCodeStatesRuntime {
 				return true
 			}
-		case "States.Permissions":
+		case errCodeStatesPermissions:
 			if errCode == errCodeStatesPermissions {
 				return true
 			}
@@ -3884,6 +3884,19 @@ func catchesError(errorEquals []string, err error) bool {
 	}
 
 	return false
+}
+
+// uncaughtTaskFailure is the execution's Error and Cause: the task's own error, else States.TaskFailed.
+func uncaughtTaskFailure(err error) *FailError {
+	if fe, ok := errors.AsType[*FailError](err); ok {
+		return fe
+	}
+
+	if code := stepFunctionsErrorCode(err); strings.HasPrefix(code, "States.") {
+		return &FailError{ErrCode: code, Cause: stepFunctionsErrorCause(err)}
+	}
+
+	return &FailError{ErrCode: errCodeStatesTaskFailed, Cause: err.Error()}
 }
 
 func stepFunctionsErrorCode(err error) string {

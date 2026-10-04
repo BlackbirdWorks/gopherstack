@@ -112,6 +112,7 @@ var errAssumeExecutionRole = errors.New("cannot assume the execution role")
 type sdkAdapter struct {
 	handler  http.Handler
 	roles    RoleAssumer
+	conns    ConnectionResolver
 	services map[string]sdkService
 	clients  *safemap.Map[string, any]
 	region   string
@@ -128,10 +129,19 @@ func NewSDKIntegration(handler http.Handler, region string) asl.SDKIntegration {
 // NewSDKIntegrationWithRoles is NewSDKIntegration but signs every call with
 // temporary credentials of the state machine's execution role from roles.
 func NewSDKIntegrationWithRoles(handler http.Handler, region string, roles RoleAssumer) asl.SDKIntegration {
+	return NewSDKIntegrationWithHTTP(handler, region, roles, nil)
+}
+
+// NewSDKIntegrationWithHTTP is NewSDKIntegrationWithRoles that also resolves
+// EventBridge connections for http:invoke Task states from conns.
+func NewSDKIntegrationWithHTTP(
+	handler http.Handler, region string, roles RoleAssumer, conns ConnectionResolver,
+) asl.SDKIntegration {
 	return &sdkAdapter{
 		handler:  handler,
 		region:   region,
 		roles:    roles,
+		conns:    conns,
 		services: sdkServiceTable(),
 		clients:  safemap.New[string, any]("stepfunctions-sdk-clients"),
 	}
@@ -196,6 +206,10 @@ func (a *sdkAdapter) client(svc sdkService, name string, call asl.SDKCall) any {
 
 // SFNCallSDK implements asl.SDKIntegration.
 func (a *sdkAdapter) SFNCallSDK(ctx context.Context, call asl.SDKCall) (any, error) {
+	if call.Service == httpService {
+		return a.invokeHTTP(ctx, call)
+	}
+
 	svc, ok := a.services[call.Service]
 	if !ok {
 		return nil, &asl.FailError{
@@ -214,6 +228,12 @@ func (a *sdkAdapter) SFNCallSDK(ctx context.Context, call asl.SDKCall) (any, err
 	out, err := invokeSDKMethod(ctx, client, call.Service, call.Action, call.Params)
 	if err != nil {
 		return nil, sdkFailure(prefix, err)
+	}
+
+	out = withStartedFields(call, out)
+
+	if failure := runTaskFailures(call, out); failure != nil {
+		return nil, failure
 	}
 
 	spec, isSync := syncSpecFor(call.Service, call.Action)

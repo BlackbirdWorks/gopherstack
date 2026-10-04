@@ -18,6 +18,7 @@ const (
 	lambdaServiceException  = "ServiceException"
 	lambdaErrUnknown        = "Lambda.Unknown"
 	sdkServiceStates        = "sfn"
+	httpServiceName         = "http"
 )
 
 // SDKCall describes one AWS SDK or optimized service-integration call.
@@ -44,8 +45,10 @@ func (e *Executor) SetSDKIntegration(s SDKIntegration) { e.sdk = s }
 // optimizedSDKService maps an optimized-integration name to its SDK service.
 func optimizedSDKService(name string) (string, bool) {
 	switch name {
-	case "dynamodb", "sqs", "sns", "batch", "athena", "codebuild":
+	case "dynamodb", "sqs", "sns", "batch", "athena", "codebuild", "ecs", "glue":
 		return name, true
+	case httpServiceName:
+		return httpServiceName, true
 	case "events":
 		return "eventbridge", true
 	case "states":
@@ -100,6 +103,12 @@ func (e *Executor) regionAndAccount() (string, string) {
 }
 
 func (e *Executor) invokeSDKTask(ctx context.Context, input any, call SDKCall) (any, error) {
+	if call.Service == httpServiceName {
+		if err := e.authorizeHTTPTask(input); err != nil {
+			return nil, err
+		}
+	}
+
 	call.Params = input
 	call.Region, call.AccountID = e.regionAndAccount()
 	call.RoleArn = e.execMeta.RoleArn

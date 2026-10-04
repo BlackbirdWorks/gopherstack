@@ -87,7 +87,7 @@ func TestMockedIntegrations_SDK(t *testing.T) {
 				`","End":true}}}`,
 			testCase:   "Sad",
 			wantStatus: "FAILED",
-			wantError:  "TaskFailed",
+			wantError:  "Custom.Boom",
 		},
 		{
 			name: "jsonata_return",
