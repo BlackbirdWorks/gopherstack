@@ -1,0 +1,276 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
+	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
+	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+)
+
+// wireIoTActionTargets connects the IoT rule actions beyond SQS and Lambda to their service backends.
+func wireIoTActionTargets(byName map[string]service.Registerable) {
+	iotH, ok := byName["IoT"].(*iotbackend.Handler)
+	if !ok {
+		return
+	}
+
+	iotBk, bkOk := iotH.Backend.(*iotbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	t := &iotbackend.ActionTargets{}
+
+	wireIoTStreamTargets(t, byName)
+	wireIoTStoreTargets(t, byName)
+	wireIoTOpsTargets(t, byName)
+
+	iotBk.SetActionTargets(t)
+}
+
+func wireIoTStreamTargets(t *iotbackend.ActionTargets, byName map[string]service.Registerable) {
+	if h, ok := byName["SNS"].(*snsbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*snsbackend.InMemoryBackend); bkOk {
+			t.SNS = &iotSNSTarget{backend: bk}
+		}
+	}
+
+	if h, ok := byName["Kinesis"].(*kinesisbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*kinesisbackend.InMemoryBackend); bkOk {
+			t.Kinesis = &iotKinesisTarget{backend: bk}
+		}
+	}
+
+	if h, ok := byName["Firehose"].(*firehosebackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*firehosebackend.InMemoryBackend); bkOk {
+			t.Firehose = &iotFirehoseTarget{backend: bk}
+		}
+	}
+
+	if h, ok := byName["IoTAnalytics"].(*iotanalyticsbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*iotanalyticsbackend.InMemoryBackend); bkOk {
+			t.Analytics = &iotAnalyticsTarget{backend: bk}
+		}
+	}
+}
+
+func wireIoTStoreTargets(t *iotbackend.ActionTargets, byName map[string]service.Registerable) {
+	if h, ok := byName["DynamoDB"].(*ddbbackend.DynamoDBHandler); ok {
+		if bk, bkOk := h.Backend.(*ddbbackend.InMemoryDB); bkOk {
+			t.DynamoDB = &iotDynamoTarget{db: bk}
+		}
+	}
+
+	if h, ok := byName["S3"].(*s3backend.S3Handler); ok {
+		t.S3 = &iotS3Target{backend: h.Backend}
+	}
+}
+
+func wireIoTOpsTargets(t *iotbackend.ActionTargets, byName map[string]service.Registerable) {
+	if h, ok := byName["CloudWatch"].(*cwbackend.Handler); ok {
+		cw := &iotCloudWatchTarget{handler: h}
+		t.Metrics, t.Alarms = cw, cw
+	}
+
+	if h, ok := byName["CloudWatchLogs"].(*cwlogsbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*cwlogsbackend.InMemoryBackend); bkOk {
+			t.Logs = &iotLogsTarget{backend: bk}
+		}
+	}
+
+	if h, ok := byName["StepFunctions"].(*sfnbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*sfnbackend.InMemoryBackend); bkOk {
+			t.StepFunctions = &iotStepFunctionsTarget{backend: bk}
+		}
+	}
+}
+
+type iotSNSTarget struct{ backend *snsbackend.InMemoryBackend }
+
+func (a *iotSNSTarget) PublishToTopic(_ context.Context, _, topicARN, message string, jsonFormat bool) error {
+	structure := ""
+	if jsonFormat {
+		structure = "json"
+	}
+
+	_, err := a.backend.Publish(topicARN, message, "", structure, nil)
+
+	return err
+}
+
+type iotKinesisTarget struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *iotKinesisTarget) PutRecord(ctx context.Context, _, stream, partitionKey string, data []byte) error {
+	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
+		StreamName: stream, PartitionKey: partitionKey, Data: data,
+	})
+
+	return err
+}
+
+type iotFirehoseTarget struct {
+	backend *firehosebackend.InMemoryBackend
+}
+
+func (a *iotFirehoseTarget) PutRecords(ctx context.Context, _, stream string, records [][]byte) error {
+	if len(records) == 1 {
+		return a.backend.PutRecord(ctx, stream, records[0])
+	}
+
+	failed, err := a.backend.PutRecordBatch(ctx, stream, records)
+	if err != nil {
+		return err
+	}
+
+	if failed > 0 {
+		return fmt.Errorf("%w: %d of %d records", errIoTBatchRejected, failed, len(records))
+	}
+
+	return nil
+}
+
+var errIoTBatchRejected = errors.New("firehose rejected batch records")
+
+type iotDynamoTarget struct{ db *ddbbackend.InMemoryDB }
+
+func (a *iotDynamoTarget) PutItem(ctx context.Context, region, table string, item map[string]any) error {
+	sdkItem, err := ddbmodels.ToSDKItem(item)
+	if err != nil {
+		return fmt.Errorf("iot dynamodb target: item: %w", err)
+	}
+
+	_, err = a.db.PutItem(ddbbackend.WithRegion(ctx, region), &dynamodb.PutItemInput{
+		TableName: aws.String(table), Item: sdkItem,
+	})
+
+	return err
+}
+
+func (a *iotDynamoTarget) SetAttribute(
+	ctx context.Context, region, table string, key map[string]any, attr string, val map[string]any,
+) error {
+	sdkKey, err := ddbmodels.ToSDKItem(key)
+	if err != nil {
+		return fmt.Errorf("iot dynamodb target: key: %w", err)
+	}
+
+	sdkVal, err := ddbmodels.ToSDKAttributeValue(val)
+	if err != nil {
+		return fmt.Errorf("iot dynamodb target: value: %w", err)
+	}
+
+	_, err = a.db.UpdateItem(ddbbackend.WithRegion(ctx, region), &dynamodb.UpdateItemInput{
+		TableName:                 aws.String(table),
+		Key:                       sdkKey,
+		UpdateExpression:          aws.String("SET #a = :v"),
+		ExpressionAttributeNames:  map[string]string{"#a": attr},
+		ExpressionAttributeValues: map[string]ddbsdktypes.AttributeValue{":v": sdkVal},
+	})
+
+	return err
+}
+
+func (a *iotDynamoTarget) DeleteItem(ctx context.Context, region, table string, key map[string]any) error {
+	sdkKey, err := ddbmodels.ToSDKItem(key)
+	if err != nil {
+		return fmt.Errorf("iot dynamodb target: key: %w", err)
+	}
+
+	_, err = a.db.DeleteItem(ddbbackend.WithRegion(ctx, region), &dynamodb.DeleteItemInput{
+		TableName: aws.String(table), Key: sdkKey,
+	})
+
+	return err
+}
+
+type iotS3Target struct{ backend s3backend.StorageBackend }
+
+func (a *iotS3Target) PutObject(ctx context.Context, _, bucket, key string, data []byte, cannedACL string) error {
+	_, err := a.backend.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String(key), Body: bytes.NewReader(data),
+		ACL: s3types.ObjectCannedACL(cannedACL),
+	})
+
+	return err
+}
+
+type iotCloudWatchTarget struct{ handler *cwbackend.Handler }
+
+func (a *iotCloudWatchTarget) PutMetric(
+	_ context.Context, region, namespace, name, unit string, value float64, ts time.Time,
+) error {
+	return a.handler.BackendFor(region).PutMetricData(namespace, []cwbackend.MetricDatum{{
+		MetricName: name, Namespace: namespace, Unit: unit, Value: value, Count: 1, Sum: value, Min: value,
+		Max: value, Timestamp: ts,
+	}})
+}
+
+func (a *iotCloudWatchTarget) SetAlarmState(ctx context.Context, region, alarm, state, reason string) error {
+	return a.handler.BackendFor(region).SetAlarmState(ctx, alarm, state, reason, "")
+}
+
+type iotLogsTarget struct {
+	backend *cwlogsbackend.InMemoryBackend
+}
+
+func (a *iotLogsTarget) PutLogEvents(
+	ctx context.Context, region, group, stream string, events []iotbackend.LogEvent,
+) error {
+	ctx = cwlogsbackend.WithRegion(ctx, region)
+
+	if _, err := a.backend.CreateLogStream(ctx, group, stream); err != nil &&
+		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
+		return err
+	}
+
+	in := make([]cwlogsbackend.InputLogEvent, len(events))
+	for i, e := range events {
+		in[i] = cwlogsbackend.InputLogEvent{Message: e.Message, Timestamp: e.Timestamp}
+	}
+
+	_, err := a.backend.PutLogEvents(ctx, group, stream, "", in)
+
+	return err
+}
+
+type iotStepFunctionsTarget struct{ backend *sfnbackend.InMemoryBackend }
+
+func (a *iotStepFunctionsTarget) StartExecution(
+	_ context.Context, region, account, stateMachine, execName, input string,
+) error {
+	smARN := arn.Build("states", region, account, "stateMachine:"+stateMachine)
+	_, err := a.backend.StartExecution(smARN, execName, input)
+
+	return err
+}
+
+type iotAnalyticsTarget struct {
+	backend *iotanalyticsbackend.InMemoryBackend
+}
+
+func (a *iotAnalyticsTarget) PutChannelMessages(_ context.Context, _, channel string, payloads [][]byte) error {
+	return a.backend.PutChannelMessages(channel, payloads)
+}

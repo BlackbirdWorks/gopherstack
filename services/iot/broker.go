@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sync/atomic"
+	"time"
 
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
@@ -54,6 +55,7 @@ func (b *Broker) Start(ctx context.Context) error {
 	}
 
 	hook := &ruleHook{
+		broker:  b,
 		backend: b.backend,
 		others:  b.others,
 		ctx:     ctx,
@@ -328,6 +330,7 @@ func (b *Broker) SendToClientWithProperties(
 type ruleHook struct {
 	mqtt.HookBase
 
+	broker  *Broker
 	backend *InMemoryBackend
 	others  func() []*InMemoryBackend
 	ctx     context.Context //nolint:containedctx // required to propagate broker lifecycle context into hook callbacks
@@ -345,6 +348,8 @@ func (h *ruleHook) Provides(b byte) bool {
 func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
 	dispatcher := h.backend.GetDispatcher()
 	log := logger.Load(h.ctx)
+	hops := takeHops(&pk)
+	received := time.Now()
 
 	for _, rule := range h.allRules() {
 		if !EvaluateRule(rule, pk.TopicName, pk.Payload) {
@@ -352,10 +357,23 @@ func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet,
 		}
 
 		log.Info("iot rule matched", "rule", rule.RuleName, "topic", pk.TopicName)
-		h.dispatchActions(rule, dispatcher, pk.TopicName, pk.Payload)
+
+		region, account := ruleRegionAccount(rule.ARN)
+		h.dispatchActions(rule, dispatcher, &ruleMessage{
+			received: received, topic: pk.TopicName, clientID: publisherID(pk.Origin),
+			region: region, account: account, payload: pk.Payload, hops: hops,
+		})
 	}
 
 	return pk, nil
+}
+
+func publisherID(origin string) string {
+	if origin == mqtt.InlineClientId {
+		return ""
+	}
+
+	return origin
 }
 
 // allRules returns the home region's rules plus every regional sibling's.

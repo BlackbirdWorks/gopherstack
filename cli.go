@@ -3847,6 +3847,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
+	wireIoTActionTargets(byName)
 
 	// Wire IoT Analytics' RunPipelineActivity lambda/deviceRegistryEnrich/
 	// deviceShadowEnrich activities to the real Lambda and IoT backends.

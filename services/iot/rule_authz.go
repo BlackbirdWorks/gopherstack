@@ -36,35 +36,39 @@ func (b *InMemoryBackend) ruleAuthorizer() roleauth.Authorizer {
 }
 
 // dispatchActions runs each action of a matched rule, routing a failed action to the rule's errorAction.
-func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, topic string, payload []byte) {
-	if dispatcher == nil {
-		return
-	}
-
+func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, msg *ruleMessage) {
 	for _, action := range rule.Actions {
-		name, err := h.runAction(rule, action, dispatcher, payload)
+		name, err := h.runAction(rule, action, dispatcher, msg)
 		if err == nil || name == "" {
 			continue
 		}
 
 		logger.Load(h.ctx).Error("iot rule action failed", "rule", rule.RuleName, "action", name, "error", err)
 
-		h.runErrorAction(rule, dispatcher, topic, payload, name, err)
+		h.runErrorAction(rule, dispatcher, msg, name, err)
 	}
 }
 
 // runAction runs one action and returns its IoT action name and any failure.
 func (h *ruleHook) runAction(
-	rule *TopicRule, action RuleAction, dispatcher RuleDispatcher, payload []byte,
+	rule *TopicRule, action RuleAction, dispatcher RuleDispatcher, msg *ruleMessage,
 ) (string, error) {
 	switch {
 	case action.SQS != nil:
+		if dispatcher == nil {
+			return "", nil
+		}
+
 		if err := h.authorizeSQSAction(action.SQS); err != nil {
 			return "SqsAction", err
 		}
 
-		return "SqsAction", dispatcher.SendToSQS(action.SQS.QueueURL, string(payload))
+		return "SqsAction", dispatcher.SendToSQS(action.SQS.QueueURL, string(msg.payload))
 	case action.Lambda != nil:
+		if dispatcher == nil {
+			return "", nil
+		}
+
 		auth := h.backend.ruleAuthorizer()
 		denied := roleauth.AuthorizeResource(auth, roleauth.PrincipalIoT, "lambda:InvokeFunction",
 			action.Lambda.FunctionARN, rule.ARN)
@@ -72,9 +76,11 @@ func (h *ruleHook) runAction(
 			return "LambdaAction", fmt.Errorf("%w: %w", errRuleActionDenied, denied)
 		}
 
-		return "LambdaAction", dispatcher.InvokeLambda(h.ctx, action.Lambda.FunctionARN, payload)
+		return "LambdaAction", dispatcher.InvokeLambda(h.ctx, action.Lambda.FunctionARN, msg.payload)
+	case action.SNS != nil:
+		return "SnsAction", h.runSNS(rule, action.SNS, msg)
 	default:
-		return "", nil
+		return h.runOtherAction(rule, action, msg)
 	}
 }
 
@@ -104,7 +110,7 @@ func (b *InMemoryBackend) queueARNFromURL(queueURL string) string {
 
 // runErrorAction delivers the documented error envelope to the rule's errorAction.
 func (h *ruleHook) runErrorAction(
-	rule *TopicRule, dispatcher RuleDispatcher, topic string, payload []byte, failedAction string, cause error,
+	rule *TopicRule, dispatcher RuleDispatcher, msg *ruleMessage, failedAction string, cause error,
 ) {
 	if rule.ErrorAction == nil {
 		return
@@ -112,8 +118,8 @@ func (h *ruleHook) runErrorAction(
 
 	body, err := json.Marshal(map[string]string{
 		keyRuleName:             rule.RuleName,
-		"topic":                 topic,
-		"base64OriginalPayload": base64.StdEncoding.EncodeToString(payload),
+		"topic":                 msg.topic,
+		"base64OriginalPayload": base64.StdEncoding.EncodeToString(msg.payload),
 		"failedAction":          failedAction,
 		"failedActionReason":    "Failed to run action. Message: " + cause.Error(),
 	})
@@ -121,7 +127,10 @@ func (h *ruleHook) runErrorAction(
 		return
 	}
 
-	if _, runErr := h.runAction(rule, *rule.ErrorAction, dispatcher, body); runErr != nil {
+	errMsg := *msg
+	errMsg.payload = body
+
+	if _, runErr := h.runAction(rule, *rule.ErrorAction, dispatcher, &errMsg); runErr != nil {
 		logger.Load(h.ctx).Error("iot error action failed", "rule", rule.RuleName, "error", runErr)
 	}
 }
