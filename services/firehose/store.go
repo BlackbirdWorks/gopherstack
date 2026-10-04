@@ -18,6 +18,7 @@ type InMemoryBackend struct {
 	kinesisBackend KinesisReader
 	redshiftData   RedshiftDataExecutor
 	cwLogs         CWLogsBackend
+	opensearch     OpenSearchIndexer
 	roleAuth       roleauth.Authorizer
 	registry       *store.Registry
 	// streams is a single flat table of every delivery stream, composite-keyed by

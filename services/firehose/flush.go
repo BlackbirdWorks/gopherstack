@@ -324,105 +324,135 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 	return snap
 }
 
-// deliverSnapshot applies optional Lambda transformation and delivers records to all
-// configured destinations, routing processing/delivery failures to the S3 error output and
-// recording the FailedRecords metric. Called after the write lock has been released.
+// nonS3Target is the per-destination configuration shared by the non-S3 delivery pipeline.
+type nonS3Target struct {
+	pc       *ProcessingConfiguration
+	backup   *S3BackupDescription
+	cwLog    *CloudWatchLoggingOptions
+	roleARN  string
+	failType string
+}
+
+// deliverSnapshot delivers records to every configured destination, routing processing and
+// delivery failures to the error output and recording the FailedRecords metric.
 func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapshot, streamName string) {
 	if snap.s3Dest != nil {
 		b.deliverS3Destination(ctx, snap, streamName)
 	}
 
-	if snap.httpDest != nil {
-		b.deliverProcessedNonS3(ctx, snap, streamName, snap.httpDest.ProcessingConfiguration,
-			snap.httpDest.S3BackupDescription, snap.httpDest.CloudWatchLoggingOptions,
-			func(recs [][]byte) {
-				b.deliverToHTTPEndpoint(ctx, recs, snap.httpDest, snap.streamARN)
+	if d := snap.httpDest; d != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName,
+			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, cwLog: d.CloudWatchLoggingOptions,
+				failType: errTypeHTTP},
+			func(recs [][]byte) [][]byte { return b.deliverToHTTPEndpoint(ctx, recs, d, snap.streamARN) })
+	}
+
+	if d := snap.redshiftDest; d != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName,
+			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, roleARN: d.RoleARN,
+				failType: errTypeProcessing},
+			func(recs [][]byte) [][]byte {
+				b.deliverToRedshift(ctx, recs, d, snap.streamARN, streamName)
+
+				return nil
 			})
 	}
 
-	if snap.redshiftDest != nil {
-		b.deliverProcessedNonS3(ctx, snap, streamName, snap.redshiftDest.ProcessingConfiguration,
-			snap.redshiftDest.S3BackupDescription, nil,
-			func(recs [][]byte) {
-				b.deliverToRedshift(ctx, recs, snap.redshiftDest, snap.streamARN, streamName)
+	if d := snap.openSearchDest; d != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName,
+			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, cwLog: d.CloudWatchLoggingOptions,
+				roleARN: d.RoleARN, failType: errTypeOpenSearch},
+			func(recs [][]byte) [][]byte { return b.deliverToOpenSearch(ctx, recs, d, snap.streamARN) })
+	}
+
+	if d := snap.elasticsearchDest; d != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName,
+			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, cwLog: d.CloudWatchLoggingOptions,
+				roleARN: d.RoleARN, failType: errTypeOpenSearch},
+			func(recs [][]byte) [][]byte { return b.deliverToElasticsearch(ctx, recs, d, snap.streamARN) })
+	}
+
+	b.deliverLakeAndSplunk(ctx, snap, streamName)
+}
+
+func (b *InMemoryBackend) deliverLakeAndSplunk(ctx context.Context, snap *flushSnapshot, streamName string) {
+	if d := snap.splunkDest; d != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName,
+			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, cwLog: d.CloudWatchLoggingOptions,
+				failType: errTypeSplunk},
+			func(recs [][]byte) [][]byte {
+				b.deliverToSplunk(ctx, recs, d, snap.streamARN)
+
+				return nil
 			})
 	}
 
-	if snap.openSearchDest != nil {
-		b.deliverProcessedNonS3(ctx, snap, streamName, snap.openSearchDest.ProcessingConfiguration,
-			snap.openSearchDest.S3BackupDescription, snap.openSearchDest.CloudWatchLoggingOptions,
-			func(recs [][]byte) {
-				b.deliverToOpenSearch(ctx, recs, snap.openSearchDest, snap.streamARN)
+	if d := snap.icebergDest; d != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName,
+			nonS3Target{pc: d.ProcessingConfiguration, cwLog: d.CloudWatchLoggingOptions, roleARN: d.RoleARN,
+				failType: errTypeProcessing},
+			func(recs [][]byte) [][]byte {
+				b.deliverToIceberg(ctx, recs, d, streamName)
+
+				return nil
 			})
 	}
 
-	if snap.elasticsearchDest != nil {
-		b.deliverProcessedNonS3(ctx, snap, streamName, snap.elasticsearchDest.ProcessingConfiguration,
-			snap.elasticsearchDest.S3BackupDescription, snap.elasticsearchDest.CloudWatchLoggingOptions,
-			func(recs [][]byte) {
-				b.deliverToElasticsearch(ctx, recs, snap.elasticsearchDest, snap.streamARN)
-			})
-	}
+	if d := snap.snowflakeDest; d != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName,
+			nonS3Target{pc: d.ProcessingConfiguration, cwLog: d.CloudWatchLoggingOptions, roleARN: d.RoleARN,
+				failType: errTypeProcessing},
+			func(recs [][]byte) [][]byte {
+				b.deliverToSnowflake(ctx, recs, d, streamName)
 
-	if snap.splunkDest != nil {
-		b.deliverProcessedNonS3(ctx, snap, streamName, snap.splunkDest.ProcessingConfiguration,
-			snap.splunkDest.S3BackupDescription, snap.splunkDest.CloudWatchLoggingOptions,
-			func(recs [][]byte) {
-				b.deliverToSplunk(ctx, recs, snap.splunkDest, snap.streamARN)
-			})
-	}
-
-	if snap.icebergDest != nil {
-		b.deliverProcessedNonS3(ctx, snap, streamName, snap.icebergDest.ProcessingConfiguration,
-			nil, snap.icebergDest.CloudWatchLoggingOptions,
-			func(recs [][]byte) {
-				b.deliverToIceberg(ctx, recs, snap.icebergDest, streamName)
-			})
-	}
-
-	if snap.snowflakeDest != nil {
-		b.deliverProcessedNonS3(ctx, snap, streamName, snap.snowflakeDest.ProcessingConfiguration,
-			nil, snap.snowflakeDest.CloudWatchLoggingOptions,
-			func(recs [][]byte) {
-				b.deliverToSnowflake(ctx, recs, snap.snowflakeDest, streamName)
+				return nil
 			})
 	}
 }
 
-// deliverProcessedNonS3 runs the shared delivery pipeline for non-S3 destinations: it
-// applies the Lambda transform, routes processing failures to the S3 backup destination (if
-// configured) and records them in the FailedRecords metric, then delivers the surviving
-// records via the supplied deliver func. It also delivers any S3 backup copies.
+// deliverProcessedNonS3 runs the non-S3 pipeline: Lambda processor, deliver, failure routing to
+// the backup bucket, the FailedRecords metric and S3 backup copies.
 func (b *InMemoryBackend) deliverProcessedNonS3(
 	ctx context.Context,
 	snap *flushSnapshot,
 	streamName string,
-	pc *ProcessingConfiguration,
-	backup *S3BackupDescription,
-	cwLog *CloudWatchLoggingOptions,
-	deliver func(records [][]byte),
+	t nonS3Target,
+	deliver func(records [][]byte) [][]byte,
 ) {
-	ok, failed, err := b.applyTransform(ctx, snap.records, pc, snap.streamARN, snap.region)
+	out, err := b.runTransform(ctx, snap.records, t.pc, t.roleARN, snap.streamARN, snap.region)
 	if err != nil {
-		b.logDeliveryIssue(ctx, cwLog, streamName,
-			"lambda transform invocation failed; routing records to backup", err)
-		failed = append(failed, snap.records...)
-		ok = nil
+		b.logDeliveryIssue(
+			ctx,
+			t.cwLog,
+			streamName,
+			"lambda transform invocation failed; routing records to backup",
+			err,
+		)
 	}
 
-	if len(failed) > 0 {
-		if backup != nil {
-			_, _ = b.writeRecordsToBucket(ctx, failed, backup.BucketARN,
-				backup.Prefix, "", backup.CompressionFormat, streamName)
-		}
-		b.recordFailedRecords(snap.region, streamName, len(failed))
+	var undelivered [][]byte
+	if len(out.Ok) > 0 {
+		undelivered = deliver(out.Ok)
 	}
 
-	if len(ok) > 0 {
-		deliver(ok)
+	if t.backup != nil {
+		b.writeBackupFailures(ctx, t.backup, streamName, out.Failed, errTypeProcessing)
+		b.writeBackupFailures(ctx, t.backup, streamName, undelivered, t.failType)
 	}
 
-	b.deliverS3Backup(ctx, snap, backup, streamName)
+	b.recordFailedRecords(snap.region, streamName, len(out.Failed)+len(undelivered))
+	b.deliverS3Backup(ctx, snap, t.backup, streamName)
+}
+
+func (b *InMemoryBackend) writeBackupFailures(
+	ctx context.Context, backup *S3BackupDescription, streamName string, records [][]byte, errType string,
+) {
+	if len(records) == 0 {
+		return
+	}
+
+	prefix := errorPrefix(backup.ErrorOutputPrefix, backup.Prefix, errType)
+	_, _ = b.writeRecordsToBucket(ctx, records, backup.BucketARN, prefix, "", "", streamName)
 }
 
 // deliverS3Backup delivers the buffered S3 backup copies (accumulated when S3BackupMode is
@@ -446,60 +476,6 @@ func (b *InMemoryBackend) deliverS3Backup(
 
 	_, _ = b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
 		backup.Prefix, "", backup.CompressionFormat, streamName)
-}
-
-// applyTransform runs the configured Lambda transform over records, separating the records
-// to deliver (ok) from records that failed processing (failed, to be routed to the error
-// output). When no transform is configured, all records pass through as ok. A non-nil error
-// indicates the invocation itself failed; callers route all source records to the error
-// output in that case.
-func (b *InMemoryBackend) applyTransform(
-	ctx context.Context,
-	records [][]byte,
-	pc *ProcessingConfiguration,
-	streamARN, region string,
-) ([][]byte, [][]byte, error) {
-	if b.lambda == nil || pc == nil || !pc.Enabled {
-		return records, nil, nil
-	}
-
-	functionName := lambdaFunctionName(pc)
-	if functionName == "" {
-		return records, nil, nil
-	}
-
-	payload, idToOriginal := buildLambdaTransformPayload(records, streamARN, region)
-	if payload == nil {
-		return nil, nil, ErrTransformPayload
-	}
-
-	result, _, invokeErr := b.lambda.InvokeFunction(ctx, functionName, "RequestResponse", payload)
-	if invokeErr != nil {
-		return nil, nil, fmt.Errorf("lambda transform invocation failed: %w", invokeErr)
-	}
-
-	outcome, parsed := parseLambdaTransformResponse(result, idToOriginal)
-	if !parsed {
-		return nil, nil, fmt.Errorf("%w: malformed lambda transform response", ErrTransformPayload)
-	}
-
-	return outcome.Ok, outcome.Failed, nil
-}
-
-// lambdaFunctionName extracts the Lambda function ARN from a ProcessingConfiguration.
-func lambdaFunctionName(pc *ProcessingConfiguration) string {
-	for _, proc := range pc.Processors {
-		if proc.Type != "Lambda" {
-			continue
-		}
-		for _, p := range proc.Parameters {
-			if p.ParameterName == "LambdaArn" {
-				return p.ParameterValue
-			}
-		}
-	}
-
-	return ""
 }
 
 // recordFailedRecords increments the FailedRecords delivery metric for a stream.

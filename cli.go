@@ -3808,6 +3808,9 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// running it (gopherstack-lgwb).
 	wireFirehoseRedshift(byName["Firehose"], byName["RedshiftData"])
 
+	// Wire Firehose → OpenSearch so domain-ARN destinations index into the in-process store.
+	wireFirehoseOpenSearch(byName["Firehose"], byName["OpenSearch"])
+
 	// Wire DynamoDB → S3 so ImportTable reads source objects and
 	// ExportTableToPointInTime writes real export data.
 	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
@@ -13363,6 +13366,49 @@ func wireFirehoseRedshift(firehoseReg, redshiftdataReg service.Registerable) {
 	}
 
 	fhBk.SetRedshiftDataBackend(&firehoseRedshiftDataExecutorAdapter{backend: redshiftdataBk})
+}
+
+// wireFirehoseOpenSearch connects Firehose to the in-process OpenSearch document store.
+func wireFirehoseOpenSearch(firehoseReg, osReg service.Registerable) {
+	fhH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	fhBk, ok := fhH.Backend.(*firehosebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	osH, ok := osReg.(*opensearchbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if osBk, bkOk := osH.Backend.(*opensearchbackend.InMemoryBackend); bkOk {
+		fhBk.SetOpenSearchBackend(&firehoseOpenSearchAdapter{backend: osBk})
+	}
+}
+
+// firehoseOpenSearchAdapter indexes Firehose documents, creating the index on first write
+// as the real _bulk API does.
+type firehoseOpenSearchAdapter struct {
+	backend *opensearchbackend.InMemoryBackend
+}
+
+func (a *firehoseOpenSearchAdapter) IndexDocument(domainName, indexName string, doc map[string]any) error {
+	_, _, _, err := a.backend.IndexDocument(domainName, indexName, "", doc)
+	if !errors.Is(err, opensearchbackend.ErrConnectionNotFound) {
+		return err
+	}
+
+	if _, cErr := a.backend.CreateIndex(domainName, indexName, nil, nil, nil, nil); cErr != nil {
+		return cErr
+	}
+
+	_, _, _, err = a.backend.IndexDocument(domainName, indexName, "", doc)
+
+	return err
 }
 
 // firehoseRedshiftDataExecutorAdapter adapts the Redshift Data backend's

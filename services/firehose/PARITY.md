@@ -75,7 +75,7 @@ items_still_open:
   - "Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to."
   - "Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed."
   - "DeleteDeliveryStream.AllowForceDelete is not read: it only bypasses a KMS-grant-retirement failure, a failure mode this backend does not model."
-  - "Role authorization covers S3 and S3-backup delivery only; Lambda processor and the OpenSearch/Redshift/HTTP/Splunk/Iceberg/Snowflake destination roles are not checked (2026-10-03)."
+  - "Role authorization covers S3 and S3-backup delivery, the Lambda processor (lambda:InvokeFunction) and domain-ARN OpenSearch/Elasticsearch (es:ESHttpPost); Redshift staging, HTTP (RoleARN not modeled), Splunk, Iceberg and Snowflake destination calls are not checked (2026-10-03)."
 deferred: []              # consolidated into items_still_open 2026-09-18: KinesisStreamAsSource
                            # wiring and CloudWatchLoggingOptions delivery were both already fully
                            # fixed (gopherstack-o4ny, gopherstack-pe7x) and are removed rather than
@@ -86,6 +86,17 @@ leaks: {status: "fixed this pass", note: "FIXED 2026-09-04 (gopherstack-rop): Ki
 ---
 
 ## Notes
+
+## 2026-10-03: delivery realism (processor, partitioning, compression, HTTP, OpenSearch)
+
+Per the Firehose developer guide (s3-prefixes, data-transformation-failure-handling, httpdeliveryrequestresponse, monitoring-with-cloudwatch-logs).
+
+- Lambda processor: response contract enforced (every recordId exactly once, else `Lambda.MissingRecordId`/`DuplicatedRecordId`/`JsonMappingException`/`FunctionError`); invocation retried 3 times; `metadata.partitionKeys` honoured; failures written as the documented `attemptsMade/arrivalTimestamp/errorCode/errorMessage/attemptEndingTimestamp/rawData/lambdaARN` envelope. Role checked under `--enforce-iam` (`Lambda.InvokeAccessDenied`/`Lambda.AssumeRoleAccessDenied`).
+- S3 prefixes: `!{timestamp:java-pattern}`, `!{firehose:random-string}`, `!{firehose:error-output-type}`, CustomTimeZone; a timestamp expression replaces the default yyyy/MM/dd/HH/. Dynamic partitioning keys come from the MetadataExtraction `{key: .path}` query (`partitionKeyFromQuery:key`) or `metadata.partitionKeys` (`partitionKeyFromLambda:key`); only plain `.a.b[0]` jq paths are evaluated, anything else fails the record to `processing-failed`.
+- Compression: GZIP, ZIP, Snappy and HADOOP_SNAPPY with default extensions; error objects are written uncompressed under ErrorOutputPrefix (default `<Prefix><error-output-type>/`) in the primary bucket.
+- HTTP endpoint: documented headers (protocol version, request id kept across retries, source ARN, access key, common-attributes JSON, gzip), 1s doubling jittered backoff to 2m within RetryOptions, only a 200 with a matching requestId JSON body succeeds, 413 is permanent and not backed up, exhausted batches go to the S3 bucket as `http-endpoint-failed` envelopes.
+- OpenSearch/Elasticsearch: a DomainARN destination indexes into the in-process opensearch store (index created on first write, IndexRotationPeriod suffixes); non-JSON records fail to `AmazonOpenSearchService-failed`. A ClusterEndpoint still uses the bulk HTTP path. The opensearch backend is single-region, so no per-region lookup exists.
+- Not delivered: Parquet/ORC output (canonical JSON), Redshift/MSK/Snowflake/Iceberg real sinks (unchanged, see items_still_open), Splunk failures to backup.
 
 ## 2026-10-03: S3 destination role under --enforce-iam
 

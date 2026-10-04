@@ -194,9 +194,9 @@ func TestLambdaTransformation_OkRecordsDelivered(t *testing.T) {
 
 	s3mock := &mockS3Storer{}
 	lambdaResponse := `{"records":[` +
-		`{"recordId":"r1","result":"Ok","data":"aGVsbG8="},` +
-		`{"recordId":"r2","result":"Dropped","data":""},` +
-		`{"recordId":"r3","result":"ProcessingFailed","data":""}` +
+		`{"recordId":"0","result":"Ok","data":"aGVsbG8="},` +
+		`{"recordId":"1","result":"Dropped","data":""},` +
+		`{"recordId":"2","result":"ProcessingFailed","data":""}` +
 		`]}`
 	lambdaMock := &mockLambdaInvoker{response: []byte(lambdaResponse)}
 
@@ -223,10 +223,11 @@ func TestLambdaTransformation_OkRecordsDelivered(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutRecord(context.TODO(), "lambda-stream", []byte("input")))
+	_, putErr := b.PutRecordBatch(context.TODO(), "lambda-stream", [][]byte{[]byte("a"), []byte("b"), []byte("c")})
+	require.NoError(t, putErr)
 	b.FlushAll(t.Context())
 
-	require.Len(t, s3mock.calls, 1)
+	require.Len(t, s3mock.calls, 2)
 	// Only "Ok" record data ("hello" from base64 "aGVsbG8=") should be delivered.
 	assert.Contains(t, string(s3mock.calls[0].body), "hello")
 }
@@ -235,7 +236,7 @@ func TestLambdaTransformation_AllDropped(t *testing.T) {
 	t.Parallel()
 
 	s3mock := &mockS3Storer{}
-	lambdaResponse := `{"records":[{"recordId":"r1","result":"Dropped","data":""}]}`
+	lambdaResponse := `{"records":[{"recordId":"0","result":"Dropped","data":""}]}`
 	lambdaMock := &mockLambdaInvoker{response: []byte(lambdaResponse)}
 
 	b := firehose.NewInMemoryBackend("000000000000", flushRegion)
@@ -308,7 +309,7 @@ func TestLambdaTransformation_ErrorRoutesToErrorOutput(t *testing.T) {
 	require.Len(t, s3mock.calls, 1)
 	assert.Equal(t, "err-bucket", s3mock.calls[0].bucket)
 	assert.Contains(t, s3mock.calls[0].key, "errors/", "failed records must land under ErrorOutputPrefix")
-	assert.Contains(t, string(s3mock.calls[0].body), "input")
+	assert.Contains(t, string(s3mock.calls[0].body), base64.StdEncoding.EncodeToString([]byte("input")))
 }
 
 // TestS3Key_IncludesUUIDSuffix verifies the generated S3 object key follows the
@@ -744,7 +745,12 @@ func TestProcessingFailed_RoutesToErrorOutput(t *testing.T) {
 	require.NotNil(t, main, "expected a main-prefix delivery")
 	require.NotNil(t, errOut, "expected an error-output delivery")
 	assert.Contains(t, string(main.body), "ok")
-	assert.Contains(t, string(errOut.body), "second", "original failed record routed to error output")
+	assert.Contains(
+		t,
+		string(errOut.body),
+		base64.StdEncoding.EncodeToString([]byte("second")),
+		"failed record routed to error output",
+	)
 
 	assert.Equal(t, int64(1), firehose.StreamFailedRecords(b, flushRegion, "failroute"))
 }

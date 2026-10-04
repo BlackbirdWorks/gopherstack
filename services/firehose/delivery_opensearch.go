@@ -3,6 +3,7 @@ package firehose
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -34,34 +35,130 @@ func buildOpenSearchBulkBody(records [][]byte) []byte {
 	return buf.Bytes()
 }
 
-// deliverToOpenSearch bulk-indexes records into an OpenSearch / Elasticsearch cluster.
-// Records are sent as NDJSON using the OpenSearch bulk API (_bulk endpoint).
-// Each record becomes one "index" action; the document body is the raw record bytes
-// decoded as JSON (or wrapped in {"data":"<base64>"} when the bytes are not valid JSON).
+// OpenSearchIndexer is the in-process OpenSearch document store a domain-ARN destination
+// delivers into; wired via SetOpenSearchBackend.
+type OpenSearchIndexer interface {
+	IndexDocument(domainName, indexName string, doc map[string]any) error
+}
+
+// SetOpenSearchBackend wires the in-process OpenSearch document store.
+func (b *InMemoryBackend) SetOpenSearchBackend(o OpenSearchIndexer) {
+	b.mu.Lock("SetOpenSearchBackend")
+	defer b.mu.Unlock()
+
+	b.opensearch = o
+}
+
+func (b *InMemoryBackend) openSearchIndexer() OpenSearchIndexer {
+	b.mu.RLock("openSearchIndexer")
+	defer b.mu.RUnlock()
+
+	return b.opensearch
+}
+
+// openSearchIndexName applies IndexRotationPeriod to the base index name.
+func openSearchIndexName(base, rotation string, t time.Time) string {
+	if base == "" {
+		base = "firehose"
+	}
+
+	switch rotation {
+	case "OneHour":
+		return base + "-" + t.Format("2006-01-02-15")
+	case "OneDay":
+		return base + "-" + t.Format("2006-01-02")
+	case "OneWeek":
+		year, week := t.ISOWeek()
+
+		return fmt.Sprintf("%s-%d-w%02d", base, year, week)
+	case "OneMonth":
+		return base + "-" + t.Format("2006-01")
+	default:
+		return base
+	}
+}
+
+// domainNameFromARN extracts the domain name from arn:aws:es:<region>:<acct>:domain/<name>.
+func domainNameFromARN(arn string) string {
+	_, name, ok := strings.Cut(arn, ":domain/")
+	if !ok {
+		return ""
+	}
+
+	return name
+}
+
+// deliverToOpenSearch indexes records into the in-process OpenSearch domain named by
+// DomainARN, else bulk-posts them to ClusterEndpoint. It returns failure envelopes.
 func (b *InMemoryBackend) deliverToOpenSearch(
 	ctx context.Context,
 	records [][]byte,
 	dest *OpenSearchDestinationDescription,
 	streamARN string,
-) {
+) [][]byte {
+	index := openSearchIndexName(dest.IndexName, dest.IndexRotationPeriod, time.Now().UTC())
+
+	if dest.ClusterEndpoint == "" && dest.DomainARN != "" {
+		if code := b.authorizeESWrite(dest.RoleARN, dest.DomainARN); code != "" {
+			return failAllRecords(records, code, "delivery role denied")
+		}
+
+		if idx := b.openSearchIndexer(); idx != nil {
+			return indexInProcess(idx, domainNameFromARN(dest.DomainARN), index, records)
+		}
+	}
+
+	return b.bulkToEndpoint(ctx, records, dest, index, streamARN)
+}
+
+func failAllRecords(records [][]byte, code, msg string) [][]byte {
+	out := make([][]byte, 0, len(records))
+	for _, rec := range records {
+		out = append(out, failureRecord(rec, "", code, msg, 1))
+	}
+
+	return out
+}
+
+// indexInProcess indexes each JSON-object record as one document, failing the others.
+func indexInProcess(idx OpenSearchIndexer, domain, index string, records [][]byte) [][]byte {
+	var failed [][]byte
+
+	for _, rec := range records {
+		var doc map[string]any
+		if err := json.Unmarshal(rec, &doc); err != nil {
+			failed = append(
+				failed,
+				failureRecord(rec, "", "ES.JsonProcessingException", "record is not a JSON object", 1),
+			)
+
+			continue
+		}
+
+		if err := idx.IndexDocument(domain, index, doc); err != nil {
+			failed = append(failed, failureRecord(rec, "", "ES.ServiceException", err.Error(), 1))
+		}
+	}
+
+	return failed
+}
+
+func (b *InMemoryBackend) bulkToEndpoint(
+	ctx context.Context,
+	records [][]byte,
+	dest *OpenSearchDestinationDescription,
+	index, streamARN string,
+) [][]byte {
 	endpoint := dest.ClusterEndpoint
 	if endpoint == "" {
-		// Derive endpoint from domain ARN: arn:aws:es:<region>:<account>:domain/<name>
-		// Local OpenSearch is assumed at http://localhost:9200 in dev/test.
 		endpoint = "http://localhost:9200"
 	}
 
-	endpoint = strings.TrimRight(endpoint, "/")
-	indexName := dest.IndexName
-	if indexName == "" {
-		indexName = "firehose"
-	}
-
-	bulkURL := fmt.Sprintf("%s/%s/_bulk", endpoint, indexName)
+	bulkURL := fmt.Sprintf("%s/%s/_bulk", strings.TrimRight(endpoint, "/"), index)
 
 	bodyBytes := buildOpenSearchBulkBody(records)
 	if bodyBytes == nil {
-		return
+		return nil
 	}
 
 	maxRetry := httpMaxRetryDuration
@@ -77,27 +174,22 @@ func (b *InMemoryBackend) deliverToOpenSearch(
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, bulkURL, bytes.NewReader(bodyBytes))
 		if reqErr != nil {
 			logger.Load(ctx).WarnContext(ctx,
-				"firehose: failed to build OpenSearch bulk request", "error", reqErr, "stream", streamARN)
+				"firehose: failed to build OpenSearch bulk request", "stream", streamARN)
 
-			return
+			return failAllRecords(records, "ES.ServiceException", "failed to build request")
 		}
 
 		req.Header.Set("Content-Type", "application/x-ndjson")
 
 		resp, doErr := client.Do(req)
 		if checkHTTPDeliveryResponse(ctx, resp, doErr) {
-			return
+			return nil
 		}
 
-		if time.Now().After(deadline) {
-			logger.Load(ctx).WarnContext(ctx, "firehose: OpenSearch delivery failed after retries",
-				"url", bulkURL, "stream", streamARN)
+		if time.Now().After(deadline) || !httpDeliveryBackoff(ctx, deadline, &backoff) {
+			logger.Load(ctx).WarnContext(ctx, "firehose: OpenSearch delivery failed after retries", "stream", streamARN)
 
-			return
-		}
-
-		if !httpDeliveryBackoff(ctx, deadline, &backoff) {
-			return
+			return failAllRecords(records, "ES.ServiceException", "bulk request failed after retries")
 		}
 	}
 }

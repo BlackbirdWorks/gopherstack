@@ -19,17 +19,14 @@ type partitionGroup struct {
 }
 
 // resolvePartitions groups records by the dynamic-partitioning prefix they resolve to.
-//
-// When dynamic partitioning is disabled or the prefix contains no partition-key
-// expressions, all records map to a single group with the literal prefix. Otherwise each
-// record's JSON body is evaluated against every !{partitionKeyFromQuery:<jq>} expression in
-// the prefix; records whose keys all resolve are grouped under the substituted prefix, and
-// records that cannot be partitioned (non-JSON body or a missing key) are returned as
-// failures so the caller routes them to the error output — matching AWS behaviour.
+// lambdaKeys (parallel to records, may be nil) are processor partitionKeys and query maps keyID to
+// its jq path; records with unresolvable keys are returned as failures.
 func resolvePartitions(
 	records [][]byte,
+	lambdaKeys []map[string]string,
 	prefix string,
 	dp *DynamicPartitioningConfiguration,
+	query map[string]string,
 ) ([]partitionGroup, [][]byte) {
 	exprs := extractPartitionExpressions(prefix)
 	if dp == nil || !dp.Enabled || len(exprs) == 0 {
@@ -40,8 +37,13 @@ func resolvePartitions(
 	byPrefix := make(map[string][][]byte)
 	order := make([]string, 0)
 
-	for _, rec := range records {
-		resolved, ok := resolveRecordPrefix(rec, prefix, exprs)
+	for i, rec := range records {
+		var keys map[string]string
+		if i < len(lambdaKeys) {
+			keys = lambdaKeys[i]
+		}
+
+		resolved, ok := resolveRecordPrefix(rec, keys, prefix, exprs, query)
 		if !ok {
 			failed = append(failed, rec)
 
@@ -60,6 +62,102 @@ func resolvePartitions(
 	}
 
 	return groups, failed
+}
+
+// partitionValue resolves one expression, decoding the record's JSON at most once.
+func partitionValue(
+	rec []byte,
+	obj *map[string]any,
+	parsed *bool,
+	lambdaKeys map[string]string,
+	expr partitionExpression,
+	query map[string]string,
+) (string, bool) {
+	if expr.namespace == partitionLambdaNamespace {
+		val, ok := lambdaKeys[expr.jqPath]
+
+		return val, ok
+	}
+
+	if !*parsed {
+		*parsed = true
+		if err := json.Unmarshal(rec, obj); err != nil {
+			return "", false
+		}
+	}
+
+	path, found := query[expr.jqPath]
+	if !found && strings.HasPrefix(expr.jqPath, ".") {
+		path, found = expr.jqPath, true
+	}
+
+	if !found || *obj == nil {
+		return "", false
+	}
+
+	return evalJQPath(*obj, path)
+}
+
+// metadataExtractionQuery parses the MetadataExtraction processor's {key: .path, ...} query
+// into keyID -> path. Only plain object construction over simple paths is understood.
+func metadataExtractionQuery(pc *ProcessingConfiguration) map[string]string {
+	if pc == nil {
+		return nil
+	}
+
+	for _, proc := range pc.Processors {
+		if proc.Type != "MetadataExtraction" {
+			continue
+		}
+
+		for _, p := range proc.Parameters {
+			if p.ParameterName == "MetadataExtractionQuery" {
+				return parseExtractionQuery(p.ParameterValue)
+			}
+		}
+	}
+
+	return nil
+}
+
+func parseExtractionQuery(q string) map[string]string {
+	q = strings.TrimSpace(q)
+	q = strings.TrimSuffix(strings.TrimPrefix(q, "{"), "}")
+
+	out := make(map[string]string)
+
+	for _, part := range splitTopLevel(q) {
+		key, path, ok := strings.Cut(part, ":")
+		if !ok {
+			continue
+		}
+
+		out[strings.Trim(strings.TrimSpace(key), `"`)] = strings.TrimSpace(path)
+	}
+
+	return out
+}
+
+func splitTopLevel(s string) []string {
+	var parts []string
+
+	depth, start := 0, 0
+
+	for i, r := range s {
+		switch r {
+		case '[', '(', '{':
+			depth++
+		case ']', ')', '}':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+
+	return append(parts, s[start:])
 }
 
 // partitionExpression is a single !{namespace:jqPath} token found in a prefix.
@@ -101,53 +199,85 @@ func extractPartitionExpressions(prefix string) []partitionExpression {
 	return exprs
 }
 
-// resolveRecordPrefix substitutes every partition expression in prefix using values
-// extracted from the record's JSON body. It returns ok=false when the record is not a
-// JSON object or when any referenced key is missing.
-func resolveRecordPrefix(rec []byte, prefix string, exprs []partitionExpression) (string, bool) {
+// resolveRecordPrefix substitutes every partition expression in prefix. It returns ok=false
+// when a referenced key cannot be resolved for the record.
+func resolveRecordPrefix(
+	rec []byte,
+	lambdaKeys map[string]string,
+	prefix string,
+	exprs []partitionExpression,
+	query map[string]string,
+) (string, bool) {
 	var obj map[string]any
-	if err := json.Unmarshal(rec, &obj); err != nil {
-		return "", false
-	}
 
+	parsed := false
 	resolved := prefix
+
 	for _, expr := range exprs {
-		val, ok := evalJQPath(obj, expr.jqPath)
-		if !ok {
+		val, ok := partitionValue(rec, &obj, &parsed, lambdaKeys, expr, query)
+		if !ok || val == "" {
 			return "", false
 		}
+
 		resolved = strings.ReplaceAll(resolved, expr.token, val)
 	}
 
 	return resolved, true
 }
 
-// evalJQPath evaluates a simple jq-style path (e.g. ".a.b") against a decoded JSON object
-// and returns the value rendered as a string. Only object traversal with dotted keys is
-// supported, which covers the common Firehose partitioning expressions.
+// evalJQPath evaluates a simple jq path (".a.b", ".a[0].b") against a decoded JSON object
+// and returns the scalar rendered as a string.
 func evalJQPath(obj map[string]any, path string) (string, bool) {
-	trimmed := strings.TrimSpace(path)
-	trimmed = strings.TrimPrefix(trimmed, ".")
+	trimmed := strings.TrimPrefix(strings.TrimSpace(path), ".")
 	if trimmed == "" {
 		return "", false
 	}
 
-	segments := strings.Split(trimmed, ".")
-
 	var cur any = obj
-	for _, seg := range segments {
-		m, ok := cur.(map[string]any)
-		if !ok {
+
+	for seg := range strings.SplitSeq(trimmed, ".") {
+		name, rest, _ := strings.Cut(seg, "[")
+
+		if name != "" {
+			m, ok := cur.(map[string]any)
+			if !ok {
+				return "", false
+			}
+
+			if cur, ok = m[name]; !ok {
+				return "", false
+			}
+		}
+
+		var ok bool
+		if cur, ok = indexInto(cur, rest); !ok {
 			return "", false
 		}
-		next, ok := m[seg]
-		if !ok {
-			return "", false
-		}
-		cur = next
 	}
 
 	return scalarToString(cur)
+}
+
+// indexInto applies the "0][1]" index suffix left after a segment's name.
+func indexInto(cur any, rest string) (any, bool) {
+	for rest != "" {
+		num, tail, found := strings.Cut(rest, "]")
+		if !found {
+			return nil, false
+		}
+
+		idx, err := strconv.Atoi(num)
+		arr, isArr := cur.([]any)
+
+		if err != nil || !isArr || idx < 0 || idx >= len(arr) {
+			return nil, false
+		}
+
+		cur = arr[idx]
+		rest = strings.TrimPrefix(tail, "[")
+	}
+
+	return cur, true
 }
 
 // scalarToString renders a scalar JSON value as a partition-key string. Objects, arrays,
