@@ -96,9 +96,8 @@ func resolveOp(op sdkOp, dispatch map[string]ast.Expr, ctx handlerResolveCtx) op
 	return res
 }
 
-// resolveBestDispatchValue resolves expr plus any same-keyed entry from a
-// second in-package table, keeping the candidate whose declared fields best
-// overlap op's own SDK fields (redshift classic vs serverless).
+// resolveBestDispatchValue keeps whichever same-keyed dispatch entry best overlaps op's
+// SDK fields (redshift classic vs serverless tables).
 func resolveBestDispatchValue(
 	op sdkOp,
 	expr ast.Expr,

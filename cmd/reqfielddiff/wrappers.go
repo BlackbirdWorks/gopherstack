@@ -318,9 +318,8 @@ func callbackTargetsTypeParam(ft *ast.FuncType, typeParams map[string]bool) bool
 	return name != "" && typeParams[name]
 }
 
-// collectQueryKeyForwarders finds every package func or method that forwards
-// any of its string parameters, directly or via another forwarder, into a
-// query read (efs' describeListResponse passing maxKey to queryInt).
+// collectQueryKeyForwarders finds funcs forwarding a string parameter, directly or via
+// another forwarder, into a query read (efs' describeListResponse -> queryInt).
 func collectQueryKeyForwarders(files []*ast.File, base map[string]int) map[string][]int {
 	out := map[string][]int{}
 	for name, idx := range base {

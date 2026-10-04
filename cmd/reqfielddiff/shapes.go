@@ -14,9 +14,8 @@ const (
 	maxHeaderHops    = 3
 )
 
-// matchSignatureReqStruct credits the struct a (context.Context, *In)-shaped
-// handler takes as its request, for handlers reached by name rather than a
-// WrapOp-bearing table entry.
+// matchSignatureReqStruct credits the *In of a (context.Context, *In) handler reached by
+// name rather than through a WrapOp table entry.
 func matchSignatureReqStruct(fl funcLike, ctx handlerResolveCtx, res *opResolution) {
 	if fl.Params == nil {
 		return
@@ -212,9 +211,8 @@ func addSDKInputDecode(typeName string, ctx handlerResolveCtx, res *opResolution
 //nolint:gochecknoglobals // read-only lookup table, same pattern as queryParamSelectors
 var requestFormSelectors = map[string]bool{"FormValue": true, "PostFormValue": true}
 
-// matchRequestFormCall matches r.FormValue(key) / r.Form.Get(key) /
-// r.PostForm.Get(key) where key is a literal or Sprintf prefix naming one of
-// this op's fields (sns' Attributes.entry.%d.key).
+// matchRequestFormCall matches r.FormValue/Form.Get/PostForm.Get keyed by a literal or
+// Sprintf prefix naming one of this op's fields (sns' Attributes.entry.%d.key).
 func matchRequestFormCall(
 	call *ast.CallExpr,
 	formKeys map[string]string,
