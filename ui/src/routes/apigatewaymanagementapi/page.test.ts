@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/svelte";
 import ApiGwMgmtPage from "./+page.svelte";
 
 const mockSend = vi.fn();
@@ -46,12 +52,17 @@ const exampleConnection = {
  * /broadcast, /prune), so GET and DELETE on the same "/messages" suffix
  * don't collide.
  */
-function installFetch(routes: Array<[string, string, unknown]>, fallback: unknown = {}) {
+function installFetch(
+  routes: Array<[string, string, unknown]>,
+  fallback: unknown = {},
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, opts?: RequestInit) => {
       const method = (opts?.method ?? "GET").toUpperCase();
-      const match = routes.find(([m, suffix]) => m === method && url.endsWith(suffix));
+      const match = routes.find(
+        ([m, suffix]) => m === method && url.endsWith(suffix),
+      );
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(match ? match[2] : fallback),
@@ -105,9 +116,15 @@ describe("API Gateway Management API Page", () => {
     expect(screen.getByText("API Gateway Management API")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/_gopherstack/apigwmgmt/connections");
+      expect(fetch).toHaveBeenCalledWith(
+        "/_gopherstack/apigwmgmt/connections",
+        expect.objectContaining({ headers: expect.any(Headers) }),
+      );
     });
-    expect(fetch).toHaveBeenCalledWith("/_gopherstack/apigwmgmt/stats");
+    expect(fetch).toHaveBeenCalledWith(
+      "/_gopherstack/apigwmgmt/stats",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
   });
 
   it("lists a connection with formatted byte count and message count cells", async () => {
@@ -127,9 +144,12 @@ describe("API Gateway Management API Page", () => {
     await renderWithConnection();
     await selectConnection();
 
-    await fireEvent.input(screen.getByLabelText("Send message (PostToConnection)"), {
-      target: { value: "hello there" },
-    });
+    await fireEvent.input(
+      screen.getByLabelText("Send message (PostToConnection)"),
+      {
+        target: { value: "hello there" },
+      },
+    );
 
     mockSend.mockResolvedValueOnce({});
     await fireEvent.click(screen.getByRole("button", { name: /Send/ }));
@@ -148,9 +168,12 @@ describe("API Gateway Management API Page", () => {
     await renderWithConnection();
     await selectConnection();
 
-    await fireEvent.input(screen.getByLabelText("Send message (PostToConnection)"), {
-      target: { value: "hello there" },
-    });
+    await fireEvent.input(
+      screen.getByLabelText("Send message (PostToConnection)"),
+      {
+        target: { value: "hello there" },
+      },
+    );
 
     const error = Object.assign(new Error("Connection is gone."), {
       name: "GoneException",
@@ -174,9 +197,9 @@ describe("API Gateway Management API Page", () => {
 
     await fireEvent.click(screen.getByText("Heartbeat"));
 
-    expect(screen.getByLabelText("Send message (PostToConnection)")).toHaveValue(
-      '{"type":"heartbeat","seq":1}',
-    );
+    expect(
+      screen.getByLabelText("Send message (PostToConnection)"),
+    ).toHaveValue('{"type":"heartbeat","seq":1}');
   });
 
   it("pings the selected connection with no confirmation dialog", async () => {
@@ -308,11 +331,16 @@ describe("API Gateway Management API Page", () => {
             ok: true,
             json: () =>
               Promise.resolve({
-                connections: [{ ...exampleConnection, connectionId: "conn-new" }],
+                connections: [
+                  { ...exampleConnection, connectionId: "conn-new" },
+                ],
               }),
           });
         }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultStats) });
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(defaultStats),
+        });
       }),
     );
 
@@ -342,10 +370,14 @@ describe("API Gateway Management API Page", () => {
         if (url.endsWith("/connections") && opts?.method === "POST") {
           return Promise.resolve({
             ok: false,
-            json: () => Promise.resolve({ message: "Connection ID already in use." }),
+            json: () =>
+              Promise.resolve({ message: "Connection ID already in use." }),
           });
         }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ connections: [] }) });
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ connections: [] }),
+        });
       }),
     );
     const { toast } = await import("svelte-sonner");
@@ -374,17 +406,28 @@ describe("API Gateway Management API Page", () => {
       vi.fn((url: string, opts?: RequestInit) => {
         if (url.endsWith("/broadcast")) {
           capturedBody = JSON.parse(opts?.body as string);
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({ delivered: 2 }) });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ delivered: 2 }),
+          });
         }
         if (url.endsWith("/connections")) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({ connections: [] }) });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ connections: [] }),
+          });
         }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultStats) });
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(defaultStats),
+        });
       }),
     );
 
     await fireEvent.click(
-      withinModal("Broadcast to all connections").getByRole("button", { name: "Broadcast" }),
+      withinModal("Broadcast to all connections").getByRole("button", {
+        name: "Broadcast",
+      }),
     );
 
     await waitFor(() => {
@@ -392,7 +435,9 @@ describe("API Gateway Management API Page", () => {
     });
     const { toast } = await import("svelte-sonner");
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Broadcast delivered to 2 connection(s)");
+      expect(toast.success).toHaveBeenCalledWith(
+        "Broadcast delivered to 2 connection(s)",
+      );
     });
   });
 
@@ -410,17 +455,28 @@ describe("API Gateway Management API Page", () => {
       vi.fn((url: string, opts?: RequestInit) => {
         if (url.endsWith("/prune")) {
           capturedBody = JSON.parse(opts?.body as string);
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({ pruned: ["conn-1"] }) });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ pruned: ["conn-1"] }),
+          });
         }
         if (url.endsWith("/connections")) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({ connections: [] }) });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ connections: [] }),
+          });
         }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultStats) });
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(defaultStats),
+        });
       }),
     );
 
     await fireEvent.click(
-      withinModal("Prune idle connections").getByRole("button", { name: "Prune" }),
+      withinModal("Prune idle connections").getByRole("button", {
+        name: "Prune",
+      }),
     );
 
     await waitFor(() => {
@@ -433,7 +489,11 @@ describe("API Gateway Management API Page", () => {
   });
 
   it("filters connections by id, IP, or user agent via the search box", async () => {
-    const other = { ...exampleConnection, connectionId: "conn-2", sourceIp: "198.51.100.9" };
+    const other = {
+      ...exampleConnection,
+      connectionId: "conn-2",
+      sourceIp: "198.51.100.9",
+    };
     installFetch([
       ["GET", "/connections", { connections: [exampleConnection, other] }],
       ["GET", "/stats", defaultStats],
@@ -442,16 +502,21 @@ describe("API Gateway Management API Page", () => {
     await waitFor(() => screen.getByText("conn-1"));
     expect(screen.getByText("conn-2")).toBeInTheDocument();
 
-    await fireEvent.input(screen.getByPlaceholderText("Search id, IP, or user-agent"), {
-      target: { value: "198.51.100.9" },
-    });
+    await fireEvent.input(
+      screen.getByPlaceholderText("Search id, IP, or user-agent"),
+      {
+        target: { value: "198.51.100.9" },
+      },
+    );
 
     expect(screen.getByText("conn-2")).toBeInTheDocument();
     expect(screen.queryByText("conn-1")).not.toBeInTheDocument();
   });
 
   it("copies the connection id to the clipboard", async () => {
-    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(null) } });
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(null) },
+    });
     await renderWithConnection();
     await selectConnection();
 

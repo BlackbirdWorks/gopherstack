@@ -2967,11 +2967,34 @@ func TestAWSMetaMiddleware_PopulatesCtxbag(t *testing.T) {
 		name          string
 		authHeader    string
 		accountHeader string
+		regionHeader  string
 		defaultRegion string
 		defaultAcct   string
 		wantRegion    string
 		wantAccount   string
 	}{
+		{
+			name:          "dashboard region header applies when unsigned",
+			regionHeader:  "eu-west-1",
+			defaultRegion: "us-east-1",
+			wantRegion:    "eu-west-1",
+			wantAccount:   awsmeta.DefaultAccount,
+		},
+		{
+			name:          "invalid dashboard region header ignored",
+			regionHeader:  "not-a-region",
+			defaultRegion: "us-east-1",
+			wantRegion:    "us-east-1",
+			wantAccount:   awsmeta.DefaultAccount,
+		},
+		{
+			name:          "dashboard region header ignored when signed",
+			regionHeader:  "eu-west-1",
+			authHeader:    "AWS4-HMAC-SHA256 Credential=AKIA/20260606/ap-south-1/s3/aws4_request",
+			defaultRegion: "us-east-1",
+			wantRegion:    "ap-south-1",
+			wantAccount:   awsmeta.DefaultAccount,
+		},
 		{
 			name:          "falls back to configured defaults",
 			defaultRegion: "eu-west-1",
@@ -3020,6 +3043,10 @@ func TestAWSMetaMiddleware_PopulatesCtxbag(t *testing.T) {
 
 			if tt.accountHeader != "" {
 				req.Header.Set("X-Amz-Account-Id", tt.accountHeader)
+			}
+
+			if tt.regionHeader != "" {
+				req.Header.Set(dashboardRegionHeader, tt.regionHeader)
 			}
 
 			rec := httptest.NewRecorder()

@@ -26,6 +26,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dashboard/api/v1/dashboardv1connect"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -1428,12 +1429,21 @@ func (h *DashboardHandler) registerCognitoUserAdminRoutes() {
 
 // appConfigDataBackend returns the backend of the request's ?region= query parameter (home when absent).
 func (h *DashboardHandler) appConfigDataBackend(c *echo.Context) *appconfigdatabackend.InMemoryBackend {
-	return h.config.AppConfigDataOps.BackendFor(c.QueryParam(regionQueryParam))
+	return h.config.AppConfigDataOps.BackendFor(requestRegion(c))
 }
 
 // apiGatewayManagementBackend returns the backend of the request's ?region= query parameter (home when absent).
 func (h *DashboardHandler) apiGatewayManagementBackend(c *echo.Context) apigwmgmtbackend.StorageBackend {
-	return h.config.APIGatewayManagementAPIOps.BackendFor(c.QueryParam(regionQueryParam))
+	return h.config.APIGatewayManagementAPIOps.BackendFor(requestRegion(c))
+}
+
+// requestRegion returns ?region=, else the region the request context carries (empty means home).
+func requestRegion(c *echo.Context) string {
+	if r := c.QueryParam(regionQueryParam); r != "" {
+		return r
+	}
+
+	return awsmeta.Region(c.Request().Context())
 }
 
 // registerAppConfigDataSessionRoutes handles AppConfigData session

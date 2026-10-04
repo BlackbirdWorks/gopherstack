@@ -13337,6 +13337,9 @@ func panicRecoveryMiddleware() echo.MiddlewareFunc {
 	}
 }
 
+// dashboardRegionHeader carries the dashboard's selected region on unsigned browser requests.
+const dashboardRegionHeader = "X-Gopherstack-Region"
+
 // awsMetaMiddleware populates the per-request AWS metadata ctxbag (account,
 // region, partition, request ID) and threads the same fields onto the context
 // logger so every record emitted via logger.Load(ctx) is tagged uniformly.
@@ -13348,6 +13351,11 @@ func awsMetaMiddleware(defaultRegion, defaultAccount string) echo.MiddlewareFunc
 		return func(c *echo.Context) error {
 			req := c.Request()
 			meta := awsmeta.FromRequest(req, defaultRegion)
+
+			if r := req.Header.Get(dashboardRegionHeader); r != "" && req.Header.Get("Authorization") == "" &&
+				regionpeers.ValidRegion(r) {
+				meta.Region = r
+			}
 
 			// FromRequest defaults the account to awsmeta.DefaultAccount; honor
 			// the operator-configured account when no per-request override was
