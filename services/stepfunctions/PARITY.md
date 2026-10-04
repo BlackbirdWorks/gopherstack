@@ -1523,3 +1523,8 @@ Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
 - An uncaught Task error now fails the execution with the task's own error name and Cause (DescribeExecution `error`/`cause`: "The error string if the state machine execution failed"); non-AWS-shaped errors become `States.TaskFailed`. It used to be the bare name `TaskFailed`.
 - http:invoke reads credentials through `eventbridge.ResolveConnectionAuth` (an AUTHORIZED connection only; otherwise `Events.ConnectionResource.InvalidConnectionState` or `ResourceNotFound`); `TestStepFunctionsHTTPTaskEventBridgeConnections` drives it with connections made by the typed EventBridge client.
 - Tests: `cli_sfn_http_task_test.go` (typed StartSyncExecution: HTTP success/non-2xx/auth/transform/authz, Glue and ECS `.sync`).
+
+## 2026-10-03 Region-correct cross-service targets
+
+- Executions now run on a context carrying the state machine's region (`execContext`), so the legacy ECS and Glue adapters resolve that region's backend. ECS also honours the `Cluster`/`TaskDefinition` ARN region; `.sync` polling follows the task's cluster ARN region.
+- Proof: `TestExecutionContextCarriesBackendRegion`, `TestInitializeServices_CrossServiceECSTargetsUseOriginRegion`, `TestInitializeServices_CrossServiceGlueAndTaggingUseOriginRegion`.

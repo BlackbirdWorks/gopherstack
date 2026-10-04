@@ -11,6 +11,7 @@ import (
 	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	dynamodbpkg "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -398,12 +399,12 @@ func (a *dynamoDBAdapter) SFNDeleteTable(ctx context.Context, input any) (any, e
 // ecsSyncAdapter adapts ecs.InMemoryBackend to asl.ECSSyncWaiter, polling
 // DescribeTasks for the task(s) a ".sync" RunTask started (gopherstack-tdp6).
 type ecsSyncAdapter struct {
-	backend *ecsbackend.InMemoryBackend
+	backendFor func(region string) *ecsbackend.InMemoryBackend
 }
 
-// NewECSSyncWaiter creates an ECS ".sync" pattern poller.
-func NewECSSyncWaiter(backend *ecsbackend.InMemoryBackend) asl.ECSSyncWaiter {
-	return &ecsSyncAdapter{backend: backend}
+// NewECSSyncWaiter creates an ECS ".sync" poller; backendFor maps a task's cluster-ARN region to its backend.
+func NewECSSyncWaiter(backendFor func(region string) *ecsbackend.InMemoryBackend) asl.ECSSyncWaiter {
+	return &ecsSyncAdapter{backendFor: backendFor}
 }
 
 const ecsTaskStatusStopped = "STOPPED"
@@ -418,7 +419,9 @@ func (a *ecsSyncAdapter) SFNPollSyncTask(_ context.Context, runTaskResult any) (
 	described := make([]ecsbackend.Task, 0, len(started))
 
 	for _, t := range started {
-		out, failures, err := a.backend.DescribeTasks(t.ClusterArn, []string{t.TaskArn})
+		out, failures, err := a.backendFor(regionFromARN(t.ClusterArn, "")).DescribeTasks(
+			t.ClusterArn, []string{t.TaskArn},
+		)
 		if err != nil {
 			return asl.ECSSyncPoll{}, err
 		}
@@ -495,12 +498,12 @@ func extractECSTasks(runTaskResult any) []ecsbackend.Task {
 // glueSyncAdapter adapts glue.InMemoryBackend to asl.GlueSyncWaiter, polling
 // GetJobRun for the job run a ".sync" StartJobRun started (gopherstack-tdp6).
 type glueSyncAdapter struct {
-	backend *gluebackend.InMemoryBackend
+	backendFor func(region string) *gluebackend.InMemoryBackend
 }
 
-// NewGlueSyncWaiter creates a Glue ".sync" pattern poller.
-func NewGlueSyncWaiter(backend *gluebackend.InMemoryBackend) asl.GlueSyncWaiter {
-	return &glueSyncAdapter{backend: backend}
+// NewGlueSyncWaiter creates a Glue ".sync" poller; backendFor maps the execution's region to its backend.
+func NewGlueSyncWaiter(backendFor func(region string) *gluebackend.InMemoryBackend) asl.GlueSyncWaiter {
+	return &glueSyncAdapter{backendFor: backendFor}
 }
 
 // SFNPollSyncJobRun implements asl.GlueSyncWaiter. Terminal JobRunState
@@ -509,8 +512,8 @@ func NewGlueSyncWaiter(backend *gluebackend.InMemoryBackend) asl.GlueSyncWaiter 
 // are all terminal failures (this backend's reconciler only ever produces
 // SUCCEEDED, TIMEOUT, or STOPPED -- see services/glue/reconciler.go -- the
 // rest are handled defensively).
-func (a *glueSyncAdapter) SFNPollSyncJobRun(_ context.Context, jobName, runID string) (asl.GlueSyncPoll, error) {
-	run, err := a.backend.GetJobRun(jobName, runID)
+func (a *glueSyncAdapter) SFNPollSyncJobRun(ctx context.Context, jobName, runID string) (asl.GlueSyncPoll, error) {
+	run, err := a.backendFor(awsmeta.Region(ctx)).GetJobRun(jobName, runID)
 	if err != nil {
 		return asl.GlueSyncPoll{}, err
 	}

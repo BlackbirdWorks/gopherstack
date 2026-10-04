@@ -302,7 +302,7 @@ func (b *InMemoryBackend) PutLogEvents(
 
 	// Emit CloudWatch metrics for matched metric filters (no lock held).
 	if len(metricMatches) > 0 && emitter != nil {
-		b.emitMetricFilterMatches(emitter, metricMatches)
+		b.emitMetricFilterMatches(emitter, region, metricMatches)
 	}
 
 	b.scheduleFilterDelivery(groupName, streamName, eventsForDelivery, filtersForDelivery)

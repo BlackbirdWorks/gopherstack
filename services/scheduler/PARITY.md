@@ -762,3 +762,7 @@ Gates: `go build ./...`, `go vet ./services/scheduler/...`, `go test -race
 `golangci-lint run --new-from-rev=HEAD ./services/scheduler/...` (0
 issues). `go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/
 snapshot changes.
+
+## 2026-10-03 ECS target region
+
+- The ECS universal target runs the task in the region named by the task-definition ARN (falling back to the context region, then home). Proof: `TestInitializeServices_CrossServiceECSTargetsUseOriginRegion`.

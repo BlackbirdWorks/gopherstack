@@ -151,3 +151,22 @@ func (s *Set[T]) Restore(data []byte, restore func(*T, []byte) error, closeFn fu
 
 	return nil
 }
+
+// Backend returns the backend serving region from backendFor (a handler's
+// BackendFor method) as T; ok is false when it is not a T.
+func Backend[T, I any](backendFor func(region string) I, region string) (T, bool) {
+	bk, ok := any(backendFor(region)).(T)
+
+	return bk, ok
+}
+
+// First returns the first non-empty region, or "" (the home region).
+func First(regions ...string) string {
+	for _, r := range regions {
+		if r != "" {
+			return r
+		}
+	}
+
+	return ""
+}

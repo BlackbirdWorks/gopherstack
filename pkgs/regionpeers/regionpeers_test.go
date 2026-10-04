@@ -139,3 +139,62 @@ func TestSet_All(t *testing.T) {
 	var nilSet *regionpeers.Set[fake]
 	assert.Empty(t, nilSet.All())
 }
+
+func TestFirst(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+		in   []string
+	}{
+		{name: "first-non-empty", in: []string{"", "eu-west-1", "us-west-2"}, want: "eu-west-1"},
+		{name: "all-empty", in: []string{"", ""}},
+		{name: "none"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, regionpeers.First(tc.in...))
+		})
+	}
+}
+
+func TestBackend(t *testing.T) {
+	t.Parallel()
+
+	s := newSet()
+	home := &fake{region: "us-east-1"}
+	backendFor := func(region string) any {
+		if p := s.Get(region); p != nil {
+			return p
+		}
+
+		return home
+	}
+
+	tests := []struct {
+		name   string
+		region string
+		want   string
+	}{
+		{name: "home", region: "us-east-1", want: "us-east-1"},
+		{name: "empty-is-home", region: "", want: "us-east-1"},
+		{name: "sibling", region: "eu-west-1", want: "eu-west-1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := regionpeers.Backend[*fake](backendFor, tc.region)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, got.region)
+		})
+	}
+
+	_, ok := regionpeers.Backend[*string](backendFor, "eu-west-1")
+	assert.False(t, ok)
+}

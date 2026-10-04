@@ -16,15 +16,15 @@ import (
 // It is implemented by the CloudWatch backend and injected into InMemoryBackend
 // so that SQS operations can be forwarded to CloudWatch as metrics.
 type MetricEmitter interface {
-	EmitMetric(namespace, name string, value float64, unit string) error
+	EmitMetric(region, namespace, name string, value float64, unit string) error
 }
 
 // MetricEmitterFunc is a function adapter for MetricEmitter.
-type MetricEmitterFunc func(namespace, name string, value float64, unit string) error
+type MetricEmitterFunc func(region, namespace, name string, value float64, unit string) error
 
 // EmitMetric implements MetricEmitter.
-func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, unit string) error {
-	return f(namespace, name, value, unit)
+func (f MetricEmitterFunc) EmitMetric(region, namespace, name string, value float64, unit string) error {
+	return f(region, namespace, name, value, unit)
 }
 
 // sqsMetricNamespace is the CloudWatch namespace used for SQS metrics.
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
 	b.metricEmitter = e
 }
 
-func (b *InMemoryBackend) emitMetric(name string, value float64) {
+func (b *InMemoryBackend) emitMetric(region, name string, value float64) {
 	var e MetricEmitter
 	func() {
 		b.mu.RLock("emitMetric")
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) emitMetric(name string, value float64) {
 
 	// Emit asynchronously without holding the lock.
 	go func() {
-		_ = e.EmitMetric(sqsMetricNamespace, name, value, sqsMetricUnitCount)
+		_ = e.EmitMetric(region, sqsMetricNamespace, name, value, sqsMetricUnitCount)
 	}()
 }
 

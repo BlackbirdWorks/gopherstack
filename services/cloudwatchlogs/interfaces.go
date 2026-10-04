@@ -24,16 +24,16 @@ func (f SubscriptionDelivererFunc) DeliverLogEvents(
 // It is implemented by the CloudWatch backend and injected into InMemoryBackend
 // so that metric filter matches on PutLogEvents can be forwarded to CloudWatch.
 type MetricEmitter interface {
-	// EmitMetric records a single metric data point with the given namespace, name, value, and unit.
-	EmitMetric(namespace, name string, value float64, unit string) error
+	// EmitMetric records a data point in region with the given namespace, name, value, and unit.
+	EmitMetric(region, namespace, name string, value float64, unit string) error
 }
 
 // MetricEmitterFunc is a function adapter for MetricEmitter.
-type MetricEmitterFunc func(namespace, name string, value float64, unit string) error
+type MetricEmitterFunc func(region, namespace, name string, value float64, unit string) error
 
 // EmitMetric implements MetricEmitter.
-func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, unit string) error {
-	return f(namespace, name, value, unit)
+func (f MetricEmitterFunc) EmitMetric(region, namespace, name string, value float64, unit string) error {
+	return f(region, namespace, name, value, unit)
 }
 
 // StorageBackend is the interface for a CloudWatch Logs in-memory store.

@@ -75,6 +75,7 @@ func (b *InMemoryBackend) matchingMetricFilters(
 // metricTransformationValue (a literal MetricValue, or a per-event field extraction).
 func (b *InMemoryBackend) emitMetricFilterMatches(
 	emitter MetricEmitter,
+	region string,
 	matches []metricFilterMatch,
 ) {
 	for _, m := range matches {
@@ -85,7 +86,7 @@ func (b *InMemoryBackend) emitMetricFilterMatches(
 				if !ok {
 					continue
 				}
-				if emitErr := emitter.EmitMetric(t.MetricNamespace, t.MetricName, val, t.Unit); emitErr != nil {
+				if emitErr := emitter.EmitMetric(region, t.MetricNamespace, t.MetricName, val, t.Unit); emitErr != nil {
 					logger.Load(b.ctx).Warn(
 						"cloudwatchlogs: metric filter emit failed",
 						"namespace", t.MetricNamespace,

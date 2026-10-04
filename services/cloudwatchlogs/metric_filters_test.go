@@ -371,7 +371,7 @@ func TestCloudWatchLogsBackend_MetricFilterEmission(t *testing.T) {
 	var emitted []emittedMetric
 
 	emitter := cloudwatchlogs.MetricEmitterFunc(
-		func(namespace, name string, value float64, _ string) error {
+		func(_, namespace, name string, value float64, _ string) error {
 			mu.Lock()
 			emitted = append(emitted, emittedMetric{namespace: namespace, name: name, value: value})
 			mu.Unlock()
@@ -514,7 +514,7 @@ func TestCloudWatchLogsBackend_MetricFilterEmission_FieldExtraction(t *testing.T
 			var emitted []float64
 
 			emitter := cloudwatchlogs.MetricEmitterFunc(
-				func(_, _ string, value float64, _ string) error {
+				func(_, _, _ string, value float64, _ string) error {
 					mu.Lock()
 					emitted = append(emitted, value)
 					mu.Unlock()

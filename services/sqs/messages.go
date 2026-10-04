@@ -66,7 +66,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, err
 	}
 
-	b.emitMetric("NumberOfMessagesSent", 1)
+	b.emitMetric(q.Region, "NumberOfMessagesSent", 1)
 
 	return out, nil
 }
@@ -341,7 +341,7 @@ func (b *InMemoryBackend) ReceiveMessage(
 		}
 
 		if len(msgs) > 0 {
-			b.emitMetric("NumberOfMessagesReceived", float64(len(msgs)))
+			b.emitMetric(input.Region, "NumberOfMessagesReceived", float64(len(msgs)))
 
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
@@ -397,7 +397,7 @@ func (b *InMemoryBackend) pollReceive(
 
 		if len(msgs) > 0 {
 			count := float64(len(msgs))
-			b.emitMetric("NumberOfMessagesReceived", count)
+			b.emitMetric(input.Region, "NumberOfMessagesReceived", count)
 
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
@@ -576,7 +576,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 	delete(q.inFlightByHandle, input.ReceiptHandle)
 	removeInFlight(q, inf)
 
-	b.emitMetric("NumberOfMessagesDeleted", 1)
+	b.emitMetric(q.Region, "NumberOfMessagesDeleted", 1)
 
 	return nil
 }
@@ -783,7 +783,7 @@ func (b *InMemoryBackend) SendMessageBatch(
 	// Failed slices already match the original entry order without sorting.
 	out := processSendMessageBatchEntries(q, input, preps, throttled, now)
 
-	b.emitMetric("NumberOfMessagesSent", float64(len(out.Successful)))
+	b.emitMetric(q.Region, "NumberOfMessagesSent", float64(len(out.Successful)))
 
 	return out, nil
 }
@@ -849,7 +849,7 @@ func (b *InMemoryBackend) DeleteMessageBatch(
 
 		delete(q.inFlightByHandle, entry.ReceiptHandle)
 		removeInFlight(q, inf)
-		b.emitMetric("NumberOfMessagesDeleted", 1)
+		b.emitMetric(q.Region, "NumberOfMessagesDeleted", 1)
 
 		out.Successful = append(out.Successful, DeleteMessageBatchResultEntry{ID: entry.ID})
 	}

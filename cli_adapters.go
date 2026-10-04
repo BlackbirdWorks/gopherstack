@@ -157,15 +157,17 @@ func (a *azureServiceBusEntitiesAdapter) SubscriptionExists(topic, name string) 
 }
 
 type schedECSAdapter struct {
-	backend *ecs.InMemoryBackend
+	handler *ecs.Handler
+	home    *ecs.InMemoryBackend
 }
 
 func (a *schedECSAdapter) RunSchedulerTask(
-	_ context.Context,
+	ctx context.Context,
 	taskDefARN, launchType string,
 	taskCount int,
 ) error {
-	_, _, err := a.backend.RunTask(ecs.RunTaskInput{
+	bk := regionalECSBackend(a.handler, a.home)(originRegion(ctx, taskDefARN))
+	_, _, err := bk.RunTask(ecs.RunTaskInput{
 		TaskDefinition: taskDefARN,
 		LaunchType:     launchType,
 		Count:          taskCount,

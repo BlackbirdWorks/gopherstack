@@ -3717,60 +3717,8 @@ func wireEFSCrossService(efsReg, ec2Reg service.Registerable) {
 	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
-// wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit
-// CloudWatch metric data points. The repeated identical calls are preserved
-// verbatim from before this decomposition; collapsing them is a behavior
-// change outside the scope of this refactor.
+// wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit CloudWatch metrics.
 func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
 	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
 }
 
@@ -4499,29 +4447,12 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 		return
 	}
 
-	sqsBk, bk1Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend)
-	cwBk, bk2Ok := cwH.Backend.(*cwbackend.InMemoryBackend)
-
-	if !bk1Ok || !bk2Ok {
+	sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	if !bkOk {
 		return
 	}
 
-	sqsBk.SetMetricEmitter(
-		sqsbackend.MetricEmitterFunc(
-			func(namespace, name string, value float64, unit string) error {
-				err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-					{
-						MetricName: name,
-						Value:      value,
-						Unit:       unit,
-						Timestamp:  time.Now(),
-					},
-				})
-
-				return err
-			},
-		),
-	)
+	sqsBk.SetMetricEmitter(sqsbackend.MetricEmitterFunc(regionalMetricEmitter(cwH)))
 }
 
 // wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, SNS, Kinesis Data Streams,
@@ -5475,19 +5406,15 @@ func wireStepFunctionsServiceIntegrations(
 
 	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
 		if ecsBk, ecsBkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); ecsBkOk {
-			sfnBk.SetECSIntegration(ecsBk)
-			// gopherstack-tdp6: poll RunTask's task(s) to STOPPED for the
-			// ".sync" integration pattern instead of dispatching fire-and-forget.
-			sfnBk.SetECSSyncWaiter(sfnbackend.NewECSSyncWaiter(ecsBk))
+			sfnBk.SetECSIntegration(&sfnECSAdapter{handler: ecsH, home: ecsBk})
+			sfnBk.SetECSSyncWaiter(sfnbackend.NewECSSyncWaiter(regionalECSBackend(ecsH, ecsBk)))
 		}
 	}
 
 	if glueH, glueOk := glueReg.(*gluebackend.Handler); glueOk {
 		if glueBk, glueBkOk := glueH.Backend.(*gluebackend.InMemoryBackend); glueBkOk {
-			sfnBk.SetGlueIntegration(glueBk)
-			// gopherstack-tdp6: poll StartJobRun's JobRunState to a terminal
-			// state for the ".sync" integration pattern.
-			sfnBk.SetGlueSyncWaiter(sfnbackend.NewGlueSyncWaiter(glueBk))
+			sfnBk.SetGlueIntegration(&sfnGlueAdapter{handler: glueH, home: glueBk})
+			sfnBk.SetGlueSyncWaiter(sfnbackend.NewGlueSyncWaiter(regionalGlueBackend(glueH, glueBk)))
 		}
 	}
 
@@ -7280,28 +7207,7 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 		return
 	}
 
-	cwBk, cwBkOk := cwH.Backend.(*cwbackend.InMemoryBackend)
-	if !cwBkOk {
-		return
-	}
-
-	cwlogsBk.SetMetricEmitter(
-		cwlogsbackend.MetricEmitterFunc(
-			func(namespace, name string, value float64, unit string) error {
-				err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-					{
-						MetricName: name,
-						Namespace:  namespace,
-						Value:      value,
-						Unit:       unit,
-						Timestamp:  time.Now(),
-					},
-				})
-
-				return err
-			},
-		),
-	)
+	cwlogsBk.SetMetricEmitter(cwlogsbackend.MetricEmitterFunc(regionalMetricEmitter(cwH)))
 }
 
 // wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
@@ -8355,32 +8261,35 @@ func wireTaggingECS(bk resourcegroupstaggingapibackend.StorageBackend, ecsReg se
 		return
 	}
 
-	ecsBk, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend)
+	home, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend)
 	if !ok {
 		return
 	}
 
-	wireTaggingARNResources(
-		bk, "ecs",
-		func(arn string) string { return resourceTypeFromARN(arn, "ecs") },
-		func() []taggedARNEntry {
-			items := ecsBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
+	in := regionalECSBackend(ecsH, home)
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := in(awsmeta.Region(ctx)).TaggedResources()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
 			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN: item.ARN, ResourceType: resourceTypeFromARN(item.ARN, "ecs"), Tags: item.Tags,
+				})
 			}
 
 			return out
 		},
-		func(arn string, newTags map[string]string) error {
-			tagList := make([]ecsbackend.Tag, 0, len(newTags))
-			for k, v := range newTags {
-				tagList = append(tagList, ecsbackend.Tag{Key: k, Value: v})
-			}
-
-			return ecsBk.TagResource(arn, tagList)
+		"ecs",
+		func(_ context.Context, arn string, newTags map[string]string) error {
+			return in(arnRegion(arn)).TagResource(arn, mapToTagSlice(newTags, func(k, v string) ecsbackend.Tag {
+				return ecsbackend.Tag{Key: k, Value: v}
+			}))
 		},
-		ecsBk.UntagResource,
+		func(_ context.Context, arn string, keys []string) error {
+			return in(arnRegion(arn)).UntagResource(arn, keys)
+		},
 	)
 }
 
@@ -14523,7 +14432,7 @@ func wireSchedulerCompute(
 
 	if ecsH, ok := ecsReg.(*ecsbackend.Handler); ok {
 		if ecsBk, ok2 := ecsH.Backend.(*ecsbackend.InMemoryBackend); ok2 {
-			runner.SetECSTaskRunner(&schedECSAdapter{backend: ecsBk})
+			runner.SetECSTaskRunner(&schedECSAdapter{handler: ecsH, home: ecsBk})
 		}
 	}
 }

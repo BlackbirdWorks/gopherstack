@@ -81,6 +81,19 @@ func (h *Handler) BackendFor(region string) Backend {
 	return h.Backend
 }
 
+// RegionBackends returns the home backend followed by every sibling built so far.
+func (h *Handler) RegionBackends() []Backend {
+	peers := h.peers.All()
+	out := make([]Backend, 0, 1+len(peers))
+	out = append(out, h.Backend)
+
+	for _, p := range peers {
+		out = append(out, p.Backend)
+	}
+
+	return out
+}
+
 func (h *Handler) closePeer() {
 	if h.stop != nil {
 		h.stop()

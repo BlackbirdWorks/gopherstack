@@ -72,6 +72,11 @@ credential scope, then `X-Amz-Region`, then the configured default, and stores i
 - **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, and most others.
 - **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs and others build one sibling handler per extra
   region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
+- **Cross-service calls follow the originating resource's region**: SQS and CloudWatch Logs publish metrics to the CloudWatch
+  of the emitting queue or log group's region; Step Functions, Scheduler and the tagging bridge reach the ECS (and Glue)
+  backend of the ARN or execution region via `regionpeers.Backend`. Auto Scaling, CloudFormation, CodeDeploy, Grafana, MGN,
+  Resilience Hub and ELBv2 are not region-isolated, so their EC2/ECS use is the home region by construction; Firehose delivery
+  targets (S3, Lambda, OpenSearch) are single stores.
 - **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
   regions collide); a `knownCollision` case there fails once such a service is fixed.
 

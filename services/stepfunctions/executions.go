@@ -10,8 +10,18 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
+
+// execContext returns the service context carrying the execution's own region for cross-service calls.
+func (b *InMemoryBackend) execContext(execARN string) context.Context {
+	return awsmeta.Set(b.svcCtx, &awsmeta.Metadata{
+		Account:   b.accountID,
+		Region:    regionFromARN(execARN, b.region),
+		Partition: awsmeta.DefaultPartition,
+	})
+}
 
 // PruneExecutions removes executions and history older than the retention period.
 func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
@@ -151,7 +161,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	// Express Workflows must complete within 5 minutes per AWS spec.
 	const expressSyncTimeout = 5 * time.Minute
 
-	syncCtx, syncCancel := context.WithTimeout(b.svcCtx, expressSyncTimeout)
+	syncCtx, syncCancel := context.WithTimeout(b.execContext(execARN), expressSyncTimeout)
 	defer syncCancel()
 
 	// Run synchronously with nil history recorder (sync executions are ephemeral).
@@ -374,7 +384,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// The context is derived from b.svcCtx so that all active executions are
 	// also cancelled when the server shuts down.
 
-	ctx, cancel := context.WithCancel(b.svcCtx)
+	ctx, cancel := context.WithCancel(b.execContext(execArn))
 	b.cancelFns[execArn] = cancel
 
 	return &startedExecution{
@@ -825,7 +835,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 	// Snapshot the (possibly-updated) definition.
 	b.executionDefinitions[executionARN] = definition
 
-	ctx, cancel := context.WithCancel(b.svcCtx)
+	ctx, cancel := context.WithCancel(b.execContext(executionARN))
 	b.cancelFns[executionARN] = cancel
 
 	// No manual "ensure execution is tracked under the SM" step is needed here
