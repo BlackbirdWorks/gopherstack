@@ -58,35 +58,35 @@ func TestPutInsightRule_DefinitionValidation(t *testing.T) {
 		},
 		{
 			name:       "missing Schema",
-			definition: `{"LogFormat":"JSON","LogGroupNames":["g"],"Contribution":{"Keys":["k"]}}`,
+			definition: `{"LogFormat":"JSON","LogGroupNames":["g"],"Contribution":{"Keys":["$.k"]}}`,
 			formSet:    true,
 			wantCode:   http.StatusBadRequest,
 		},
 		{
 			name: "invalid Schema.Name",
 			definition: `{"Schema":{"Name":"NotARealSchema","Version":1},"LogFormat":"JSON",` +
-				`"LogGroupNames":["g"],"Contribution":{"Keys":["k"]}}`,
+				`"LogGroupNames":["g"],"Contribution":{"Keys":["$.k"]}}`,
 			formSet:  true,
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "wrong Schema.Version",
 			definition: `{"Schema":{"Name":"CloudWatchLogRule","Version":2},"LogFormat":"JSON",` +
-				`"LogGroupNames":["g"],"Contribution":{"Keys":["k"]}}`,
+				`"LogGroupNames":["g"],"Contribution":{"Keys":["$.k"]}}`,
 			formSet:  true,
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "invalid LogFormat",
 			definition: `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogFormat":"XML",` +
-				`"LogGroupNames":["g"],"Contribution":{"Keys":["k"]}}`,
+				`"LogGroupNames":["g"],"Contribution":{"Keys":["$.k"]}}`,
 			formSet:  true,
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "missing LogGroupNames",
 			definition: `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogFormat":"JSON",` +
-				`"Contribution":{"Keys":["k"]}}`,
+				`"Contribution":{"Keys":["$.k"]}}`,
 			formSet:  true,
 			wantCode: http.StatusBadRequest,
 		},
@@ -107,7 +107,7 @@ func TestPutInsightRule_DefinitionValidation(t *testing.T) {
 		{
 			name: "AggregateOn Sum without ValueOf",
 			definition: `{"Schema":{"Name":"CloudWatchLogRule2","Version":1},"LogFormat":"JSON",` +
-				`"LogGroupNames":["g"],"AggregateOn":"Sum","Contribution":{"Keys":["k"]}}`,
+				`"LogGroupNames":["g"],"AggregateOn":"Sum","Contribution":{"Keys":["$.k"]}}`,
 			formSet:  true,
 			wantCode: http.StatusBadRequest,
 		},
@@ -117,14 +117,14 @@ func TestPutInsightRule_DefinitionValidation(t *testing.T) {
 			// validateAggregateOn's doc comment for why).
 			name: "AggregateOn Count on base schema is accepted",
 			definition: `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogFormat":"JSON",` +
-				`"LogGroupNames":["g"],"AggregateOn":"Count","Contribution":{"Keys":["k"]}}`,
+				`"LogGroupNames":["g"],"AggregateOn":"Count","Contribution":{"Keys":["$.k"]}}`,
 			formSet:  true,
 			wantCode: http.StatusOK,
 		},
 		{
 			name: "invalid AggregateOn value",
 			definition: `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogFormat":"JSON",` +
-				`"LogGroupNames":["g"],"AggregateOn":"Average","Contribution":{"Keys":["k"]}}`,
+				`"LogGroupNames":["g"],"AggregateOn":"Average","Contribution":{"Keys":["$.k"]}}`,
 			formSet:  true,
 			wantCode: http.StatusBadRequest,
 		},

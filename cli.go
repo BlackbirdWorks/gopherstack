@@ -3721,6 +3721,7 @@ func wireEFSCrossService(efsReg, ec2Reg service.Registerable) {
 // wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit CloudWatch metrics.
 func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+	wireCWInsightRuleLogs(byName["CloudWatchLogs"], byName["CloudWatch"])
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3

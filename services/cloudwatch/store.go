@@ -45,7 +45,8 @@ const (
 	alarmStateOK               = "OK"
 	alarmStateInsufficientData = "INSUFFICIENT_DATA"
 
-	insightRuleStateEnabled = "ENABLED"
+	insightRuleStateEnabled  = "ENABLED"
+	insightRuleStateDisabled = "DISABLED"
 
 	historyTypeStateUpdate         = "StateUpdate"
 	historyTypeConfigurationUpdate = "ConfigurationUpdate"
@@ -88,6 +89,7 @@ type InMemoryBackend struct {
 	asgExecutor      AutoScalingPolicyExecutor
 	ec2Actioner      EC2InstanceActioner
 	lambdaInvoker    LambdaInvoker
+	logEvents        LogEventSource
 	registry         *store.Registry
 	logAlarms        *store.Table[LogAlarm]
 	insightRules     *store.Table[InsightRule]
@@ -163,6 +165,7 @@ func (b *InMemoryBackend) inheritWiring(src *InMemoryBackend) {
 	b.ec2Actioner = src.ec2Actioner
 	b.asgExecutor = src.asgExecutor
 	b.firehosePutter = src.firehosePutter
+	b.logEvents = src.logEvents
 }
 
 // SetSNSPublisher registers an SNS publisher used to fire alarm action notifications.

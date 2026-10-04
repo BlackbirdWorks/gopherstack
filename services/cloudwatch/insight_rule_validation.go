@@ -10,32 +10,19 @@ import (
 // Contribution.Keys entries.
 const maxContributionKeys = 4
 
-// validateInsightRuleDefinition checks that a RuleDefinition parameter is present,
-// well-formed JSON, and matches the structural rules of the Contributor Insights
-// Rule Syntax, matching real CloudWatch's server-side validation (RuleDefinition
-// is a required, JSON-object parameter per the API model even though the SDK
-// types it as an opaque string — AWS itself parses and validates it, rejecting
-// malformed bodies with InvalidParameterValue before a rule is ever created or
-// updated).
-//
-// The Contributor Insights Rule Syntax is not part of the generated SDK model
-// (RuleDefinition is opaque there too, no typed struct to field-diff against) —
-// verified instead against AWS's published syntax reference
-// (https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContributorInsights-RuleSyntax.html).
-// Enforced: Schema.Name (CloudWatchLogRule/CloudWatchLogRule2)/Version (1),
-// LogFormat (JSON/CLF), LogGroupNames (non-empty string array),
-// Contribution.Keys (1-4 string entries), and AggregateOn's Count/Sum enum
-// with the required Contribution.ValueOf when summing. NOT enforced
-// (deliberately, to avoid diverging from real AWS on rules this pass could
-// not verify against a generated type): whether AggregateOn is restricted to
-// a specific Schema.Name (an integration test exercises AggregateOn=Count
-// against the base CloudWatchLogRule schema successfully, so this is not
-// cross-checked), Contribution.Filters' per-match-type field shape, and
-// CLF's Fields position-mapping requirement.
+// maxInsightRuleDefinitionLen is PutInsightRule.RuleDefinition's documented max length.
+const maxInsightRuleDefinitionLen = 8192
+
+// validateInsightRuleDefinition validates a PutInsightRule RuleDefinition against the
+// Contributor Insights rule syntax (ContributorInsights-RuleSyntax.html).
 func validateInsightRuleDefinition(definition string) error {
 	trimmed := strings.TrimSpace(definition)
 	if trimmed == "" {
 		return fmt.Errorf("%w: RuleDefinition parameter is required", ErrValidation)
+	}
+
+	if len(definition) > maxInsightRuleDefinitionLen {
+		return fmt.Errorf("%w: RuleDefinition exceeds %d characters", ErrValidation, maxInsightRuleDefinitionLen)
 	}
 
 	var raw any
@@ -48,7 +35,11 @@ func validateInsightRuleDefinition(definition string) error {
 		return fmt.Errorf("%w: RuleDefinition must be a JSON object", ErrValidation)
 	}
 
-	return validateInsightRuleSchema(obj)
+	if err := validateInsightRuleSchema(obj); err != nil {
+		return err
+	}
+
+	return validateInsightRuleSpec(trimmed)
 }
 
 // validateInsightRuleSchema enforces the structural rules documented in
@@ -108,7 +99,15 @@ func validateInsightRuleSchemaBlock(obj map[string]any) (string, error) {
 // validateContributionKeys validates Contribution.Keys is 1-4 string entries.
 func validateContributionKeys(contribution map[string]any) error {
 	keysRaw, ok := contribution["Keys"].([]any)
-	if !ok || len(keysRaw) == 0 || len(keysRaw) > maxContributionKeys {
+	if ok && len(keysRaw) > maxContributionKeys {
+		return fmt.Errorf(
+			"%w: RuleDefinition.Contribution.Keys allows at most %d entries",
+			ErrInsightRuleLimit,
+			maxContributionKeys,
+		)
+	}
+
+	if !ok || len(keysRaw) == 0 {
 		return fmt.Errorf(
 			"%w: RuleDefinition.Contribution.Keys must be an array of 1-%d strings",
 			ErrValidation, maxContributionKeys,
@@ -124,16 +123,7 @@ func validateContributionKeys(contribution map[string]any) error {
 	return nil
 }
 
-// validateAggregateOn validates AggregateOn/Contribution.ValueOf pairing.
-// AggregateOn's enum (Count/Sum) is enforced unconditionally; ValueOf is
-// required alongside AggregateOn=Sum. The schema-name field is accepted but
-// deliberately NOT cross-checked against AggregateOn here -- AWS's own
-// documentation on which Schema.Name values accept AggregateOn is not
-// verifiable against a generated SDK type (RuleDefinition is opaque there),
-// and this backend has observed AggregateOn used successfully together with
-// the base CloudWatchLogRule schema, contradicting an earlier, stricter draft
-// of this check that required CloudWatchLogRule2 -- reverted rather than risk
-// rejecting valid real-world documents on unverifiable doc-derived rules.
+// validateAggregateOn checks the AggregateOn enum and that Sum has a ValueOf.
 func validateAggregateOn(obj map[string]any, contribution map[string]any, _ string) error {
 	aggOn, hasAggOn := obj["AggregateOn"]
 	if !hasAggOn {
@@ -141,11 +131,11 @@ func validateAggregateOn(obj map[string]any, contribution map[string]any, _ stri
 	}
 
 	aggOnStr, _ := aggOn.(string)
-	if aggOnStr != "Count" && aggOnStr != "Sum" {
+	if aggOnStr != aggregateCount && aggOnStr != aggregateSum {
 		return fmt.Errorf("%w: RuleDefinition.AggregateOn must be Count or Sum", ErrValidation)
 	}
 
-	if aggOnStr == "Sum" {
+	if aggOnStr == aggregateSum {
 		if _, ok := contribution["ValueOf"].(string); !ok {
 			return fmt.Errorf(
 				"%w: RuleDefinition.Contribution.ValueOf is required when AggregateOn is Sum", ErrValidation,

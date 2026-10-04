@@ -482,40 +482,60 @@ func TestCloudWatchHandler_GetInsightRuleReport(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "GetInsightRuleReportResponse")
 }
 
-func TestCloudWatchHandler_GetInsightRuleReport_NotFound(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	rec := postForm(t, h, "Action=GetInsightRuleReport&RuleName=nonexistent")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestCloudWatchHandler_GetInsightRuleReport_WithData(t *testing.T) {
+func TestCloudWatchHandler_GetInsightRuleReport_Params(t *testing.T) {
 	t.Parallel()
 
-	h := newCWHandler()
-	b := h.Backend.(*cloudwatch.InMemoryBackend)
+	const base = "Action=GetInsightRuleReport&RuleName=rule-test&Period=60" +
+		"&StartTime=2000-01-01T00%3A00%3A00Z&EndTime=2100-01-01T00%3A00%3A00Z"
 
-	require.NoError(t, b.PutInsightRule(&cloudwatch.InsightRule{
-		Name: "rule-test", Definition: `{}`, Schema: "CloudWatchLogRule",
-	}))
-
-	_ = b.PutMetricData("App", []cloudwatch.MetricDatum{
+	tests := []struct {
+		name     string
+		body     string
+		wantBody string
+		wantCode int
+	}{
+		{name: "ok", body: base, wantCode: http.StatusOK, wantBody: "<AggregationStatistic>COUNT"},
 		{
-			MetricName: "Hits", Value: 100, Count: 100, Sum: 1000, Min: 5, Max: 15,
-			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}},
+			name:     "unknown rule",
+			body:     strings.Replace(base, "rule-test", "nonexistent", 1),
+			wantCode: http.StatusNotFound,
+			wantBody: "ResourceNotFoundException",
 		},
-	})
+		{
+			name:     "missing period",
+			body:     "Action=GetInsightRuleReport&RuleName=rule-test",
+			wantCode: http.StatusBadRequest,
+			wantBody: "MissingParameter",
+		},
+		{
+			name:     "bad order by",
+			body:     base + "&OrderBy=Average",
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidParameterValue",
+		},
+		{
+			name:     "metrics",
+			body:     base + "&Metrics.member.1=Sum",
+			wantCode: http.StatusOK,
+			wantBody: "GetInsightRuleReportResult",
+		},
+	}
 
-	body := strings.Join([]string{
-		"Action=GetInsightRuleReport",
-		"RuleName=rule-test",
-		"StartTime=2000-01-01T00%3A00%3A00Z",
-		"EndTime=2100-01-01T00%3A00%3A00Z",
-		"MaxContributorCount=5",
-		"OrderBy=Sum",
-	}, "&")
-	rec := postForm(t, h, body)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCWHandler()
+			b := h.Backend.(*cloudwatch.InMemoryBackend)
+			require.NoError(t, b.PutInsightRule(&cloudwatch.InsightRule{
+				Name: "rule-test", Definition: `{}`, Schema: "CloudWatchLogRule",
+			}))
+
+			rec := postForm(t, h, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tc.wantBody)
+		})
+	}
 }
 
 // TestHandler_DeleteInsightRules_CleansUpTags asserts that tags set via

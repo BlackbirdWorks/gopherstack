@@ -374,16 +374,6 @@ type AlarmMuteRule struct {
 	AlarmNames           []string              `json:"AlarmNames"`
 }
 
-// InsightRuleContributor represents a single top-N contributor computed for
-// GetInsightRuleReport (topNContributors/GetInsightRuleContributors). This is
-// a distinct real API type from AlarmContributor below -- the two used to
-// share this Go struct despite having no relationship in the actual API, the
-// same shared-type blind spot recorded in gopherstack-bv5d for cleanrooms.
-type InsightRuleContributor struct {
-	Keys []string `json:"Keys"`
-	Sum  float64  `json:"Sum"`
-}
-
 // AlarmContributor represents a single contributor to a composite alarm's
 // current state, returned by DescribeAlarmContributors. Verified against
 // cloudwatch@v1.66.3 types/types.go:15 (types.AlarmContributor): real fields

@@ -1,13 +1,14 @@
 package cloudwatch
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
-	"time"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
 )
+
+const cborKeyTimestamp = "Timestamp"
 
 func (h *Handler) cborPutInsightRule(input cbor.Map, c *echo.Context) error {
 	return h.cborPutInsightRuleWithName(cborStr(input, "RuleName"), input, c)
@@ -29,6 +30,10 @@ func (h *Handler) cborPutInsightRuleWithName(
 
 	definition := cborStr(input, "RuleDefinition")
 	if err := validateInsightRuleDefinition(definition); err != nil {
+		if errors.Is(err, ErrInsightRuleLimit) {
+			return h.cborError(c, http.StatusBadRequest, "LimitExceededException", err.Error())
+		}
+
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
@@ -37,6 +42,10 @@ func (h *Handler) cborPutInsightRuleWithName(
 		Definition: definition,
 		State:      cborStr(input, "RuleState"),
 	}); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+		}
+
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -148,120 +157,99 @@ func (h *Handler) cborEnableInsightRules(input cbor.Map, c *echo.Context) error 
 }
 
 func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) error {
-	ruleName := cborStr(input, "RuleName")
-	if ruleName == "" {
-		return h.cborError(
-			c,
-			http.StatusBadRequest,
-			"InvalidParameterValue",
-			"RuleName is required",
-		)
+	req := InsightRuleReportRequest{
+		RuleName:        cborStr(input, "RuleName"),
+		Period:          int(cborInt32(input, "Period")),
+		MaxContributors: int(cborInt32(input, "MaxContributorCount")),
+		OrderBy:         cborStr(input, "OrderBy"),
+		Metrics:         cborStringSlice(input["Metrics"]),
 	}
-	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
-		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
-
-	maxContributors := int(cborInt32(input, "MaxContributorCount"))
-	if maxContributors <= 0 {
-		maxContributors = 10
-	}
-	orderBy := cborStr(input, "OrderBy")
-
-	startTime := time.Now().UTC().Add(-time.Hour)
 	if _, ok := input["StartTime"]; ok {
-		startTime = cborTime(input, "StartTime")
+		req.StartTime = cborTime(input, "StartTime")
 	}
-	endTime := time.Now().UTC()
+
 	if _, ok := input["EndTime"]; ok {
-		endTime = cborTime(input, "EndTime")
+		req.EndTime = cborTime(input, "EndTime")
 	}
 
-	var contributors []InsightRuleContributor
-	if bk, ok := h.Backend.(*InMemoryBackend); ok {
-		var innerErr error
-		func() {
-			bk.mu.RLock("GetInsightRuleReport")
-			defer bk.mu.RUnlock()
-			contributors, innerErr = bk.GetInsightRuleContributors(
-				ruleName,
-				startTime,
-				endTime,
-				maxContributors,
-				orderBy,
-			)
-		}()
-		if innerErr != nil {
-			return h.cborError(
-				c,
-				http.StatusBadRequest,
-				"ResourceNotFoundException",
-				innerErr.Error(),
-			)
+	report, err := h.Backend.GetInsightRuleReport(req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrMissingParameter):
+			return h.cborError(c, http.StatusBadRequest, "MissingRequiredParameterException", err.Error())
+		case errors.Is(err, ErrInsightRuleNotFound):
+			return h.cborError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 		}
+
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	contribList := make(cbor.List, 0, len(contributors))
-	var aggregateValue float64
-	for _, contrib := range contributors {
-		keys := make(cbor.List, 0, len(contrib.Keys))
-		for _, k := range contrib.Keys {
-			keys = append(keys, cbor.String(k))
-		}
-		contribList = append(contribList, cbor.Map{
-			"Keys":                      keys,
-			"ApproximateAggregateValue": cbor.Float64(contrib.Sum),
-			// Datapoints is required (types.InsightRuleContributor,
-			// cloudwatch@v1.66.3 schemas/schemas.go:1085) but this backend has
-			// no per-timestamp breakdown to offer (aggregateContributorRecord
-			// only accumulates a single range-wide sum) -- emitted honestly
-			// empty rather than fabricated, matching the top-level
-			// MetricDatapoints field's same documented limitation. NOT
-			// provable via a real aws-sdk-go-v2 client round trip: smithy-go's
-			// rpc-v2-cbor deserializer collapses a present-but-zero-length
-			// list to a nil Go slice identically to an absent key (confirmed
-			// for both this field and MuteTargets.AlarmNames), so this key's
-			// presence is unobservable from the client side. Fixed for wire
-			// correctness anyway; not counted as a proven bug.
-			"Datapoints": cbor.List{},
-		})
-		aggregateValue += contrib.Sum
-	}
-
-	// KeyLabels: extract key expressions from the rule definition (best-effort).
-	rule, _ := h.Backend.GetInsightRule(ruleName)
-	keyLabels := extractInsightRuleKeyLabels(rule)
-
-	return writeCBOR(c, cbor.Map{
-		"KeyLabels":              keyLabels,
-		"AggregationStatistic":   cbor.String("Sum"),
-		"AggregateValue":         cbor.Float64(aggregateValue),
-		"ApproximateUniqueCount": cbor.Uint(uint64(len(contributors))),
-		"Contributors":           contribList,
-		"MetricDatapoints":       cbor.List{},
-	})
+	return writeCBOR(c, insightReportToCBOR(report))
 }
 
-// extractInsightRuleKeyLabels returns a cbor.List of key-label strings from the
-// Contribution.Keys array in the rule definition JSON. Returns an empty list if
-// the rule is nil or the definition cannot be parsed.
-func extractInsightRuleKeyLabels(rule *InsightRule) cbor.List {
-	if rule == nil || rule.Definition == "" {
-		return cbor.List{}
-	}
-	var def struct {
-		Contribution struct {
-			Keys []string `json:"Keys"`
-		} `json:"Contribution"`
-	}
-	if err := json.Unmarshal([]byte(rule.Definition), &def); err != nil {
-		return cbor.List{}
-	}
-	labels := make(cbor.List, 0, len(def.Contribution.Keys))
-	for _, k := range def.Contribution.Keys {
+func insightReportToCBOR(r *InsightRuleReport) cbor.Map {
+	labels := make(cbor.List, 0, len(r.KeyLabels))
+	for _, k := range r.KeyLabels {
 		labels = append(labels, cbor.String(k))
 	}
 
-	return labels
+	contribs := make(cbor.List, 0, len(r.Contributors))
+
+	for _, c := range r.Contributors {
+		keys := make(cbor.List, 0, len(c.Keys))
+		for _, k := range c.Keys {
+			keys = append(keys, cbor.String(k))
+		}
+
+		dps := make(cbor.List, 0, len(c.Datapoints))
+		for _, d := range c.Datapoints {
+			dps = append(dps, cbor.Map{
+				cborKeyTimestamp:   cborFromTime(d.Timestamp),
+				"ApproximateValue": cbor.Float64(d.ApproximateValue),
+			})
+		}
+
+		contribs = append(contribs, cbor.Map{
+			"Keys":                      keys,
+			"ApproximateAggregateValue": cbor.Float64(c.ApproximateAggregateValue),
+			"Datapoints":                dps,
+		})
+	}
+
+	metrics := make(cbor.List, 0, len(r.MetricDatapoints))
+	for _, d := range r.MetricDatapoints {
+		metrics = append(metrics, insightMetricDatapointToCBOR(d))
+	}
+
+	return cbor.Map{
+		"KeyLabels":              labels,
+		"AggregationStatistic":   cbor.String(r.AggregationStatistic),
+		"AggregateValue":         cbor.Float64(r.AggregateValue),
+		"ApproximateUniqueCount": cbor.Uint(uint64(r.ApproximateUniqueCount)), //nolint:gosec // count is never negative
+		"Contributors":           contribs,
+		"MetricDatapoints":       metrics,
+	}
+}
+
+func insightMetricDatapointToCBOR(d InsightRuleMetricDatapoint) cbor.Map {
+	m := cbor.Map{cborKeyTimestamp: cborFromTime(d.Timestamp)}
+
+	stats := []struct {
+		v    *float64
+		name string
+	}{
+		{d.UniqueContributors, statUniqueContributors}, {d.MaxContributorValue, statMaxContributorValue},
+		{d.SampleCount, statSampleCount}, {d.Sum, aggregateSum}, {d.Minimum, statMinimum},
+		{d.Maximum, orderByMaximum}, {d.Average, widgetDefaultStat},
+	}
+
+	for _, st := range stats {
+		if st.v != nil {
+			m[st.name] = cbor.Float64(*st.v)
+		}
+	}
+
+	return m
 }
 
 func (h *Handler) cborListManagedInsightRules(input cbor.Map, c *echo.Context) error {

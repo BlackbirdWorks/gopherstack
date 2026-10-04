@@ -39,6 +39,12 @@ var ErrInsightRuleNotFound = errors.New(errResourceNotFoundException)
 // ErrValidation is returned when a caller provides an invalid or missing parameter.
 var ErrValidation = errors.New("InvalidParameterValue")
 
+// ErrInsightRuleLimit is returned when a rule exceeds a documented Contributor Insights limit.
+var ErrInsightRuleLimit = errors.New("LimitExceeded")
+
+// ErrMissingParameter is returned when a required request parameter is absent.
+var ErrMissingParameter = errors.New("MissingParameter")
+
 // ErrInvalidNextToken is returned when a pagination NextToken is invalid or expired.
 var ErrInvalidNextToken = errors.New("InvalidParameterValue: NextToken is invalid or expired")
 

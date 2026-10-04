@@ -10,101 +10,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// aggregateContributorPoint updates the running aggregation for a single metric record point.
-func aggregateContributorPoint(
-	pt MetricDatum,
-	key string,
-	rec *metricRecord,
-	orderBy string,
-	dimSums map[string]float64,
-	dimKeys map[string][]string,
-) {
-	if _, seen := dimKeys[key]; !seen {
-		keys := make([]string, len(rec.Dimensions))
-		for i, d := range rec.Dimensions {
-			keys[i] = d.Value
-		}
-		dimKeys[key] = keys
-	}
-	if strings.EqualFold(orderBy, statSum) {
-		dimSums[key] += pt.Sum
-	} else {
-		dimSums[key] += pt.Count
-	}
-}
-
-// aggregateContributorRecord accumulates a metric record's in-range points into the maps.
-func aggregateContributorRecord(
-	rec *metricRecord,
-	startTime, endTime time.Time,
-	orderBy string,
-	dimSums map[string]float64,
-	dimKeys map[string][]string,
-) {
-	if len(rec.Dimensions) == 0 {
-		return
-	}
-	key := dimensionSetKey(rec.Dimensions)
-	for _, pt := range rec.Points {
-		if pt.Timestamp.Before(startTime) || !pt.Timestamp.Before(endTime) {
-			continue
-		}
-		aggregateContributorPoint(pt, key, rec, orderBy, dimSums, dimKeys)
-	}
-}
-
-// topNContributors converts aggregation maps to a sorted, capped contributor list.
-func topNContributors(
-	dimSums map[string]float64,
-	dimKeys map[string][]string,
-	maxN int,
-) []InsightRuleContributor {
-	type entry struct {
-		key string
-		sum float64
-	}
-	entries := make([]entry, 0, len(dimSums))
-	for k, s := range dimSums {
-		entries = append(entries, entry{k, s})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].sum > entries[j].sum })
-	if len(entries) > maxN {
-		entries = entries[:maxN]
-	}
-	result := make([]InsightRuleContributor, 0, len(entries))
-	for _, e := range entries {
-		result = append(result, InsightRuleContributor{Keys: dimKeys[e.key], Sum: e.sum})
-	}
-
-	return result
-}
-
-// GetInsightRuleContributors returns top-N contributors for an insight rule by aggregating
-// stored metric data along dimension values. This is a best-effort local approximation.
-// Caller must hold b.mu (at least read lock).
-func (b *InMemoryBackend) GetInsightRuleContributors(
-	ruleName string,
-	startTime, endTime time.Time,
-	maxContributorCount int,
-	orderBy string,
-) ([]InsightRuleContributor, error) {
-	if !b.insightRules.Has(ruleName) {
-		return nil, fmt.Errorf("%w: %s", ErrInsightRuleNotFound, ruleName)
-	}
-	if maxContributorCount <= 0 {
-		maxContributorCount = 10
-	}
-	dimSums := make(map[string]float64)
-	dimKeys := make(map[string][]string)
-	for _, nsMap := range b.metrics {
-		for _, rec := range nsMap {
-			aggregateContributorRecord(rec, startTime, endTime, orderBy, dimSums, dimKeys)
-		}
-	}
-
-	return topNContributors(dimSums, dimKeys, maxContributorCount), nil
-}
-
 // managedInsightRuleName synthesizes a stable internal name for a managed
 // (service-linked) insight rule from its PutManagedInsightRules identity.
 // Real AWS's ManagedRule input has no RuleName member at all -- only
@@ -170,6 +75,10 @@ func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleF
 func (b *InMemoryBackend) PutInsightRule(rule *InsightRule) error {
 	if strings.TrimSpace(rule.Name) == "" {
 		return fmt.Errorf("%w: RuleName parameter is required", ErrValidation)
+	}
+
+	if rule.State != "" && rule.State != insightRuleStateEnabled && rule.State != insightRuleStateDisabled {
+		return fmt.Errorf("%w: RuleState must be ENABLED or DISABLED", ErrValidation)
 	}
 
 	b.PutInsightRuleInternal(rule)
@@ -253,7 +162,7 @@ func (b *InMemoryBackend) DisableInsightRules(ruleNames []string) ([]InsightRule
 			continue
 		}
 
-		rule.State = "DISABLED"
+		rule.State = insightRuleStateDisabled
 	}
 
 	return failures, nil
