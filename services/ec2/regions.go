@@ -113,7 +113,13 @@ func (h *Handler) regionBackend(region string) *InMemoryBackend {
 	return bk
 }
 
+// closePeer drops a sibling and removes its containers; stopPeer leaves them running, as the home backend does.
 func (h *Handler) closePeer() {
+	h.releaseCompute()
+	h.stopPeer()
+}
+
+func (h *Handler) stopPeer() {
 	if h.stop != nil {
 		h.stop()
 	}
@@ -125,9 +131,13 @@ func (h *Handler) closePeer() {
 	h.Backend.Reset()
 }
 
-func (h *Handler) closePeers() {
+func (h *Handler) closePeers(release bool) {
 	for _, p := range h.peers.Drain() {
-		p.closePeer()
+		if release {
+			p.closePeer()
+		} else {
+			p.stopPeer()
+		}
 	}
 }
 

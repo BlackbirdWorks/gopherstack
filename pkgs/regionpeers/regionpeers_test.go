@@ -2,6 +2,7 @@ package regionpeers_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -86,14 +87,14 @@ func TestSet_SnapshotRestore(t *testing.T) {
 			}
 
 			dst := newSet()
-			dst.Get("stale-region")
+			dst.Get("xx-stale-1")
 			require.NoError(t, dst.Restore(out, restore, closeFn))
 
 			for r, st := range tc.regions {
 				assert.Equal(t, st, dst.Get(r).state)
 			}
 
-			assert.Empty(t, dst.Get("stale-region").state)
+			assert.Empty(t, dst.Get("xx-stale-1").state)
 		})
 	}
 }
@@ -197,4 +198,57 @@ func TestBackend(t *testing.T) {
 
 	_, ok := regionpeers.Backend[*string](backendFor, "eu-west-1")
 	assert.False(t, ok)
+}
+
+func TestValidRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		region string
+		want   bool
+	}{
+		{"us-east-1", true},
+		{"ap-southeast-5", true},
+		{"us-gov-west-1", true},
+		{"us-isob-east-1", true},
+		{"eusc-de-east-1", true},
+		{"il-central-1", true},
+		{"", false},
+		{"nowhere", false},
+		{"US-EAST-1", false},
+		{"us-east-1/../x", false},
+		{"us-east-1\n", false},
+		{"aaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbb-1", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.region, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, regionpeers.ValidRegion(tc.region))
+		})
+	}
+}
+
+func TestSet_GetBounded(t *testing.T) {
+	t.Parallel()
+
+	built := 0
+	s := regionpeers.New("us-east-1", func(r string) *fake {
+		built++
+
+		return &fake{region: r}
+	})
+
+	assert.Nil(t, s.Get("garbage"))
+	assert.Nil(t, s.Get("../../etc"))
+	assert.Zero(t, built)
+
+	for i := range 3 * regionpeers.MaxPeers {
+		s.Get(fmt.Sprintf("aa-bb-%d", i))
+	}
+
+	assert.Equal(t, regionpeers.MaxPeers, built)
+	assert.Len(t, s.All(), regionpeers.MaxPeers)
+	assert.NotNil(t, s.Get("aa-bb-0"))
+	assert.Nil(t, s.Get("zz-yy-99"))
 }

@@ -5,11 +5,27 @@ package regionpeers
 import (
 	"encoding/json"
 	"maps"
+	"regexp"
 	"slices"
 	"sync"
 )
 
-const snapshotKey = "regions"
+const (
+	snapshotKey = "regions"
+
+	// MaxPeers bounds siblings per Set; AWS has well under 64 regions.
+	MaxPeers = 64
+
+	maxRegionLen = 32
+)
+
+// regionPattern matches AWS region codes (us-east-1, us-gov-west-1, us-isob-east-1, eusc-de-east-1).
+var regionPattern = regexp.MustCompile(`^[a-z]{2,4}(-[a-z]+){1,2}-[0-9]{1,2}$`)
+
+// ValidRegion reports whether region looks like an AWS region code.
+func ValidRegion(region string) bool {
+	return len(region) <= maxRegionLen && regionPattern.MatchString(region)
+}
 
 // Set holds the lazily built per-region siblings of one home handler. A nil
 // *Set is valid and means the service serves only its home region.
@@ -26,10 +42,14 @@ func New[T any](home string, build func(region string) *T) *Set[T] {
 	return &Set[T]{home: home, build: build, peers: make(map[string]*T)}
 }
 
-// Get returns the sibling for region, creating it on first use. It returns nil
-// when the home handler should serve the request.
+// Get returns region's sibling, creating it on first use; nil means the home handler serves
+// (home region, malformed region, or MaxPeers reached), so garbage regions cannot grow siblings.
 func (s *Set[T]) Get(region string) *T {
 	if s == nil || region == "" || region == s.home {
+		return nil
+	}
+
+	if !ValidRegion(region) {
 		return nil
 	}
 
@@ -38,6 +58,10 @@ func (s *Set[T]) Get(region string) *T {
 
 	p, ok := s.peers[region]
 	if !ok {
+		if len(s.peers) >= MaxPeers {
+			return nil
+		}
+
 		p = s.build(region)
 		s.peers[region] = p
 	}

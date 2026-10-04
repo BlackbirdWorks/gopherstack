@@ -189,7 +189,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.peers.Restore(
 		data,
 		func(p *Handler, d []byte) error { return p.restoreHome(ctx, d) },
-		func(p *Handler) { p.Reset() },
+		func(p *Handler) { p.stopJanitor(); p.Reset() },
 	)
 }
 

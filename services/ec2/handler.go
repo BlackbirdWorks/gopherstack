@@ -70,8 +70,9 @@ func NewHandler(backend Backend) *Handler {
 
 // Reset clears all backend resource state and re-caches the dispatch table.
 func (h *Handler) Reset() {
+	h.releaseCompute()
 	h.Backend.Reset()
-	h.closePeers()
+	h.closePeers(true)
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -117,7 +118,7 @@ func (h *Handler) Shutdown(_ context.Context) {
 		mem.StopLifecycleReconciler()
 	}
 
-	h.closePeers()
+	h.closePeers(false)
 }
 
 // Name returns the service name.

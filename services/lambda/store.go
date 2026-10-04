@@ -111,6 +111,7 @@ type InMemoryBackend struct {
 	functionConcurrencies map[string]int
 	kinesisPoller         *EventSourcePoller
 	pollerCancel          context.CancelFunc
+	janitorCancel         context.CancelFunc
 	// provisionedConcurrencies is keyed by FunctionArn (buildAliasARN:
 	// function+qualifier composite); provisionedConcurrenciesByFunction
 	// indexes it by bare function name for ListProvisionedConcurrencyConfigs
@@ -279,6 +280,8 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		rts        []*functionRuntime
 		cancel     context.CancelFunc
 		poller     *EventSourcePoller
+
+		stopJanitor context.CancelFunc
 	)
 
 	func() {
@@ -298,7 +301,13 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		cancel = b.pollerCancel
 		poller = b.kinesisPoller
 		b.pollerCancel = nil
+		stopJanitor = b.janitorCancel
+		b.janitorCancel = nil
 	}()
+
+	if stopJanitor != nil {
+		stopJanitor()
+	}
 
 	// Stop the event-source poller goroutine if it was started.
 	if cancel != nil {

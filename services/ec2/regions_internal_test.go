@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,6 +100,43 @@ func TestHandler_PeerDockerCompute(t *testing.T) {
 			peer := h.peers.Get(peerRegion)
 			require.NotNil(t, peer)
 			tc.check(t, peer, api, dc)
+		})
+	}
+}
+
+func TestHandler_DroppingPeerRemovesContainers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		drop        func(t *testing.T, h *Handler)
+		name        string
+		wantRemoved bool
+	}{
+		{name: "reset", wantRemoved: true, drop: func(_ *testing.T, h *Handler) { h.Reset() }},
+		{name: "restore", drop: func(t *testing.T, h *Handler) {
+			t.Helper()
+			require.NoError(t, h.Restore(t.Context(), h.Snapshot(t.Context())))
+		}},
+		{name: "shutdown", drop: func(_ *testing.T, h *Handler) { h.Shutdown(context.Background()) }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, api, _ := newDockerRegionHandler(t, DockerComputeConfig{SSHPortMin: 22000, SSHPortMax: 22009})
+			runInstance(t, h.peers.Get(peerRegion))
+
+			tc.drop(t, h)
+
+			api.mu.Lock()
+			defer api.mu.Unlock()
+
+			if tc.wantRemoved {
+				assert.Contains(t, api.removed, "ctr-1")
+			} else {
+				assert.Empty(t, api.removed)
+			}
 		})
 	}
 }

@@ -1,14 +1,18 @@
 package cwmetric_test
 
 import (
+	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/testleak"
 )
 
 func TestAsync(t *testing.T) {
@@ -132,4 +136,39 @@ func TestSink(t *testing.T) {
 	assert.True(t, s.Enabled())
 	assert.InDelta(t, 2.0, got.Value, 0)
 	assert.Equal(t, "d", got.Dimensions[0].Name)
+}
+
+func TestAsyncFlushesAtSeriesCap(t *testing.T) {
+	t.Parallel()
+
+	const series = 4096
+
+	flushed := make(chan struct{}, series)
+	a := cwmetric.NewAsync(t.Context(), cwmetric.EmitterFunc(func(cwmetric.Point) error {
+		flushed <- struct{}{}
+
+		return nil
+	}), series, time.Hour)
+
+	for i := range series {
+		require.NoError(t, a.EmitMetric(cwmetric.Point{Region: "r", Namespace: "ns", Name: "n" + strconv.Itoa(i)}))
+	}
+
+	for range series {
+		<-flushed
+	}
+
+	assert.Zero(t, a.Dropped())
+}
+
+//nolint:paralleltest // goleak inspects every goroutine in the process
+func TestAsyncWorkerStopsWithContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	opts := append(testleak.DefaultIgnores(), goleak.IgnoreCurrent())
+
+	_ = cwmetric.NewAsync(ctx, cwmetric.EmitterFunc(func(cwmetric.Point) error { return nil }), 8, time.Hour)
+
+	cancel()
+
+	require.NoError(t, goleak.Find(opts...))
 }

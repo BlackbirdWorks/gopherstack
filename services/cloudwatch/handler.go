@@ -106,7 +106,7 @@ type Handler struct {
 	tagsMu    *lockmetrics.RWMutex
 	peers     *regionpeers.Set[Handler]
 	workerCtx atomic.Pointer[context.Context]
-	stop      context.CancelFunc
+	stopRun   atomic.Pointer[context.CancelFunc]
 	ec2For    atomic.Pointer[func(region string) EC2InstanceActioner]
 }
 
@@ -143,10 +143,7 @@ func (h *Handler) EnableRegions() {
 		p := NewHandler(nb)
 
 		if ctxp := h.workerCtx.Load(); ctxp != nil {
-			var pctx context.Context
-
-			pctx, p.stop = context.WithCancel(*ctxp)
-			go NewJanitor(nb).Run(pctx)
+			p.startJanitor(*ctxp)
 		}
 
 		return p
@@ -181,9 +178,30 @@ func (h *Handler) SubscribeAlarmStateChange(alarmArn string, cb func(newState st
 
 func (h *Handler) closePeers() {
 	for _, p := range h.peers.Drain() {
-		if p.stop != nil {
-			p.stop()
-		}
+		p.stopJanitor()
+	}
+}
+
+// startJanitor runs h's janitor once, until ctx ends or stopJanitor.
+func (h *Handler) startJanitor(ctx context.Context) {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	jctx, cancel := context.WithCancel(ctx)
+	if !h.stopRun.CompareAndSwap(nil, &cancel) {
+		cancel()
+
+		return
+	}
+
+	go NewJanitor(bk).Run(jctx)
+}
+
+func (h *Handler) stopJanitor() {
+	if c := h.stopRun.Swap(nil); c != nil {
+		(*c)()
 	}
 }
 
@@ -245,9 +263,10 @@ func (h *Handler) Name() string { return "CloudWatch" }
 func (h *Handler) StartWorker(ctx context.Context) error {
 	h.workerCtx.Store(&ctx)
 
-	if cwBk, ok := h.Backend.(*InMemoryBackend); ok {
-		janitor := NewJanitor(cwBk)
-		go janitor.Run(ctx)
+	h.startJanitor(ctx)
+
+	for _, p := range h.peers.All() {
+		p.startJanitor(ctx)
 	}
 
 	return nil

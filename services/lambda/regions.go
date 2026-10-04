@@ -135,9 +135,22 @@ func (p *EventSourcePoller) siblingFor(b *InMemoryBackend) *EventSourcePoller {
 // startWorkers starts the ESM poller and janitor once; later calls are no-ops.
 func (b *InMemoryBackend) startWorkers(ctx context.Context) {
 	b.workersOnce.Do(func() {
+		select {
+		case <-b.shutdown:
+			return
+		default:
+		}
+
 		b.StartKinesisPoller(ctx)
 
-		go NewJanitor(b, b.settings).Run(ctx)
+		jctx, cancel := context.WithCancel(ctx)
+		if !b.setJanitorCancel(cancel) {
+			cancel()
+
+			return
+		}
+
+		go NewJanitor(b, b.settings).Run(jctx)
 	})
 }
 
@@ -173,4 +186,17 @@ func arnRegionOf(name string) string {
 	}
 
 	return parts[3]
+}
+
+func (b *InMemoryBackend) setJanitorCancel(cancel context.CancelFunc) bool {
+	b.mu.Lock("setJanitorCancel")
+	defer b.mu.Unlock()
+
+	if b.janitorCancel != nil {
+		return false
+	}
+
+	b.janitorCancel = cancel
+
+	return true
 }

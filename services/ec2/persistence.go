@@ -473,6 +473,6 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.peers.Restore(
 		data,
 		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
-		(*Handler).closePeer,
+		(*Handler).stopPeer,
 	)
 }

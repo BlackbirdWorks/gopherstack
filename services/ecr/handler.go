@@ -165,6 +165,8 @@ type registryShutdowner interface{ Shutdown() error }
 // Broadcaster (app.events.sink) with no exported way to close it -- see
 // pkgs/testleak's ignore list.
 func (h *Handler) Shutdown(_ context.Context) {
+	h.closePeers()
+
 	if s, ok := h.registryHandler.(registryShutdowner); ok {
 		_ = s.Shutdown()
 	}

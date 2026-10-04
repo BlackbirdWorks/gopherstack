@@ -81,10 +81,13 @@ func (b *InMemoryBackend) DeleteAPIDestination(ctx context.Context, name string)
 	defer b.mu.Unlock()
 
 	store := b.apiDestinationsTable(region)
-	if !store.Has(name) {
+
+	dest, ok := store.Get(name)
+	if !ok {
 		return fmt.Errorf("%w: API destination %s not found", ErrNotFound, name)
 	}
 
+	b.apiDestLimiters.Delete(dest.APIDestinationArn)
 	store.Delete(name)
 
 	return nil

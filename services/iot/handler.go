@@ -202,7 +202,14 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Invoked on server shutdown via service.Shutdowner.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.brokerRun.Stop(ctx)
+	h.drainBackground(ctx)
 
+	for _, p := range h.peers.All() {
+		p.drainBackground(ctx)
+	}
+}
+
+func (h *Handler) drainBackground(ctx context.Context) {
 	if d, ok := h.Backend.(interface{ DrainBackground(ctx context.Context) }); ok {
 		d.DrainBackground(ctx)
 	}
