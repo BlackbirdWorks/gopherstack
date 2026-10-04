@@ -117,7 +117,9 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus_NoConfig(t *testing
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
+	// Replication config is per-region account state; a parallel test sets rules in us-east-1.
 	client := createECRClient(t)
+	client = ecr.New(client.Options(), func(o *ecr.Options) { o.Region = "eu-north-1" })
 	ctx := t.Context()
 
 	repoName := "audit-repl-noconf-" + uuid.NewString()[:8]
