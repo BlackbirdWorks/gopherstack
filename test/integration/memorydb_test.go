@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -53,7 +51,7 @@ func TestIntegration_MemoryDB_ClusterLifecycle(t *testing.T) {
 			ctx := t.Context()
 			client := createMemoryDBClient(t)
 
-			uniqueName := tt.clusterName + "-" + t.Name()
+			uniqueName := shortUniqueName(tt.clusterName)
 
 			// CreateCluster.
 			createOut, err := client.CreateCluster(ctx, &memorydbSDK.CreateClusterInput{
@@ -139,7 +137,7 @@ func TestIntegration_MemoryDB_ACLLifecycle(t *testing.T) {
 			ctx := t.Context()
 			client := createMemoryDBClient(t)
 
-			uniqueName := tt.aclName + "-" + t.Name()
+			uniqueName := shortUniqueName(tt.aclName)
 
 			// CreateACL.
 			createOut, err := client.CreateACL(ctx, &memorydbSDK.CreateACLInput{
@@ -200,7 +198,7 @@ func TestIntegration_MemoryDB_Tags(t *testing.T) {
 			ctx := t.Context()
 			client := createMemoryDBClient(t)
 
-			uniqueName := tt.clusterName + "-" + t.Name()
+			uniqueName := shortUniqueName(tt.clusterName)
 
 			createOut, err := client.CreateCluster(ctx, &memorydbSDK.CreateClusterInput{
 				ClusterName: aws.String(uniqueName),

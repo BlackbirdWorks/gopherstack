@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -103,7 +101,7 @@ func TestIntegration_MWAA_EnvironmentLifecycle(t *testing.T) {
 			ctx := t.Context()
 			client := createMWAAClient(t)
 
-			uniqueName := tt.envName + "-" + t.Name()
+			uniqueName := shortUniqueName(tt.envName)
 			subnetIDs := mustCreateMWAASubnets(t, "172.24")
 
 			// CreateEnvironment.
@@ -139,7 +137,9 @@ func TestIntegration_MWAA_EnvironmentLifecycle(t *testing.T) {
 			require.NoError(t, err, "GetEnvironment should succeed")
 			require.NotNil(t, getOut.Environment)
 			assert.Equal(t, uniqueName, aws.ToString(getOut.Environment.Name))
-			assert.Equal(t, "AVAILABLE", string(getOut.Environment.Status))
+			assert.Contains(t, []string{"CREATING", "AVAILABLE"}, string(getOut.Environment.Status))
+
+			waitMWAAAvailable(t, client, uniqueName)
 
 			// ListEnvironments.
 			listOut, err := client.ListEnvironments(ctx, &mwaaSDK.ListEnvironmentsInput{})
@@ -221,7 +221,7 @@ func TestIntegration_MWAA_InvokeRestApi(t *testing.T) {
 			client := createMWAAClient(t)
 
 			if !tt.wantErr {
-				uniqueName := tt.envName + "-" + t.Name()
+				uniqueName := shortUniqueName(tt.envName)
 				subnetIDs := mustCreateMWAASubnets(t, tt.cidrBase)
 				_, err := client.CreateEnvironment(ctx, &mwaaSDK.CreateEnvironmentInput{
 					Name:             aws.String(uniqueName),
@@ -244,6 +244,8 @@ func TestIntegration_MWAA_InvokeRestApi(t *testing.T) {
 					})
 				})
 
+				waitMWAAAvailable(t, client, uniqueName)
+
 				out, err := client.InvokeRestApi(ctx, &mwaaSDK.InvokeRestApiInput{
 					Name:   aws.String(uniqueName),
 					Method: tt.method,
@@ -265,6 +267,8 @@ func TestIntegration_MWAA_InvokeRestApi(t *testing.T) {
 }
 
 // TestIntegration_MWAA_PublishMetrics tests the PublishMetrics operation.
+//
+//nolint:staticcheck // SA1019: PublishMetrics is SDK-deprecated but still served by the emulator
 func TestIntegration_MWAA_PublishMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -310,7 +314,7 @@ func TestIntegration_MWAA_PublishMetrics(t *testing.T) {
 			client := createMWAAClient(t)
 
 			if !tt.wantErr {
-				uniqueName := tt.envName + "-" + t.Name()
+				uniqueName := shortUniqueName(tt.envName)
 				subnetIDs := mustCreateMWAASubnets(t, tt.cidrBase)
 				_, err := client.CreateEnvironment(ctx, &mwaaSDK.CreateEnvironmentInput{
 					Name:             aws.String(uniqueName),
@@ -347,4 +351,15 @@ func TestIntegration_MWAA_PublishMetrics(t *testing.T) {
 			}
 		})
 	}
+}
+
+// waitMWAAAvailable polls GetEnvironment until the environment reaches AVAILABLE.
+func waitMWAAAvailable(t *testing.T, client *mwaaSDK.Client, name string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.GetEnvironment(t.Context(), &mwaaSDK.GetEnvironmentInput{Name: aws.String(name)})
+
+		return err == nil && out.Environment != nil && string(out.Environment.Status) == "AVAILABLE"
+	}, 30*time.Second, 100*time.Millisecond, "environment should become AVAILABLE")
 }

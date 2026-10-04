@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -51,8 +49,10 @@ func ensureOrg(t *testing.T, client *organizationsSDK.Client) {
 	}
 }
 
-// TestIntegration_Organizations_OrgLifecycle tests org creation, description, and deletion.
+// TestIntegration_Organizations_OrgLifecycle tests org creation and description.
 func TestIntegration_Organizations_OrgLifecycle(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 	}{
@@ -61,18 +61,13 @@ func TestIntegration_Organizations_OrgLifecycle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			ctx := t.Context()
 			client := createOrganizationsClient(t)
 
 			// CreateOrganization (may already exist from another test run).
 			ensureOrg(t, client)
-
-			t.Cleanup(func() {
-				cleanupCtx, cancel := cleanupContext(t)
-				defer cancel()
-
-				_, _ = client.DeleteOrganization(cleanupCtx, &organizationsSDK.DeleteOrganizationInput{})
-			})
 
 			// DescribeOrganization.
 			descOut, err := client.DescribeOrganization(ctx, &organizationsSDK.DescribeOrganizationInput{})
@@ -93,6 +88,8 @@ func TestIntegration_Organizations_OrgLifecycle(t *testing.T) {
 
 // TestIntegration_Organizations_AccountLifecycle tests account creation and description.
 func TestIntegration_Organizations_AccountLifecycle(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		accountName string
@@ -107,6 +104,8 @@ func TestIntegration_Organizations_AccountLifecycle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			ctx := t.Context()
 			client := createOrganizationsClient(t)
 
@@ -154,6 +153,8 @@ func TestIntegration_Organizations_AccountLifecycle(t *testing.T) {
 
 // TestIntegration_Organizations_OULifecycle tests OU creation and description.
 func TestIntegration_Organizations_OULifecycle(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		ouName string
@@ -166,6 +167,8 @@ func TestIntegration_Organizations_OULifecycle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			ctx := t.Context()
 			client := createOrganizationsClient(t)
 

@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -59,15 +57,16 @@ func TestIntegration_MQ_BrokerLifecycle(t *testing.T) {
 
 			ctx := t.Context()
 			client := createMQClient(t)
-			brokerName := tt.brokerName + "-" + t.Name()
+			brokerName := shortUniqueName(tt.brokerName)
 
 			// Create broker.
 			createOut, err := client.CreateBroker(ctx, &mqsdk.CreateBrokerInput{
-				BrokerName:       aws.String(brokerName),
-				EngineType:       mqtypes.EngineType(tt.engineType),
-				EngineVersion:    aws.String("5.15.14"),
-				HostInstanceType: aws.String("mq.m5.large"),
-				DeploymentMode:   mqtypes.DeploymentModeSingleInstance,
+				BrokerName:         aws.String(brokerName),
+				EngineType:         mqtypes.EngineType(tt.engineType),
+				EngineVersion:      aws.String("5.15.14"),
+				HostInstanceType:   aws.String("mq.m5.large"),
+				DeploymentMode:     mqtypes.DeploymentModeSingleInstance,
+				PubliclyAccessible: aws.Bool(false),
 				Users: []mqtypes.User{
 					{Username: aws.String("admin"), Password: aws.String("adminpassword1234")},
 				},

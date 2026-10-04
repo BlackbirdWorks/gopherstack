@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -53,8 +51,7 @@ func TestIntegration_MediaStore_ContainerLifecycle(t *testing.T) {
 			ctx := t.Context()
 			client := createMediaStoreClient(t)
 
-			uniqueSuffix := t.Name()
-			containerName := tt.containerName + "-" + uniqueSuffix
+			containerName := shortUniqueName(tt.containerName)
 
 			// CreateContainer.
 			createOut, err := client.CreateContainer(ctx, &mediastoreSDK.CreateContainerInput{

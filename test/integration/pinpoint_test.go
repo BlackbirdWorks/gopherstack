@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -53,7 +51,7 @@ func TestIntegration_Pinpoint_AppLifecycle(t *testing.T) {
 			ctx := t.Context()
 			client := createPinpointClient(t)
 
-			uniqueName := tt.appName + "-" + t.Name()
+			uniqueName := shortUniqueName(tt.appName)
 
 			// CreateApp.
 			createOut, err := client.CreateApp(ctx, &pinpointSDK.CreateAppInput{
