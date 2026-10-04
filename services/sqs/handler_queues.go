@@ -77,7 +77,7 @@ func (h *Handler) handleCreateQueue(
 	})
 	if err != nil {
 		if !errors.Is(err, ErrQueueAlreadyExists) {
-			logger.Load(ctx).WarnContext(ctx, "CreateQueue failed", "error", err)
+			logger.Load(ctx).WarnContext(ctx, "CreateQueue failed")
 		}
 
 		return nil, err

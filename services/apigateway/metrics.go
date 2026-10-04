@@ -38,7 +38,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		rec := &statusRecorder{ResponseWriter: w}
 		obs := &proxyObs{start: time.Now()}
 		inner(rec, r.WithContext(context.WithValue(r.Context(), obsKey{}, obs)))
-		h.emitProxyMetrics(apiID, r.Method, rec.status, obs)
+		h.emitProxyMetrics(apiID, r.Method, rec.statusOrOK(), obs)
 	}
 }
 
@@ -64,12 +64,13 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
-func (s *statusRecorder) Write(p []byte) (int, error) {
+// statusOrOK reports the written status; a body written without WriteHeader is an implicit 200.
+func (s *statusRecorder) statusOrOK() int {
 	if s.status == 0 {
-		s.status = http.StatusOK
+		return http.StatusOK
 	}
 
-	return s.ResponseWriter.Write(p)
+	return s.status
 }
 
 func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
