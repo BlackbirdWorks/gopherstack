@@ -23,13 +23,13 @@
 		type NetworkManagerClient
 	} from '@aws-sdk/client-networkmanager';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onRegionChange } from '$lib/region-effect.svelte';
-	import { formatDate } from '$lib/format';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import LoadMore from '$lib/components/LoadMore.svelte';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import Modal from '#lib/components/Modal.svelte';
 	import AttachmentDetailModal from './AttachmentDetailModal.svelte';
 	import CreateVpcAttachmentFields from './CreateVpcAttachmentFields.svelte';
 	import CreateConnectAttachmentFields from './CreateConnectAttachmentFields.svelte';

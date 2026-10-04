@@ -45,23 +45,23 @@
 	// honestly labeled), not as part of the real AppConfig deployment
 	// lifecycle, and the Poll Console explains the 404 a visitor will hit if
 	// they start a session before seeding one.
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { regionFetch } from '$lib/region.svelte';
-	import { getAppConfigDataClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { regionFetch } from '#lib/region.svelte.ts';
+	import { getAppConfigDataClient } from '#lib/aws-client.ts';
 	import {
 		StartConfigurationSessionCommand,
 		GetLatestConfigurationCommand
 	} from '@aws-sdk/client-appconfigdata';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
 	import {
 		Radio, Key, Database, Play, RefreshCw, Copy, Trash2,
 		ChevronRight, History, Clock, AlertTriangle, FileJson, FileCode,

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import CodeCommitPage from "./+page.svelte";
-import { DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getCodeCommitClient: () => ({ send: mockSend }),
 }));
 

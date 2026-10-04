@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import CloudWatchPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
@@ -10,7 +10,7 @@ const mockSend = vi.fn();
 // (command type, region) instead of relying on call order -- this page's
 // `$effect` and `onRegionChange` both fire on mount, so load functions run
 // twice per render and a strict sequential mock queue is not reliable here.
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getCloudWatchClient: (region?: string) => ({
     send: (cmd: unknown) => mockSend(cmd, region),
   }),
@@ -24,7 +24,7 @@ vi.mock("svelte-sonner", () => ({
 }));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 

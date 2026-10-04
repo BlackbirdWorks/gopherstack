@@ -13,8 +13,8 @@
 	// so rather than fabricating a dollar figure.
 	import { GetActiveNamesCommand, GetCostEstimateCommand, type LightsailClient } from '@aws-sdk/client-lightsail';
 	import { toast } from 'svelte-sonner';
-	import { onRegionChange } from '$lib/region-effect.svelte';
-	import LoadMore from '$lib/components/LoadMore.svelte';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
 	import { describeError } from './shared';
 
 	type Props = {

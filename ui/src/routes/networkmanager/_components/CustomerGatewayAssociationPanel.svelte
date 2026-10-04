@@ -10,8 +10,8 @@
 		type NetworkManagerClient
 	} from '@aws-sdk/client-networkmanager';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import { describeError, matchesSearch } from './shared';
 
 	type Props = {

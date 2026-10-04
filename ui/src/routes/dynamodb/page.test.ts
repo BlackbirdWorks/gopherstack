@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import DynamoDBPage from "./+page.svelte";
-import { setMockPageUrl, getMockPage } from "$lib/mock-page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { setMockPageUrl, getMockPage } from "#lib/mock-page.svelte.ts";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", async (importOriginal) => ({
+vi.mock("#lib/aws-client.ts", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getDynamoDBClient: () => ({ send: mockSend }),
   getDynamoDBStreamsClient: () => ({ send: mockSend }),
@@ -20,7 +20,7 @@ vi.mock("svelte-sonner", () => ({
 }));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 

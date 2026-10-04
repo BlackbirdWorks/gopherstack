@@ -19,9 +19,9 @@
 		type NetworkTelemetry,
 		type NetworkManagerClient
 	} from '@aws-sdk/client-networkmanager';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab } from '$lib/components/Tabs.svelte';
-	import LoadMore from '$lib/components/LoadMore.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab } from '#lib/components/Tabs.svelte';
+	import LoadMore from '#lib/components/LoadMore.svelte';
 	import GlobalNetworkSelect from './GlobalNetworkSelect.svelte';
 	import { describeError } from './shared';
 

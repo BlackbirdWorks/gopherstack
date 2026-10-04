@@ -15,18 +15,18 @@
 	// The 9 job families share one "Jobs" tab with a family selector (like
 	// App Mesh's mesh selector) rather than 9 near-identical tabs.
 	import { untrack } from 'svelte';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getComprehendClient } from '$lib/aws-client';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getComprehendClient } from '#lib/aws-client.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import {
 		ListDocumentClassifiersCommand,
 		CreateDocumentClassifierCommand,

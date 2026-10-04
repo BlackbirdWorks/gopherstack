@@ -5,10 +5,10 @@
 		PostToConnectionCommand,
 		DeleteConnectionCommand
 	} from '@aws-sdk/client-apigatewaymanagementapi';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { regionFetch } from '$lib/region.svelte';
-	import { getAPIGatewayManagementAPIClient } from '$lib/aws-client';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { regionFetch } from '#lib/region.svelte.ts';
+	import { getAPIGatewayManagementAPIClient } from '#lib/aws-client.ts';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import {
 		Activity,
 		BarChart2,

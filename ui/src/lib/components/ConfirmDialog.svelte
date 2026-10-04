@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
-	import type { ConfirmDestructiveOptions } from '$lib/confirm-dialog';
+	import type { ConfirmDestructiveOptions } from '#lib/confirm-dialog.ts';
 
 	let modal = $state<Modal | null>(null);
 	let confirmButton = $state<HTMLButtonElement | null>(null);

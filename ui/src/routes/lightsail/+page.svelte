@@ -20,13 +20,13 @@
 	// folds in instance ports/access/metrics/add-ons/GUI-sessions;
 	// LoadBalancersPanel folds in LB TLS certificates; DatabasesPanel folds
 	// in events/logs/parameters/master-password/metrics).
-	import { regionalClient } from '$lib/region-effect.svelte';
-	import { urlState } from '$lib/url-state.svelte';
-	import { getLightsailClient } from '$lib/aws-client';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
+	import { regionalClient } from '#lib/region-effect.svelte.ts';
+	import { urlState } from '#lib/url-state.svelte.ts';
+	import { getLightsailClient } from '#lib/aws-client.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
 	import { Server } from 'lucide-svelte';
 	import InstancesPanel from './_components/InstancesPanel.svelte';
 	import InstanceSnapshotsPanel from './_components/InstanceSnapshotsPanel.svelte';

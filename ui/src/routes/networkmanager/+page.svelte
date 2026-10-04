@@ -26,13 +26,13 @@
 	// Switching tabs destroys the previous panel and mounts a new one, which
 	// fetches on its own via `onRegionChange` (or, for panels scoped under a
 	// user-picked Global Network, a plain `$effect` reacting to that pick).
-	import { regionalClient } from '$lib/region-effect.svelte';
-	import { urlState } from '$lib/url-state.svelte';
-	import { getNetworkManagerClient } from '$lib/aws-client';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
+	import { regionalClient } from '#lib/region-effect.svelte.ts';
+	import { urlState } from '#lib/url-state.svelte.ts';
+	import { getNetworkManagerClient } from '#lib/aws-client.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
 	import { Network } from 'lucide-svelte';
 	import GlobalNetworksPanel from './_components/GlobalNetworksPanel.svelte';
 	import SitesPanel from './_components/SitesPanel.svelte';

@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
-import { getS3Client } from '$lib/aws-client';
-import { currentRegion } from '$lib/region.svelte';
-import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { getS3Client } from '#lib/aws-client.ts';
+import { currentRegion } from '#lib/region.svelte.ts';
+import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
 import {
 HeadObjectCommand,
 GetObjectCommand,

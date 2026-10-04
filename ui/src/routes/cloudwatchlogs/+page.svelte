@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { onDestroy, untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import { isAllRegions, currentRegion } from '$lib/region.svelte';
-	import { urlState } from '$lib/url-state.svelte';
-	import LiveDot from '$lib/components/LiveDot.svelte';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-	import { getCloudWatchLogsClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import { isAllRegions, currentRegion } from '#lib/region.svelte.ts';
+	import { urlState } from '#lib/url-state.svelte.ts';
+	import LiveDot from '#lib/components/LiveDot.svelte';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+	import { getCloudWatchLogsClient } from '#lib/aws-client.ts';
 	import {
 		DescribeLogGroupsCommand,
 		DescribeLogStreamsCommand,

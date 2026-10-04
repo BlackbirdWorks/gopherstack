@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getIoTDataPlaneClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getIoTDataPlaneClient } from '#lib/aws-client.ts';
 	import {
 		PublishCommand,
 		GetThingShadowCommand,

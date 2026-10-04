@@ -6,7 +6,7 @@
 	// singleton status view, not a DataTable.
 	import { PeerVpcCommand, UnpeerVpcCommand, IsVpcPeeredCommand, type LightsailClient } from '@aws-sdk/client-lightsail';
 	import { toast } from 'svelte-sonner';
-	import { onRegionChange } from '$lib/region-effect.svelte';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
 	import { describeError } from './shared';
 
 	type Props = {

@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { currentRegion, isAllRegions } from '$lib/region.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import { urlState } from '$lib/url-state.svelte';
-	import LiveDot from '$lib/components/LiveDot.svelte';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-	import { getLambdaClient } from '$lib/aws-client';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { currentRegion, isAllRegions } from '#lib/region.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import { urlState } from '#lib/url-state.svelte.ts';
+	import LiveDot from '#lib/components/LiveDot.svelte';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+	import { getLambdaClient } from '#lib/aws-client.ts';
 	import {
 		ListFunctionsCommand,
 		InvokeCommand,

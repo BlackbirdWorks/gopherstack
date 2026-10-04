@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getCostExplorerClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getCostExplorerClient } from '#lib/aws-client.ts';
 	import {
 		ListCostCategoryDefinitionsCommand,
 		CreateCostCategoryDefinitionCommand,

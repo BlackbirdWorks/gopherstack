@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import Route53Page from "./+page.svelte";
-import { ALL_REGIONS, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getRoute53Client: () => ({ send: mockSend }),
 }));
 

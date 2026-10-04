@@ -5,7 +5,7 @@
 	// non-obvious (i.e. "All" is selected); a specific-region selection
 	// already makes the target obvious from the region picker itself, so
 	// this renders nothing then.
-	import { DEFAULT_REGION, isAllRegions } from '$lib/region.svelte';
+	import { DEFAULT_REGION, isAllRegions } from '#lib/region.svelte.ts';
 </script>
 
 {#if isAllRegions()}

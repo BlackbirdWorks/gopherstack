@@ -4,7 +4,7 @@ import TranscribePage from "./+page.svelte";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getTranscribeClient: () => ({ send: mockSend }),
 }));
 

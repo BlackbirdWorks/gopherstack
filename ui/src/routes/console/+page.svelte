@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { dashboardClient } from '$lib/api/connect-client';
-	import type { CapturedRequest } from '$lib/api/gopherstack/dashboard/v1/dashboard_pb';
+	import { dashboardClient } from '#lib/api/connect-client.ts';
+	import type { CapturedRequest } from '#lib/api/gopherstack/dashboard/v1/dashboard_pb.ts';
 	import { toast } from 'svelte-sonner';
 
 	let requests = $state<CapturedRequest[]>([]);

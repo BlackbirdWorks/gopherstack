@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getCodeCommitClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getCodeCommitClient } from '#lib/aws-client.ts';
 	import {
 		ListRepositoriesCommand,
 		GetRepositoryCommand,

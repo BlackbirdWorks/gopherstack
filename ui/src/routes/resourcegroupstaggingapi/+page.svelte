@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getResourceGroupsTaggingAPIClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getResourceGroupsTaggingAPIClient } from '#lib/aws-client.ts';
 	import {
 		GetResourcesCommand,
 		GetTagKeysCommand,
@@ -18,15 +18,15 @@
 		type DescribeReportCreationOutput
 	} from '@aws-sdk/client-resource-groups-tagging-api';
 	import { toast } from 'svelte-sonner';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import LoadMore from '$lib/components/LoadMore.svelte';
-	import Modal from '$lib/components/Modal.svelte';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import Modal from '#lib/components/Modal.svelte';
 	import { Tag, Plus, Trash2, Eye, X, FileText, ShieldCheck } from 'lucide-svelte';
 
 	const client = regionalClient(getResourceGroupsTaggingAPIClient);

@@ -3,13 +3,13 @@
 	import { Toaster } from 'svelte-sonner';
 	import './layout.css';
 	import { page } from '$app/state';
-	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getUncommonCategories } from '$lib/nav';
+	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getUncommonCategories } from '#lib/nav.ts';
 	import { goto } from '$app/navigation';
-	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '$lib/theme';
-	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
-	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import RegionPicker from '$lib/components/RegionPicker.svelte';
-	import { registerConfirmDialog, unregisterConfirmDialog } from '$lib/confirm-dialog';
+	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '#lib/theme.ts';
+	import ServiceIcon from '#lib/components/ServiceIcon.svelte';
+	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
+	import RegionPicker from '#lib/components/RegionPicker.svelte';
+	import { registerConfirmDialog, unregisterConfirmDialog } from '#lib/confirm-dialog.ts';
 
 	let { children } = $props();
 	let theme = $state<ThemeName>('light');

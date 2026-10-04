@@ -1,4 +1,4 @@
-import { currentRegion, currentRegionSelection } from "$lib/region.svelte";
+import { currentRegion, currentRegionSelection } from "#lib/region.svelte.ts";
 
 /**
  * Runs `callback` immediately and again every time the active region
@@ -26,7 +26,7 @@ export function onRegionChange(callback: () => void): void {
 
 /**
  * Wraps an AWS SDK client factory (e.g. `getDynamoDBClient` from
- * `$lib/aws-client`) so the returned accessor always hands back a client
+ * `#lib/aws-client.ts`) so the returned accessor always hands back a client
  * instance signed for the CURRENTLY selected region — including after a
  * mid-session region switch, with no page reload.
  *

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { currentRegion } from '$lib/region.svelte';
-	import RegionChip from '$lib/components/RegionChip.svelte';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { currentRegion } from '#lib/region.svelte.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
 	import {
 		GetFunctionCommand,
 		UpdateFunctionConfigurationCommand,
@@ -27,9 +27,9 @@
 		type GetFunctionUrlConfigResponse,
 		type InvocationResponse
 	} from '@aws-sdk/client-lambda';
-	import { getLambdaClient } from '$lib/aws-client';
+	import { getLambdaClient } from '#lib/aws-client.ts';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { Play, Trash2, RefreshCw, X } from 'lucide-svelte';
 
 	const lambda = regionalClient(getLambdaClient);

@@ -24,7 +24,7 @@
 // value forever — invisible in component tests because their `$app/navigation`
 // mock's fake `replaceState` (incorrectly) wrote straight into the mock's
 // reactive `page.url`, masking the exact gap the real implementation leaves.
-// `goto(url, { replaceState: true, noScroll: true, keepFocus: true, state })`
+// `goto(url, { replace: true, reset: false, state })`
 // gets the address-bar/`page.state` behavior of standalone `replaceState`
 // (no new history entry, no scroll, no lost focus while typing a filter)
 // while actually updating `page.url` too. This repo has no `+page.ts`/
@@ -87,7 +87,7 @@
 // caller.
 import { page } from "$app/state";
 import { goto } from "$app/navigation";
-import { browser } from "$app/environment";
+import { browser } from "$app/env";
 
 /**
  * A single param write, as produced by `UrlState.write()`. Opaque outside
@@ -99,7 +99,7 @@ export type UrlState<T extends string> = {
   /** Current value: the URL's `key` param if present, else `initial`. */
   get(): T;
   /**
-   * Writes `value` into the URL under `key` via `goto(url, { replaceState:
+   * Writes `value` into the URL under `key` via `goto(url, { replace:
    * true, ... })` (no new history entry, no scroll, no lost focus — see the
    * file header for why this has to be `goto` and not standalone
    * `replaceState`). Setting `value === initial` removes the param instead
@@ -156,7 +156,7 @@ export function urlState<T extends string>(key: string, initial: T): UrlState<T>
 export function setUrlParams(...writes: UrlWrite[]): void {
   if (!browser) return;
 
-  const url = new URL(page.url);
+  const url = new URL(page.url.href);
   for (const { key, initial, value } of writes) {
     if (value === initial) {
       url.searchParams.delete(key);
@@ -165,5 +165,5 @@ export function setUrlParams(...writes: UrlWrite[]): void {
     }
   }
 
-  void goto(url, { replaceState: true, noScroll: true, keepFocus: true, state: page.state });
+  void goto(url, { replace: true, reset: false, state: page.state });
 }

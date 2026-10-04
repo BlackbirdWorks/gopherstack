@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { onDestroy, untrack } from 'svelte';
-	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
-import { currentRegion, isAllRegions, setStoredRegion } from '$lib/region.svelte';
-import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-import { multiRegionList } from '$lib/multi-region';
-import { urlState, setUrlParams } from '$lib/url-state.svelte';
-import LiveDot from '$lib/components/LiveDot.svelte';
-import RegionChip from '$lib/components/RegionChip.svelte';
-import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
+	import { getDynamoDBClient, getDynamoDBStreamsClient } from '#lib/aws-client.ts';
+import { currentRegion, isAllRegions, setStoredRegion } from '#lib/region.svelte.ts';
+import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+import { multiRegionList } from '#lib/multi-region.ts';
+import { urlState, setUrlParams } from '#lib/url-state.svelte.ts';
+import LiveDot from '#lib/components/LiveDot.svelte';
+import RegionChip from '#lib/components/RegionChip.svelte';
+import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
 import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
 		ListTablesCommand,
@@ -57,7 +57,7 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 		type BackupSummary
 	} from '@aws-sdk/client-dynamodb';
 	import { toast } from 'svelte-sonner';
-	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
+	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '#lib/dynamodb.ts';
 
 	const ddb = regionalClient(getDynamoDBClient);
 
