@@ -633,12 +633,16 @@ func (b *InMemoryBackend) GetObject(
 	}
 	dataToDecompress = decrypted
 
-	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
+	data, window, err := b.decompressObjectRange(ctx, dataToDecompress, isCompressed, size)
 	if err != nil {
 		return nil, err
 	}
 
 	out := buildGetObjectOutput(data, size, &verSnap, metadata, versionIDStr)
+	if mb, ok := out.Body.(*memBody); ok {
+		mb.rng = window
+	}
+
 	out.TagCount = b.objectTagCount(bucketName, key, versionIDStr)
 
 	return out, nil
@@ -756,10 +760,71 @@ func (b *InMemoryBackend) decompressObjectData(
 	return data, nil
 }
 
+// bodyRange marks a memBody holding only decoded bytes [start,end] of an
+// object of total bytes.
+type bodyRange struct {
+	start, end, total int64
+}
+
+// withRangeHint asks GetObject to decode only the given Range header window.
+func withRangeHint(ctx context.Context, rangeHeader string) context.Context {
+	return context.WithValue(ctx, rngKey, rangeHeader)
+}
+
+// rangeDecompressor decodes a byte window of a stored blob without decoding the rest.
+type rangeDecompressor interface {
+	DecompressRange(data []byte, size, start, end int64) ([]byte, bool, error)
+}
+
+// decompressObjectRange decompresses storedData, decoding only the window the
+// context's range hint names when the blob is indexed.
+func (b *InMemoryBackend) decompressObjectRange(
+	ctx context.Context,
+	storedData []byte,
+	isCompressed bool,
+	size int64,
+) ([]byte, *bodyRange, error) {
+	if out, win, err := b.decodeHintedWindow(ctx, storedData, isCompressed, size); win != nil || err != nil {
+		return out, win, err
+	}
+
+	data, err := b.decompressObjectData(storedData, isCompressed)
+
+	return data, nil, err
+}
+
+// decodeHintedWindow returns a nil window when no usable hint or index exists.
+func (b *InMemoryBackend) decodeHintedWindow(
+	ctx context.Context,
+	storedData []byte,
+	isCompressed bool,
+	size int64,
+) ([]byte, *bodyRange, error) {
+	hint, _ := ctx.Value(rngKey).(string)
+	rd, ok := b.compressor.(rangeDecompressor)
+
+	if hint == "" || !isCompressed || !ok {
+		return nil, nil, nil
+	}
+
+	start, end, res := parseRange(hint, size)
+	if res != rangeOK {
+		return nil, nil, nil
+	}
+
+	out, indexed, err := rd.DecompressRange(storedData, size, start, end)
+	if err != nil || !indexed {
+		return nil, nil, err
+	}
+
+	return out, &bodyRange{start: start, end: end, total: size}, nil
+}
+
 // memBody is an in-memory object body that exposes its backing slice so
 // ranged reads can slice it instead of copying through io.ReadAll.
 type memBody struct {
 	*bytes.Reader
+	rng  *bodyRange
 	data []byte
 }
 

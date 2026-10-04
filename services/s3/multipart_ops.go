@@ -190,7 +190,12 @@ func (h *S3Handler) uploadPartCopy(
 ) {
 	h.setOperation(ctx, "UploadPartCopy")
 
-	srcVer, err := h.copySourceData(ctx, r)
+	srcCtx := ctx
+	if rng := r.Header.Get("X-Amz-Copy-Source-Range"); rng != "" {
+		srcCtx = withRangeHint(ctx, rng)
+	}
+
+	srcVer, err := h.copySourceData(srcCtx, r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -199,7 +204,9 @@ func (h *S3Handler) uploadPartCopy(
 	defer srcVer.Body.Close()
 
 	var body io.Reader = srcVer.Body
-	if srcRange := r.Header.Get("X-Amz-Copy-Source-Range"); srcRange != "" {
+	if mb, ok := srcVer.Body.(*memBody); ok && mb.rng != nil {
+		body = bytes.NewReader(mb.data)
+	} else if srcRange := r.Header.Get("X-Amz-Copy-Source-Range"); srcRange != "" {
 		data, readErr := io.ReadAll(srcVer.Body)
 		if readErr != nil {
 			WriteError(ctx, w, r, readErr)

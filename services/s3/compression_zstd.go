@@ -87,6 +87,10 @@ func (c *ZstdCompressor) CompressParts(parts [][]byte) ([]byte, error) {
 		return nil, errZstdTooLarge
 	}
 
+	if total >= seekableMinBytes {
+		return c.encodeSeekable(parts, total)
+	}
+
 	if len(parts) == 1 {
 		return c.encodeAll(parts[0])
 	}
@@ -211,6 +215,10 @@ func (c *ZstdCompressor) Decompress(data []byte) ([]byte, error) {
 		dec, err := c.decoder()
 		if err != nil {
 			return nil, err
+		}
+
+		if idx, ok := parseSeekableIndex(data, -1); ok {
+			return c.decodeWindow(data, idx, 0, idx.total()-1)
 		}
 
 		return dec.DecodeAll(data, nil)

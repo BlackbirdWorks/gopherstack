@@ -23,11 +23,13 @@ import (
 type (
 	md5ContextKey struct{}
 	sseContextKey struct{}
+	rngContextKey struct{}
 )
 
 var (
 	md5Key = md5ContextKey{} //nolint:gochecknoglobals // internal context key
 	sseKey = sseContextKey{} //nolint:gochecknoglobals // internal context key
+	rngKey = rngContextKey{} //nolint:gochecknoglobals // internal context key
 )
 
 // objectVersionIDBytes is the number of random bytes used to generate a version ID.

@@ -153,3 +153,8 @@ func (*GzipCompressor) gunzip(data []byte) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// DecompressRange decodes a byte window of a seekable zstd blob.
+func (c *GzipCompressor) DecompressRange(data []byte, size, start, end int64) ([]byte, bool, error) {
+	return c.zstd.DecompressRange(data, size, start, end)
+}

@@ -71,7 +71,12 @@ func (h *S3Handler) getObject(
 		vid = aws.String(versionID)
 	}
 
-	ver, err := h.Backend.GetObject(ctx, &s3.GetObjectInput{
+	getCtx := ctx
+	if rng := r.Header.Get("Range"); rng != "" && r.Header.Get("If-Range") == "" {
+		getCtx = withRangeHint(ctx, rng)
+	}
+
+	ver, err := h.Backend.GetObject(getCtx, &s3.GetObjectInput{
 		Bucket:    aws.String(bucketName),
 		Key:       aws.String(key),
 		VersionId: vid,
@@ -230,6 +235,12 @@ func (h *S3Handler) serveObjectBody(
 		return false
 	}
 
+	if mb, ok := ver.Body.(*memBody); ok && mb.rng != nil {
+		h.writePartialContent(ctx, w, mb.rng.start, mb.rng.end, mb.rng.total, mb.data)
+
+		return true
+	}
+
 	var data []byte
 
 	if mb, ok := ver.Body.(*memBody); ok && mb.Len() == len(mb.data) {
@@ -337,16 +348,23 @@ func (h *S3Handler) serveRange(
 	case rangeOK:
 	}
 
+	h.writePartialContent(ctx, w, start, end, total, data[start:end+1])
+
+	return true
+}
+
+// writePartialContent writes a 206 response whose body is bytes [start,end] of total.
+func (*S3Handler) writePartialContent(
+	ctx context.Context, w http.ResponseWriter, start, end, total int64, body []byte,
+) {
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
 
 	// #nosec G705
-	if _, err := w.Write(data[start : end+1]); err != nil {
+	if _, err := w.Write(body); err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to write range data", "error", err)
 	}
-
-	return true
 }
 
 // writeInvalidRange emits S3's 416 response for an unsatisfiable Range request:
