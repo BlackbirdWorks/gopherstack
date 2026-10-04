@@ -116,7 +116,7 @@ gaps: []
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
 items_still_open:
-  - "No in-process CloudWatch metrics are published for AWS/DynamoDB (ConsumedRead/WriteCapacityUnits, SuccessfulRequestLatency; dimensions TableName, Operation); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
+  - "AWS/DynamoDB metrics are emitted for the item ops, Query/Scan and Batch ops; GlobalSecondaryIndexName-dimensioned capacity, SystemErrors, ReturnedBytes/ReturnedRecordsCount, and per-op latency/errors for TransactWriteItems/TransactGetItems/PartiQL are not (PartiQL and Transact ops still emit consumed capacity). (gopherstack-4m1qr)"
   - "No vector-index model: SearchVectors always ResourceNotFoundException for the index; VectorIndexes on CreateTable/UpdateTable/GSI actions and VectorIndexOverride on both restore ops are absent (search_vectors.go validates the request shape)."
   - "Other unmodeled-subsystem fields, left nil rather than fabricated: WarmThroughput (AWS default values unverified), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime, BackupExpiryDateTime (SYSTEM backups only), DescribeContributorInsights FailureException (no failure model)."
 deferred:
@@ -723,4 +723,4 @@ unaffected, no version bump.
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.
+Emits AWS/DynamoDB (docs.aws.amazon.com/amazondynamodb/latest/developerguide/metrics-dimensions.html): ConsumedRead/WriteCapacityUnits (TableName, emitted at every capacity-charging site including on-demand tables), SuccessfulRequestLatency (TableName+Operation), ReturnedItemCount (Query/Scan), ThrottledRequests (TableName+Operation), ConditionalCheckFailedRequests (TableName) and UserErrors (account-level, no dimensions). Items fold per series per second into statistic sets; metrics are off until wired. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).

@@ -10,6 +10,14 @@ import (
 // PutRecord writes a single record to a stream shard, then delivers it to
 // any ACTIVE channel sourced from the stream (see deliverPutToChannels).
 func (b *InMemoryBackend) PutRecord(ctx context.Context, input *PutRecordInput) (*PutRecordOutput, error) {
+	start := b.metricStart()
+	out, err := b.putRecord(ctx, input)
+	b.emitPutRecord(getRegion(ctx, b.region), input, start, err)
+
+	return out, err
+}
+
+func (b *InMemoryBackend) putRecord(ctx context.Context, input *PutRecordInput) (*PutRecordOutput, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("PutRecord")
@@ -131,7 +139,7 @@ func (b *InMemoryBackend) putRecordLocked(
 // that should appear in a PutRecords result entry.
 func putRecordErrorCode(err error) string {
 	if errors.Is(err, ErrProvisionedThroughputExceeded) {
-		return "ProvisionedThroughputExceededException"
+		return errCodeThroughputExceeded
 	}
 	if errors.Is(err, ErrInvalidArgument) {
 		return errTypeValidation
@@ -179,11 +187,12 @@ func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput
 		return nil, ErrStreamNotFound
 	}
 
+	start := b.metricStart()
 	results := make([]PutRecordsResultEntry, len(input.Records))
 	failedCount := 0
 
 	for i, entry := range input.Records {
-		out, err := b.PutRecord(ctx, &PutRecordInput{
+		out, err := b.putRecord(ctx, &PutRecordInput{
 			StreamName:      input.StreamName,
 			PartitionKey:    entry.PartitionKey,
 			ExplicitHashKey: entry.ExplicitHashKey,
@@ -203,6 +212,8 @@ func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput
 			}
 		}
 	}
+
+	b.emitPutRecords(region, input, results, start)
 
 	return &PutRecordsOutput{
 		Records:           results,
@@ -244,9 +255,13 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 	}
 
 	if b.isThroughputFaultActive(region, it.StreamName) {
+		b.metrics.Put(region, kinesisMetricNamespace, "ReadProvisionedThroughputExceeded", metricUnitCount, 1,
+			streamDim(it.StreamName))
+
 		return nil, ErrProvisionedThroughputExceeded
 	}
 
+	t0 := b.metricStart()
 	shard := findShard(stream.Shards, it.ShardID)
 
 	if shard == nil {
@@ -271,26 +286,7 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 
 	end := min(start+limit, shard.Records.len())
 
-	// Apply 10 MiB response cap: stop before end if accumulated payload exceeds the limit.
-	totalBytes := 0
-	actualEnd := start
-	results := make([]GetRecordResult, 0, end-start)
-	for i := start; i < end; i++ {
-		r := shard.Records.at(i)
-		recordBytes := len(r.Data)
-		if totalBytes+recordBytes > maxGetRecordsResponseBytes && len(results) > 0 {
-			break
-		}
-		totalBytes += recordBytes
-		results = append(results, GetRecordResult{
-			Data:                        r.Data,
-			PartitionKey:                r.PartitionKey,
-			SequenceNumber:              r.SequenceNumber,
-			ApproximateArrivalTimestamp: r.ApproximateArrivalTimestamp,
-			EncryptionType:              enc,
-		})
-		actualEnd = i + 1
-	}
+	results, actualEnd := collectRecords(shard, start, end, enc)
 
 	// Advance iterator position
 	newIt := &ShardIterator{
@@ -312,12 +308,42 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 		millisBehind = time.Since(shard.Records.last().ApproximateArrivalTimestamp).Milliseconds()
 	}
 
+	b.emitGetRecords(region, it.StreamName, results, t0)
+
 	return &GetRecordsOutput{
 		Records:            results,
 		NextShardIterator:  nextToken,
 		ChildShards:        childShards,
 		MillisBehindLatest: millisBehind,
 	}, nil
+}
+
+// collectRecords returns shard records [start, end), stopping early once the 10 MiB response cap is reached.
+func collectRecords(shard *Shard, start, end int, enc string) ([]GetRecordResult, int) {
+	totalBytes := 0
+	actualEnd := start
+	results := make([]GetRecordResult, 0, end-start)
+
+	for i := start; i < end; i++ {
+		r := shard.Records.at(i)
+		recordBytes := len(r.Data)
+
+		if totalBytes+recordBytes > maxGetRecordsResponseBytes && len(results) > 0 {
+			break
+		}
+
+		totalBytes += recordBytes
+		results = append(results, GetRecordResult{
+			Data:                        r.Data,
+			PartitionKey:                r.PartitionKey,
+			SequenceNumber:              r.SequenceNumber,
+			ApproximateArrivalTimestamp: r.ApproximateArrivalTimestamp,
+			EncryptionType:              enc,
+		})
+		actualEnd = i + 1
+	}
+
+	return results, actualEnd
 }
 
 // nextIteratorAndChildShards computes GetRecords' NextShardIterator and

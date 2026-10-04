@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
@@ -630,6 +631,7 @@ type notificationSigner struct {
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
+	metrics              cwmetric.Sink
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
 	lambdaBackend        LambdaInvoker
 	firehoseBackend      FirehosePutter
@@ -710,6 +712,7 @@ type publishTargets struct {
 	subs            []events.SNSSubscriptionSnapshot
 	httpDeliveries  []httpDelivery
 	emailDeliveries []EmailDelivery
+	filteredOut     filteredCounts
 }
 
 type parsedFilterPolicy map[string][]json.RawMessage

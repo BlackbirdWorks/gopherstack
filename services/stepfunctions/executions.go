@@ -184,7 +184,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 
 	result, execErr := executor.Execute(syncCtx, execARN, input)
 
-	return finalizeSyncExecutionResult(
+	syncResult := finalizeSyncExecutionResult(
 		execARN,
 		baseSMArn,
 		name,
@@ -192,7 +192,11 @@ func (b *InMemoryBackend) StartSyncExecution(
 		startDate,
 		result,
 		execErr,
-	), nil
+	)
+	b.emitExecutionStarted(baseSMArn)
+	b.emitExecutionEnded(baseSMArn, syncResult.Status, syncResult.StartDate, syncResult.StopDate)
+
+	return syncResult, nil
 }
 
 // finalizeSyncExecutionResult assembles the SyncExecutionResult based on the
@@ -267,6 +271,7 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 	b.executions.Put(exec)
 	b.executionDefinitions[execArn] = def
 	b.addToStatusBucket(smArn, statusRunning, execArn)
+	b.emitExecutionStarted(smArn)
 
 	return exec
 }
@@ -547,6 +552,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		exec.RedriveStatusReason = ""
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
+		b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 		exec.history = append(exec.history, &HistoryEvent{
 			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
 		})
@@ -562,6 +568,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		exec.RedriveStatusReason = ""
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
+		b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 		exec.history = append(exec.history, &HistoryEvent{
 			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
 		})
@@ -577,6 +584,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	exec.RedriveStatusReason = redriveStatusReasonSucceeded
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 	b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
+	b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 	exec.history = append(exec.history, &HistoryEvent{
 		Timestamp: now, Type: "ExecutionSucceeded", ID: nextID, PreviousEventID: nextID - 1,
 	})
@@ -607,6 +615,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 	exec.RedriveStatusReason = ""
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, executionArn)
 	b.addToStatusBucket(exec.StateMachineArn, statusAborted, executionArn)
+	b.emitExecutionEnded(exec.StateMachineArn, statusAborted, exec.StartDate, now)
 
 	// Cancel the running goroutine for this execution.
 	if cancelFn, ok := b.cancelFns[executionArn]; ok {

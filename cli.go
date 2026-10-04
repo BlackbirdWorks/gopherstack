@@ -2998,6 +2998,7 @@ func wireCrossServiceDependencies(
 	wireEventSourcePollers(byName)
 	wireComputeAndObservabilityIntegrations(appCtx, byName)
 	wireCWLogsMetricEmitters(byName)
+	wireServiceMetrics(appCtx.JanitorCtx, byName)
 	wireStorageAndSecretsIntegrations(byName)
 	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
 	wireSchedulerAndPipesIntegrations(byName)

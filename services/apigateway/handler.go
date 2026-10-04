@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -65,6 +66,7 @@ type Handler struct {
 	// evicted only when their deployment is deleted (see deleteDeploymentAction /
 	// deleteRestAPIAction).
 	trieCache sync.Map
+	metrics   cwmetric.Sink
 	region    string
 	// dispatchOnce guards the one-time build of dispatchCache.
 	dispatchOnce sync.Once
@@ -87,6 +89,7 @@ func (h *Handler) EnableRegions() {
 		p.region = region
 		p.lambda, p.sqsSender, p.snsPublisher = h.lambda, h.sqsSender, h.snsPublisher
 		p.jwksProvider, p.httpClient = h.jwksProvider, h.httpClient
+		p.metrics.Set(h.metrics.Emitter())
 
 		return p
 	})

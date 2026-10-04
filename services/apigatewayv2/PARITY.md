@@ -288,7 +288,7 @@ families:
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps: []
 items_still_open:
-  - "No in-process CloudWatch metrics are published for AWS/ApiGateway (Count, 4xx, 5xx, Latency; dimensions ApiId, Stage); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
+  - "AWS/ApiGateway HTTP/WebSocket metrics Count/4xx/5xx/Latency/IntegrationLatency and ConnectCount/MessageCount/ClientError/ExecutionError are emitted; DataProcessed, IntegrationError and the Route/Resource/Method dimensions are not. (gopherstack-4m1qr)"
   - "Quick-create route/stage immutability partially enforced (gopherstack-2tx, narrowed): UpdateRoute
     now rejects a route-key change on an apiGatewayManaged route (\"You can't modify the $default
     route key\") and UpdateStage now rejects any modification of an apiGatewayManaged stage (\"You
@@ -1137,4 +1137,4 @@ API Gateway v2 is region-isolated: each non-home region gets a lazily built sibl
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.
+Emits HTTP API Count, 4xx, 5xx, Latency, IntegrationLatency and WebSocket ConnectCount, MessageCount, Count, ClientError, ExecutionError, IntegrationLatency under AWS/ApiGateway with ApiId and ApiId+Stage dimensions (http-api-metrics.html, apigateway-websocket-api-logging.html). Points fold per second into statistic sets. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).

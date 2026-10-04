@@ -69,6 +69,7 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 func (j *Janitor) Run(ctx context.Context) {
 	g := worker.NewGroup(ctx, "s3")
 	g.Ticker("BucketCleaner", j.Interval, 0, j.sweep)
+	g.Ticker("StorageMetrics", storageMetricsTTL, 0, j.emitStorageMetrics, worker.WithImmediate())
 
 	<-ctx.Done()
 	g.Stop()

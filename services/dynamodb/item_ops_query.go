@@ -20,7 +20,7 @@ func (db *InMemoryDB) Query(
 	ctx context.Context,
 	input *dynamodb.QueryInput,
 ) (*dynamodb.QueryOutput, error) {
-	return db.QueryWithContext(ctx, input)
+	return db.observedQuery(ctx, input)
 }
 
 func (db *InMemoryDB) QueryWithContext(
@@ -92,6 +92,8 @@ func (db *InMemoryDB) QueryWithContext(
 	region := getRegionFromContext(ctx, db)
 	consistentRead := aws.ToBool(input.ConsistentRead)
 	rcuUnits := applyConsistentReadMultiplier(rcuForCount(len(candidates)), consistentRead)
+
+	db.emitRCU(region, tableName, rcuUnits)
 
 	if !isOnDemandTable(billingMode) {
 		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {

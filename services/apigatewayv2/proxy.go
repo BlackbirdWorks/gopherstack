@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -94,15 +95,20 @@ func (h *Handler) handleProxy(c *echo.Context, apiID, stageName, resourcePath st
 	protocol := api.ProtocolType
 	switch protocol {
 	case protocolTypeWebSocket:
-		return h.handleWebSocketProxy(c, apiID)
+		return h.handleWebSocketProxy(c, apiID, stageName)
 	case protocolTypeHTTP:
-		return h.handleHTTPAPIProxy(c, apiID, stageName, resourcePath)
+		start := time.Now()
+		err = h.handleHTTPAPIProxy(c, apiID, stageName, resourcePath)
+		h.emitHTTPMetrics(c, apiID, stageName, start, err)
+
+		return err
 	}
 
 	return c.String(http.StatusNotImplemented, "unsupported protocol type: "+protocol)
 }
 
-func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID string) error {
+func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName string) error {
+	wm := h.wsMetrics(apiID, stageName)
 	log := logger.Load(c.Request().Context())
 
 	// A WebSocket proxy requires a lambda invoker to handle $connect, $disconnect, etc.
@@ -116,11 +122,13 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID string) error {
 	}
 
 	connectionID := uuid.New().String()
+	wm.connect()
 
 	// Route the $connect event
 	err := h.invokeWSRoute(c, apiID, "$connect", connectionID, []byte{})
 	if err != nil {
 		log.Error("apigatewayv2: $connect route failed", "error", err)
+		wm.clientError()
 
 		return c.String(http.StatusForbidden, "Forbidden")
 	}
@@ -164,7 +172,7 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID string) error {
 		_ = conn.Close()
 	}()
 
-	h.wsReadLoop(c, conn, apiID, connectionID)
+	h.wsReadLoop(c, conn, apiID, connectionID, wm)
 
 	if h.managementAPI != nil {
 		_ = h.managementAPI.DeleteConnection(connectionID)
@@ -177,7 +185,7 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID string) error {
 }
 
 // invokeWSRoute invokes the backend integration for a specific route.
-func (h *Handler) wsReadLoop(c *echo.Context, conn *websocket.Conn, apiID, connectionID string) {
+func (h *Handler) wsReadLoop(c *echo.Context, conn *websocket.Conn, apiID, connectionID string, wm wsMetrics) {
 	log := logger.Load(c.Request().Context())
 
 	for {
@@ -203,7 +211,10 @@ func (h *Handler) wsReadLoop(c *echo.Context, conn *websocket.Conn, apiID, conne
 				}
 			}
 
-			_ = h.invokeWSRoute(c, apiID, routeKey, connectionID, msgBody)
+			wm.message()
+
+			start := time.Now()
+			wm.routed(h.invokeWSRoute(c, apiID, routeKey, connectionID, msgBody), start)
 		}
 	}
 }

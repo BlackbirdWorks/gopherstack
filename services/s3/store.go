@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
@@ -97,6 +98,7 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
+	metrics    cwmetric.Sink
 	compressor Compressor
 	// serviceCtx is the long-lived context for background work (replication).
 	// Initialised in NewInMemoryBackend so it is always non-nil; overridden by

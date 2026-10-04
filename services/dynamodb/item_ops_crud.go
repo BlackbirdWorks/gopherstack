@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) PutItem(
+func (db *InMemoryDB) putItemOp(
 	ctx context.Context,
 	input *dynamodb.PutItemInput,
 ) (*dynamodb.PutItemOutput, error) {
@@ -100,6 +100,8 @@ func (db *InMemoryDB) putItemLocked(
 	// PAY_PER_REQUEST tables bypass throttling.
 	wcu := WriteCapacityUnitsFromSize(itemSize)
 	region := getRegionFromContext(ctx, db)
+
+	db.emitWCU(region, tableName, wcu)
 
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); throttleErr != nil {
@@ -446,7 +448,7 @@ func resolveGetItemKeys(
 	return pkVal, skVal, nil
 }
 
-func (db *InMemoryDB) GetItem(
+func (db *InMemoryDB) getItemOp(
 	ctx context.Context,
 	input *dynamodb.GetItemInput,
 ) (*dynamodb.GetItemOutput, error) {
@@ -482,6 +484,8 @@ func (db *InMemoryDB) GetItem(
 
 			return
 		}
+
+		db.emitRCU(region, tableName, rcu)
 
 		if !isOnDemandTable(table.BillingMode) {
 			if throttleErr := db.throttler.ConsumeRead(
@@ -540,7 +544,7 @@ func (db *InMemoryDB) GetItem(
 	return out, nil
 }
 
-func (db *InMemoryDB) DeleteItem(
+func (db *InMemoryDB) deleteItemOp(
 	ctx context.Context,
 	input *dynamodb.DeleteItemInput,
 ) (*dynamodb.DeleteItemOutput, error) {
@@ -630,6 +634,8 @@ func (db *InMemoryDB) deleteItemLocked(
 	// Enforce throughput after key validation so that invalid requests do not
 	// consume tokens. PAY_PER_REQUEST tables bypass throttling. DeleteItem
 	// consumes WCUs proportional to the size of the deleted item (min 1).
+	db.emitWCU(region, tableName, wcu)
+
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(
 			throttleKey(region, tableName), wcu,
@@ -758,7 +764,7 @@ func validateConditionExpressionAttributes(
 	return nil
 }
 
-func (db *InMemoryDB) UpdateItem(
+func (db *InMemoryDB) updateItemOp(
 	ctx context.Context,
 	input *dynamodb.UpdateItemInput,
 ) (*dynamodb.UpdateItemOutput, error) {
@@ -850,9 +856,12 @@ func (db *InMemoryDB) updateItemLocked(
 	// Enforce throughput after key validation so that invalid requests do not
 	// consume tokens. PAY_PER_REQUEST tables bypass throttling. UpdateItem
 	// consumes WCUs proportional to the (pre-update) item size, min 1.
+	updateWCU := WriteCapacityUnits(existing)
+	db.emitWCU(region, tableName, updateWCU)
+
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(
-			throttleKey(region, tableName), WriteCapacityUnits(existing),
+			throttleKey(region, tableName), updateWCU,
 		); throttleErr != nil {
 			return nil, "", "", nil, throttleErr
 		}

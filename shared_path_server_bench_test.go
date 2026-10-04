@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	dynamodbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -60,6 +61,15 @@ func serverFixtures(b *testing.B, byName map[string]service.Registerable) {
 		})
 		require.NoError(b, err)
 
+		kinH, ok := byName["Kinesis"].(*kinesisbackend.Handler)
+		require.True(b, ok)
+
+		kinBk, ok := kinH.Backend.(*kinesisbackend.InMemoryBackend)
+		require.True(b, ok)
+		require.NoError(b, kinBk.CreateStream(ctx, &kinesisbackend.CreateStreamInput{
+			StreamName: "bench-server-stream", ShardCount: 1,
+		}))
+
 		s3H, ok := byName["S3"].(*s3backend.S3Handler)
 		require.True(b, ok)
 
@@ -89,6 +99,8 @@ func BenchmarkServerPath(b *testing.B) {
 	}{
 		{"ddb_getitem", "POST", "/", "dynamodb", json10, "DynamoDB_20120810.GetItem",
 			`{"TableName":"bench-server-table","Key":{"id":{"S":"k"}}}`},
+		{"kinesis_putrecord", "POST", "/", "kinesis", "application/x-amz-json-1.1", "Kinesis_20131202.PutRecord",
+			`{"StreamName":"bench-server-stream","PartitionKey":"k","Data":"AAAA"}`},
 		{"sts_query", "POST", "/", "sts", form, "", "Action=GetCallerIdentity&Version=2011-06-15"},
 		{"sns_query", "POST", "/", "sns", form, "", "Action=ListTopics&Version=2010-03-31"},
 		{"sqs_query", "POST", "/", "sqs", form, "", "Action=ListQueues&Version=2012-11-05"},

@@ -15,6 +15,11 @@ type Point struct {
 	Unit       string
 	Dimensions []Dimension
 	Value      float64
+	// Samples, when positive, marks a statistic set: Samples observations with Sum, Min and Max.
+	Samples float64
+	Sum     float64
+	Min     float64
+	Max     float64
 }
 
 // Emitter publishes metric points to CloudWatch.

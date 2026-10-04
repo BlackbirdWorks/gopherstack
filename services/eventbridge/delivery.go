@@ -90,6 +90,7 @@ type DeliveryTargets struct {
 	APIDestinations APIDestinationResolver
 	EventBusRouter  EventBusRouter
 	RoleAuth        roleauth.Authorizer
+	obs             ruleObserver
 	ruleARN         string
 }
 
@@ -185,6 +186,7 @@ func (b *InMemoryBackend) deliverScheduledRule(
 		accountID = b.accountID
 		dt = *b.deliveryTargets
 		dt.ruleARN = rule.Arn
+		dt.obs = ruleObserver{sink: &b.metrics, region: region, bus: busName, rule: rule.Name}
 		timeout = b.deliveryTimeout
 		if bus, exists := b.busesTable(region).Get(ebBusKey(busName)); exists {
 			busDLQ = bus.DeadLetterConfig
@@ -215,6 +217,8 @@ func (b *InMemoryBackend) deliverScheduledRule(
 		EventBusName: busName,
 	}
 	envelope := buildDeliveryEnvelope(entry, accountID, region)
+
+	dt.obs.matched()
 
 	var wg sync.WaitGroup
 	for _, t := range snapped {
@@ -247,6 +251,9 @@ func (b *InMemoryBackend) deliverEvents(
 		var wg sync.WaitGroup
 		groupTargets := targets
 		groupTargets.ruleARN = g.ruleARN
+		groupTargets.obs = ruleObserver{sink: &b.metrics, region: region, bus: g.busName, rule: g.ruleName}
+		groupTargets.obs.matched()
+
 		for _, t := range g.targets {
 			target := t
 			envelope := g.envelope
@@ -265,6 +272,8 @@ type deliveryGroup struct {
 	envelope map[string]any
 	busDLQ   *DeadLetterConfig
 	ruleARN  string
+	ruleName string
+	busName  string
 	targets  []*Target
 }
 
@@ -353,6 +362,8 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 			envelope: buildDeliveryEnvelopeWithDetail(entry, accountID, region, detail),
 			busDLQ:   busDLQ,
 			ruleARN:  rule.Arn,
+			ruleName: rule.Name,
+			busName:  busName,
 			targets:  snapshotTargets(storedTargets),
 		})
 	}
@@ -420,7 +431,10 @@ func deliverToTargetBounded(
 		}
 	}
 
+	dt.obs.invoked()
+
 	if reason := authorizeTarget(target, dt); reason != "" {
+		dt.obs.failed()
 		sendToDLQ(ctx, target, envelope, dt, busDLQ, reason)
 
 		return
@@ -430,6 +444,7 @@ func deliverToTargetBounded(
 
 	for attempt := 0; attempt <= maxAttempts; attempt++ {
 		if int(eventAge.Seconds()) > maxAgeSeconds {
+			dt.obs.failed()
 			sendToDLQ(ctx, target, envelope, dt, busDLQ, "MaximumEventAgeExceeded")
 
 			return
@@ -449,6 +464,7 @@ func deliverToTargetBounded(
 		}
 
 		if attempt == maxAttempts {
+			dt.obs.failed()
 			sendToDLQ(ctx, target, envelope, dt, busDLQ, "DeliveryFailure")
 
 			return
@@ -528,7 +544,11 @@ func sendToDLQ(
 	if err != nil {
 		log.WarnContext(ctx, "EventBridge: failed to send event to DLQ",
 			"dlq", dlqARN, "reason", reason, "error", err)
+
+		return
 	}
+
+	dt.obs.deadLettered()
 }
 
 func indexedRulesForEvent(

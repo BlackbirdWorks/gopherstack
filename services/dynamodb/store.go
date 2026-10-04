@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -225,6 +226,7 @@ type InMemoryDB struct {
 	fisReplicationPaused map[string]time.Time      // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
+	metrics              cwmetric.Sink
 	iteratorStore        *ShardIteratorStore // opaque shard iterator tokens
 	mu                   *lockmetrics.RWMutex
 	// kinesisEmitter forwards stream records to Kinesis destinations when configured.

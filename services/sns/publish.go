@@ -65,10 +65,14 @@ func (b *InMemoryBackend) collectPublishTargets(
 		// scope "MessageAttributes" (or unset) evaluates against message attributes.
 		if sub.FilterPolicyScope == "MessageBody" {
 			if !matchesFilterPolicyMessageBody(sub.parsedFilterPolicy, msg) {
+				out.filteredOut.record(false, true)
+
 				continue
 			}
 		} else {
 			if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
+				out.filteredOut.record(len(attrs) == 0, false)
+
 				continue
 			}
 		}
@@ -482,6 +486,7 @@ func (b *InMemoryBackend) Publish(
 		b.archivePublishedMessage(topicArn, messageID, message, subject, messageStructure, attrs)
 	}
 
+	b.emitPublishMetrics(topicArn, message, &targets)
 	b.dispatchHTTPDeliveries(targets.httpDeliveries, client)
 
 	b.recordEmailDeliveries(targets.emailDeliveries, messageID, topicArn)

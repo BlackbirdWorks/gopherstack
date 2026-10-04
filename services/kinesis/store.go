@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -132,6 +133,7 @@ type InMemoryBackend struct {
 	channels                           *store.Table[Channel]
 	OnStreamPurged                     func(string)
 	registry                           *store.Registry
+	metrics                            cwmetric.Sink
 	streamsByRegion                    *store.Index[Stream]
 	channelsByRegion                   *store.Index[Channel]
 	// s3Writer delivers channel-buffered records to S3 general purpose

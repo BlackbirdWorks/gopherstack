@@ -590,6 +590,8 @@ func (db *InMemoryDB) enforceTransactWriteThroughput(
 
 	for name, n := range perTable {
 		table := tables[name]
+		db.emitWCU(region, name, float64(n))
+
 		if isOnDemandTable(table.BillingMode) {
 			continue
 		}
@@ -769,11 +771,12 @@ func (db *InMemoryDB) enforceTransactReadThroughput(
 
 	for name, n := range perTable {
 		table := tables[name]
+		cu := float64(n) * rcuPerRead
+		db.emitRCU(region, name, cu)
+
 		if isOnDemandTable(table.BillingMode) {
 			continue
 		}
-
-		cu := float64(n) * rcuPerRead
 
 		if err := db.throttler.ConsumeRead(throttleKey(region, name), cu); err != nil {
 			return err

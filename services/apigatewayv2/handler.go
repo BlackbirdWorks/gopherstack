@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -98,6 +99,7 @@ type Handler struct {
 	jwksProvider          JWKSProvider
 	lambdaInvoker         LambdaInvoker
 	managementAPI         apigatewaymanagementapi.StorageBackend
+	metrics               cwmetric.Sink
 	authCache             *authorizerCache
 	subCollectionDispatch map[subDispatchKey]func(*Handler, *echo.Context, string) error
 	subResourceDispatch   map[subDispatchKey]func(*Handler, *echo.Context, string, string) error
@@ -123,6 +125,7 @@ func (h *Handler) EnableRegions() {
 		p.region = region
 		p.lambdaInvoker, p.jwksProvider = h.lambdaInvoker, h.jwksProvider
 		p.managementAPI, p.httpClient = h.managementAPI, h.httpClient
+		p.metrics.Set(h.metrics.Emitter())
 
 		return p
 	})

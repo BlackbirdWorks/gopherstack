@@ -69,7 +69,7 @@ func validateNoDuplicateBatchKeys(keys []map[string]types.AttributeValue) error 
 	return nil
 }
 
-func (db *InMemoryDB) BatchGetItem(
+func (db *InMemoryDB) batchGetItemOp(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
 ) (*dynamodb.BatchGetItemOutput, error) {
@@ -146,10 +146,6 @@ func (db *InMemoryDB) enforceBatchGetThroughput(
 		billingMode := table.BillingMode
 		table.mu.RUnlock()
 
-		if isOnDemandTable(billingMode) {
-			continue
-		}
-
 		rcuPerKey := eventuallyConsistentRCU
 		if aws.ToBool(keysAndAttrs.ConsistentRead) {
 			rcuPerKey = 1.0
@@ -157,6 +153,12 @@ func (db *InMemoryDB) enforceBatchGetThroughput(
 		cu := float64(len(keysAndAttrs.Keys)) * rcuPerKey
 		if cu < rcuPerKey {
 			cu = rcuPerKey
+		}
+
+		db.emitRCU(region, tableName, cu)
+
+		if isOnDemandTable(billingMode) {
+			continue
 		}
 
 		if err := db.throttler.ConsumeRead(throttleKey(region, tableName), cu); err != nil {
@@ -473,7 +475,7 @@ func (db *InMemoryDB) replicateBatchWrites(
 	}
 }
 
-func (db *InMemoryDB) BatchWriteItem(
+func (db *InMemoryDB) batchWriteItemOp(
 	ctx context.Context,
 	input *dynamodb.BatchWriteItemInput,
 ) (*dynamodb.BatchWriteItemOutput, error) {
@@ -583,11 +585,12 @@ func (db *InMemoryDB) enforceBatchWriteThroughput(
 		billingMode := table.BillingMode
 		table.mu.RUnlock()
 
+		cu := computeBatchWriteWCU(reqs)
+		db.emitWCU(region, tableName, cu)
+
 		if isOnDemandTable(billingMode) {
 			continue
 		}
-
-		cu := computeBatchWriteWCU(reqs)
 
 		if err := db.throttler.ConsumeWrite(throttleKey(region, tableName), cu); err != nil {
 			return err

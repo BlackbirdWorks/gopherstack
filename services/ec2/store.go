@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -323,6 +324,7 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
+	metrics      cwmetric.Sink
 	compute      Compute
 	dnsRegistrar DNSRegistrar
 	// appConfig is the service.AppContext.Config value Provider.Init
@@ -895,6 +897,9 @@ func (b *InMemoryBackend) StartLifecycleReconciler(ctx context.Context) {
 			ticker := time.NewTicker(lifecycleReconcileInterval)
 			defer ticker.Stop()
 
+			statusTicker := time.NewTicker(statusCheckMetricInterval)
+			defer statusTicker.Stop()
+
 			for {
 				select {
 				case <-ctx.Done():
@@ -903,6 +908,8 @@ func (b *InMemoryBackend) StartLifecycleReconciler(ctx context.Context) {
 					return
 				case <-ticker.C:
 					b.reconcileInstanceLifecycle()
+				case <-statusTicker.C:
+					b.EmitStatusCheckMetrics()
 				}
 			}
 		}()

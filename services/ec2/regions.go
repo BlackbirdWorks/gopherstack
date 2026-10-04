@@ -146,4 +146,5 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend, region string) {
 	b.appConfig = cfg
 	b.regionBackend = resolve
 	b.allBackends = all
+	b.metrics.Set(home.metrics.Emitter())
 }

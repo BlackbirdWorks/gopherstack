@@ -21,7 +21,7 @@ func (db *InMemoryDB) Scan(
 	ctx context.Context,
 	input *dynamodb.ScanInput,
 ) (*dynamodb.ScanOutput, error) {
-	return db.ScanWithContext(ctx, input)
+	return db.observedScan(ctx, input)
 }
 
 func (db *InMemoryDB) ScanWithContext(
@@ -192,6 +192,8 @@ func (db *InMemoryDB) buildScanOutput(
 	region := getRegionFromContext(ctx, db)
 	consistentRead := aws.ToBool(input.ConsistentRead)
 	rcuUnits := applyConsistentReadMultiplier(rcuForCount(n), consistentRead)
+
+	db.emitRCU(region, tableName, rcuUnits)
 
 	if !isOnDemandTable(billingMode) {
 		if err := db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {

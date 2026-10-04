@@ -574,7 +574,7 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
-  - "No in-process CloudWatch metrics are published for AWS/EC2 (CPUUtilization, NetworkIn/Out; dimension InstanceId); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
+  - "AWS/EC2 CPUUtilization/NetworkIn/NetworkOut/Disk* are not emitted: no instance runtime produces utilisation. Only StatusCheckFailed* is emitted (gopherstack-4m1qr)."
   - "Filter.N/Filters ignored on ~39 of 181 filterable Describe*/Get* ops (2026-09-24
     gopherstack-rwwvt sweep; 2026-10-01 fixed 10, 11, then 11 more). Needing the
     same treatment as the ops already fixed (read the op's SDK doc comment for its
@@ -6311,4 +6311,4 @@ EC2 is region-isolated: a request signed for another region is served by a lazil
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.
+Emits AWS/EC2 StatusCheckFailed, StatusCheckFailed_Instance and StatusCheckFailed_System (InstanceId; viewing_metrics_with_cloudwatch.html) as 0 every minute for each running instance, from the lifecycle reconciler goroutine (no new goroutine); the emulator never fails a check. Utilisation metrics are recorded, not emitted, because no runtime produces them.

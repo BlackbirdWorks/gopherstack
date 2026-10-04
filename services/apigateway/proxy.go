@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -175,9 +176,10 @@ func BuildProxyEvent(
 }
 
 // handleProxyRequest handles a single HTTP request for a Lambda proxy integration.
-func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
+func (h *Handler) proxyHandler(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		obs := obsFrom(ctx)
 
 		// AWS requires an explicit deployment before a stage is invocable, and rejects
 		// any request whose {stage} segment doesn't name a real, deployed stage -- with
@@ -201,6 +203,8 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 
 			return
 		}
+
+		obs.setStage(stage)
 
 		// Resolve the stage's deployment snapshot: real API Gateway serves the
 		// resources/methods/integrations captured at CreateDeployment time, not
@@ -254,7 +258,11 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			return
 		}
 
+		obs.setResource(resource.Path)
+
+		integrationStart := time.Now()
 		h.dispatchIntegration(ctx, w, r, apiID, stageName, resource, method.MethodIntegration, pathParams)
+		obs.setIntegration(time.Since(integrationStart))
 	}
 }
 

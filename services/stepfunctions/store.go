@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -95,6 +96,7 @@ func regionFromARN(arnStr, fallback string) string {
 // channels, cancel funcs, timers) remain plain maps -- see store_setup.go's
 // package comment and each field's own comment below for why.
 type InMemoryBackend struct {
+	metrics         cwmetric.Sink
 	lambdaInvoker   asl.LambdaInvoker
 	sqsIntegration  asl.SQSIntegration
 	snsIntegration  asl.SNSIntegration

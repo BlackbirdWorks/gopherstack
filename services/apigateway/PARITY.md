@@ -312,7 +312,7 @@ families:
   patch_semantics: {status: ok, note: "REWRITTEN this sweep — see Notes; was the single biggest gap in the service"}
 gaps: []
 items_still_open:
-  - "No in-process CloudWatch metrics are published for AWS/ApiGateway (Count, 4XXError, 5XXError, Latency; dimensions ApiName, Stage, Method, Resource); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
+  - "AWS/ApiGateway REST metrics Count/4XXError/5XXError/Latency/IntegrationLatency are emitted; CacheHitCount/CacheMissCount are not (no stage response cache is modelled). (gopherstack-4m1qr)"
   - "UpdateAuthorizer's PATCH table documents \"/authType\" (types.Authorizer.AuthType, distinct from the existing \"Type\"/authorizerType) and UpdateRestApi's documents \"/securityPolicy\" (only DomainName has SecurityPolicy today) -- both real, doc-documented PATCH paths with no backing model field anywhere in this backend. Unmodeled, not a casing or plumbing bug; not fabricated. (gopherstack-6q5h)"
   - "'AWS' (non-proxy) integration target: sqs path-style and sns action-style dispatch for real (gopherstack-is2a); every other target (DynamoDB, Step Functions, S3, ...) is still accepted at PutIntegration with no validation and unconditionally invoked as Lambda at request time. Fixing the rest needs per-service invoker interfaces or a real VTL + AWS query-protocol encoder -- out of a targeted pass's scope. (gopherstack-fum)"
 deferred:
@@ -1285,4 +1285,4 @@ API Gateway (REST) is region-isolated: each non-home region gets a lazily built 
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.
+Emits AWS/ApiGateway (ApiName; ApiName+Stage; ApiName+Method+Resource+Stage when the stage MethodSettings enable metrics): Count, 4XXError, 5XXError, Latency and, when an integration ran, IntegrationLatency (api-gateway-metrics-and-dimensions.html). Requests that never resolve a deployed stage emit nothing. Points fold per second into statistic sets. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).

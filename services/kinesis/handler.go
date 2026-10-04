@@ -457,7 +457,7 @@ func errorDetails(err error) (string, string, int) {
 
 	switch {
 	case errors.Is(err, ErrProvisionedThroughputExceeded):
-		return "ProvisionedThroughputExceededException",
+		return errCodeThroughputExceeded,
 			"Rate exceeded for shard.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrTagLimitExceeded):

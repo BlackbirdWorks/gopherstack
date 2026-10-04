@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -299,8 +300,9 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	ctx context.Context
-	mu  *lockmetrics.RWMutex
+	ctx     context.Context
+	metrics cwmetric.Sink
+	mu      *lockmetrics.RWMutex
 	// registry is the lifecycle registry for every PERSISTED *store.Table
 	// below -- see store_setup.go's package doc for why eventbridge
 	// (region-scoped, with rules/targets nested one level deeper still)
