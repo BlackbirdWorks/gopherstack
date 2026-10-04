@@ -19,7 +19,7 @@
 - Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to.
 - Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed.
 - DeleteDeliveryStream.AllowForceDelete is not read: it only bypasses a KMS-grant-retirement failure, a failure mode this backend does not model.
-- Role authorization covers S3 and S3-backup delivery only; Lambda processor and the OpenSearch/Redshift/HTTP/Splunk/Iceberg/Snowflake destination roles are not checked (2026-10-03).
+- Role authorization covers S3 and S3-backup delivery, the Lambda processor (lambda:InvokeFunction) and domain-ARN OpenSearch/Elasticsearch (es:ESHttpPost); Redshift staging, HTTP (RoleARN not modeled), Splunk, Iceberg and Snowflake destination calls are not checked (2026-10-03).
 
 ## More
 
