@@ -33,7 +33,7 @@ func BenchmarkCompleteMultipartUpload_10x5MiB(b *testing.B) {
 
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
-			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+			backend := s3.NewInMemoryBackend(&s3.ZstdCompressor{})
 			bucket := "bench-mpu-10x5m"
 			_, _ = backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
 

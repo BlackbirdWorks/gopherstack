@@ -9,7 +9,16 @@ import (
 	"sync"
 )
 
-type GzipCompressor struct{}
+// storeCompressor lets a codec decline to compress (incompressible data) and
+// report that the returned body is raw.
+type storeCompressor interface {
+	CompressForStore(parts [][]byte) ([]byte, bool, error)
+}
+
+// GzipCompressor is the legacy gzip codec; it also decodes zstd blobs.
+type GzipCompressor struct {
+	zstd ZstdCompressor
+}
 
 // gzipScratchMaxCap bounds the scratch buffer retained between calls.
 const gzipScratchMaxCap = 16 * 1024 * 1024
@@ -98,8 +107,17 @@ type gzipReaderState struct {
 
 var gzipReaderPool sync.Pool //nolint:gochecknoglobals // sync.Pool requires package-level allocation
 
-// Decompress gunzips data. Readers are pooled; each is owned by one call.
+// Decompress decodes a gzip or zstd blob, chosen by magic bytes.
 func (c *GzipCompressor) Decompress(data []byte) ([]byte, error) {
+	if isZstd(data) {
+		return c.zstd.Decompress(data)
+	}
+
+	return c.gunzip(data)
+}
+
+// gunzip decodes gzip data. Readers are pooled; each is owned by one call.
+func (*GzipCompressor) gunzip(data []byte) ([]byte, error) {
 	st, _ := gzipReaderPool.Get().(*gzipReaderState)
 	if st == nil {
 		st = new(gzipReaderState)

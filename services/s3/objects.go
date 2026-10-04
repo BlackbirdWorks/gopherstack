@@ -479,12 +479,12 @@ func (b *InMemoryBackend) prepareObjectData(
 
 	// 4. Decide whether to compress based on size.
 	if b.compressor != nil && (b.compressionMinBytes == 0 || n >= int64(b.compressionMinBytes)) {
-		cData, cErr := b.compressor.Compress(data)
-		if cErr == nil {
-			return n, cData, true, etag, computedChecksumB64, nil
+		cData, compressed, cErr := b.compressBody([][]byte{data})
+		if cErr != nil {
+			return 0, nil, false, "", "", cErr
 		}
 
-		return 0, nil, false, "", "", cErr
+		return n, cData, compressed, etag, computedChecksumB64, nil
 	}
 
 	return n, data, false, etag, computedChecksumB64, nil

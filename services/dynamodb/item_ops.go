@@ -694,7 +694,7 @@ func findExclusiveStartIndex(
 	keySchema []models.KeySchemaElement,
 	tableKeySchema []models.KeySchemaElement,
 ) int {
-	if exclusiveStartKey == nil {
+	if len(exclusiveStartKey) == 0 {
 		return 0
 	}
 

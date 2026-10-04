@@ -36,7 +36,7 @@ func (e listObjectEntry) key() string {
 // a delimited listing. A plain object-key marker (the common case) only
 // needs key > marker: resume right after it. But NextMarker can also be a
 // CommonPrefix string -- and every CommonPrefix this package emits ends
-// with delimiter (applyDelimiterToVersions's `rest[:idx+len(delimiter)]`
+// with delimiter (walkDelimitedLocked's `rest[:idx+len(delimiter)]`
 // always keeps the delimiter) -- and a CommonPrefix marker means "the whole
 // b/* subtree was already summarized and returned as one entry, not just
 // keys up to some point." key > "b/" is true for every "b/..." key, so a
@@ -57,33 +57,6 @@ func afterMarkerPredicate(marker, delimiter string) func(key string) bool {
 	return func(key string) bool {
 		return key > marker
 	}
-}
-
-func applyDelimiterToVersions(
-	prefix, delimiter string,
-	versions []*StoredObjectVersion,
-) []listObjectEntry {
-	entries := make([]listObjectEntry, 0, len(versions))
-	var lastCP string
-	haveCP := false
-
-	for _, v := range versions {
-		rest := v.Key[len(prefix):]
-		idx := strings.Index(rest, delimiter)
-
-		if idx != -1 {
-			cp := prefix + rest[:idx+len(delimiter)]
-			if !haveCP || cp != lastCP {
-				lastCP = cp
-				haveCP = true
-				entries = append(entries, listObjectEntry{prefix: cp})
-			}
-		} else {
-			entries = append(entries, listObjectEntry{version: v})
-		}
-	}
-
-	return entries
 }
 
 // seekPrefixMatchesLocked returns the objects whose key has prefix and comes
@@ -138,19 +111,17 @@ func (b *InMemoryBackend) processListObjects(
 		maxKeys = *input.MaxKeys
 	}
 
-	// A non-delimited listing only ever needs maxKeys+1 objects (one extra to
-	// detect truncation), so the walk can stop there. A delimited listing
-	// needs every candidate to group CommonPrefixes correctly.
-	limit := -1
-	if delimiter == "" {
-		if maxKeys <= 0 {
-			limit = 1
-		} else {
-			limit = int(maxKeys) + 1
-		}
+	afterMarker := afterMarkerPredicate(marker, delimiter)
+
+	if delimiter != "" {
+		return b.processDelimitedListing(bucket, prefix, delimiter, afterMarker, maxKeys)
 	}
 
-	afterMarker := afterMarkerPredicate(marker, delimiter)
+	// Only maxKeys+1 objects are needed (one extra detects truncation).
+	limit := 1
+	if maxKeys > 0 {
+		limit = int(maxKeys) + 1
+	}
 
 	var objectSnapshots []*StoredObject
 	func() {
@@ -160,82 +131,135 @@ func (b *InMemoryBackend) processListObjects(
 		objectSnapshots = seekPrefixMatchesLocked(bucket, prefix, afterMarker, limit)
 	}()
 
-	// No delimiter: CommonPrefixes is always empty, so truncation is a plain
-	// slice cut on the already-sorted, marker-seeked object list. Truncate
-	// BEFORE resolving versions so a page request against a huge bucket
-	// only pays the per-object version resolution cost for the keys actually returned.
-	if delimiter == "" {
-		var isTruncated bool
-		var nextMarker string
-		if maxKeys <= 0 {
-			isTruncated = len(objectSnapshots) > 0
-			objectSnapshots = nil
-		} else if int64(len(objectSnapshots)) > int64(maxKeys) {
-			isTruncated = true
-			nextMarker = objectSnapshots[maxKeys-1].Key
-			objectSnapshots = objectSnapshots[:maxKeys]
-		}
-
-		versions := b.snapshotLatestVersions(objectSnapshots)
-
-		return objectsFromVersions(versions), nil, isTruncated, nextMarker, maxKeys
+	// Truncate before resolving versions so a page only pays the per-object
+	// resolution cost for the keys actually returned.
+	var isTruncated bool
+	var nextMarker string
+	if maxKeys <= 0 {
+		isTruncated = len(objectSnapshots) > 0
+		objectSnapshots = nil
+	} else if int64(len(objectSnapshots)) > int64(maxKeys) {
+		isTruncated = true
+		nextMarker = objectSnapshots[maxKeys-1].Key
+		objectSnapshots = objectSnapshots[:maxKeys]
 	}
 
-	// Delimiter grouping needs every matching key up front to compute
-	// CommonPrefixes correctly. We filter and truncate the lightweight version
-	// pointers first, so objectsFromVersions only allocates wire structs for the
-	// elements actually returned on the page.
 	versions := b.snapshotLatestVersions(objectSnapshots)
-	entries := applyDelimiterToVersions(prefix, delimiter, versions)
-	truncatedVersions, cpList, isTruncated, nextMarker := truncateVersionEntries(entries, maxKeys)
 
-	return objectsFromVersions(truncatedVersions), cpList, isTruncated, nextMarker, maxKeys
+	return objectsFromVersions(versions), nil, isTruncated, nextMarker, maxKeys
 }
 
-// snapshotLatestVersions resolves each object's current (non-deleted) latest
-// version under its own lock. It returns bare *StoredObjectVersion pointers
-// rather than the wire-shaped types.Object so callers can sort/seek/truncate
-// cheaply before paying for the per-object response allocation.
+func (b *InMemoryBackend) processDelimitedListing(
+	bucket *StoredBucket,
+	prefix, delimiter string,
+	afterMarker func(string) bool,
+	maxKeys int32,
+) ([]types.Object, []types.CommonPrefix, bool, string, int32) {
+	// One entry past maxKeys is enough to detect truncation.
+	limit := 1
+	if maxKeys > 0 {
+		limit = int(maxKeys) + 1
+	}
+
+	var entries []listObjectEntry
+	func() {
+		bucket.mu.RLock("ListObjects")
+		defer bucket.mu.RUnlock()
+
+		entries = walkDelimitedLocked(bucket, prefix, delimiter, afterMarker, limit)
+	}()
+
+	versions, cpList, isTruncated, nextMarker := truncateVersionEntries(entries, maxKeys)
+
+	return objectsFromVersions(versions), cpList, isTruncated, nextMarker, maxKeys
+}
+
+// snapshotLatestVersions returns lock-free copies of each object's live latest version.
 func (b *InMemoryBackend) snapshotLatestVersions(objectSnapshots []*StoredObject) []*StoredObjectVersion {
 	versions := make([]*StoredObjectVersion, 0, len(objectSnapshots))
 	for _, obj := range objectSnapshots {
-		var snap *StoredObjectVersion
-		func() {
-			obj.mu.RLock("ListObjects")
-			defer obj.mu.RUnlock()
+		if snap := latestLiveSnapshot(obj); snap != nil {
+			versions = append(versions, snap)
+		}
+	}
 
-			var latest *StoredObjectVersion
+	return versions
+}
 
-			latestID := obj.LatestVersionID
-			if latestID != "" {
-				latest = obj.Versions[latestID]
-			} else {
-				// Fallback: scan for latest if not cached
-				latest = findLatestVersion(obj.Versions)
-			}
+// latestLiveSnapshot copies obj's latest version (nil if absent or a delete marker);
+// the copy guards against the janitor mutating the live version.
+func latestLiveSnapshot(obj *StoredObject) *StoredObjectVersion {
+	obj.mu.RLock("ListObjects")
+	defer obj.mu.RUnlock()
 
-			if latest == nil || latest.Deleted {
-				return
-			}
+	var latest *StoredObjectVersion
+	if obj.LatestVersionID != "" {
+		latest = obj.Versions[obj.LatestVersionID]
+	} else {
+		latest = findLatestVersion(obj.Versions)
+	}
 
-			// objectFromVersion reads StorageClass (and other scalar fields)
-			// from the returned pointer well after this RUnlock -- the
-			// lifecycle janitor's applyStorageClassTransitions mutates that
-			// same live *StoredObjectVersion under obj.mu.Lock, so the
-			// caller must work from a snapshot, not the live pointer (see
-			// TestListObjects_RacesWithStorageClassTransition).
-			v := *latest
-			snap = &v
-		}()
+	if latest == nil || latest.Deleted {
+		return nil
+	}
 
+	v := *latest
+
+	return &v
+}
+
+// walkDelimitedLocked builds up to limit entries, skipping each CommonPrefix's key
+// range. Caller holds bucket.mu (read).
+func walkDelimitedLocked(
+	bucket *StoredBucket,
+	prefix, delimiter string,
+	afterMarker func(string) bool,
+	limit int,
+) []listObjectEntry {
+	keys := bucket.keyIndex
+	i := sort.Search(len(keys), func(i int) bool {
+		return keys[i] >= prefix && afterMarker(keys[i])
+	})
+
+	entries := make([]listObjectEntry, 0, min(limit, len(keys)-i))
+
+	for i < len(keys) && len(entries) < limit {
+		key := keys[i]
+		if !strings.HasPrefix(key, prefix) {
+			break
+		}
+
+		i++
+
+		obj, ok := bucket.Objects[key]
+		if !ok {
+			continue
+		}
+
+		snap := latestLiveSnapshot(obj)
 		if snap == nil {
 			continue
 		}
 
-		versions = append(versions, snap)
+		rest := key[len(prefix):]
+		idx := strings.Index(rest, delimiter)
+
+		if idx == -1 {
+			entries = append(entries, listObjectEntry{version: snap})
+
+			continue
+		}
+
+		cp := prefix + rest[:idx+len(delimiter)]
+		entries = append(entries, listObjectEntry{prefix: cp})
+
+		from := i
+		i = from + sort.Search(len(keys)-from, func(k int) bool {
+			return !strings.HasPrefix(keys[from+k], cp)
+		})
 	}
 
-	return versions
+	return entries
 }
 
 func objectFromVersion(latest *StoredObjectVersion) types.Object {

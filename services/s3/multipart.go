@@ -462,25 +462,31 @@ func (b *InMemoryBackend) assembleMultipartData(
 	}, nil
 }
 
-// encodeMultipartBody returns the stored body for the part chunks, gzip-compressed
-// when the compressor applies. Compressors without CompressParts get one concatenated copy.
+// encodeMultipartBody returns the stored body for the part chunks, compressed
+// when the compressor applies and the data compresses.
 func (b *InMemoryBackend) encodeMultipartBody(chunks [][]byte, total int) ([]byte, bool, error) {
 	if b.compressor != nil && (b.compressionMinBytes == 0 || total >= b.compressionMinBytes) {
-		var (
-			out []byte
-			err error
-		)
-
-		if pc, ok := b.compressor.(partsCompressor); ok {
-			out, err = pc.CompressParts(chunks)
-		} else {
-			out, err = b.compressor.Compress(slices.Concat(chunks...))
-		}
-
-		return out, err == nil, err
+		return b.compressBody(chunks)
 	}
 
 	return slices.Concat(chunks...), false, nil
+}
+
+// compressBody compresses the concatenation of parts, returning whether the
+// result is compressed. Callers must have checked b.compressor != nil.
+func (b *InMemoryBackend) compressBody(parts [][]byte) ([]byte, bool, error) {
+	switch c := b.compressor.(type) {
+	case storeCompressor:
+		return c.CompressForStore(parts)
+	case partsCompressor:
+		out, err := c.CompressParts(parts)
+
+		return out, err == nil, err
+	default:
+		out, err := b.compressor.Compress(slices.Concat(parts...))
+
+		return out, err == nil, err
+	}
 }
 
 // commitMultipartObject stores the assembled multipart data as an object version,

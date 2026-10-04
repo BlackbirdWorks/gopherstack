@@ -23,7 +23,7 @@ const benchObjectSize64KiB = 64 * 1024
 func benchHandler(b *testing.B) (*s3.S3Handler, *s3.InMemoryBackend) {
 	b.Helper()
 
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}).WithSkipMultipartSizeCheck()
+	backend := s3.NewInMemoryBackend(&s3.ZstdCompressor{}).WithSkipMultipartSizeCheck()
 	handler := s3.NewHandler(backend).WithJanitor(s3.Settings{})
 
 	return handler, backend
@@ -186,7 +186,7 @@ func BenchmarkCompleteMultipartUpload_5MiB(b *testing.B) {
 }
 
 func BenchmarkPutObject(b *testing.B) {
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	backend := s3.NewInMemoryBackend(&s3.ZstdCompressor{})
 	bucketName := "bench-bucket"
 	_, _ = backend.CreateBucket(
 		b.Context(),
@@ -206,7 +206,7 @@ func BenchmarkPutObject(b *testing.B) {
 }
 
 func BenchmarkGetObject(b *testing.B) {
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	backend := s3.NewInMemoryBackend(&s3.ZstdCompressor{})
 	bucketName := "bench-bucket"
 	_, _ = backend.CreateBucket(
 		b.Context(),
@@ -391,7 +391,7 @@ func BenchmarkGetObject_1MiB(b *testing.B) {
 // BenchmarkUploadPart_5MiB measures backend UploadPart at the 5 MiB minimum part
 // size, without HTTP or compression overhead.
 func BenchmarkUploadPart_5MiB(b *testing.B) {
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}).WithSkipMultipartSizeCheck()
+	backend := s3.NewInMemoryBackend(&s3.ZstdCompressor{}).WithSkipMultipartSizeCheck()
 	bucketName := "bench-uploadpart-5m"
 	_, _ = backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)})
 	key := "bench-key"

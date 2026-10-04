@@ -356,7 +356,7 @@ func decompressSelectInput(data []byte, compressionType string) ([]byte, error) 
 		return data, nil
 
 	case "GZIP":
-		out, err := (&GzipCompressor{}).Decompress(data)
+		out, err := (&GzipCompressor{}).gunzip(data)
 		if err != nil {
 			return nil, fmt.Errorf("GZIPDecompression: %w", err)
 		}
