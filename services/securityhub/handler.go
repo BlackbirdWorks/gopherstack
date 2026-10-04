@@ -54,8 +54,9 @@ const (
 
 	msgNameRequired = "Name is required"
 
-	msgHubNotEnabled   = "SecurityHub is not enabled"
-	msgInsightNotFound = "Insight not found"
+	msgHubNotEnabled    = "SecurityHub is not enabled"
+	msgHubNotSubscribed = "Account is not subscribed to AWS Security Hub"
+	msgInsightNotFound  = "Insight not found"
 
 	// Operation names (returned by ExtractOperation).
 	opEnableSecurityHub    = "EnableSecurityHub"
@@ -526,6 +527,12 @@ func typedErrorResponse(c *echo.Context, status int, errType, message string) er
 	c.Response().Header().Set(amznErrorTypeHeader, errType)
 
 	return c.JSON(status, map[string]any{keyMessage: message})
+}
+
+// hubNotSubscribed is the V1 unsubscribed-account error: InvalidAccessException,
+// "not subscribed to AWS Security Hub" (the text the Terraform provider matches).
+func hubNotSubscribed(c *echo.Context) error {
+	return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotSubscribed)
 }
 
 // errInvalidJSONBody is returned unwritten so handleREST can map and write

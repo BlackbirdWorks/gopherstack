@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -663,6 +664,10 @@ func (b *InMemoryBackend) DisassociateSoftwareFromImageBuilder(imageBuilderName 
 func (b *InMemoryBackend) DescribeSoftwareAssociations(resource string) ([]SoftwareAssociation, error) {
 	b.mu.RLock("DescribeSoftwareAssociations")
 	defer b.mu.RUnlock()
+
+	if i := strings.LastIndex(resource, "/"); strings.HasPrefix(resource, "arn:") && i >= 0 {
+		resource = resource[i+1:]
+	}
 
 	if !b.imageBuilders.Has(resource) && !b.images.Has(resource) {
 		return nil, ErrNotFound

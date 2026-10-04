@@ -38,15 +38,10 @@ func (h *Handler) handleCreateInsight(c *echo.Context, body map[string]any) erro
 		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "GroupByAttribute is required")
 	}
 
-	// ErrHubNotEnabled is left unheadered: CreateInsight's error list also
-	// carries InvalidAccessException (securityhub@v1.75.4 deserializers.go),
-	// same ambiguity as handler_hub.go's V1 handlers.
 	arn, err := h.Backend.CreateInsight(name, groupByAttribute, filters)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyMessage: msgHubNotEnabled,
-			})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
@@ -72,9 +67,7 @@ func (h *Handler) handleGetInsights(c *echo.Context, body map[string]any) error 
 	insights, nextOut, err := h.Backend.GetInsights(arns, nextToken, maxResults)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyMessage: msgHubNotEnabled,
-			})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
@@ -107,9 +100,7 @@ func (h *Handler) handleGetInsightResults(c *echo.Context, insightArn string) er
 		}
 
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyMessage: msgHubNotEnabled,
-			})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
@@ -135,7 +126,7 @@ func (h *Handler) handleUpdateInsight(c *echo.Context, insightArn string, body m
 		}
 
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
@@ -152,7 +143,7 @@ func (h *Handler) handleDeleteInsight(c *echo.Context, insightArn string) error 
 		}
 
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())

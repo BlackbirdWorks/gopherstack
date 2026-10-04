@@ -51,6 +51,10 @@ var (
 	ErrClusterNotFound = awserr.New("DBClusterNotFound", awserr.ErrNotFound)
 	// ErrClusterAlreadyExists is returned when a DB cluster already exists.
 	ErrClusterAlreadyExists = awserr.New("DBClusterAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrClusterRoleAlreadyExists is returned when the role is already associated with the cluster feature.
+	ErrClusterRoleAlreadyExists = awserr.New("DBClusterRoleAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrClusterRoleNotFound is returned when the role is not associated with the cluster feature.
+	ErrClusterRoleNotFound = awserr.New("DBClusterRoleNotFound", awserr.ErrNotFound)
 	// ErrClusterSnapshotNotFound is returned when a DB cluster snapshot does not exist.
 	ErrClusterSnapshotNotFound = awserr.New("DBClusterSnapshotNotFound", awserr.ErrNotFound)
 	// ErrClusterSnapshotAlreadyExists is returned when a DB cluster snapshot already exists.

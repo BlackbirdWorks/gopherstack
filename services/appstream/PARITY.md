@@ -178,6 +178,11 @@ assumption as the bug. Rewrote it to send all required fields plus a
 
 ## Notes
 
+- **2026-10-04 (gopherstack-jzqo)**: both items verified at HEAD. The USER_NAME_NOT_FOUND ErrorCode is
+  emitted; DescribeSoftwareAssociations accepts an image or image-builder resource (the SDK exposes no
+  write path to image software, so an existing image lists none) and now also resolves the ARN form the
+  op's AssociatedResource documents (`TestSDKRoundTrip_DescribeSoftwareAssociations_ResourceForms`).
+
 **2026-09-24** (organizations-and-appstream): FIXED -- CreateImageBuilder started new
 builders in STOPPED; real AWS launches the build instance immediately
 (Pending->Running), and terraform-provider-aws's create waiter only accepts

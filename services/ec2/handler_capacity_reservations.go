@@ -36,7 +36,7 @@ type groupsForCapacityReservationResponse struct {
 // ---- Handler implementations ----
 
 func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) capacityReservationItem {
-	return capacityReservationItem{
+	item := capacityReservationItem{
 		CapacityReservationID:  cr.CapacityReservationID,
 		InstanceType:           cr.InstanceType,
 		AvailabilityZone:       cr.AvailabilityZone,
@@ -48,7 +48,42 @@ func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) 
 		TotalInstanceCount:     cr.TotalInstanceCount,
 		AvailableInstanceCount: cr.AvailableInstanceCount,
 		TagSet:                 tagItemsFromMap(tags),
+		Interruptible:          cr.Interruptible,
 	}
+
+	if cr.Interruptible {
+		item.InterruptionInfo = &interruptionInfoItem{
+			InterruptionType:            interruptionTypeAdhoc,
+			SourceCapacityReservationID: cr.SourceCapacityReservationID,
+		}
+	}
+
+	if a := cr.InterruptibleAllocation; a != nil {
+		item.InterruptibleCapacityAllocation = &interruptibleAllocationDetail{
+			InstanceCount:                      a.TargetInstanceCount,
+			InterruptibleCapacityReservationID: a.InterruptibleCapacityReservationID,
+			InterruptionType:                   interruptionTypeAdhoc,
+			Status:                             a.Status,
+			TargetInstanceCount:                a.TargetInstanceCount,
+			ZeroSizePreference:                 a.ZeroSizePreference,
+		}
+	}
+
+	return item
+}
+
+type interruptionInfoItem struct {
+	InterruptionType            string `xml:"interruptionType"`
+	SourceCapacityReservationID string `xml:"sourceCapacityReservationId"`
+}
+
+type interruptibleAllocationDetail struct {
+	InterruptibleCapacityReservationID string `xml:"interruptibleCapacityReservationId,omitempty"`
+	InterruptionType                   string `xml:"interruptionType"`
+	Status                             string `xml:"status"`
+	ZeroSizePreference                 string `xml:"zeroSizePreference,omitempty"`
+	InstanceCount                      int32  `xml:"instanceCount"`
+	TargetInstanceCount                int32  `xml:"targetInstanceCount"`
 }
 
 func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string) (any, error) {
@@ -150,7 +185,11 @@ func (h *Handler) handleCreateInterruptibleCapacityReservationAllocation(
 	instanceCount := parseInt32Value(vals.Get("InstanceCount"))
 	zeroSizePreference := vals.Get("ZeroSizePreference")
 
-	alloc, err := h.Backend.CreateInterruptibleCapacityReservationAllocation(crID, zeroSizePreference, instanceCount)
+	tags := parseTagSpecification(vals, "capacity-reservation")
+
+	alloc, err := h.Backend.CreateInterruptibleCapacityReservationAllocation(
+		crID, zeroSizePreference, instanceCount, tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +230,7 @@ func (h *Handler) handleUpdateInterruptibleCapacityReservationAllocation(
 
 	return &updateInterruptibleCRAllocationResponse{
 		RequestID:                          reqID,
-		InterruptibleCapacityReservationID: alloc.SourceCapacityReservationID,
+		InterruptibleCapacityReservationID: alloc.InterruptibleCapacityReservationID,
 		InterruptionType:                   interruptionTypeAdhoc,
 		SourceCapacityReservationID:        alloc.SourceCapacityReservationID,
 		Status:                             alloc.Status,
@@ -256,7 +295,7 @@ func (h *Handler) handleGetCapacityReservationUsage(vals url.Values, reqID strin
 
 	if usage.InterruptibleAllocation != nil {
 		resp.InterruptibleCapacityAllocation = &interruptibleCapacityAllocationItem{
-			InterruptibleCapacityReservationID: usage.InterruptibleAllocation.SourceCapacityReservationID,
+			InterruptibleCapacityReservationID: usage.InterruptibleAllocation.InterruptibleCapacityReservationID,
 			InterruptionType:                   interruptionTypeAdhoc,
 			Status:                             usage.InterruptibleAllocation.Status,
 			InstanceCount:                      usage.InterruptibleAllocation.TargetInstanceCount,

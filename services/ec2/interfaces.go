@@ -2285,7 +2285,7 @@ type Backend interface {
 	DescribeTransitGatewayAttachments(ids []string) []*TransitGatewayAttachmentSummary
 
 	CreateInterruptibleCapacityReservationAllocation(
-		sourceCapacityReservationID, zeroSizePreference string, instanceCount int32,
+		sourceCapacityReservationID, zeroSizePreference string, instanceCount int32, tags map[string]string,
 	) (*InterruptibleCapacityReservationAllocation, error)
 	UpdateInterruptibleCapacityReservationAllocation(
 		sourceCapacityReservationID, zeroSizePreference string, targetInstanceCount int32,

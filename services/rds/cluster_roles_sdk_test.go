@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
+	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -166,4 +167,73 @@ func TestAddRoleToDBCluster_SameFeatureNameReplaces_RealSDKClient(t *testing.T) 
 	require.Len(t, out.DBClusters[0].AssociatedRoles, 1,
 		"a second role added for a feature already in use must replace, not duplicate")
 	assert.Equal(t, "arn:aws:iam::000000000000:role/R2", aws.ToString(out.DBClusters[0].AssociatedRoles[0].RoleArn))
+}
+
+func TestClusterRoleFaults_RealSDKClient(t *testing.T) {
+	t.Parallel()
+
+	const role = "arn:aws:iam::000000000000:role/R1"
+
+	tests := []struct {
+		run  func(t *testing.T, c *rdssdk.Client) error
+		name string
+		want string
+	}{
+		{
+			name: "duplicate_add",
+			want: "DBClusterRoleAlreadyExists",
+			run: func(t *testing.T, c *rdssdk.Client) error {
+				t.Helper()
+				in := &rdssdk.AddRoleToDBClusterInput{
+					DBClusterIdentifier: aws.String("fault-cluster"),
+					RoleArn:             aws.String(role),
+					FeatureName:         aws.String("S3_INTEGRATION"),
+				}
+				_, err := c.AddRoleToDBCluster(t.Context(), in)
+				require.NoError(t, err)
+				_, err = c.AddRoleToDBCluster(t.Context(), in)
+
+				return err
+			},
+		},
+		{
+			name: "remove_unassociated",
+			want: "DBClusterRoleNotFound",
+			run: func(t *testing.T, c *rdssdk.Client) error {
+				t.Helper()
+				_, err := c.RemoveRoleFromDBCluster(t.Context(), &rdssdk.RemoveRoleFromDBClusterInput{
+					DBClusterIdentifier: aws.String("fault-cluster"),
+					RoleArn:             aws.String(role),
+				})
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestRDSClient(t, newBatch2Handler(t))
+			_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
+				DBClusterIdentifier: aws.String("fault-cluster"),
+				Engine:              aws.String("aurora-mysql"),
+				MasterUsername:      aws.String("admin"),
+			})
+			require.NoError(t, err)
+
+			err = tt.run(t, client)
+			require.Error(t, err)
+
+			switch tt.want {
+			case "DBClusterRoleAlreadyExists":
+				var f *rdstypes.DBClusterRoleAlreadyExistsFault
+				require.ErrorAs(t, err, &f)
+			default:
+				var f *rdstypes.DBClusterRoleNotFoundFault
+				require.ErrorAs(t, err, &f)
+			}
+		})
+	}
 }

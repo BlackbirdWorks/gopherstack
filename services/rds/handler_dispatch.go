@@ -540,6 +540,8 @@ func rdsErrorCode(opErr error) string {
 		{ErrOptionGroupAlreadyExists, "OptionGroupAlreadyExistsFault"},
 		{ErrClusterNotFound, "DBClusterNotFoundFault"},
 		{ErrClusterAlreadyExists, "DBClusterAlreadyExistsFault"},
+		{ErrClusterRoleAlreadyExists, "DBClusterRoleAlreadyExists"},
+		{ErrClusterRoleNotFound, "DBClusterRoleNotFound"},
 		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFoundFault"},
 		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExistsFault"},
 		{ErrClusterEndpointNotFound, "DBClusterEndpointNotFoundFault"},

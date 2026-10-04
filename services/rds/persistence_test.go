@@ -90,7 +90,7 @@ func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 
 	// Verify cluster role persisted.
 	err = b2.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole", "")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, rds.ErrClusterRoleAlreadyExists)
 
 	// Verify instance role persisted.
 	err = b2.AddRoleToDBInstance("my-db", "arn:aws:iam::000000000000:role/InstanceRole", "S3_INTEGRATION")

@@ -724,6 +724,15 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 
 ## Notes
 
+- **2026-10-04 (gopherstack-n1glw)**: CreateInterruptibleCapacityReservationAllocation now mints a
+  distinct interruptible CapacityReservation (own cr- id, copies the source's type/AZ/tenancy, count =
+  allocation, Interruptible=true, InterruptionInfo.SourceCapacityReservationId) and applies
+  TagSpecifications to it, not the source. DescribeCapacityReservations lists it; the source carries
+  InterruptibleCapacityAllocation (ec2@v1.319.1 types.InterruptibleCapacityAllocation). Update resizes or
+  cancels it (`cancelled` state; ZeroSizePreference default) and CancelCapacityReservation on it returns
+  capacity to the source. Allocations stay keyed by source, so a second Create for one source replaces the
+  tracked allocation. Proven by `TestInterruptibleAllocation_MintsTaggedReservation`.
+
 ### 2026-10-01: items_still_open burn-down
 
 DescribeInstances/RunInstances now render the instance-level sourceDestCheck from the primary ENI (one batched

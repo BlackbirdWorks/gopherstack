@@ -151,6 +151,16 @@ leaks: {status: clean, note: "no goroutines, tickers, or background loops in ser
 
 ## Notes
 
+- **2026-10-04 (gopherstack-qp2y)**: the eight V1 ops that declare both InvalidAccessException and
+  ResourceNotFoundException (DisableSecurityHub, DescribeHub, UpdateSecurityHubConfiguration, UpdateFindings,
+  CreateInsight, GetInsights, EnableImportFindingsForProduct, CreateActionTarget) now return
+  InvalidAccessException ("... is not subscribed to AWS Security Hub", HTTP 400) for an unsubscribed
+  account, as the already-typed siblings (UpdateActionTarget, DeleteActionTarget, DisableImportFindingsForProduct,
+  UpdateInsight, DeleteInsight) do. Basis: AWS returns InvalidAccessException for an account that has not
+  enabled Security Hub, and the aws Terraform provider matches that exception with the message text
+  "not subscribed to AWS Security Hub"; ResourceNotFoundException is reserved for a missing named resource.
+  Proven by `TestV1Ops_UnsubscribedAccountIsInvalidAccess` (errors.As to types.InvalidAccessException).
+
 ### 2026-09-19 (terraform-coverage sweep, guardduty-and-securityhub)
 
 Configuration policy IDs were sequential "policy-N" (fails the provider's UUID validation);

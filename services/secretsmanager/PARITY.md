@@ -92,6 +92,12 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 
 ## Notes
 
+- **2026-10-04 (gopherstack-zurl)**: re-verified at HEAD. CreateSecret.ForceOverwriteReplicaSecret is
+  fully modelled: replicas are real secrets in the sibling region store and a same-named foreign secret
+  there fails the replica as Failed unless the flag is set (`TestCreateSecret_ForceOverwriteReplicaSecret`,
+  `TestReplicateSecretToRegions_ForceOverwriteAllowed`). Only PutSecretValue.RotationToken remains open
+  (accepted, not validated: no rotation-caller identity or cross-account trust model exists to check it).
+
 - **2026-10-01 (items_still_open burn-down)**: ListSecrets/BatchGetSecretValue filters now follow
   `types.Filter.Key`: description and all are case-insensitive; tag-key/tag-value are prefix (were
   exact) and honour "!" negation; "all" also searches tags. CreateSecret and ReplicateSecretToRegions

@@ -10,17 +10,14 @@ import (
 
 const interruptibleAllocStatusActive = "active"
 
-// InterruptibleCapacityReservationAllocation tracks an interruptible
-// allocation carved out of an existing (source) Capacity Reservation's spare
-// capacity. It overlays the source CapacityReservation rather than minting a
-// new reservation resource: the real CreateInterruptibleCapacityReservationAllocation
-// and UpdateInterruptibleCapacityReservationAllocation outputs identify the
-// allocation by its source reservation, not a distinct ID.
+// InterruptibleCapacityReservationAllocation is keyed by its source reservation;
+// the interruptible reservation is a distinct CapacityReservation.
 type InterruptibleCapacityReservationAllocation struct {
-	SourceCapacityReservationID string `json:"sourceCapacityReservationID,omitempty"`
-	Status                      string `json:"status,omitempty"`
-	ZeroSizePreference          string `json:"zeroSizePreference,omitempty"`
-	TargetInstanceCount         int32  `json:"targetInstanceCount,omitempty"`
+	SourceCapacityReservationID        string `json:"sourceCapacityReservationID,omitempty"`
+	InterruptibleCapacityReservationID string `json:"interruptibleCapacityReservationID,omitempty"`
+	Status                             string `json:"status,omitempty"`
+	ZeroSizePreference                 string `json:"zeroSizePreference,omitempty"`
+	TargetInstanceCount                int32  `json:"targetInstanceCount,omitempty"`
 }
 
 // CapacityReservationInstanceUsage is a per-account usage row within
@@ -116,9 +113,31 @@ func (b *InMemoryBackend) CancelCapacityReservation(reservationID string) error 
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
 	}
-	cr.State = "cancelled"
+
+	if cr.Interruptible && cr.State != declarativePoliciesReportStateCancelled {
+		b.releaseInterruptibleToSourceLocked(cr)
+	}
+
+	cr.State = declarativePoliciesReportStateCancelled
 
 	return nil
+}
+
+// releaseInterruptibleToSourceLocked returns a cancelled interruptible reservation's
+// capacity to its source and marks the allocation canceled. Caller holds b.mu.
+func (b *InMemoryBackend) releaseInterruptibleToSourceLocked(icr *CapacityReservation) {
+	if src, ok := b.capacityReservations.Get(icr.SourceCapacityReservationID); ok {
+		src.AvailableInstanceCount += icr.TotalInstanceCount
+	}
+
+	alloc, ok := b.interruptibleCRAllocations.Get(icr.SourceCapacityReservationID)
+	if ok && alloc.InterruptibleCapacityReservationID == icr.CapacityReservationID {
+		alloc.Status = "canceled"
+		alloc.TargetInstanceCount = 0
+	}
+
+	icr.TotalInstanceCount = 0
+	icr.AvailableInstanceCount = 0
 }
 
 // ModifyCapacityReservation updates instance count for a capacity reservation.
@@ -159,11 +178,10 @@ func (b *InMemoryBackend) GetGroupsForCapacityReservation(reservationID string) 
 
 // ---- Instance Connect Endpoint ----
 
-// CreateInterruptibleCapacityReservationAllocation carves out an
-// interruptible allocation from a source Capacity Reservation's spare
-// capacity, reducing the source's AvailableInstanceCount.
+// CreateInterruptibleCapacityReservationAllocation carves spare capacity out of the
+// source and mints the distinct, tagged interruptible CapacityReservation.
 func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
-	sourceCapacityReservationID, zeroSizePreference string, instanceCount int32,
+	sourceCapacityReservationID, zeroSizePreference string, instanceCount int32, tags map[string]string,
 ) (*InterruptibleCapacityReservationAllocation, error) {
 	if sourceCapacityReservationID == "" {
 		return nil, fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
@@ -194,11 +212,30 @@ func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
 		zeroSizePreference = crFleetTenancyDefault
 	}
 
-	alloc := &InterruptibleCapacityReservationAllocation{
+	icr := &CapacityReservation{
+		CapacityReservationID:       "cr-" + uuid.New().String()[:8],
+		InstanceType:                cr.InstanceType,
+		AvailabilityZone:            cr.AvailabilityZone,
+		InstanceMatchCriteria:       cr.InstanceMatchCriteria,
+		Tenancy:                     cr.Tenancy,
+		InstancePlatform:            cr.InstancePlatform,
+		TotalInstanceCount:          int(instanceCount),
+		AvailableInstanceCount:      int(instanceCount),
+		State:                       stateActive,
+		CreateTime:                  time.Now().UTC(),
+		OwnedBy:                     b.AccountID,
 		SourceCapacityReservationID: sourceCapacityReservationID,
-		Status:                      interruptibleAllocStatusActive,
-		ZeroSizePreference:          zeroSizePreference,
-		TargetInstanceCount:         instanceCount,
+		Interruptible:               true,
+	}
+	b.capacityReservations.Put(icr)
+	b.setTagsLocked(icr.CapacityReservationID, tags)
+
+	alloc := &InterruptibleCapacityReservationAllocation{
+		SourceCapacityReservationID:        sourceCapacityReservationID,
+		InterruptibleCapacityReservationID: icr.CapacityReservationID,
+		Status:                             interruptibleAllocStatusActive,
+		ZeroSizePreference:                 zeroSizePreference,
+		TargetInstanceCount:                instanceCount,
 	}
 	b.interruptibleCRAllocations.Put(alloc)
 
@@ -249,11 +286,21 @@ func (b *InMemoryBackend) UpdateInterruptibleCapacityReservationAllocation(
 		alloc.ZeroSizePreference = zeroSizePreference
 	}
 
-	switch {
-	case targetInstanceCount == 0 && alloc.ZeroSizePreference != "retain":
+	canceled := targetInstanceCount == 0 && alloc.ZeroSizePreference != "retain"
+	alloc.Status = interruptibleAllocStatusActive
+
+	if canceled {
 		alloc.Status = "canceled"
-	default:
-		alloc.Status = interruptibleAllocStatusActive
+	}
+
+	if icr, found := b.capacityReservations.Get(alloc.InterruptibleCapacityReservationID); found {
+		icr.TotalInstanceCount = int(targetInstanceCount)
+		icr.AvailableInstanceCount = int(targetInstanceCount)
+		icr.State = stateActive
+
+		if canceled {
+			icr.State = declarativePoliciesReportStateCancelled
+		}
 	}
 
 	cp := *alloc
