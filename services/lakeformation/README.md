@@ -18,7 +18,7 @@
 - RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails (DetailsMap.ResourceShare) are never populated; the backend holds no region at the storage layer, and a services/ram lookup via the siblingServices pattern (grafana/cross_service.go) is not wired (gopherstack-6flj, gopherstack-osg7).
 - QuerySessionContext on GetTemporaryGlueTableCredentials (and the query-planning ops sharing it) is unmodeled (gopherstack-6flj).
 - ListPermissions.IncludeRelated has no effect: permissionsList holds only explicit grants, so there are no derived cell-filter entries to include (gopherstack-4ly2).
-- CatalogId is undeclared or ignored on the permissions and DataLakeSettings ops (ListPermissions, GetEffectivePermissionsForPath, Grant/Revoke/BatchGrant/BatchRevoke, Get/PutDataLakeSettings, DeleteObjectsOnCancel): that storage is single-catalog (2026-08-30 reqfieldscan note).
+- CatalogId is ignored on Grant/Revoke/BatchGrant/BatchRevoke, Get/PutDataLakeSettings and DeleteObjectsOnCancel: grants and settings storage is single-catalog (the resource-level catalog ids on grants are stored as given). ListPermissions and GetEffectivePermissionsForPath honour it as a filter (2026-10-04).
 - ListPermissions for a concrete resource does not expand LFTagPolicy grants (matches AWS, which lists them under the LF_TAG_POLICY resource type); no operation enforces authorization at runtime, permissions are bookkeeping.
 
 ## More

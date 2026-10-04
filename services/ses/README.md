@@ -18,7 +18,7 @@
 - GetSendStatistics Rejects is always 0: AWS only rejects via virus scan (EICAR), and this backend has no content scanner (gopherstack-uve).
 - SendRawEmail FromArn and SendTemplatedEmail/SendBulkTemplatedEmail TemplateArn are accepted but not captured: no cross-account identity/policy/template model exists to act on them, and the SDK models no format to validate.
 - Receipt rule actions never fire: there is no inbound-mail path (no SMTP listener; SES exposes no inject-message API), so this is structural.
-- SendBounce Explanation/MessageDsn are accepted but dropped: SendBounce stores no bounce-message content to alter.
+- SendBounce is addressed to the bounced recipients: there is no inbound mailbox to resolve the original message sender from, and OriginalMessageId is not checked against received mail.
 
 ### Deferred
 

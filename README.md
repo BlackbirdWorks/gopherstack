@@ -502,7 +502,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [ECR](services/ecr/README.md) | A | 58 | 4 gaps; 2 deferred |
+| [ECR](services/ecr/README.md) | A | 58 | 3 gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 6 gaps; 1 deferred |
 | [EKS](services/eks/README.md) | A | 70 | 4 gaps; 1 deferred |
 
@@ -638,7 +638,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 4 gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 10 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
-| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 3 gaps; 5 deferred |
+| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 2 gaps; 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 15 gaps |
 | [Config](services/awsconfig/README.md) | A | 102 | 6 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 4 gaps; 2 deferred |
@@ -655,7 +655,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | 2 gaps |
-| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 6 gaps; 3 deferred |
+| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 5 gaps; 3 deferred |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 5 gaps; 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 2 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |
@@ -669,7 +669,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Bedrock](services/bedrock/README.md) | A | 80 | 3 gaps |
+| [Bedrock](services/bedrock/README.md) | A | 80 | 2 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 3 gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 4 gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 4 gaps; 1 deferred |
@@ -708,7 +708,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
-| [Database Migration Service](services/dms/README.md) | A | 97 | 5 gaps |
+| [Database Migration Service](services/dms/README.md) | A | 97 | 4 gaps |
 | [Transfer Family](services/transfer/README.md) | A | — | 20 families |
 
 ### Azure

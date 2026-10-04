@@ -19,7 +19,7 @@
 - CreateFileSystem does not require SubnetIds and models no AZ topology (exactly two subnets for MULTI_AZ_1); requiring it would migrate every test fixture.
 - ActiveDirectoryError and AD-join state (CreateFileSystem ActiveDirectoryId, Create/UpdateStorageVirtualMachine ActiveDirectoryConfiguration) are not modeled: they need cross-service Directory Service validation.
 - OpenZFSVolumeConfiguration NfsExports, quotas, OriginSnapshot, ParentVolumeId and CopyStrategy/DeleteClonedVolumes remain unmodeled; only unconfigured-volume defaults are emitted.
-- CreateDataRepositoryAssociation.BatchImportMetaDataOnCreate and DeleteDataRepositoryAssociation.DeleteDataInFileSystem are not declared: honouring them needs auto-created tasks and S3 data deletion (unmodeled data-repository subsystem).
+- DeleteDataRepositoryAssociation.DeleteDataInFileSystem is not declared: honouring it needs S3 data deletion (unmodeled data-repository subsystem).
 
 ## More
 

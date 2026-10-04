@@ -16,7 +16,7 @@
 ### Known gaps
 
 - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
-- Needs real video/image ML (2026-10-01): GetPersonTracking.SortBy (Persons always empty, no echo field), IndexFaces.DetectionAttributes (no FaceDetail is ever produced), DetectLabels IMAGE_PROPERTIES (dominant colors/quality would be fabricated)
+- Needs real video/image ML (2026-10-04): GetPersonTracking.SortBy ordering (Persons always empty), IndexFaces.DetectionAttributes detail output and QualityFilter/MaxFaces filtering (no FaceDetail or per-face quality is ever produced; one synthetic face per call), DetectLabels IMAGE_PROPERTIES (dominant colors/quality would be fabricated). The request values are now validated (enums, MaxFaces >= 1) but cannot change results.
 
 ### Deferred
 

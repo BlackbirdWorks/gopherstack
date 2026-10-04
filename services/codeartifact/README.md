@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 48 (41 ok, 7 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -19,7 +19,6 @@
 - Package-group origin restrictions are stored and returned but not enforced on publish/ingestion: AWS documents no error code for a blocked publish in the pinned SDK to emit.
 - No implicit root package group ('/*') is auto-created; existing tests assert an empty group list.
 - GetPackageVersionReadme/ListPackageVersionDependencies only parse a standalone package.json asset: PublishPackageVersion is generic-only per the SDK docs, and archive ingestion belongs to the unmodeled native npm/maven clients.
-- CopyPackageVersions.includeFromUpstream is undeclared: UpstreamRepositories is inert bookkeeping, no upstream-resolution subsystem exists.
 - domain-owner is not read on any op: single-account emulator, and the pinned SDK documents no cross-account error to emit.
 
 ### Deferred

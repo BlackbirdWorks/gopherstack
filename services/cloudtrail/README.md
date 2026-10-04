@@ -14,7 +14,7 @@
 
 ### Known gaps
 
-- ListInsightsData/ListInsightsMetricData/ListPublicKeys/SearchSampleQueries return empty lists: Insights anomaly detection, legacy digest public keys and the sample-query catalog are unmodeled; their StartTime/EndTime/DataType/Period/MaxResults filters (reqfielddiff tier-1, 2026-10-01) have no data to apply to.
+- ListInsightsData/ListPublicKeys/SearchSampleQueries return empty lists: Insights anomaly detection (no Insight events are ever generated), legacy digest public keys and the AWS-owned sample-query catalog are unmodeled; their StartTime/EndTime/DataType/MaxResults filters have no data to apply to. ListInsightsMetricData is computed from recorded events (2026-10-04).
 - gopherstack-53eh: Lake SQL subset omits cross-store JOIN/set-ops, SUM/AVG/MIN/MAX, subqueries and HAVING (such statements reach FAILED with an ErrorMessage); unaliased COUNT is named _col<N> by position, inferred from Trino, not AWS-documented.
 - Org delegated-admin state is unmodeled (no read-back op upstream), so GetResourcePolicy's DelegatedAdminResourcePolicy is never populated.
 - gopherstack-53eh: wrapCloudTrailCapture's error-body extraction lacks query-protocol XML and CBOR shapes; it lives in pkgs/service, outside this directory.

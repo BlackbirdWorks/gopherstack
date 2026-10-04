@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 80 (80 ok) |
 | Feature families | 10 (9 ok, 1 partial) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - EvaluationJob AutomatedEvaluationConfig.CustomMetricConfig and RAGConfig's knowledgeBaseConfig/precomputedRagSourceConfig are stored verbatim as json.RawMessage, not modeled field by field: they wrap further unions plus a recursive RetrievalFilter tree (types/types.go:196, 6165-6344), and the job store never runs an evaluation, so nothing interprets them (round trip: evaluation_job_unions_test.go). Revisit if the backend starts interpreting evaluation content.
-- CreatePromptRouter.ClientRequestToken is not decoded: the sibling CreateModelInvocationJob token is stored but has no create-dedup or echo, so decoding it would be dead plumbing with no observable effect to prove.
 - List-summary members with no domain source, not fabricated (no cross-region replication, KMS, per-phase job status, batch record processing or capability detection modeled): GuardrailSummary.CrossRegionDetails; EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary; ImportedModelSummary.InstructSupported/ModelArchitecture; ModelCopyJobSummary.SourceModelName/TargetModelKmsKeyArn; ModelCustomizationJobSummary.StatusDetails; ModelInvocationJobSummary.ErrorRecordCount/JobExpirationTime/ModelInvocationType/ProcessedRecordCount/SuccessRecordCount/TimeoutDurationInHours/TotalRecordCount/VpcConfig; CustomModelDeploymentSummary.FailureMessage.
 
 ## More

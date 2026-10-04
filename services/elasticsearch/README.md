@@ -17,7 +17,7 @@
 - DomainPackageDetails.PackageVersion/ReferencePath/LastUpdated: package associations store only domain names, so association-time version, path and timestamp are not tracked.
 - Domains never pass through Processing: all changes apply synchronously, so Processing/DomainProcessingStatus/OptionStatus.State are always settled (deliberate; a timed delay would be invented state).
 - VPCOptions.VPCId/AvailabilityZones are never populated: they need a cross-service EC2 lookup wired in cli.go (same accepted gap as services/opensearch).
-- DescribeDomainAutoTunes.MaxResults and DescribeDomainChangeProgress.ChangeId have no effect: no auto-tune action history or config-change history subsystem exists.
+- DescribeDomainAutoTunes.MaxResults has no effect: no auto-tune action history exists to page (the opensearch placeholder derived from maintenance schedules is not reproduced here).
 
 ## More
 

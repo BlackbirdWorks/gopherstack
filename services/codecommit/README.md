@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- Content-level SQUASH/THREE_WAY merges, real conflict detection (GetMergeConflicts/DescribeMergeConflicts/BatchDescribeMergeConflicts always report none; FAST_FORWARD is correct by AWS contract), ConflictDetailLevel/ConflictResolutionStrategy on the ten merge/conflict ops, and KeepEmptyFolders on merge ops: Files are stored flat by repoName|filePath with no per-branch/per-commit tree, so there is nothing to diff or merge. SameFileContentException compares against that flat value, not the destination parent commit. (bd: gopherstack-3bsb)
+- Merge limits (2026-10-04): TipsDivergenceExceeded, MaximumItemsToCompareExceeded, MaximumFileContentToLoadExceeded and MaximumConflictResolutionEntriesExceeded are not raised (the pinned SDK documents no numeric limit to enforce); file-vs-folder object-type conflicts are detected but cannot be resolved by ACCEPT_* or conflictResolution entries; submodules and symlink targets are not modeled.
 - FilePathConflictsWithSubmodulePathException is mapped but never returned: submodules are not modeled.
 
 ## More
