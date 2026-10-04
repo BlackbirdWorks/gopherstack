@@ -140,7 +140,9 @@ type iotFirehoseTarget struct {
 	backend *firehosebackend.InMemoryBackend
 }
 
-func (a *iotFirehoseTarget) PutRecords(ctx context.Context, _, stream string, records [][]byte) error {
+func (a *iotFirehoseTarget) PutRecords(ctx context.Context, region, stream string, records [][]byte) error {
+	ctx = inRegion(ctx, region)
+
 	if len(records) == 1 {
 		return a.backend.PutRecord(ctx, stream, records[0])
 	}

@@ -1797,3 +1797,7 @@ read from `updateConnectorRequest`/`UpdateConnectorInput`/`handleUpdateConnector
 no real client could ever set it via UpdateConnector. Proven in
 `TestRoundTrip_Connectors`: the value set at creation now provably survives
 an otherwise-unrelated update.
+
+## 2026-10-04: EC2 launch in the service region (gopherstack-12q3n)
+
+Launch and cutover jobs resolve the EC2 backend of the service's own region through `BackendFor` instead of the home handler's backend.

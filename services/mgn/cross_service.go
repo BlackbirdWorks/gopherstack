@@ -34,7 +34,7 @@ func (b *InMemoryBackend) siblings() (siblingServices, bool) {
 	return s, ok
 }
 
-// ec2Backend returns the emulator's EC2 backend, if wired.
+// ec2Backend returns the EC2 backend of this backend's region, if wired.
 func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
 	s, ok := b.siblings()
 	if !ok {
@@ -46,7 +46,7 @@ func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
 		return nil, false
 	}
 
-	return h.Backend, true
+	return h.BackendFor(b.region), true
 }
 
 // organizationsBackend returns the emulator's Organizations backend, if wired.

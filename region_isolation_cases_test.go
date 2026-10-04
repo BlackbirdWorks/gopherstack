@@ -37,6 +37,8 @@ import (
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elasticachetypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -52,6 +54,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
 	lightsailtypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
 	"github.com/aws/aws-sdk-go-v2/service/memorydb"
@@ -136,6 +140,8 @@ func regionIsolationCases() []regionCase {
 		cloudformationCase(),
 		elbv2Case(),
 		codedeployCase(),
+		lambdaCase(),
+		elbCase(),
 	}
 }
 
@@ -939,6 +945,59 @@ func codedeployCase() regionCase {
 			out, err := codedeploy.NewFromConfig(cfg).ListApplications(ctx, &codedeploy.ListApplicationsInput{})
 
 			return out.Applications, err
+		},
+	}
+}
+
+func lambdaCase() regionCase {
+	return regionCase{
+		name: "lambda",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := lambda.NewFromConfig(cfg).CreateFunction(ctx, &lambda.CreateFunctionInput{
+				FunctionName: aws.String(name),
+				Role:         aws.String("arn:aws:iam::000000000000:role/r"),
+				PackageType:  lambdatypes.PackageTypeZip,
+				Runtime:      lambdatypes.RuntimeNodejs20x,
+				Handler:      aws.String("index.handler"),
+				Code:         &lambdatypes.FunctionCode{ZipFile: []byte("PK")},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := lambda.NewFromConfig(cfg).ListFunctions(ctx, &lambda.ListFunctionsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Functions, func(f lambdatypes.FunctionConfiguration) *string { return f.FunctionName }), nil
+		},
+	}
+}
+
+func elbCase() regionCase {
+	return regionCase{
+		name: "elb",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := elb.NewFromConfig(cfg).CreateLoadBalancer(ctx, &elb.CreateLoadBalancerInput{
+				LoadBalancerName:  aws.String(name),
+				AvailabilityZones: []string{cfg.Region + "a"},
+				Listeners: []elbtypes.Listener{
+					{Protocol: aws.String("HTTP"), LoadBalancerPort: 80, InstancePort: aws.Int32(8080)},
+				},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := elb.NewFromConfig(cfg).DescribeLoadBalancers(ctx, &elb.DescribeLoadBalancersInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.LoadBalancerDescriptions, func(d elbtypes.LoadBalancerDescription) *string {
+				return d.LoadBalancerName
+			}), nil
 		},
 	}
 }

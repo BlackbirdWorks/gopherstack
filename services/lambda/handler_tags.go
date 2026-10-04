@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -138,7 +139,11 @@ type TaggedFunctionInfo struct {
 
 // TaggedFunctions returns a snapshot of all Lambda functions with their ARNs and tags.
 // Intended for use by the Resource Groups Tagging API provider.
-func (h *Handler) TaggedFunctions(_ context.Context) []TaggedFunctionInfo {
+func (h *Handler) TaggedFunctions(ctx context.Context) []TaggedFunctionInfo {
+	if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+		return p.TaggedFunctions(ctx)
+	}
+
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -160,7 +165,11 @@ func (h *Handler) TaggedFunctions(_ context.Context) []TaggedFunctionInfo {
 }
 
 // TagFunctionByARN applies tags to the Lambda function identified by its ARN.
-func (h *Handler) TagFunctionByARN(_ context.Context, fnARN string, newTags map[string]string) error {
+func (h *Handler) TagFunctionByARN(ctx context.Context, fnARN string, newTags map[string]string) error {
+	if p := h.peers.Get(arnRegionOf(fnARN)); p != nil {
+		return p.TagFunctionByARN(ctx, fnARN, newTags)
+	}
+
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -176,7 +185,11 @@ func (h *Handler) TagFunctionByARN(_ context.Context, fnARN string, newTags map[
 }
 
 // UntagFunctionByARN removes the specified tag keys from the Lambda function identified by its ARN.
-func (h *Handler) UntagFunctionByARN(_ context.Context, fnARN string, tagKeys []string) error {
+func (h *Handler) UntagFunctionByARN(ctx context.Context, fnARN string, tagKeys []string) error {
+	if p := h.peers.Get(arnRegionOf(fnARN)); p != nil {
+		return p.UntagFunctionByARN(ctx, fnARN, tagKeys)
+	}
+
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -193,6 +206,10 @@ func (h *Handler) UntagFunctionByARN(_ context.Context, fnARN string, tagKeys []
 
 // Purge removes all resources older than the given cutoff time.
 func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
+	for _, p := range h.peers.All() {
+		p.Purge(ctx, cutoff)
+	}
+
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Purge(ctx, cutoff)
 	}
@@ -221,6 +238,10 @@ func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {
+	for _, p := range h.peers.Drain() {
+		p.closeBackend(context.Background())
+	}
+
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}

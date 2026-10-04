@@ -471,7 +471,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		Snapshot(ctx context.Context) []byte
 	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot(ctx)
+		return h.peers.Snapshot(s.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 	}
 
 	return nil
@@ -483,7 +483,15 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		Restore(context.Context, []byte) error
 	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(ctx, data)
+		if err := r.Restore(ctx, data); err != nil {
+			return err
+		}
+
+		return h.peers.Restore(
+			data,
+			func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+			func(p *Handler) { p.closeBackend(ctx) },
+		)
 	}
 
 	return nil

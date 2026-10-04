@@ -710,3 +710,7 @@ the per-shard Kinesis source poller goroutines (`pollKinesisStream`/
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.
+
+## 2026-10-04: region from the cross-service context (gopherstack-12q3n)
+
+Delivery streams were already region-keyed. The backend now also reads the region from the shared request metadata on the context, and the SNS, EventBridge, Pipes, IoT and CloudWatch Logs adapters deliver into the stream ARN's region. KinesisStreamAsSource polls the source stream in the stream ARN's region (the reader takes the ARN), and the Lambda transform resolves the function by its ARN region. Proof: `TestRegionIsolation/firehose`, `TestInitializeServices_SNSInvokesLambdaInARNRegion`. Limitation: OpenSearch is single-region, so its destinations have no per-region lookup.

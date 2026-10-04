@@ -155,6 +155,7 @@ type InMemoryBackend struct {
 	durableExecs             *durableExecutionStore
 	asyncEnqueueWaiters      chan struct{}
 	shutdown                 chan struct{}
+	regionBackend            func(region string) *InMemoryBackend
 	mu                       *lockmetrics.RWMutex
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
@@ -169,6 +170,7 @@ type InMemoryBackend struct {
 	pcActivationDelay        time.Duration
 	cscIDCounter             int
 	shutdownOnce             sync.Once
+	workersOnce              sync.Once
 }
 
 // SetActivationDelay configures how long a newly created function stays in the

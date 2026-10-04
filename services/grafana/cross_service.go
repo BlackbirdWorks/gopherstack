@@ -2,6 +2,7 @@ package grafana
 
 import (
 	"context"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -65,8 +66,8 @@ func (b *InMemoryBackend) iamBackend() (iambackend.StorageBackend, bool) {
 	return h.Backend, true
 }
 
-// ec2Backend returns the emulator's EC2 backend, if wired.
-func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
+// ec2Backends returns every region's EC2 backend, if wired.
+func (b *InMemoryBackend) ec2Backends() ([]ec2backend.Backend, bool) {
 	s, ok := b.siblings()
 	if !ok {
 		return nil, false
@@ -77,7 +78,20 @@ func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
 		return nil, false
 	}
 
-	return h.Backend, true
+	return h.RegionBackends(), true
+}
+
+// allExistIn reports whether every id is found by lookup in some region's backend.
+func allExistIn(
+	backends []ec2backend.Backend, ids []string, lookup func(ec2backend.Backend, []string) int,
+) bool {
+	for _, id := range ids {
+		if !slices.ContainsFunc(backends, func(bk ec2backend.Backend) bool { return lookup(bk, []string{id}) > 0 }) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // organizationsBackend returns the emulator's Organizations backend, if wired.
@@ -167,16 +181,18 @@ func (b *InMemoryBackend) validateVpcConfiguration(vpc *vpcConfigurationWire) er
 		return nil
 	}
 
-	ec2Bk, ok := b.ec2Backend()
+	ec2Bks, ok := b.ec2Backends()
 	if !ok {
 		return nil
 	}
 
-	if subnets := vpc.SubnetIDs; len(subnets) > 0 && len(ec2Bk.DescribeSubnets(subnets)) != len(subnets) {
+	subnets := func(bk ec2backend.Backend, ids []string) int { return len(bk.DescribeSubnets(ids)) }
+	if !allExistIn(ec2Bks, vpc.SubnetIDs, subnets) {
 		return validationError("vpcConfiguration references a subnet that does not exist")
 	}
 
-	if sgs := vpc.SecurityGroupIDs; len(sgs) > 0 && len(ec2Bk.DescribeSecurityGroups(sgs)) != len(sgs) {
+	groups := func(bk ec2backend.Backend, ids []string) int { return len(bk.DescribeSecurityGroups(ids)) }
+	if !allExistIn(ec2Bks, vpc.SecurityGroupIDs, groups) {
 		return validationError("vpcConfiguration references a security group that does not exist")
 	}
 

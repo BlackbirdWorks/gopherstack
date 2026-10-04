@@ -122,6 +122,10 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	invocationType InvocationType,
 	payload []byte,
 ) ([]byte, string, string, int, error) {
+	if sib := b.routeRegion(ctx, name); sib != nil {
+		return sib.InvokeFunctionWithQualifier(ctx, name, qualifier, clientContext, logType, invocationType, payload)
+	}
+
 	fn, err := b.resolveQualifier(name, qualifier)
 	if err != nil {
 		return nil, "", "", http.StatusNotFound, err

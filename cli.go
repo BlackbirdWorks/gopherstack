@@ -2323,6 +2323,7 @@ func lambdaCloseFn(lambdaReg service.Registerable, deadline time.Time) func() {
 	return func() {
 		ctx, cancel := context.WithDeadline(context.Background(), deadline)
 		defer cancel()
+		lambdaH.CloseRegions(ctx)
 		lambdaBk.Close(ctx)
 	}
 }
@@ -4439,6 +4440,10 @@ func (a *snsFirehosePutterAdapter) PutRecordBatch(streamName string, records [][
 	return a.backend.PutRecordBatch(context.Background(), streamName, records)
 }
 
+func (a *snsFirehosePutterAdapter) PutRecordBatchInRegion(region, streamName string, records [][]byte) (int, error) {
+	return a.backend.PutRecordBatch(inRegion(context.Background(), region), streamName, records)
+}
+
 // wireSQSMetrics wires the CloudWatch metric emitter into the SQS backend so that
 // SendMessage, ReceiveMessage, and DeleteMessage operations emit CloudWatch metrics.
 func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
@@ -4637,7 +4642,7 @@ func (a *ebFirehoseAdapter) PutRecord(ctx context.Context, deliveryStreamARN, da
 	parts := strings.Split(deliveryStreamARN, "/")
 	streamName := parts[len(parts)-1]
 
-	return a.backend.PutRecord(ctx, streamName, []byte(data))
+	return a.backend.PutRecord(inRegion(ctx, arnRegion(deliveryStreamARN)), streamName, []byte(data))
 }
 
 // ebECSTaskRunnerAdapter adapts the ECS backend to the eventbridge.ECSTaskRunner
@@ -5664,6 +5669,7 @@ func (a *lambdaAsyncDeliveryAdapter) DeliverToTarget(
 
 		_, err := a.sqs.SendMessage(&sqsbackend.SendMessageInput{
 			QueueURL:          arnToSQSQueueURL(targetARN),
+			Region:            arnRegion(targetARN),
 			MessageBody:       string(payload),
 			MessageAttributes: attrs,
 		})
@@ -5682,8 +5688,7 @@ func (a *lambdaAsyncDeliveryAdapter) DeliverToTarget(
 			return nil
 		}
 
-		fnName := targetARN[strings.LastIndex(targetARN, ":")+1:]
-		_, _, err := a.lambda.InvokeFunction(ctx, fnName, lambdabackend.InvocationTypeEvent, payload)
+		_, _, err := a.lambda.InvokeFunction(ctx, targetARN, lambdabackend.InvocationTypeEvent, payload)
 
 		return err
 	default:
@@ -5700,13 +5705,17 @@ func (a *sqsReaderAdapter) ReceiveMessagesLocal(
 	queueARN string,
 	maxMessages int,
 ) ([]*lambdabackend.SQSMessage, error) {
-	url := arnToSQSQueueURL(queueARN)
-
-	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
+	out, err := a.backend.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
+		QueueURL:            arnToSQSQueueURL(queueARN),
+		Region:              arnRegion(queueARN),
+		MaxNumberOfMessages: maxMessages,
+		VisibilityTimeout:   sqsbackend.NoVisibilityTimeout,
+	})
 	if err != nil {
 		return nil, err
 	}
 
+	msgs := out.Messages
 	result := make([]*lambdabackend.SQSMessage, len(msgs))
 	for i, m := range msgs {
 		var msgAttrs map[string]lambdabackend.SQSMessageAttribute
@@ -5737,9 +5746,16 @@ func (a *sqsReaderAdapter) ReceiveMessagesLocal(
 }
 
 func (a *sqsReaderAdapter) DeleteMessagesLocal(queueARN string, receiptHandles []string) error {
-	url := arnToSQSQueueURL(queueARN)
+	for _, rh := range receiptHandles {
+		err := a.backend.DeleteMessage(&sqsbackend.DeleteMessageInput{
+			QueueURL: arnToSQSQueueURL(queueARN), Region: arnRegion(queueARN), ReceiptHandle: rh,
+		})
+		if err != nil {
+			return err
+		}
+	}
 
-	return a.backend.DeleteMessagesLocal(url, receiptHandles)
+	return nil
 }
 
 // wireDynamoDBStreamLambda connects the DynamoDB Streams backend to the Lambda event source
@@ -7075,6 +7091,11 @@ type cwLogsAdapter struct {
 	region  string
 }
 
+// ForRegion binds the adapter to region so a sibling Lambda backend logs into its own region.
+func (a *cwLogsAdapter) ForRegion(region string) lambdabackend.CWLogsBackend {
+	return &cwLogsAdapter{backend: a.backend, region: region}
+}
+
 func (a *cwLogsAdapter) ctx() context.Context {
 	if a.region == "" {
 		return context.Background()
@@ -7182,10 +7203,9 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 			return nil
 		}
 		// resource is "function:<name>" or just "<name>"
-		funcName := strings.TrimPrefix(resource, "function:")
 		_, _, err := d.lambda.InvokeFunction(
 			ctx,
-			funcName,
+			destinationArn,
 			lambdabackend.InvocationTypeEvent,
 			payload,
 		)
@@ -7211,7 +7231,7 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		// resource is "deliverystream/<name>"
 		streamName := strings.TrimPrefix(resource, "deliverystream/")
 
-		return d.firehose.PutRecord(ctx, streamName, payload)
+		return d.firehose.PutRecord(inRegion(ctx, arnRegion(destinationArn)), streamName, payload)
 	}
 
 	return nil
@@ -12318,8 +12338,8 @@ func extractStorageResourcePolicyProvider(svc service.Registerable) iambackend.R
 			return &secretsManagerPolicyAdapter{backend: b}
 		}
 	case *lambdabackend.Handler:
-		if b, ok := h.Backend.(lambdaPolicyBackend); ok {
-			return &lambdaPolicyAdapter{backend: b}
+		if _, ok := h.Backend.(lambdaPolicyBackend); ok {
+			return &lambdaPolicyAdapter{handler: h}
 		}
 	}
 
@@ -12581,7 +12601,7 @@ func (a *secretsManagerPolicyAdapter) GetResourcePolicy(
 
 // lambdaPolicyAdapter wraps a Lambda backend to implement ResourcePolicyProvider.
 type lambdaPolicyAdapter struct {
-	backend lambdaPolicyBackend
+	handler *lambdabackend.Handler
 }
 
 func (a *lambdaPolicyAdapter) GetResourcePolicy(
@@ -12605,7 +12625,12 @@ func (a *lambdaPolicyAdapter) GetResourcePolicy(
 		return "", nil
 	}
 
-	out, err := a.backend.GetPolicy(fnName, qualifier)
+	bk, _ := a.handler.BackendFor(arnRegion(resourceARN)).(lambdaPolicyBackend)
+	if bk == nil {
+		return "", nil
+	}
+
+	out, err := bk.GetPolicy(fnName, qualifier)
 	if err != nil || out == nil || out.Policy == nil {
 		return "", err
 	}
@@ -13510,8 +13535,19 @@ type kinesisStreamReaderAdapter struct {
 // unexported (services/kinesis/models.go:40).
 const kinesisTrimHorizonIteratorType = "TRIM_HORIZON"
 
-func (a *kinesisStreamReaderAdapter) ListShards(streamName string) ([]string, error) {
-	out, err := a.backend.ListShards(context.Background(), &kinesisbackend.ListShardsInput{StreamName: streamName})
+// kinesisRefContext resolves a stream ARN to its region-scoped context and name; a bare name stays as is.
+func kinesisRefContext(ref string) (context.Context, string) {
+	if arnRegion(ref) == "" {
+		return context.Background(), ref
+	}
+
+	return kinesisbackend.ContextAndNameFromStreamARN(context.Background(), ref)
+}
+
+func (a *kinesisStreamReaderAdapter) ListShards(streamRef string) ([]string, error) {
+	ctx, streamName := kinesisRefContext(streamRef)
+
+	out, err := a.backend.ListShards(ctx, &kinesisbackend.ListShardsInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -13524,8 +13560,10 @@ func (a *kinesisStreamReaderAdapter) ListShards(streamName string) ([]string, er
 	return ids, nil
 }
 
-func (a *kinesisStreamReaderAdapter) GetShardIterator(streamName, shardID string) (string, error) {
-	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
+func (a *kinesisStreamReaderAdapter) GetShardIterator(streamRef, shardID string) (string, error) {
+	ctx, streamName := kinesisRefContext(streamRef)
+
+	out, err := a.backend.GetShardIterator(ctx, &kinesisbackend.GetShardIteratorInput{
 		StreamName:        streamName,
 		ShardID:           shardID,
 		ShardIteratorType: kinesisTrimHorizonIteratorType,
@@ -13605,10 +13643,12 @@ func wireKinesisAnalyticsCrossService(kaReg, kinesisReg, s3Reg service.Registera
 // becomes a stack parameter, and the resulting stack is real: a genuine
 // Stack record in the cloudformation backend with a real StackID/ARN.
 type cfnLightsailStackAdapter struct {
-	backend cfnbackend.StorageBackend
+	handler *cfnbackend.Handler
 }
 
-func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(stackName string, instanceNames []string) (string, error) {
+func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(
+	region, stackName string, instanceNames []string,
+) (string, error) {
 	params := make([]cfnbackend.Parameter, 0, len(instanceNames))
 
 	for i, name := range instanceNames {
@@ -13618,7 +13658,8 @@ func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(stackName string, in
 		})
 	}
 
-	stack, err := a.backend.CreateStack(context.Background(), stackName, "", params, cfnbackend.StackOptions{})
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{Region: region, Account: awsmeta.DefaultAccount})
+	stack, err := a.handler.BackendFor(region).CreateStack(ctx, stackName, "", params, cfnbackend.StackOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -13644,7 +13685,7 @@ func wireLightsailCloudFormation(lightsailReg, cfnReg service.Registerable) {
 		return
 	}
 
-	lightsailH.Backend.SetCloudFormationBackend(&cfnLightsailStackAdapter{backend: cfnH.Backend})
+	lightsailH.Backend.SetCloudFormationBackend(&cfnLightsailStackAdapter{handler: cfnH})
 }
 
 // wireCloudFormationOrganizations wires the Organizations backend as
@@ -14801,5 +14842,5 @@ func (a *pipesFirehosePutterAdapter) PutRecord(ctx context.Context, deliveryStre
 	parts := strings.Split(deliveryStreamARN, "/")
 	streamName := parts[len(parts)-1]
 
-	return a.backend.PutRecord(ctx, streamName, data)
+	return a.backend.PutRecord(inRegion(ctx, arnRegion(deliveryStreamARN)), streamName, data)
 }

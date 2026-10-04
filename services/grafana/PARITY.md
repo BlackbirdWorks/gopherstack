@@ -418,3 +418,7 @@ Both are now always emitted (empty-valued when unset), matching how a real
 client's crash-free read implies the real API never omits them either.
 Coverage added for license_association/workspace_saml_configuration/
 workspace_service_account/workspace_service_account_token.
+
+## 2026-10-04: EC2 lookups across regions (gopherstack-12q3n)
+
+VPC configuration validation now accepts subnets and security groups that exist in any region's EC2 backend instead of only the home region's.

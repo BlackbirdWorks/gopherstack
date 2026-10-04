@@ -100,8 +100,8 @@ func (b *InMemoryBackend) eksBackend() (*eksbackend.InMemoryBackend, bool) {
 	return h.Backend, true
 }
 
-// ec2Backend returns the emulator's EC2 backend, if wired.
-func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
+// ec2Backend returns the EC2 backend serving region, if wired.
+func (b *InMemoryBackend) ec2Backend(region string) (ec2backend.Backend, bool) {
 	s, ok := b.siblings()
 	if !ok {
 		return nil, false
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
 		return nil, false
 	}
 
-	return h.Backend, true
+	return h.BackendFor(region), true
 }
 
 // rdsBackend returns the emulator's RDS backend, if wired.
@@ -284,7 +284,7 @@ func (b *InMemoryBackend) resolveEC2SourceArnLocked(
 		return false, false
 	}
 
-	ec2Bk, ok := b.ec2Backend()
+	ec2Bk, ok := b.ec2Backend(parsed.Region)
 	if !ok {
 		return false, false
 	}

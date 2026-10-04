@@ -1555,7 +1555,7 @@ async-timer group, region-correct ARNs) via `pkgs/regionpeers`. Same-named resou
 Snapshots gain an additive `regions` key only when a sibling exists (no version bump). `NewHandler` alone
 stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`,
 `TestRegionIsolation/lightsail`. Limitation: non-home regions are not visible to the tagging-API bridge,
-the CloudFormation export path or the dashboard.
+or the dashboard (the CloudFormation export now follows the region, see the 2026-10-04 section).
 
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
@@ -1564,3 +1564,7 @@ Fixed (get_certificates_filters_test.go): GetCertificates honours CertificateSta
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-04: CloudFormation export by region (gopherstack-12q3n)
+
+`CreateCloudFormationStack` hands the export's region to the CloudFormation adapter, which creates the stack in that region's CloudFormation backend. The `CloudFormationBackend` interface method gains a region argument.

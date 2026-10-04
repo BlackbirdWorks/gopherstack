@@ -40,7 +40,7 @@ func (b *InMemoryBackend) pollKinesisStream(
 		streamName = kinesisStreamARN
 	}
 
-	shards, err := b.kinesisBackend.ListShards(streamName)
+	shards, err := b.kinesisBackend.ListShards(kinesisStreamARN)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: ListShards failed",
 			"region", region, "stream", firehoseStream, "kinesis", streamName, "error", err)
@@ -50,7 +50,7 @@ func (b *InMemoryBackend) pollKinesisStream(
 
 	for _, shardID := range shards {
 		sid := shardID
-		go b.pollKinesisShard(ctx, region, firehoseStream, streamName, sid)
+		go b.pollKinesisShard(ctx, region, firehoseStream, kinesisStreamARN, sid)
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
@@ -111,6 +112,7 @@ func (sb *ServiceBackends) forRegion(region string) *ServiceBackends {
 	out.ELBv2 = regionHandler(sb.ELBv2, (*elbv2backend.Handler).RegionHandler, region)
 	out.Autoscaling = regionHandler(sb.Autoscaling, (*autoscalingbackend.Handler).RegionHandler, region)
 	out.CodeDeploy = regionHandler(sb.CodeDeploy, (*codedeploybackend.Handler).RegionHandler, region)
+	out.Lambda = regionHandler(sb.Lambda, (*lambdabackend.Handler).RegionHandler, region)
 
 	return &out
 }

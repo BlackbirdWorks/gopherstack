@@ -1109,3 +1109,7 @@ it found nothing to prove. Gates: `go build ./...`, `go vet`, `go test
 -race -count=1 ./services/resiliencehub/...`, `go test -count=1
 ./pkgs/persistence/`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
 all clean. No persisted fields changed; no version bump.
+
+## 2026-10-04: EC2 source ARNs by region (gopherstack-12q3n)
+
+An `ec2` SourceArn is resolved against the EC2 backend of the ARN's region.

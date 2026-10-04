@@ -251,7 +251,7 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 	}
 
 	for i := 0; i <= numRetries; i++ {
-		_, err = firehose.PutRecordBatch(streamName, [][]byte{record})
+		_, err = putFirehoseBatch(firehose, arnRegion(sub.Endpoint), streamName, [][]byte{record})
 		if err == nil {
 			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "SUCCESS", nil)
 
@@ -268,6 +268,15 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 
 // firehoseStreamNameFromARN extracts the delivery stream name from a Firehose ARN.
 // ARN format: arn:aws:firehose:<region>:<account>:deliverystream/<name>.
+// putFirehoseBatch delivers into the stream's own region when the putter supports regions.
+func putFirehoseBatch(p FirehosePutter, region, stream string, records [][]byte) (int, error) {
+	if rp, ok := p.(RegionalFirehosePutter); ok && region != "" {
+		return rp.PutRecordBatchInRegion(region, stream, records)
+	}
+
+	return p.PutRecordBatch(stream, records)
+}
+
 func firehoseStreamNameFromARN(endpoint string) string {
 	const prefix = "deliverystream/"
 	if _, after, ok := strings.Cut(endpoint, prefix); ok {

@@ -4,11 +4,14 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -16,6 +19,8 @@ import (
 // Handler is the Echo HTTP handler for Lambda operations.
 type Handler struct {
 	Backend       StorageBackend
+	peers         *regionpeers.Set[Handler]
+	workerCtx     atomic.Pointer[context.Context]
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
@@ -37,10 +42,16 @@ func (h *Handler) Name() string { return "Lambda" }
 // StartWorker starts the Kinesis event source poller and the resource janitor.
 // It implements service.BackgroundWorker.
 func (h *Handler) StartWorker(ctx context.Context) error {
+	h.workerCtx.Store(&ctx)
+
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
-		lambdaBk.StartKinesisPoller(ctx)
-		janitor := NewJanitor(lambdaBk, lambdaBk.settings)
-		go janitor.Run(ctx)
+		lambdaBk.startWorkers(ctx)
+	}
+
+	for _, p := range h.peers.All() {
+		if bk, ok := p.Backend.(*InMemoryBackend); ok {
+			bk.startWorkers(ctx)
+		}
 	}
 
 	return nil
@@ -150,7 +161,17 @@ func (h *Handler) ChaosServiceName() string { return "lambda" }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this Lambda instance handles.
-func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+func (h *Handler) ChaosRegions() []string {
+	peers := h.peers.All()
+	out := make([]string, 0, 1+len(peers))
+	out = append(out, h.DefaultRegion)
+
+	for _, p := range peers {
+		out = append(out, p.DefaultRegion)
+	}
+
+	return out
+}
 
 // RouteMatcher returns a function that identifies Lambda requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -570,6 +591,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+
+		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(ctx)
 		path := c.Request().URL.Path
 		method := c.Request().Method

@@ -24,7 +24,7 @@ import (
 // backing stack -- an honest, documented scoped-down behavior rather than a
 // fabricated stack ARN.
 type CloudFormationBackend interface {
-	CreateStackFromLightsail(stackName string, instanceNames []string) (stackID string, err error)
+	CreateStackFromLightsail(region, stackName string, instanceNames []string) (stackID string, err error)
 }
 
 // InMemoryBackend is the in-memory store for Amazon Lightsail. A single

@@ -22,7 +22,7 @@ import (
 
 const usWest2 = "us-west-2"
 
-func regionFormCall(t *testing.T, h echo.HandlerFunc, region string, form url.Values) string {
+func regionFormCall(t *testing.T, h echo.HandlerFunc, region string, form url.Values) {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
@@ -32,8 +32,6 @@ func regionFormCall(t *testing.T, h echo.HandlerFunc, region string, form url.Va
 	rec := httptest.NewRecorder()
 	require.NoError(t, h(echo.New().NewContext(req, rec)))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-
-	return rec.Body.String()
 }
 
 func TestInitializeServices_AutoScalingLaunchesInGroupRegion(t *testing.T) {
