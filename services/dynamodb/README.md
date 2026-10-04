@@ -8,12 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 15 (15 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- No in-process CloudWatch metrics are published for AWS/DynamoDB (ConsumedRead/WriteCapacityUnits, SuccessfulRequestLatency; dimensions TableName, Operation); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions.
 - No vector-index model: SearchVectors always ResourceNotFoundException for the index; VectorIndexes on CreateTable/UpdateTable/GSI actions and VectorIndexOverride on both restore ops are absent (search_vectors.go validates the request shape).
 - Other unmodeled-subsystem fields, left nil rather than fabricated: WarmThroughput (AWS default values unverified), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime, BackupExpiryDateTime (SYSTEM backups only), DescribeContributorInsights FailureException (no failure model).
 

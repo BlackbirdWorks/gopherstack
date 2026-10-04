@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | "fixed this pass" |
 
 ### Known gaps
 
+- No in-process CloudWatch metrics are published for AWS/Firehose (IncomingBytes, IncomingRecords, DeliveryTo*.Success; dimension DeliveryStreamName); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions.
 - Redshift COPY (RedshiftDataExecutor), MSK source polling and database-source snapshot/CDC need cli.go wiring to other backends (redshiftdata, kafka, a DB endpoint); staging to S3 and wire-shape round-trips are real (gopherstack-ohdc).
 - Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to.
 - Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed.

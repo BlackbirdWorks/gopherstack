@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 26 (25 ok, 1 gap) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- No in-process CloudWatch metrics are published for AWS/S3 request metrics (dimensions BucketName, FilterId); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions.
 - GetBucketMetadataConfiguration echoes the CREATE body instead of a MetadataConfigurationResult with a server-computed DestinationResult; needs S3 Tables table-bucket ARN/namespace/status modeling (gopherstack-6flj).
 - Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
 - ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).

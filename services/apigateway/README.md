@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 123 (123 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 1 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
+- No in-process CloudWatch metrics are published for AWS/ApiGateway (Count, 4XXError, 5XXError, Latency; dimensions ApiName, Stage, Method, Resource); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions.
 - UpdateAuthorizer's PATCH table documents "/authType" (types.Authorizer.AuthType, distinct from the existing "Type"/authorizerType) and UpdateRestApi's documents "/securityPolicy" (only DomainName has SecurityPolicy today) -- both real, doc-documented PATCH paths with no backing model field anywhere in this backend. Unmodeled, not a casing or plumbing bug; not fabricated. (gopherstack-6q5h)
 - 'AWS' (non-proxy) integration target: sqs path-style and sns action-style dispatch for real (gopherstack-is2a); every other target (DynamoDB, Step Functions, S3, ...) is still accepted at PutIntegration with no validation and unconditionally invoked as Lambda at request time. Fixing the rest needs per-service invoker interfaces or a real VTL + AWS query-protocol encoder -- out of a targeted pass's scope. (gopherstack-fum)
 
