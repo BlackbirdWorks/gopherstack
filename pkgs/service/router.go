@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 const amzTargetHeader = "X-Amz-Target"
@@ -95,5 +97,5 @@ func extractTargetHeader(c *echo.Context) string {
 		return ""
 	}
 
-	return req.Header.Get(amzTargetHeader)
+	return httputils.HeaderValue(req.Header, amzTargetHeader)
 }

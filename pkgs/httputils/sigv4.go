@@ -80,7 +80,7 @@ func (v *SigV4Validator) EchoMiddleware() echo.MiddlewareFunc {
 		return func(c *echo.Context) error {
 			r := c.Request()
 
-			auth := r.Header.Get("Authorization")
+			auth := HeaderValue(r.Header, "Authorization")
 			if !strings.HasPrefix(auth, sigV4Algorithm) {
 				// Unsigned request (health, dashboard, presigned-query, anon) —
 				// not in scope for header-based SigV4 validation.
@@ -109,12 +109,12 @@ func (v *SigV4Validator) EchoMiddleware() echo.MiddlewareFunc {
 // describing the AWS-accurate rejection otherwise. Verify reads and restores the
 // request body so downstream handlers still see it.
 func (v *SigV4Validator) Verify(r *http.Request) *SigV4Error {
-	parsed, err := parseAuthorizationHeader(r.Header.Get("Authorization"))
+	parsed, err := parseAuthorizationHeader(HeaderValue(r.Header, "Authorization"))
 	if err != nil {
 		return err
 	}
 
-	payloadHash := r.Header.Get("X-Amz-Content-Sha256")
+	payloadHash := HeaderValue(r.Header, "X-Amz-Content-Sha256")
 	switch payloadHash {
 	case "":
 		// No explicit content hash: hash the body (REST-JSON/XML clients) so we
@@ -124,7 +124,7 @@ func (v *SigV4Validator) Verify(r *http.Request) *SigV4Error {
 		// Client opted out of hashing the body; the literal is signed verbatim.
 	}
 
-	amzDate := r.Header.Get("X-Amz-Date")
+	amzDate := HeaderValue(r.Header, "X-Amz-Date")
 	if amzDate == "" {
 		return &SigV4Error{
 			Code:    "IncompleteSignatureException",

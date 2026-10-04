@@ -90,10 +90,7 @@ func isUnknownOperation(op string) bool {
 // extractAccessKeyID extracts the AWS access key ID from the SigV4
 // Authorization header's Credential value. Returns "" when absent or malformed.
 func extractAccessKeyID(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if auth == "" || !strings.Contains(auth, "Credential=") {
-		return ""
-	}
+	auth := httputils.HeaderValue(r.Header, "Authorization")
 
 	_, after, found := strings.Cut(auth, "Credential=")
 	if !found {
@@ -101,13 +98,13 @@ func extractAccessKeyID(r *http.Request) string {
 	}
 
 	credOnly, _, _ := strings.Cut(after, ",")
-	parts := strings.Split(credOnly, "/")
-
-	if len(parts) < minCredentialParts {
+	if strings.Count(credOnly, "/") < minCredentialParts-1 {
 		return ""
 	}
 
-	return parts[0]
+	akid, _, _ := strings.Cut(credOnly, "/")
+
+	return akid
 }
 
 // eventSourceFor derives the CloudTrail EventSource for a request, e.g.

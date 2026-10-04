@@ -140,7 +140,7 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			// Dashboard requests bypass all chaos fault injection and network effects.
-			if c.Request().Header.Get(HeaderDashboard) == headerDashboardBypass {
+			if store.Idle() || c.Request().Header.Get(HeaderDashboard) == headerDashboardBypass {
 				return next(c)
 			}
 

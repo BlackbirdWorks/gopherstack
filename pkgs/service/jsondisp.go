@@ -89,7 +89,7 @@ func HandleTarget(
 			"UnknownOperationException", "Method not allowed")
 	}
 
-	target := c.Request().Header.Get("X-Amz-Target")
+	target := httputils.HeaderValue(c.Request().Header, "X-Amz-Target")
 	if target == "" {
 		return writeDispatchError(c, contentType, http.StatusBadRequest,
 			"UnknownOperationException", "Missing X-Amz-Target")

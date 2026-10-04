@@ -237,13 +237,13 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 		Account:       DefaultAccount,
 		Region:        region,
 		Partition:     DefaultPartition,
-		RequestID:     httputils.SanitizeHeaderString(r.Header.Get("X-Amz-Request-Id")),
+		RequestID:     httputils.SanitizeHeaderString(httputils.HeaderValue(r.Header, "X-Amz-Request-Id")),
 		AccessKeyID:   accessKeyID,
 		SecurityToken: httputils.ExtractSecurityTokenFromRequest(r),
 		Service:       service,
 	}
 
-	if v := r.Header.Get("X-Amz-Account-Id"); v != "" {
+	if v := httputils.HeaderValue(r.Header, "X-Amz-Account-Id"); v != "" {
 		m.Account = httputils.SanitizeHeaderString(v)
 	}
 

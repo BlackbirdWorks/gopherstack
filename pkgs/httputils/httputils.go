@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"hash/crc32"
 	"io"
 	"net/http"
@@ -82,7 +83,7 @@ func ReadBody(r *http.Request) ([]byte, error) {
 		return nil, erc.err
 	}
 
-	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, MaxRequestBodyBytes))
+	body, err := readAllSized(r.Body, r.ContentLength)
 	_ = r.Body.Close() // Ensure original body is closed
 	if err != nil {
 		r.Body = &bodyReadErrCloser{err: err}
@@ -98,6 +99,45 @@ func ReadBody(r *http.Request) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+// HeaderValue is h.Get for a key already in canonical form, skipping re-canonicalisation.
+func HeaderValue(h http.Header, canonicalKey string) string {
+	if v := h[canonicalKey]; len(v) > 0 {
+		return v[0]
+	}
+
+	return ""
+}
+
+// maxPresizeBytes caps the buffer allocated up front from an untrusted Content-Length.
+const maxPresizeBytes = 8 * 1024 * 1024
+
+// readAllSized reads r to EOF, sizing the first buffer from the declared length (capped at
+// maxPresizeBytes) and failing with *http.MaxBytesError past MaxRequestBodyBytes.
+func readAllSized(r io.Reader, declared int64) ([]byte, error) {
+	buf := make([]byte, 0, min(max(declared, 0), maxPresizeBytes)+bytes.MinRead)
+
+	for {
+		n, err := r.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+
+		if int64(len(buf)) > MaxRequestBodyBytes {
+			return nil, &http.MaxBytesError{Limit: MaxRequestBodyBytes}
+		}
+
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+			}
+
+			return buf, err
+		}
+
+		if len(buf) == cap(buf) {
+			buf = append(buf, 0)[:len(buf)]
+		}
+	}
 }
 
 // ParseFormBody is url.ParseQuery over the request body, memoized per request
@@ -383,7 +423,7 @@ func extractSigV4ScopeFromRequest(r *http.Request) ([expectedSigV4ScopeParts]str
 		return [expectedSigV4ScopeParts]string{}, false
 	}
 
-	if auth := r.Header.Get("Authorization"); auth != "" {
+	if auth := HeaderValue(r.Header, "Authorization"); auth != "" {
 		if _, raw, ok := strings.Cut(auth, "Credential="); ok {
 			if scope, valid := parseValidSigV4Scope(raw); valid {
 				return scope, true
@@ -411,7 +451,7 @@ func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
 			return SanitizeHeaderString(scope[sigV4RegionIndex])
 		}
 
-		if region := r.Header.Get("X-Amz-Region"); region != "" {
+		if region := HeaderValue(r.Header, "X-Amz-Region"); region != "" {
 			return SanitizeHeaderString(region)
 		}
 	}
@@ -466,7 +506,7 @@ func ExtractAccessKeyFromRequest(r *http.Request) string {
 		return ""
 	}
 
-	if auth := r.Header.Get("Authorization"); auth != "" {
+	if auth := HeaderValue(r.Header, "Authorization"); auth != "" {
 		if _, raw, ok := strings.Cut(auth, "Credential="); ok {
 			if key := extractBareAccessKey(raw); key != "" {
 				return key

@@ -3,6 +3,7 @@ package chaos
 import (
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -130,6 +131,7 @@ type FaultStore struct {
 	effects  NetworkEffects
 	rules    []FaultRule
 	mu       sync.RWMutex
+	busy     atomic.Bool
 }
 
 // NewFaultStore creates a new empty FaultStore.
@@ -137,6 +139,13 @@ func NewFaultStore() *FaultStore {
 	return &FaultStore{
 		rules: []FaultRule{},
 	}
+}
+
+// Idle reports, without locking, that no rules or network effects are configured.
+func (s *FaultStore) Idle() bool { return !s.busy.Load() }
+
+func (s *FaultStore) refreshBusyLocked() {
+	s.busy.Store(len(s.rules) > 0 || s.effects != (NetworkEffects{}))
 }
 
 // GetRules returns a copy of the current fault rules.
@@ -157,6 +166,7 @@ func (s *FaultStore) SetRules(rules []FaultRule) {
 
 	s.rules = make([]FaultRule, len(rules))
 	copy(s.rules, rules)
+	s.refreshBusyLocked()
 }
 
 // AppendRules appends rules to the existing rule list.
@@ -165,6 +175,7 @@ func (s *FaultStore) AppendRules(rules []FaultRule) {
 	defer s.mu.Unlock()
 
 	s.rules = append(s.rules, rules...)
+	s.refreshBusyLocked()
 }
 
 // DeleteRules removes rules that match any rule in the provided list.
@@ -182,6 +193,7 @@ func (s *FaultStore) DeleteRules(rules []FaultRule) {
 	}
 
 	s.rules = kept
+	s.refreshBusyLocked()
 }
 
 // DeleteRuleByIndex removes the fault rule at the given index.
@@ -195,6 +207,7 @@ func (s *FaultStore) DeleteRuleByIndex(index int) {
 	}
 
 	s.rules = append(s.rules[:index], s.rules[index+1:]...)
+	s.refreshBusyLocked()
 }
 
 func rulesContainMatch(candidates []FaultRule, target FaultRule) bool {
@@ -239,6 +252,7 @@ func (s *FaultStore) SetEffects(effects NetworkEffects) {
 	defer s.mu.Unlock()
 
 	s.effects = effects
+	s.refreshBusyLocked()
 }
 
 // RecordActivity appends an activity event to the ring buffer.
