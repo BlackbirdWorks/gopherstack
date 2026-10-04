@@ -2,6 +2,7 @@ package glue_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -828,8 +829,12 @@ func paginationCasesSchemaRegistry() []paginationCase {
 				_, _, err := b.CreateSchema("", "versioned-schema", "JSON", "NONE", "", "", nil)
 				require.NoError(t, err)
 
-				for range 3 {
-					_, verErr := b.RegisterSchemaVersion("", "versioned-schema", `{"type":"object"}`)
+				for i := range 3 {
+					_, verErr := b.RegisterSchemaVersion(
+						"",
+						"versioned-schema",
+						fmt.Sprintf(`{"type":"object","title":"v%d"}`, i),
+					)
 					require.NoError(t, verErr)
 				}
 			},

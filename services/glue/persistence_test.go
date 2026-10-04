@@ -62,7 +62,7 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	b.AddDataQualityResultInternal(&glue.DataQualityResult{ResultID: "dqr1"})
 	_, err = b.CreateDevEndpoint("dep1", glue.DevEndpointInput{}, "arn:aws:iam::123456789012:role/dep-role", nil)
 	require.NoError(t, err)
-	_, err = b.CreateDataQualityRuleset("ruleset1", "rules", nil)
+	_, err = b.CreateDataQualityRuleset("ruleset1", "Rules = [IsComplete \"id\"]", nil)
 	require.NoError(t, err)
 	_, err = b.StartDataQualityRulesetEvaluationRun([]string{"ruleset1"})
 	require.NoError(t, err)

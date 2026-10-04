@@ -24,40 +24,6 @@ func validateSchemaDefinition(dataFormat, definition string) (bool, string) {
 	}
 }
 
-func validateAvroSchema(def string) (bool, string) {
-	var v map[string]any
-	if err := json.Unmarshal([]byte(def), &v); err != nil {
-		return false, "schema is not valid JSON: " + err.Error()
-	}
-
-	if _, ok := v["type"]; !ok {
-		return false, "AVRO schema must have a 'type' field"
-	}
-
-	return true, ""
-}
-
-func validateJSONSchema(def string) (bool, string) {
-	var v any
-	if err := json.Unmarshal([]byte(def), &v); err != nil {
-		return false, "schema is not valid JSON: " + err.Error()
-	}
-
-	return true, ""
-}
-
-func validateProtobufSchema(def string) (bool, string) {
-	if !strings.Contains(def, "syntax") {
-		return false, "PROTOBUF schema must contain a 'syntax' declaration"
-	}
-
-	if !strings.Contains(def, "message") {
-		return false, "PROTOBUF schema must contain at least one 'message' declaration"
-	}
-
-	return true, ""
-}
-
 // parseVersionRanges parses an AWS-style version range string (e.g. "1-3,5,7-9")
 // into a sorted list of individual version numbers.
 func parseVersionRanges(versions string) ([]int64, error) {

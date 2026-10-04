@@ -1638,3 +1638,7 @@ A request whose Host is a domain endpoint (`search-name-acct.region.es.amazonaws
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: UpdateDomainConfig.AdvancedOptions/SnapshotOptions)
 
 Tool false positives: both are decoded and applied (`handler_domain_options.go` applyReqToUpdateInput, `domain_config.go`) and covered by the real-client domain-options tests noted above. No code change.
+
+## 2026-10-04 (gopherstack-rbmx re-verification)
+
+The ~19 ops left out of the original audit were field-diffed on 2026-09-11 (section above); nothing new found. `cmd/keycheck` cannot re-verify this service (it conflates the opensearch and opensearchserverless op names and reports PARTIAL), so the check stays hand-diffed against the pinned `opensearch@v1.75.4` output types. The opensearchserverless SDK module is already in go.mod (v1.34.4, since 2026-07-31) and its 19 ops are implemented; no new dependency was added here. A full field-diff of the opensearchserverless Collection/Policy/SecurityConfig shapes against that module's types remains its own audit pass.

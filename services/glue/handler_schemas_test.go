@@ -818,7 +818,7 @@ func TestGetSchemaVersionsDiff(t *testing.T) {
 				t.Helper()
 				createRegistry(t, h, "reg1")
 				createSchema(t, h, "reg1", "schema1")
-				registerSchemaVersion(t, h, "reg1", "schema1", `{"type":"record","name":"Test"}`)
+				registerSchemaVersion(t, h, "reg1", "schema1", `{"type":"record","name":"Test","fields":[]}`)
 
 				return "reg1", "schema1"
 			},
@@ -833,8 +833,8 @@ func TestGetSchemaVersionsDiff(t *testing.T) {
 				t.Helper()
 				createRegistry(t, h, "reg2")
 				createSchema(t, h, "reg2", "schema2")
-				registerSchemaVersion(t, h, "reg2", "schema2", `{"type":"record","name":"V1"}`)
-				registerSchemaVersion(t, h, "reg2", "schema2", `{"type":"record","name":"V2"}`)
+				registerSchemaVersion(t, h, "reg2", "schema2", `{"type":"record","name":"V1","fields":[]}`)
+				registerSchemaVersion(t, h, "reg2", "schema2", `{"type":"record","name":"V2","fields":[]}`)
 
 				return "reg2", "schema2"
 			},

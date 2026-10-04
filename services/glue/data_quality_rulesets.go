@@ -48,6 +48,10 @@ func (b *InMemoryBackend) CreateDataQualityRulesetWithOptions(
 		return nil, ErrValidation
 	}
 
+	if err := ValidateDQDL(ruleset); err != nil {
+		return nil, err
+	}
+
 	if b.dataQualityRulesets.Has(name) {
 		return nil, ErrAlreadyExists
 	}
@@ -109,6 +113,10 @@ func (b *InMemoryBackend) UpdateDataQualityRuleset(name, ruleset, description st
 	}
 
 	if ruleset != "" {
+		if err := ValidateDQDL(ruleset); err != nil {
+			return err
+		}
+
 		r.Ruleset = ruleset
 	}
 
