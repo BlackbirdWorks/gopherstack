@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -146,7 +145,7 @@ func TestIoTRuleSQLParseException(t *testing.T) {
 			})
 
 			var parseErr *iottypes.SqlParseException
-			require.True(t, errors.As(err, &parseErr), "create: %v", err)
+			require.ErrorAs(t, err, &parseErr, "create: %v", err)
 
 			_, err = c.CreateTopicRule(t.Context(), &iot.CreateTopicRuleInput{
 				RuleName: aws.String("good"), TopicRulePayload: payload("SELECT * FROM 'a/b'"),
@@ -156,7 +155,7 @@ func TestIoTRuleSQLParseException(t *testing.T) {
 			_, err = c.ReplaceTopicRule(t.Context(), &iot.ReplaceTopicRuleInput{
 				RuleName: aws.String("good"), TopicRulePayload: payload(tt.sql),
 			})
-			require.True(t, errors.As(err, &parseErr), "replace: %v", err)
+			require.ErrorAs(t, err, &parseErr, "replace: %v", err)
 		})
 	}
 }
