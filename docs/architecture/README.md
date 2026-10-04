@@ -69,9 +69,11 @@ credential scope, then `X-Amz-Region`, then the configured default, and stores i
 
 - **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic.
   S3 bucket names are globally unique, but each bucket has a region.
-- **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, elb, firehose, and most others.
-- **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs, autoscaling, cloudformation, elbv2, codedeploy, lambda and
-  others build one sibling handler per extra region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
+- **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, elb, firehose, acm, acmpca, batch,
+  codepipeline, dms, elasticbeanstalk, emr, kinesisanalyticsv2, sagemaker, route53resolver, elasticsearch, and most others.
+- **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs, autoscaling, cloudformation, elbv2, codedeploy, lambda,
+  eks, mq, redshift (and Serverless), opensearch, appsync, ses, apprunner, codebuild, emrserverless, guardduty, securityhub, xray,
+  transfer, awsconfig, applicationautoscaling, dax, vpclattice, cloudtrail, fsx and others build one sibling handler per extra region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
 - **Cross-service calls follow the originating resource's region**: SQS and CloudWatch Logs publish metrics to the CloudWatch
   of the emitting queue or log group's region; Step Functions, Scheduler and the tagging bridge reach the ECS (and Glue)
   backend of the ARN or execution region via `regionpeers.Backend`. Auto Scaling launches and terminates instances in its own
@@ -85,7 +87,16 @@ credential scope, then `X-Amz-Region`, then the configured default, and stores i
   event source poller. Classic ELB and Firehose read the region from the shared request metadata, so Auto Scaling, SNS,
   EventBridge, Pipes, IoT and CloudWatch Logs reach the right region's load balancer or delivery stream. Grafana accepts EC2
   resources of any region, MGN uses its own region's EC2, Resilience Hub resolves EC2 source ARNs by region, and the Lightsail
-  CloudFormation export creates the stack in its own region. OpenSearch, a Firehose destination, remains single-region.
+  CloudFormation export creates the stack in its own region. OpenSearch is per region: a Firehose domain-ARN destination indexes into the domain of the ARN's region. Lambda MQ event source
+  mappings find the broker in the broker ARN's region (MQ and EKS siblings share the home docker runtime and bounded port
+  allocator), AppSync resolvers call DynamoDB in the data source's region (else the API's) and Lambda in the function ARN's region
+  (else the API's), and GraphQL requests find their API by id across regions. WAFv2 keys REGIONAL resources by the request region
+  (no siblings; CLOUDFRONT scope stays global, as AWS requires US East for it). RDS, DocumentDB, Neptune, Kafka, Scheduler, Pipes
+  and Cognito Identity already isolate regions internally.
+  CodePipeline Build, Invoke and Deploy actions call CodeBuild, Lambda and CodeDeploy in the pipeline's region, CloudTrail records
+  each captured management event in the region the call targeted, and Application Auto Scaling checks DynamoDB tables in its own
+  region. The tagging bridge also follows the region for App Runner, EMR Serverless, GuardDuty, Security Hub, X-Ray, Transfer, Config,
+  Application Auto Scaling, DAX and VPC Lattice.
 - **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
   regions collide); a `knownCollision` case there fails once such a service is fixed.
 

@@ -11,7 +11,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -30,6 +32,8 @@ type Handler struct {
 	Backend *InMemoryBackend
 	janitor *Janitor
 	ops     map[string]service.JSONOpFunc
+	peers   *regionpeers.Set[Handler]
+	stop    context.CancelFunc
 }
 
 // NewHandler creates a new CodeBuild handler backed by backend.
@@ -43,6 +47,14 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Reset clears the handler state by delegating to the backend Reset.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+
+		if p.stop != nil {
+			p.stop()
+		}
+	}
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -167,6 +179,10 @@ func (h *Handler) ExtractResource(_ *echo.Context) string {
 // Handler returns the Echo handler function for CodeBuild requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"CodeBuild", "application/x-amz-json-1.1",

@@ -602,3 +602,7 @@ nested `SqlApplicationConfigurationDescription`) is correctly entirely
 absent on the wire, matching real AWS -- the test asserts on that absence
 rather than on empty sub-slices. No `items_still_open` changes; no
 `snapshot_inventory.json` change; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+kinesisanalyticsv2 already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/kinesisanalyticsv2`. No code change to the resource store.

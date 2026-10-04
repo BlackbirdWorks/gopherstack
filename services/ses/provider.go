@@ -39,7 +39,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetSESSettings()
 	}
 
-	backend := NewInMemoryBackend().WithEmailTTL(settings.EmailTTL)
+	accountID, region := service.AccountRegionOrDefault(ctx)
+	backend := NewInMemoryBackend().WithEmailTTL(settings.EmailTTL).WithRegion(region).WithAccountID(accountID)
 	handler := NewHandler(backend)
 
 	if r := relayFromEnv(p.Getenv); r != nil {
@@ -47,6 +48,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	handler.WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
+	handler.EnableRegions()
 
 	return handler, nil
 }

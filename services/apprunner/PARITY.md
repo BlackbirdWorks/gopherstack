@@ -733,3 +733,7 @@ gopherstack gaps:
 Gates: `go build ./...`, `go vet`, `gofmt -l`, `go test -race -count=1
 ./services/apprunner/...`, `golangci-lint run ./services/apprunner/...` (0
 issues) all clean.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+apprunner is region-isolated: Services, connections, auto scaling and observability configurations, VPC connectors and ingress connections live per region with region-correct ARNs. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/apprunner`. Limitation: the dashboard shows the home region only.

@@ -209,3 +209,7 @@ ActiveMQ credentials containing `/ & \ < > " '` are rejected (the image seds the
 Lambda event source mappings consume from these brokers (see services/lambda/PARITY.md). Metadata-only
 brokers (the default, or a broker with no users) behave as before. Proven by `broker_engine_test.go` and
 the Docker-gated `TestMQESMRealRabbitMQ` / `TestMQESMRealActiveMQ` in services/lambda.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Amazon MQ is region-isolated: each non-home region gets a lazily built sibling `Handler` (own brokers, configurations, users, tags; region-correct ARNs) via `pkgs/regionpeers`. Siblings inherit the docker broker-engine config; the runtime and the bounded port allocator are shared and only the home backend closes the runtime. Lambda MQ event source mappings resolve the broker in its ARN region (`mqRegionResolver`). Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestHandler_MultiRegionDockerBrokers`, `TestMQRegionResolver_ResolvesBrokerInARNRegion`, `TestRegionIsolation/mq`.

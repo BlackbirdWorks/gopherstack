@@ -639,3 +639,7 @@ not just the flagged tier-1 ones).
 No code changes this pass. Gates unaffected (nothing touched):
 `go build ./services/batch/...`, `go vet`, `go test -race -count=1` clean;
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+batch already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/batch`. No code change to the resource store.

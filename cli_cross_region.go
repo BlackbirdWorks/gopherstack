@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -12,8 +13,11 @@ import (
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
+
+var errOpenSearchRegionUnavailable = errors.New("opensearch backend unavailable for region")
 
 // originRegion returns the region of the first ARN that names one, else the context region.
 func originRegion(ctx context.Context, arns ...string) string {
@@ -248,4 +252,16 @@ func regionalBackendFor[B any](backendOf func(region string) any) func(string) B
 	home, _ := backendOf("").(B)
 
 	return func(region string) B { return asBackend(backendOf(region), home) }
+}
+
+// mqRegionResolver finds a broker's consumer endpoint in the region its ARN names.
+type mqRegionResolver struct{ handler *mqbackend.Handler }
+
+func (r *mqRegionResolver) MQConsumerEndpoint(brokerARN string) (string, string, bool) {
+	bk, ok := r.handler.BackendFor(arnRegion(brokerARN)).(*mqbackend.InMemoryBackend)
+	if !ok {
+		return "", "", false
+	}
+
+	return bk.MQConsumerEndpoint(brokerARN)
 }

@@ -11,10 +11,12 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -54,6 +56,7 @@ func paginate[T any](all []T, nextToken string, limit int32, defaultLimit int) (
 type Handler struct {
 	Backend       *InMemoryBackend
 	dispatchTable map[string]service.JSONOpFunc
+	peers         *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new AWS Config handler.
@@ -219,6 +222,10 @@ func extractNamedField(body []byte, key string) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"AWSConfig", "application/x-amz-json-1.1",

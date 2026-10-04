@@ -618,3 +618,7 @@ Gates: `go build ./...`, `go vet ./services/codepipeline/...`, `go test
 -race -count=1 ./services/codepipeline/...`, `golangci-lint run
 ./services/codepipeline/...` -- all clean. No persisted-struct fields
 changed; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+codepipeline already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Build, Invoke and Deploy actions now call CodeBuild, Lambda and CodeDeploy in the pipeline region (`StartBuild`/`CreateDeployment` take a context carrying it). Proof: `TestRunOneAction_CrossServiceCallsCarryPipelineRegion`, `TestInitializeServices_CodePipelineActionsRunInPipelineRegion`, `TestRegionIsolation/codepipeline`. No code change to the resource store.

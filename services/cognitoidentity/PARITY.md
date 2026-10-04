@@ -474,3 +474,7 @@ Gates: `go build ./...`, `go vet ./services/cognitoidentity/...`,
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/cognitoidentity/...` (0 issues). `go run ./cmd/paritylint`
 stays at 0 FAIL. No persisted-struct/snapshot changes.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/cognitoidentity`.

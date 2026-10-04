@@ -441,3 +441,7 @@ api_op_CreateDBCluster.go:126/152, api_op_ModifyDBCluster.go:124/158): MasterUse
 without management or with MasterUserPassword returns InvalidParameterCombination, and per the Modify doc the key can
 only be set while turning management on. DescribeDBClusterSnapshots IncludePublic/IncludeShared stay recorded: there
 are no foreign-account snapshots to include.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/docdb`.

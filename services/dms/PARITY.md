@@ -1031,3 +1031,7 @@ Gates: `go build ./...` clean, `go vet ./services/dms/...` clean, `go test
   `list_filter_params_test.go`) were re-verified passing unchanged --
   correct single-value behavior was never in question, only the untested
   multi-value/multi-filter paths.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+dms already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/dms`. No code change to the resource store.

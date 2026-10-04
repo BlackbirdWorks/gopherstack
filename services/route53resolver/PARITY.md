@@ -941,3 +941,7 @@ Gates: `go build ./services/route53resolver/...` and `go vet
 --new-from-rev=HEAD ./services/route53resolver/...` 0 issues (after
 `golines --fix`). `go run ./cmd/paritylint` stays at 0 FAIL. No
 persisted-struct/snapshot-inventory change; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+route53resolver already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/route53resolver`. No code change to the resource store.

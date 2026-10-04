@@ -7,20 +7,31 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
+	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
 // EnableRegions makes h serve every other region through lazily built per-region
@@ -113,6 +124,18 @@ func (sb *ServiceBackends) forRegion(region string) *ServiceBackends {
 	out.Autoscaling = regionHandler(sb.Autoscaling, (*autoscalingbackend.Handler).RegionHandler, region)
 	out.CodeDeploy = regionHandler(sb.CodeDeploy, (*codedeploybackend.Handler).RegionHandler, region)
 	out.Lambda = regionHandler(sb.Lambda, (*lambdabackend.Handler).RegionHandler, region)
+	out.EKS = regionHandler(sb.EKS, (*eksbackend.Handler).RegionHandler, region)
+	out.Redshift = regionHandler(sb.Redshift, (*redshiftbackend.Handler).RegionHandler, region)
+	out.OpenSearch = regionHandler(sb.OpenSearch, (*opensearchbackend.Handler).RegionHandler, region)
+	out.AppSync = regionHandler(sb.AppSync, (*appsyncbackend.Handler).RegionHandler, region)
+	out.SES = regionHandler(sb.SES, (*sesbackend.Handler).RegionHandler, region)
+
+	out.AppAutoScaling = regionHandler(sb.AppAutoScaling, (*appautoscalingbackend.Handler).RegionHandler, region)
+	out.AWSConfig = regionHandler(sb.AWSConfig, (*awsconfigbackend.Handler).RegionHandler, region)
+	out.CloudTrail = regionHandler(sb.CloudTrail, (*cloudtrailbackend.Handler).RegionHandler, region)
+	out.CodeBuild = regionHandler(sb.CodeBuild, (*codebuildbackend.Handler).RegionHandler, region)
+	out.GuardDuty = regionHandler(sb.GuardDuty, (*guarddutybackend.Handler).RegionHandler, region)
+	out.Transfer = regionHandler(sb.Transfer, (*transferbackend.Handler).RegionHandler, region)
 
 	return &out
 }

@@ -2293,3 +2293,7 @@ issues, `go run ./cmd/paritylint` 0 FAIL.
 ## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
 
 Added `leak_main_test.go` (goleak TestMain). No leak found.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Redshift (classic and Serverless) is region-isolated: each non-home region gets a lazily built sibling handler with its own clusters, subnet/parameter groups, snapshots and serverless namespaces/workgroups, and region-correct endpoints. Siblings inherit the DNS registrar and reconciler tuning, run their own cluster reconciler, and are stopped on shutdown, reset and restore. Classic snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore); Redshift Serverless state is not persisted today and stays so. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestRegionIsolation/redshift`. Limitation: the Redshift Data API is not region-aware.

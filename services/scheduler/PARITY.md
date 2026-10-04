@@ -766,3 +766,7 @@ snapshot changes.
 ## 2026-10-03 ECS target region
 
 - The ECS universal target runs the task in the region named by the task-definition ARN (falling back to the context region, then home). Proof: `TestInitializeServices_CrossServiceECSTargetsUseOriginRegion`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/scheduler`. Targets route Lambda and ECS by ARN region.

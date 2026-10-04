@@ -144,26 +144,48 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	type snapshotter interface {
+	return h.peers.Snapshot(snapshotBackend(ctx, h.Backend), func(p *Handler) []byte {
+		return snapshotBackend(ctx, p.Backend)
+	})
+}
+
+func snapshotBackend(ctx context.Context, bk StorageBackend) []byte {
+	if s, ok := bk.(interface {
 		Snapshot(ctx context.Context) []byte
-	}
-	if s, ok := h.Backend.(snapshotter); ok {
+	}); ok {
 		return s.Snapshot(ctx)
 	}
 
 	return nil
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	type restorer interface {
+func restoreBackend(ctx context.Context, bk StorageBackend, data []byte) error {
+	if r, ok := bk.(interface {
 		Restore(context.Context, []byte) error
-	}
-	if r, ok := h.Backend.(restorer); ok {
+	}); ok {
 		return r.Restore(ctx, data)
 	}
 
 	return nil
+}
+
+// Restore implements persistence.Persistable.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	if err := restoreBackend(ctx, h.Backend, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return restoreBackend(ctx, p.Backend, d) },
+		func(p *Handler) {
+			p.stopWorkers()
+
+			if r, ok := p.Backend.(interface{ Reset() }); ok {
+				r.Reset()
+			}
+		},
+	)
 }

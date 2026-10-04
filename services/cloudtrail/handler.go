@@ -8,7 +8,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -45,6 +47,7 @@ var errInvalidRequest = errors.New("invalid request")
 type Handler struct {
 	ops     map[string]func(*echo.Context, []byte) error
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new CloudTrail handler.
@@ -128,7 +131,7 @@ func (h *Handler) GetSupportedOperations() []string {
 // central service registry to reach this live backend directly (no second,
 // disconnected CloudTrail backend is created).
 func (h *Handler) RecordManagementEvent(ev service.CloudTrailEventInput) {
-	h.Backend.RecordManagementEvent(ev)
+	h.BackendFor(ev.AwsRegion).RecordManagementEvent(ev)
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -167,6 +170,10 @@ func (h *Handler) ExtractResource(_ *echo.Context) string {
 // Handler returns the Echo handler function for CloudTrail requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		operation := h.ExtractOperation(c)
 
@@ -188,6 +195,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // Reset clears the backend state (test helper).
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 func (h *Handler) dispatch(c *echo.Context, operation string, body []byte) error {

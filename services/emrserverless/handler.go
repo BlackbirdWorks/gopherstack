@@ -13,8 +13,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -81,6 +83,7 @@ const (
 // Handler is the Echo HTTP handler for EMR Serverless operations (REST-JSON protocol).
 type Handler struct {
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new EMR Serverless handler.
@@ -89,7 +92,13 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 }
 
 // Reset clears all backend state. Used for test isolation.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EmrServerless" }
@@ -367,6 +376,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for EMR Serverless requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		r := c.Request()
 		log := logger.Load(r.Context())
 		route := parseEMRPath(r.Method, r.URL.Path)

@@ -36,7 +36,7 @@ func TestHandler_DeletePermissionPolicy(t *testing.T) {
 					nil,
 					nil,
 				)
-				arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
+				arnStr := rg.ARN
 				require.NoError(t, h.Backend.PutPermissionPolicy(
 					context.Background(), arnStr, `{"Version":"2012-10-17"}`,
 				))

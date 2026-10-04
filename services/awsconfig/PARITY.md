@@ -917,3 +917,7 @@ Fixed with typed-client tests in open_items_client_test.go: GetDiscoveredResourc
 FIXED: ListDiscoveredResources ignored `resourceIds` ("The IDs of only those resources that you want Config to list", `api_op_ListDiscoveredResources.go`). Proven by `list_discovered_resources_filter_test.go`.
 FIXED: SelectResourceConfig/SelectAggregateResourceConfig silently dropped any WHERE clause outside `field (=|LIKE) 'v' [AND ...]` (OR, `!=`, IN ...), widening the result to every resource; they now return InvalidExpressionException, which both ops declare. Same test file.
 Recorded: ListDiscoveredResources `resourceName` is unmodeled (config items carry no display name); GetNetworkResources-style SQL beyond the supported grammar is rejected rather than evaluated.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+awsconfig is region-isolated: Rules, recorders, delivery channels, aggregators, conformance packs and discovered resources live per region; siblings inherit the S3 snapshot writer and SNS publisher. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/awsconfig`. Limitation: the dashboard shows the home region only.

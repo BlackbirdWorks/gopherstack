@@ -9,9 +9,11 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -34,6 +36,7 @@ import (
 // ServerlessHandler is a separate Echo handler for Redshift Serverless APIs.
 type ServerlessHandler struct {
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[ServerlessHandler]
 }
 
 // NewServerlessHandler creates a new Redshift Serverless handler.
@@ -126,6 +129,10 @@ func (h *ServerlessHandler) ChaosRegions() []string { return []string{h.Backend.
 
 // Reset clears all backend state.
 func (h *ServerlessHandler) Reset() {
+	for _, p := range h.peers.Drain() {
+		p.Reset()
+	}
+
 	h.Backend.mu.Lock("ServerlessHandler.Reset")
 	defer h.Backend.mu.Unlock()
 
@@ -193,6 +200,11 @@ func (h *ServerlessHandler) ExtractResource(c *echo.Context) string {
 func (h *ServerlessHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+
+		if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(r.Context())
 
 		body, err := httputils.ReadBody(r)

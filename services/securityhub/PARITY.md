@@ -1444,3 +1444,7 @@ Gates: `go build ./...`, `go vet ./services/securityhub/...`, `go test
 --new-from-rev=HEAD ./services/securityhub/...` (0 issues), `go test -race
 -count=1 ./pkgs/persistence/...` (pass, includes `TestSnapshotVersionGuard`).
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+securityhub is region-isolated: Hub enablement, standards, insights, action targets, automation rules and findings live per region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/securityhub`. Limitation: the dashboard shows the home region only.

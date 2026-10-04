@@ -733,3 +733,7 @@ fix above did not change `backendSnapshot`'s on-disk shape). `golangci-lint
 run --new-from-rev=HEAD ./services/kafka/...` 0 issues. No version bump;
 `pkgs/persistence/testdata/snapshot_inventory.json` unaffected for this
 service. `cmd/paritylint` re-verified 0 missing-items-still-open FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/kafka`.

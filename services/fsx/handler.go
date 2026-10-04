@@ -11,8 +11,10 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -86,6 +88,7 @@ var errUnknownOperation = errors.New("UnsupportedOperation")
 type Handler struct {
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler constructs a new Handler.
@@ -100,7 +103,13 @@ func NewHandler(b StorageBackend) *Handler {
 func (h *Handler) Name() string { return "FSx" }
 
 // Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -202,19 +211,31 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
-// Snapshot returns a serialized snapshot of the backend state.
-// It implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
+}
 
-// Restore restores the backend state from a snapshot.
-// It implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.Backend.Reset() },
+	)
 }
 
 // Handler returns the echo handler func.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"FSx", "application/x-amz-json-1.1",

@@ -851,3 +851,7 @@ test ./pkgs/persistence/ -update` diff reviewed and applied). Regression test:
 `TestCreateFileSystemTokens_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go),
 proves a replay is kept inside the window and a stale token creates a fresh file
 system after it.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+fsx is region-isolated: File systems, backups, volumes, snapshots and associations live per region. FSx has no tagging bridge entry. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/fsx`. Limitation: the dashboard shows the home region only.

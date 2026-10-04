@@ -453,3 +453,7 @@ as a persisted per-region history capped at 100 (`DeletedEnvironments` in the sn
 bump) with `DateUpdated` set to the termination time. Proof: `TestDescribeEnvironments_IncludeDeleted` and
 `TestDeletedEnvironments_BoundedAndPersisted`. The remaining 7 items are unmodeled subsystems or
 unverifiable AWS behavior; `EventDescription.RequestId` would need per-call request IDs the SDK never sends.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+elasticbeanstalk already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/elasticbeanstalk`. No code change to the resource store.

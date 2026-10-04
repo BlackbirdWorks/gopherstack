@@ -78,7 +78,7 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: created IP set", "name", s.Name, "id", s.ID)
 
-	arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
+	arnStr := s.ARN
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
@@ -121,7 +121,7 @@ func (h *Handler) handleGetIPSet(ctx context.Context, body []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: IP set %q has scope %s, not %s", ErrIPSetNotFound, req.ID, s.Scope, req.Scope)
 	}
 
-	arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
+	arnStr := s.ARN
 
 	return json.Marshal(map[string]any{
 		"IPSet": map[string]any{
@@ -233,7 +233,7 @@ func (h *Handler) handleListIPSets(ctx context.Context, body []byte) ([]byte, er
 			return map[string]string{
 				"Id":           s.ID,
 				keyName:        s.Name,
-				keyARN:         h.Backend.IPSetARN(s.Name, s.ID, s.Scope),
+				keyARN:         s.ARN,
 				keyLockToken:   s.LockToken,
 				keyDescription: s.Description,
 			}

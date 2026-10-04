@@ -541,3 +541,7 @@ there and is not read by SES).
 - Mailbox-simulator recipients are never relayed; messages the backend rejects
   (unverified source, quota, missing template) are never queued.
 - No persisted fields changed; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+SES v1 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own identities, configuration sets, templates, receipt rules, sent mail) via `pkgs/regionpeers`; siblings share the home SMTP relay and SNS publisher and run their own email janitor. `Handler.MailBackends()` feeds `/_aws/ses` retrospection so it aggregates every region. The provider now takes its region and account from the configured defaults. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionSendIdentityPerRegion`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/ses`.

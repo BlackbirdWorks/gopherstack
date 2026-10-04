@@ -860,3 +860,7 @@ No persisted (`backendSnapshot`) fields changed. Gates: `go build ./...`,
 --new-from-rev=HEAD ./services/elasticsearch/` (0 issues). tier-1
 (`cmd/reqfielddiff -dir elasticsearch`): 4 -> 2 (the 2 remaining are the
 disclosed structural gaps above).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+elasticsearch already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/elasticsearch`. No code change to the resource store.

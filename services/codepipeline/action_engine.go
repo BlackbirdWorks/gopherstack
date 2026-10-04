@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // findStage returns a pointer into p.Declaration.Stages for the stage named
@@ -189,11 +191,11 @@ func (b *InMemoryBackend) runOneAction(
 		ae.Status = statusInProgress
 		ae.Token = uuid.NewString()
 	case isBuiltinAction(action, actionProviderCodeBuild) && b.codeBuildBackend != nil:
-		ae.Status = b.runCodeBuildAction(action)
+		ae.Status = b.runCodeBuildAction(b.regionContext(region), action)
 	case isBuiltinAction(action, actionProviderLambda) && b.lambdaBackend != nil:
-		ae.Status = b.runLambdaAction(action)
+		ae.Status = b.runLambdaAction(b.regionContext(region), action)
 	case isBuiltinAction(action, actionProviderCodeDeploy) && b.codeDeployBackend != nil:
-		ae.Status = b.runCodeDeployAction(action)
+		ae.Status = b.runCodeDeployAction(b.regionContext(region), action)
 	}
 
 	store := b.actionExecutionsStore(region)
@@ -216,13 +218,13 @@ func isBuiltinAction(action Action, provider string) bool {
 // CodeBuild backend always eventually completes an accepted build (see
 // codebuild's janitor), so acceptance alone is this synchronous engine's
 // success signal -- it does not wait for the build to finish.
-func (b *InMemoryBackend) runCodeBuildAction(action Action) string {
+func (b *InMemoryBackend) runCodeBuildAction(ctx context.Context, action Action) string {
 	projectName := action.Configuration[configKeyProjectName]
 	if projectName == "" {
 		return statusSucceeded
 	}
 
-	if err := b.codeBuildBackend.StartBuild(projectName); err != nil {
+	if err := b.codeBuildBackend.StartBuild(ctx, projectName); err != nil {
 		return statusFailed
 	}
 
@@ -235,14 +237,14 @@ func (b *InMemoryBackend) runCodeBuildAction(action Action) string {
 // This does not model real AWS's asynchronous PutJobSuccessResult/
 // PutJobFailureResult callback protocol for this action type -- see
 // PARITY.md.
-func (b *InMemoryBackend) runLambdaAction(action Action) string {
+func (b *InMemoryBackend) runLambdaAction(ctx context.Context, action Action) string {
 	functionName := action.Configuration[configKeyFunctionName]
 	if functionName == "" {
 		return statusSucceeded
 	}
 
 	_, _, err := b.lambdaBackend.InvokeFunction(
-		context.Background(), functionName, "RequestResponse", []byte("{}"),
+		ctx, functionName, "RequestResponse", []byte("{}"),
 	)
 	if err != nil {
 		return statusFailed
@@ -259,7 +261,7 @@ func (b *InMemoryBackend) runLambdaAction(action Action) string {
 // emulator's CodeDeploy backend marks every accepted deployment Succeeded
 // synchronously (no janitor phase to wait on, unlike CodeBuild), so
 // acceptance and completion are the same event here.
-func (b *InMemoryBackend) runCodeDeployAction(action Action) string {
+func (b *InMemoryBackend) runCodeDeployAction(ctx context.Context, action Action) string {
 	appName := action.Configuration[configKeyApplicationName]
 	dgName := action.Configuration[configKeyDeploymentGroupName]
 
@@ -267,9 +269,14 @@ func (b *InMemoryBackend) runCodeDeployAction(action Action) string {
 		return statusSucceeded
 	}
 
-	if err := b.codeDeployBackend.CreateDeployment(appName, dgName); err != nil {
+	if err := b.codeDeployBackend.CreateDeployment(ctx, appName, dgName); err != nil {
 		return statusFailed
 	}
 
 	return statusSucceeded
+}
+
+// regionContext carries the pipeline's region so cross-service calls reach that region's backend.
+func (b *InMemoryBackend) regionContext(region string) context.Context {
+	return awsmeta.Set(context.Background(), &awsmeta.Metadata{Region: region, Account: b.accountID})
 }

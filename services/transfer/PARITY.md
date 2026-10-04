@@ -394,3 +394,7 @@ persisted map's contents change, not `backendSnapshot`'s fields), so no
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Audited clean: ListProfiles ProfileType ("If not supplied in the request, the command lists all types of profiles") and the other list ops. No change.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+transfer is region-isolated: Servers, users, connectors, agreements and workflows live per region; each sibling schedules its own server state timers. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/transfer`. Limitation: the dashboard shows the home region only.

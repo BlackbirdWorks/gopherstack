@@ -10,8 +10,10 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -34,6 +36,7 @@ var (
 type Handler struct {
 	Backend   StorageBackend
 	DataPlane *DataPlane
+	peers     *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new DAX handler.
@@ -44,6 +47,10 @@ func NewHandler(backend StorageBackend) *Handler {
 // Reset clears handler state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -113,6 +120,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for DAX requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
@@ -273,12 +284,20 @@ func daxError(code, message string) map[string]any {
 	}
 }
 
-// Snapshot and Restore are delegated to the backend.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
+}
 
-// Snapshot returns the backend state as JSON bytes.
-func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
-
-// Restore restores backend state from JSON bytes.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.Backend.Reset() },
+	)
 }

@@ -166,13 +166,6 @@ func (b *InMemoryBackend) Close() {
 	}
 }
 
-// Shutdown removes every broker container; a no-op for metadata-only backends.
-func (h *Handler) Shutdown(_ context.Context) {
-	if c, ok := h.Backend.(interface{ Close() }); ok {
-		c.Close()
-	}
-}
-
 func (b *InMemoryBackend) detachAllBrokersLocked() []*liveBroker {
 	if b.engine == nil {
 		return nil

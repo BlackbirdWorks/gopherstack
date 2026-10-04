@@ -153,7 +153,7 @@ func TestHandler_DeleteFirewallManagerRuleGroups(t *testing.T) {
 			setup: func(h *wafv2.Handler) (string, string) {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 
-				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope), w.LockToken
+				return w.ARN, w.LockToken
 			},
 			wantStatus: http.StatusOK,
 		},

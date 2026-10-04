@@ -257,3 +257,7 @@ Gates: `go build ./...`, `go vet ./services/applicationautoscaling/...`,
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/applicationautoscaling/...` (0 issues). `go run
 ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+applicationautoscaling is region-isolated: Scalable targets, policies and scheduled actions live per region; the DynamoDB bridge resolves tables in the target region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/applicationautoscaling`. Limitation: the dashboard shows the home region only.

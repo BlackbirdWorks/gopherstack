@@ -9,6 +9,8 @@ import (
 	apigatewaytypes "github.com/aws/aws-sdk-go-v2/service/apigateway/types"
 	"github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	apigwv2types "github.com/aws/aws-sdk-go-v2/service/apigatewayv2/types"
+	"github.com/aws/aws-sdk-go-v2/service/appsync"
+	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	"github.com/aws/aws-sdk-go-v2/service/athena"
 	athenatypes "github.com/aws/aws-sdk-go-v2/service/athena/types"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -24,8 +26,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codecommittypes "github.com/aws/aws-sdk-go-v2/service/codecommit/types"
 	"github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
+	cognitoidentitytypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentity/types"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	cognitotypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
+	"github.com/aws/aws-sdk-go-v2/service/docdb"
+	docdbtypes "github.com/aws/aws-sdk-go-v2/service/docdb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dynamodbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -35,6 +41,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/efs"
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
+	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elasticachetypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
@@ -51,6 +59,8 @@ import (
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/iot"
 	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
+	"github.com/aws/aws-sdk-go-v2/service/kafka"
+	kafkatypes "github.com/aws/aws-sdk-go-v2/service/kafka/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
@@ -60,16 +70,32 @@ import (
 	lightsailtypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
 	"github.com/aws/aws-sdk-go-v2/service/memorydb"
 	memorydbtypes "github.com/aws/aws-sdk-go-v2/service/memorydb/types"
+	"github.com/aws/aws-sdk-go-v2/service/mq"
+	mqtypes "github.com/aws/aws-sdk-go-v2/service/mq/types"
+	"github.com/aws/aws-sdk-go-v2/service/neptune"
+	neptunetypes "github.com/aws/aws-sdk-go-v2/service/neptune/types"
+	"github.com/aws/aws-sdk-go-v2/service/opensearch"
+	opensearchtypes "github.com/aws/aws-sdk-go-v2/service/opensearch/types"
+	"github.com/aws/aws-sdk-go-v2/service/pipes"
+	pipestypes "github.com/aws/aws-sdk-go-v2/service/pipes/types"
+	"github.com/aws/aws-sdk-go-v2/service/rds"
+	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	redshifttypes "github.com/aws/aws-sdk-go-v2/service/redshift/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	route53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3control"
 	s3controltypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
+	"github.com/aws/aws-sdk-go-v2/service/scheduler"
+	schedulertypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
+	"github.com/aws/aws-sdk-go-v2/service/ses"
+	sestypes "github.com/aws/aws-sdk-go-v2/service/ses/types"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
@@ -79,6 +105,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/aws-sdk-go-v2/service/wafv2"
+	wafv2types "github.com/aws/aws-sdk-go-v2/service/wafv2/types"
 )
 
 const regionAccount = "000000000000"
@@ -142,6 +170,20 @@ func regionIsolationCases() []regionCase {
 		codedeployCase(),
 		lambdaCase(),
 		elbCase(),
+		rdsCase(),
+		docdbCase(),
+		neptuneCase(),
+		opensearchCase(),
+		eksCase(),
+		kafkaCase(),
+		mqCase(),
+		redshiftCase(),
+		schedulerCase(),
+		pipesCase(),
+		appsyncCase(),
+		cognitoidentityCase(),
+		sesCase(),
+		wafv2Case(),
 	}
 }
 
@@ -998,6 +1040,330 @@ func elbCase() regionCase {
 			return strs(out.LoadBalancerDescriptions, func(d elbtypes.LoadBalancerDescription) *string {
 				return d.LoadBalancerName
 			}), nil
+		},
+	}
+}
+
+func rdsCase() regionCase {
+	return regionCase{
+		name: "rds",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := rds.NewFromConfig(cfg).CreateDBSubnetGroup(ctx, &rds.CreateDBSubnetGroupInput{
+				DBSubnetGroupName: aws.String(name), DBSubnetGroupDescription: aws.String("d"),
+				SubnetIds: []string{"subnet-1", "subnet-2"},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := rds.NewFromConfig(cfg).DescribeDBSubnetGroups(ctx, &rds.DescribeDBSubnetGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.DBSubnetGroups, func(g rdstypes.DBSubnetGroup) *string { return g.DBSubnetGroupName }), nil
+		},
+	}
+}
+
+func docdbCase() regionCase {
+	return regionCase{
+		name: "docdb",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := docdb.NewFromConfig(cfg).CreateDBSubnetGroup(ctx, &docdb.CreateDBSubnetGroupInput{
+				DBSubnetGroupName: aws.String(name), DBSubnetGroupDescription: aws.String("d"),
+				SubnetIds: []string{"subnet-1", "subnet-2"},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := docdb.NewFromConfig(cfg).DescribeDBSubnetGroups(ctx, &docdb.DescribeDBSubnetGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(
+				out.DBSubnetGroups,
+				func(g docdbtypes.DBSubnetGroup) *string { return g.DBSubnetGroupName },
+			), nil
+		},
+	}
+}
+
+func neptuneCase() regionCase {
+	return regionCase{
+		name: "neptune",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := neptune.NewFromConfig(cfg).CreateDBSubnetGroup(ctx, &neptune.CreateDBSubnetGroupInput{
+				DBSubnetGroupName: aws.String(name), DBSubnetGroupDescription: aws.String("d"),
+				SubnetIds: []string{"subnet-1", "subnet-2"},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := neptune.NewFromConfig(cfg).DescribeDBSubnetGroups(ctx, &neptune.DescribeDBSubnetGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(
+				out.DBSubnetGroups,
+				func(g neptunetypes.DBSubnetGroup) *string { return g.DBSubnetGroupName },
+			), nil
+		},
+	}
+}
+
+func opensearchCase() regionCase {
+	return regionCase{
+		name: "opensearch",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := opensearch.NewFromConfig(cfg).CreateDomain(ctx, &opensearch.CreateDomainInput{
+				DomainName: aws.String(name),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := opensearch.NewFromConfig(cfg).ListDomainNames(ctx, &opensearch.ListDomainNamesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.DomainNames, func(d opensearchtypes.DomainInfo) *string { return d.DomainName }), nil
+		},
+	}
+}
+
+func eksCase() regionCase {
+	return regionCase{
+		name: "eks",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := eks.NewFromConfig(cfg).CreateCluster(ctx, &eks.CreateClusterInput{
+				Name:    aws.String(name),
+				RoleArn: aws.String("arn:aws:iam::" + regionAccount + ":role/eks"),
+				ResourcesVpcConfig: &ekstypes.VpcConfigRequest{
+					SubnetIds: []string{"subnet-1", "subnet-2"},
+				},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := eks.NewFromConfig(cfg).ListClusters(ctx, &eks.ListClustersInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return out.Clusters, nil
+		},
+	}
+}
+
+func kafkaCase() regionCase {
+	return regionCase{
+		name: "kafka",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := kafka.NewFromConfig(cfg).CreateConfiguration(ctx, &kafka.CreateConfigurationInput{
+				Name: aws.String(name), KafkaVersions: []string{"3.6.0"},
+				ServerProperties: []byte("auto.create.topics.enable=true"),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := kafka.NewFromConfig(cfg).ListConfigurations(ctx, &kafka.ListConfigurationsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Configurations, func(c kafkatypes.Configuration) *string { return c.Name }), nil
+		},
+	}
+}
+
+func mqCase() regionCase {
+	return regionCase{
+		name: "mq",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := mq.NewFromConfig(cfg).CreateConfiguration(ctx, &mq.CreateConfigurationInput{
+				Name: aws.String(name), EngineType: mqtypes.EngineTypeActivemq, EngineVersion: aws.String("5.17.6"),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := mq.NewFromConfig(cfg).ListConfigurations(ctx, &mq.ListConfigurationsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Configurations, func(c mqtypes.Configuration) *string { return c.Name }), nil
+		},
+	}
+}
+
+func redshiftCase() regionCase {
+	return regionCase{
+		name: "redshift",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := redshift.NewFromConfig(cfg).CreateClusterSubnetGroup(ctx, &redshift.CreateClusterSubnetGroupInput{
+				ClusterSubnetGroupName: aws.String(name), Description: aws.String("d"),
+				SubnetIds: []string{"subnet-1", "subnet-2"},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := redshift.NewFromConfig(cfg).DescribeClusterSubnetGroups(
+				ctx, &redshift.DescribeClusterSubnetGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(
+				out.ClusterSubnetGroups,
+				func(g redshifttypes.ClusterSubnetGroup) *string { return g.ClusterSubnetGroupName },
+			), nil
+		},
+	}
+}
+
+func schedulerCase() regionCase {
+	return regionCase{
+		name: "scheduler",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := scheduler.NewFromConfig(cfg).CreateScheduleGroup(ctx, &scheduler.CreateScheduleGroupInput{
+				Name: aws.String(name),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := scheduler.NewFromConfig(cfg).ListScheduleGroups(ctx, &scheduler.ListScheduleGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.ScheduleGroups, func(g schedulertypes.ScheduleGroupSummary) *string { return g.Name }), nil
+		},
+	}
+}
+
+func pipesCase() regionCase {
+	return regionCase{
+		name: "pipes",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := pipes.NewFromConfig(cfg).CreatePipe(ctx, &pipes.CreatePipeInput{
+				Name:    aws.String(name),
+				Source:  aws.String("arn:aws:sqs:" + cfg.Region + ":" + regionAccount + ":" + name + "-src"),
+				Target:  aws.String("arn:aws:sqs:" + cfg.Region + ":" + regionAccount + ":" + name + "-dst"),
+				RoleArn: aws.String("arn:aws:iam::" + regionAccount + ":role/pipe"),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := pipes.NewFromConfig(cfg).ListPipes(ctx, &pipes.ListPipesInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Pipes, func(p pipestypes.Pipe) *string { return p.Name }), nil
+		},
+	}
+}
+
+func appsyncCase() regionCase {
+	return regionCase{
+		name: "appsync",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := appsync.NewFromConfig(cfg).CreateGraphqlApi(ctx, &appsync.CreateGraphqlApiInput{
+				Name: aws.String(name), AuthenticationType: appsynctypes.AuthenticationTypeApiKey,
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := appsync.NewFromConfig(cfg).ListGraphqlApis(ctx, &appsync.ListGraphqlApisInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.GraphqlApis, func(a appsynctypes.GraphqlApi) *string { return a.Name }), nil
+		},
+	}
+}
+
+func cognitoidentityCase() regionCase {
+	return regionCase{
+		name: "cognitoidentity",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := cognitoidentity.NewFromConfig(cfg).
+				CreateIdentityPool(ctx, &cognitoidentity.CreateIdentityPoolInput{
+					IdentityPoolName: aws.String(name), AllowUnauthenticatedIdentities: true,
+				})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := cognitoidentity.NewFromConfig(cfg).
+				ListIdentityPools(ctx, &cognitoidentity.ListIdentityPoolsInput{
+					MaxResults: aws.Int32(60),
+				})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.IdentityPools, func(p cognitoidentitytypes.IdentityPoolShortDescription) *string {
+				return p.IdentityPoolName
+			}), nil
+		},
+	}
+}
+
+func sesCase() regionCase {
+	return regionCase{
+		name: "ses",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := ses.NewFromConfig(cfg).CreateConfigurationSet(ctx, &ses.CreateConfigurationSetInput{
+				ConfigurationSet: &sestypes.ConfigurationSet{Name: aws.String(name)},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := ses.NewFromConfig(cfg).ListConfigurationSets(ctx, &ses.ListConfigurationSetsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.ConfigurationSets, func(c sestypes.ConfigurationSet) *string { return c.Name }), nil
+		},
+	}
+}
+
+func wafv2Case() regionCase {
+	return regionCase{
+		name: "wafv2",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := wafv2.NewFromConfig(cfg).CreateIPSet(ctx, &wafv2.CreateIPSetInput{
+				Name: aws.String(name), Scope: wafv2types.ScopeRegional,
+				IPAddressVersion: wafv2types.IPAddressVersionIpv4, Addresses: []string{"10.0.0.0/8"},
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := wafv2.NewFromConfig(cfg).
+				ListIPSets(ctx, &wafv2.ListIPSetsInput{Scope: wafv2types.ScopeRegional})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.IPSets, func(s wafv2types.IPSetSummary) *string { return s.Name }), nil
 		},
 	}
 }

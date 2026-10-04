@@ -5,14 +5,18 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
+	pathSegGraphQL           = "graphql"
 	keySourceAPIAssociations = "sourceApiAssociations"
 	keySourceAPIAssociation  = "sourceApiAssociation"
 	keyEnvironmentVariables  = "environmentVariables"
@@ -115,6 +119,9 @@ const (
 // Handler is the Echo HTTP handler for AppSync operations.
 type Handler struct {
 	Backend       StorageBackend
+	peers         *regionpeers.Set[Handler]
+	workerCtx     atomic.Pointer[context.Context]
+	stopJanitor   atomic.Pointer[context.CancelFunc]
 	DefaultRegion string
 	AccountID     string
 }
@@ -126,11 +133,57 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // StartWorker starts the AppSync background workers.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		go NewJanitor(b).Run(ctx)
+	h.workerCtx.Store(&ctx)
+	h.startJanitor(ctx)
+
+	for _, p := range h.peers.All() {
+		p.startJanitor(ctx)
 	}
 
 	return nil
+}
+
+// startJanitor runs the API-key janitor for h's backend once, until ctx ends or stopWorkers.
+func (h *Handler) startJanitor(ctx context.Context) {
+	b, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	jctx, cancel := context.WithCancel(ctx)
+	if !h.stopJanitor.CompareAndSwap(nil, &cancel) {
+		cancel()
+
+		return
+	}
+
+	go NewJanitor(b).Run(jctx)
+}
+
+func (h *Handler) stopWorkers() {
+	if c := h.stopJanitor.Swap(nil); c != nil {
+		(*c)()
+	}
+}
+
+// Reset clears backend state and drops every region sibling, stopping its janitor.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
+
+	for _, p := range h.peers.Drain() {
+		p.stopWorkers()
+	}
+}
+
+// Shutdown stops the janitors of h and every sibling.
+func (h *Handler) Shutdown(_ context.Context) {
+	h.stopWorkers()
+
+	for _, p := range h.peers.Drain() {
+		p.stopWorkers()
+	}
 }
 
 // Name returns the service name.
@@ -700,7 +753,7 @@ func parseOperationSub(method, seg string) string {
 	case keyEnvironmentVariables:
 		return parseOpIfMethod(method, http.MethodPut,
 			"PutGraphqlApiEnvironmentVariables", "GetGraphqlApiEnvironmentVariables")
-	case "graphql":
+	case pathSegGraphQL:
 		return opExecuteGraphQL
 	case pathSegTags:
 		// Legacy convenience alias: the real AWS SDK sends tag ops to
@@ -921,6 +974,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		method := c.Request().Method
 		path := c.Request().URL.Path
+
+		if p := h.peerFor(path, awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		segs := normalizeAPIFamilySegs(splitPath(path))
 		log := logger.Load(ctx)
 
@@ -1030,7 +1088,7 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 		return h.handleDataSources(ctx, c, apiID, segs)
 	case pathSegTypes:
 		return h.handleTypes(ctx, c, apiID, segs)
-	case "graphql":
+	case pathSegGraphQL:
 		return h.handleGraphQL(ctx, c, apiID)
 	case pathSegAPIKeys:
 		return h.handleAPIKeys(ctx, c, apiID, segs)

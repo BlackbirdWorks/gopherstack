@@ -514,3 +514,7 @@ own doc claim of zero real collisions in `reqfieldscan`'s narrower
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Audited clean: ListGraphqlApis apiType/owner, other List ops. Left: ListGraphqlApis with no apiType returns every type; the doc ("whether the GraphQL API is a standard API ( GRAPHQL ) or merged API ( MERGED )") states no default.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+AppSync is region-isolated: each non-home region gets a lazily built sibling `Handler` (own GraphQL APIs, data sources, resolvers, keys, domains; region-correct ARNs) via `pkgs/regionpeers`. GraphQL execution requests (`/v1/apis/{id}/graphql`) find the API by id across regions and run in its region. Resolvers call DynamoDB in the data source's `awsRegion` (else the API's region) and Lambda in the function ARN's region (else the API's region). Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionGraphQLFindsOwner`, `TestHandler_MultiRegionPersistence`, `TestBackend_ResolversCallOtherServicesInAPIRegion`, `TestRegionIsolation/appsync`.

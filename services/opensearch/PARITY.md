@@ -1626,3 +1626,7 @@ clean, `golangci-lint run` 0 issues.
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Fixed: the in-process _search match query is token based (lowercase alphanumeric tokens, any token or operator "and") with the long {query, operator} form, term accepts {value}; previously a substring check. No typed SDK surface exists for the data plane. Recorded: DescribePackages filter names EngineVersion and PackageOwner are inert because Package does not track them.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+OpenSearch is region-isolated: each non-home region gets a lazily built sibling `Handler` (own domains, packages, applications, collections; region-correct ARNs) via `pkgs/regionpeers`, inheriting the DNS registrar, processing delay and clock. Firehose delivers to the domain named by the destination's domain ARN region (`firehose.RegionalOpenSearchIndexer`). Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestFirehoseOpenSearchAdapter_IndexesInDomainARNRegion`, `TestRegionIsolation/opensearch`. Limitation: data-plane document calls are routed by request region only.

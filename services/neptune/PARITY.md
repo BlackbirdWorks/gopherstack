@@ -872,3 +872,7 @@ single-account backend) and CreateDBInstance VpcSecurityGroupIds/KmsKeyId stay c
 
 FIXED: DescribeDBClusters ignored the documented `db-cluster-id` filter (identifiers and ARNs) and DescribeDBInstances honoured `db-cluster-id` for identifiers only and had no `engine` filter (`api_op_DescribeDBClusters.go:43-53`, `api_op_DescribeDBInstances.go:48-58`). Proven by `describe_filters_test.go`. `DescribeDBInstances` now takes `DBInstanceFilters` instead of a bare cluster-id slice.
 Recorded: DBClusterIdentifier/DBInstanceIdentifier are documented "not case-sensitive"; lookups here are exact-match (a lowercasing change touches every key and persisted state, not done).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/neptune`.

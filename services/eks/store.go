@@ -44,6 +44,7 @@ type InMemoryBackend struct {
 	registry                         *store.Registry
 	mu                               *lockmetrics.RWMutex
 	work                             *worker.Group
+	baseCtx                          context.Context
 	clusterEng                       *clusterEngine
 	accountID                        string
 	region                           string
@@ -66,6 +67,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		registry:          store.NewRegistry(),
 		mu:                lockmetrics.New("eks"),
 		work:              worker.NewGroup(ctx, "eks"),
+		baseCtx:           ctx,
 		limits:            defaultResourceLimits(),
 		configuredLimits:  defaultResourceLimits(),
 	}

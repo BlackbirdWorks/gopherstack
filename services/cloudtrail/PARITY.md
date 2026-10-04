@@ -579,3 +579,7 @@ after every mutating API call on any registered service) appended to
 CI/dev sessions. Added a lazy, amortized trim enforcing CloudTrail Event
 history's real 90-day window plus a 100k-entry safety cap; proved with
 `TestRecordEvent_TrimsPastRetention`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+cloudtrail is region-isolated: Trails, event data stores, channels, dashboards and queries live per region; management events captured by the registry are recorded in the region the call targeted, and siblings inherit the S3 backend. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/cloudtrail`. Limitation: the dashboard shows the home region only.

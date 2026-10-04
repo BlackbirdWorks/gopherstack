@@ -25,7 +25,7 @@ func TestHandler_DeleteLoggingConfiguration(t *testing.T) {
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
-				arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				arnStr := w.ARN
 				require.NoError(t, h.Backend.PutLoggingConfiguration(
 					context.Background(),
 					arnStr,

@@ -1821,3 +1821,7 @@ Proven by `engine_test.go` (fake runtime) and the Docker-gated `TestEngineDocker
   DBProxyTargetGroupNotFoundFault.
 - Still recorded: IncludePublic/IncludeShared (no foreign-account snapshots), CertificateRotationRestart,
   SwitchoverTimeout (switchover is synchronous).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/rds`.

@@ -6886,3 +6886,7 @@ Added `leak_main_test.go` (goleak TestMain). No leak found.
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Fixed (typed-client tests in list_time_bounds_test.go): "on or after"/"on or before" bounds are now inclusive for ListImages, ListImageVersions, ListContexts, ListActions, ListArtifacts, ListAppImageConfigs, ListStudioLifecycleConfigs (creation) and ListMonitoringAlertHistory; "greater than or equal to" CreationTimeAfter is inclusive for ListEndpoints, ListFlowDefinitions, ListHumanTaskUis. ListAIWorkloadConfigs defaults to SortBy CreationTime / SortOrder Descending. ListApps rejects UserProfileNameEquals together with SpaceNameEquals ("If UserProfileNameEquals is set, then this value cannot be set"). Recorded: NameContains ("whose name contains the specified string") says nothing about case; some listings fold case and the shared name/time helper, ListImages and ListModelPackages do not.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+sagemaker already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/sagemaker`. No code change to the resource store.

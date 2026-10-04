@@ -525,3 +525,7 @@ deferred, all re-verified accurate.
 ## 2026-10-03 (gopherstack-uox6 value-semantics pass)
 
 GetTraceSummaries FilterExpression grammar: the SDK doc (api_op_GetTraceSummaries.go FilterExpression) only links to the X-Ray filter-expression guide, so AND/OR/NOT combinators, `!=`, BEGINSWITH/ENDSWITH/CONTAINS are not implemented without guessing their precedence; single clauses only.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+xray is region-isolated: Groups, sampling rules, traces and encryption config live per region; each sibling runs its own trace janitor. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/xray`. Limitation: the dashboard shows the home region only.

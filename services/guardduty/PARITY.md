@@ -957,3 +957,7 @@ snapshot version bump.
 ## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
 
 FIXED: UntagResource hand-split the raw query string and never percent-decoded `tagKeys`, so keys with `:`, space, `/` or `&` were never removed. Now parsed with `url.ParseQuery`. Proven by `untag_encoded_keys_test.go` (fails against the old parser).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+guardduty is region-isolated: Detectors, filters, IP sets, threat sets, members and plans live per region (each region has its own detector). The Organizations lookup is shared. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/guardduty`. Limitation: the dashboard shows the home region only.

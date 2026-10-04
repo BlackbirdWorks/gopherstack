@@ -41,6 +41,11 @@ type OpenSearchIndexer interface {
 	IndexDocument(domainName, indexName string, doc map[string]any) error
 }
 
+// RegionalOpenSearchIndexer is an OpenSearchIndexer that can target the domain of a specific region.
+type RegionalOpenSearchIndexer interface {
+	IndexDocumentInRegion(region, domainName, indexName string, doc map[string]any) error
+}
+
 // SetOpenSearchBackend wires the in-process OpenSearch document store.
 func (b *InMemoryBackend) SetOpenSearchBackend(o OpenSearchIndexer) {
 	b.mu.Lock("SetOpenSearchBackend")
@@ -78,6 +83,18 @@ func openSearchIndexName(base, rotation string, t time.Time) string {
 	}
 }
 
+// arnRegionOf returns the region field of an ARN, or "" when it has none.
+func arnRegionOf(arn string) string {
+	const regionIdx, arnFields = 3, 6
+
+	parts := strings.SplitN(arn, ":", arnFields)
+	if len(parts) <= regionIdx {
+		return ""
+	}
+
+	return parts[regionIdx]
+}
+
 // domainNameFromARN extracts the domain name from arn:aws:es:<region>:<acct>:domain/<name>.
 func domainNameFromARN(arn string) string {
 	_, name, ok := strings.Cut(arn, ":domain/")
@@ -104,7 +121,7 @@ func (b *InMemoryBackend) deliverToOpenSearch(
 		}
 
 		if idx := b.openSearchIndexer(); idx != nil {
-			return indexInProcess(idx, domainNameFromARN(dest.DomainARN), index, records)
+			return indexInProcess(idx, dest.DomainARN, index, records)
 		}
 	}
 
@@ -121,8 +138,16 @@ func failAllRecords(records [][]byte, code, msg string) [][]byte {
 }
 
 // indexInProcess indexes each JSON-object record as one document, failing the others.
-func indexInProcess(idx OpenSearchIndexer, domain, index string, records [][]byte) [][]byte {
+func indexInProcess(idx OpenSearchIndexer, domainARN, index string, records [][]byte) [][]byte {
 	var failed [][]byte
+
+	domain := domainNameFromARN(domainARN)
+	put := func(doc map[string]any) error { return idx.IndexDocument(domain, index, doc) }
+
+	if ri, ok := idx.(RegionalOpenSearchIndexer); ok {
+		region := arnRegionOf(domainARN)
+		put = func(doc map[string]any) error { return ri.IndexDocumentInRegion(region, domain, index, doc) }
+	}
 
 	for _, rec := range records {
 		var doc map[string]any
@@ -135,7 +160,7 @@ func indexInProcess(idx OpenSearchIndexer, domain, index string, records [][]byt
 			continue
 		}
 
-		if err := idx.IndexDocument(domain, index, doc); err != nil {
+		if err := put(doc); err != nil {
 			failed = append(failed, failureRecord(rec, "", "ES.ServiceException", err.Error(), 1))
 		}
 	}

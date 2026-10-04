@@ -1015,3 +1015,7 @@ Gates: `go build ./...`, `go vet ./services/pipes/...`, `go test -race
 run --new-from-rev=HEAD ./services/pipes/...` (0 issues). `go run
 ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes
 (response-shape-only fix).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/pipes`.
