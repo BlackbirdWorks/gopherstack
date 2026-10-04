@@ -527,7 +527,7 @@ jobs:
         working-directory: test/e2e/crosssdk
         run: |
           npm ci
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.txt
 
       - name: Run E2E Tests
         run: |
