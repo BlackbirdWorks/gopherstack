@@ -1716,3 +1716,7 @@ this package).
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 Emits AWS/S3 request metrics (BucketName+FilterId; metrics-dimensions.html) only for buckets with a metrics configuration: AllRequests, Get/Put/Delete/Head/Post/ListRequests, 4xxErrors, 5xxErrors, BytesDownloaded, BytesUploaded, TotalRequestLatency. Daily storage metrics BucketSizeBytes (per StorageType) and NumberOfObjects (AllStorageTypes) are emitted at startup and every 24h by the janitor (bounded ticker). Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 (gopherstack-9lr6d, notification region)
+
+Notification payloads carry the bucket's region in `awsRegion` (was the dispatcher's default region) and the dispatch context carries it, so S3 to EventBridge files the event on the bucket region's default bus. Proof: `TestNotificationDispatch_UsesBucketRegion`.

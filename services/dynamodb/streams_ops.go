@@ -360,7 +360,7 @@ func (db *InMemoryDB) GetShardIterator(
 
 	// Carry the shard's ending sequence (0 for an open shard) so GetRecords can
 	// return a nil NextShardIterator once a closed shard is fully drained.
-	token, err := db.iteratorStore.PutWithEnd(found.Name, startSeq, shardEndSeq)
+	token, err := db.iteratorStore.PutWithEnd(found.Name, streamARNRegion(streamARN), startSeq, shardEndSeq)
 	if err != nil {
 		return nil, fmt.Errorf("create shard iterator: %w", err)
 	}
@@ -482,9 +482,14 @@ func (db *InMemoryDB) GetRecords(
 
 	// Resolve the opaque token. Falls back to legacy "tableName:seq:ts" format
 	// for backward compatibility with tests that construct iterators directly.
-	tableName, startSeq, endSeq, err := db.resolveIterator(token)
+	entry, err := db.resolveIterator(token)
 	if err != nil {
 		return nil, err
+	}
+
+	tableName, startSeq, endSeq := entry.TableName, entry.StartSeq, entry.EndSeq
+	if entry.Region != "" {
+		ctx = WithRegion(ctx, entry.Region)
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -533,7 +538,7 @@ func (db *InMemoryDB) GetRecords(
 
 	// Generate the next opaque iterator for continued reading, preserving the
 	// owning shard's end sequence so the terminal state above is reachable.
-	nextToken, tokenErr := db.iteratorStore.PutWithEnd(tableName, nextSeq, endSeq)
+	nextToken, tokenErr := db.iteratorStore.PutWithEnd(tableName, entry.Region, nextSeq, endSeq)
 	if tokenErr != nil {
 		return nil, fmt.Errorf("create next shard iterator: %w", tokenErr)
 	}
@@ -557,8 +562,8 @@ func streamRecordsSnapshotRLocked(table *Table) (int64, int64, []models.StreamRe
 	return table.streamTrimSeq, table.streamSeq, tail, head
 }
 
-// resolveIterator resolves a shard iterator token to (tableName, startSeq, endSeq).
-func (db *InMemoryDB) resolveIterator(token string) (string, int64, int64, error) {
+// resolveIterator resolves a shard iterator token to its live entry.
+func (db *InMemoryDB) resolveIterator(token string) (*ShardIteratorEntry, error) {
 	entry := db.iteratorStore.Get(token)
 	if entry != nil {
 		// Read expiry through the store's clock seam (not time.Now() directly)
@@ -567,13 +572,13 @@ func (db *InMemoryDB) resolveIterator(token string) (string, int64, int64, error
 		if db.iteratorStore.Now().After(entry.ExpiresAt) {
 			db.iteratorStore.Delete(token)
 
-			return "", 0, 0, NewExpiredIteratorException("Shard iterator has expired")
+			return nil, NewExpiredIteratorException("Shard iterator has expired")
 		}
 
-		return entry.TableName, entry.StartSeq, entry.EndSeq, nil
+		return entry, nil
 	}
 
-	return "", 0, 0, NewValidationException("Invalid shard iterator")
+	return nil, NewValidationException("Invalid shard iterator")
 }
 
 // ListStreams returns a list of all enabled streams, optionally filtered by table name.

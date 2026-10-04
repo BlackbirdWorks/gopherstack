@@ -118,6 +118,7 @@ credential scope, then `X-Amz-Region`, then the configured default, and stores i
   reach the SQS queue, Kinesis stream, event bus, log group or SageMaker pipeline of the ARN (Step Functions: the execution) region. EventBridge `PutEvents`
   accepts a bus ARN, and a domain-endpoint Host selects the OpenSearch domain's region. The dashboard AppConfig Data and API Gateway Management API
   endpoints take `?region=`.
+- **Per-region defaults and iterators** (2026-10-04): EventBridge has a `default` bus in every region, S3 event payloads and S3 to EventBridge events use the bucket's region, SSM policy events use the parameter's region, DynamoDB Streams shard iterators carry the stream's region (Pipes and Lambda ESM sources read any region), and IoT SQS and Kinesis rule actions use the rule's region.
 - **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
   regions collide); a `knownCollision` case there fails once such a service is fixed.
 

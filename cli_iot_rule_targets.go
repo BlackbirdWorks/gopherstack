@@ -127,7 +127,9 @@ type iotKinesisTarget struct {
 	backend *kinesisbackend.InMemoryBackend
 }
 
-func (a *iotKinesisTarget) PutRecord(ctx context.Context, _, stream, partitionKey string, data []byte) error {
+func (a *iotKinesisTarget) PutRecord(ctx context.Context, region, stream, partitionKey string, data []byte) error {
+	ctx, stream = kinesisRefContext(inRegion(ctx, region), stream)
+
 	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 		StreamName: stream, PartitionKey: partitionKey, Data: data,
 	})

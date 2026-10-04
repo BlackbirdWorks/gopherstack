@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -64,10 +65,44 @@ func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
 	return ebBusKey(busName) + "/" + ruleName
 }
 
-// busesTable returns the *store.Table[EventBus] for the given region, lazily
-// creating and registering it. Callers must hold b.mu.
+// busesTable returns the region's bus table, creating it with the region's default bus. Callers must hold b.mu.
 func (b *InMemoryBackend) busesTable(region string) *store.Table[EventBus] {
-	return getOrCreateTable(b.registry, &b.tableMu, b.buses, "buses", region, eventBusKeyFn)
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
+
+	t, ok := b.buses[region]
+	if !ok {
+		t = store.Register(b.registry, "buses/"+region, store.New(eventBusKeyFn))
+		b.buses[region] = t
+		b.putDefaultBus(region, t)
+	}
+
+	return t
+}
+
+// putDefaultBus adds the region's default bus when absent (AWS creates one per region).
+func (b *InMemoryBackend) putDefaultBus(region string, t *store.Table[EventBus]) {
+	if t.Has(defaultEventBusName) {
+		return
+	}
+
+	now := time.Now()
+	t.Put(&EventBus{
+		Name:             defaultEventBusName,
+		Arn:              b.busARN(region, defaultEventBusName),
+		CreatedTime:      now,
+		LastModifiedTime: now,
+	})
+}
+
+// ensureDefaultBuses re-adds the default bus to every known region after a restore.
+func (b *InMemoryBackend) ensureDefaultBuses() {
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
+
+	for region, t := range b.buses {
+		b.putDefaultBus(region, t)
+	}
 }
 
 // rulesStore returns the region's bus->Table[Rule] map, lazily creating the

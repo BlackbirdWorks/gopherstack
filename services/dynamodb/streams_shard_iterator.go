@@ -26,7 +26,9 @@ const (
 type ShardIteratorEntry struct {
 	ExpiresAt time.Time
 	TableName string
-	StartSeq  int64
+	// Region is the table's region; empty for tokens without one (home region).
+	Region   string
+	StartSeq int64
 	// EndSeq is the EndingSequenceNumber of the shard this iterator belongs to,
 	// or 0 for an open (still-active) shard. Once a consumer reads past EndSeq on
 	// a closed shard, GetRecords returns a nil NextShardIterator (AWS semantics).
@@ -77,12 +79,12 @@ func (s *ShardIteratorStore) Now() time.Time {
 
 // Put stores a new iterator entry for an open shard and returns the opaque token.
 func (s *ShardIteratorStore) Put(tableName string, startSeq int64) (string, error) {
-	return s.PutWithEnd(tableName, startSeq, 0)
+	return s.PutWithEnd(tableName, "", startSeq, 0)
 }
 
-// PutWithEnd stores a new iterator entry carrying the owning shard's ending
-// sequence number (endSeq == 0 for an open shard) and returns the opaque token.
-func (s *ShardIteratorStore) PutWithEnd(tableName string, startSeq, endSeq int64) (string, error) {
+// PutWithEnd stores an iterator entry for a table in region, carrying the owning
+// shard's ending sequence number (0 for an open shard), and returns the opaque token.
+func (s *ShardIteratorStore) PutWithEnd(tableName, region string, startSeq, endSeq int64) (string, error) {
 	token, err := generateOpaqueToken()
 	if err != nil {
 		return "", err
@@ -108,6 +110,7 @@ func (s *ShardIteratorStore) PutWithEnd(tableName string, startSeq, endSeq int64
 		}
 		s.entries[token] = &ShardIteratorEntry{
 			TableName: tableName,
+			Region:    region,
 			StartSeq:  startSeq,
 			EndSeq:    endSeq,
 			ExpiresAt: now.Add(shardIteratorTTL),

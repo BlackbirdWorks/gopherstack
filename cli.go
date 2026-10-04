@@ -7416,13 +7416,14 @@ type iotRuleDispatcher struct {
 	lambda *lambdabackend.InMemoryBackend
 }
 
-func (d *iotRuleDispatcher) SendToSQS(queueURL, body string) error {
+func (d *iotRuleDispatcher) SendToSQS(region, queueURL, body string) error {
 	if d.sqs == nil {
 		return nil
 	}
 
 	_, err := d.sqs.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:    queueURL,
+		Region:      region,
 		MessageBody: body,
 	})
 

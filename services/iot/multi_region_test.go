@@ -137,8 +137,8 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 
 type recordingDispatcher struct{ queues chan string }
 
-func (d *recordingDispatcher) SendToSQS(queueURL, _ string) error {
-	d.queues <- queueURL
+func (d *recordingDispatcher) SendToSQS(region, queueURL, _ string) error {
+	d.queues <- region + "/" + queueURL
 
 	return nil
 }
@@ -193,7 +193,7 @@ func TestHandler_MultiRegionRulesFireOnSharedBroker(t *testing.T) {
 
 			select {
 			case q := <-disp.queues:
-				assert.Equal(t, "q-"+tc.ruleRegion, q)
+				assert.Equal(t, tc.ruleRegion+"/q-"+tc.ruleRegion, q)
 			case <-time.After(3 * time.Second):
 				require.FailNow(t, "rule never fired")
 			}

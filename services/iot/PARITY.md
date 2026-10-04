@@ -2402,3 +2402,7 @@ IoT is region-isolated: each non-home region gets a lazily built sibling `Handle
 ## 2026-10-04 (gopherstack-d7ql1, /destinations, /event-configurations and /tags collisions with iotwireless)
 
 FIXED: IoT's RouteMatcher claimed `/destinations[/...]`, `/event-configurations` and `/tags` regardless of SigV4 scope, so iotwireless (scope `iotwireless`) and iotanalytics `/tags` requests were routed here (priority 90 beats 86). These paths now match only when the scope is absent or `iot`; MatchPriority is untouched. Proof: routing corpus rows for both services' `/destinations` ops (`TestRoutingEquivalence`) and `TestIntegration_IoTWireless_DestinationsNotCapturedByIoT`.
+
+## 2026-10-04 (gopherstack-7gdnb, rule target regions)
+
+The SQS action sends to the queue in the rule's region (`RuleDispatcher.SendToSQS` now takes the region) and the Kinesis action writes to the stream in the rule's region. SNS topics are addressed by ARN, so the SNS action already reaches the topic of its ARN's region. Proof: `TestIoTRuleTargets_RouteToRuleRegion`, `TestHandler_MultiRegionRulesFireOnSharedBroker`.

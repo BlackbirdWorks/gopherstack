@@ -432,14 +432,7 @@ func NewInMemoryBackendWithContext(
 		ruleIndex:        make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
 		targetsByARN:     make(map[string]map[string]map[string]struct{}),
 	}
-	// Create the default event bus in the backend's own region.
-	now := time.Now()
-	b.busesTable(b.region).Put(&EventBus{
-		Name:             defaultEventBusName,
-		Arn:              b.busARN(b.region, defaultEventBusName),
-		CreatedTime:      now,
-		LastModifiedTime: now,
-	})
+	b.busesTable(b.region)
 
 	return b
 }
@@ -560,12 +553,5 @@ func (b *InMemoryBackend) Reset() {
 	b.patternCache = sync.Map{}
 	b.apiDestLimiters = sync.Map{}
 
-	// Re-create the default event bus so it is always available after reset.
-	now := time.Now()
-	b.busesTable(b.region).Put(&EventBus{
-		Name:             defaultEventBusName,
-		Arn:              b.busARN(b.region, defaultEventBusName),
-		CreatedTime:      now,
-		LastModifiedTime: now,
-	})
+	b.busesTable(b.region)
 }

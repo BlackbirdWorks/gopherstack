@@ -159,7 +159,7 @@ func TestBackend_SetRuleDispatcher(t *testing.T) {
 // mockDispatcher is a test implementation of RuleDispatcher.
 type mockDispatcher struct{}
 
-func (m *mockDispatcher) SendToSQS(_, _ string) error { return nil }
+func (m *mockDispatcher) SendToSQS(_, _, _ string) error { return nil }
 
 func (m *mockDispatcher) InvokeLambda(_ context.Context, _ string, _ []byte) error {
 	return nil

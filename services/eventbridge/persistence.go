@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -162,16 +161,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.patternCache = sync.Map{}
 		b.busePolicies = make(map[string]map[string]*EventBusPolicy)
 
-		// Match NewInMemoryBackendWithContext's construction-time state: a
-		// fresh backend is never truly empty of buses, so "starting empty"
-		// here means starting exactly as fresh as a new backend would.
-		now := time.Now()
-		b.busesTable(b.region).Put(&EventBus{
-			Name:             defaultEventBusName,
-			Arn:              b.busARN(b.region, defaultEventBusName),
-			CreatedTime:      now,
-			LastModifiedTime: now,
-		})
+		b.busesTable(b.region)
+		b.ensureDefaultBuses()
 
 		return nil
 	}
@@ -189,6 +180,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.eventLog = snap.EventLog
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.ensureDefaultBuses()
 	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
 	b.targetsByARN = make(map[string]map[string]map[string]struct{})
 	b.patternCache = sync.Map{}

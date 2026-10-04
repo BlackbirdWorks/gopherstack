@@ -154,6 +154,12 @@ func (h *S3Handler) notificationDispatchContext() context.Context {
 // S3 event notifications to SQS/SNS/Lambda targets on PutObject and DeleteObject.
 func (h *S3Handler) SetNotificationDispatcher(d NotificationDispatcher) {
 	h.notifier = d
+
+	if md, ok := d.(*inMemoryNotificationDispatcher); ok {
+		if br, brOk := h.Backend.(interface{ BucketRegion(string) string }); brOk {
+			md.bucketRegion = br.BucketRegion
+		}
+	}
 }
 
 type s3Metrics struct {

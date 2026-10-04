@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
@@ -353,7 +354,8 @@ func (j *Janitor) sweepParameterPolicyNotifications(ctx context.Context) {
 	count := 0
 
 	for _, d := range due {
-		if err := notifier.NotifyParameterPolicyAction(ctx, d.parameterName, d.policyType); err != nil {
+		rctx := awsmeta.WithRegion(ctx, d.region)
+		if err := notifier.NotifyParameterPolicyAction(rctx, d.parameterName, d.policyType); err != nil {
 			logger.Load(ctx).WarnContext(ctx, "SSM janitor: parameter policy notification failed",
 				"parameter", d.parameterName, "policyType", d.policyType, "region", d.region, "error", err)
 

@@ -724,3 +724,7 @@ unaffected, no version bump.
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 Emits AWS/DynamoDB (docs.aws.amazon.com/amazondynamodb/latest/developerguide/metrics-dimensions.html): ConsumedRead/WriteCapacityUnits (TableName, emitted at every capacity-charging site including on-demand tables), SuccessfulRequestLatency (TableName+Operation), ReturnedItemCount (Query/Scan), ThrottledRequests (TableName+Operation), ConditionalCheckFailedRequests (TableName) and UserErrors (account-level, no dimensions). Items fold per series per second into statistic sets; metrics are off until wired. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 (gopherstack-bn4vx, iterator region)
+
+`ShardIteratorEntry.Region` carries the stream's region so GetRecords resolves non-home tables without a request region; see services/dynamodbstreams/PARITY.md.

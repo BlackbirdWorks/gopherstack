@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // notificationConfiguration mirrors the AWS S3 XML notification configuration
@@ -309,8 +310,20 @@ func eventMatches(pattern, eventName string) bool {
 
 // inMemoryNotificationDispatcher delivers S3 event notifications using in-process targets.
 type inMemoryNotificationDispatcher struct {
-	targets *NotificationTargets
-	region  string
+	targets      *NotificationTargets
+	bucketRegion func(bucket string) string
+	region       string
+}
+
+// regionFor returns the bucket's region, else the dispatcher's default.
+func (d *inMemoryNotificationDispatcher) regionFor(bucket string) string {
+	if d.bucketRegion != nil {
+		if r := d.bucketRegion(bucket); r != "" {
+			return r
+		}
+	}
+
+	return d.region
 }
 
 // NewNotificationDispatcher creates a NotificationDispatcher that delivers
@@ -383,6 +396,10 @@ func (d *inMemoryNotificationDispatcher) dispatch(
 	if err := xml.Unmarshal([]byte(notifXML), &cfg); err != nil {
 		return
 	}
+
+	region := d.regionFor(bucket)
+	d = &inMemoryNotificationDispatcher{targets: d.targets, bucketRegion: d.bucketRegion, region: region}
+	ctx = awsmeta.WithRegion(ctx, region)
 
 	for _, qc := range cfg.QueueConfigurations {
 		d.dispatchToQueue(ctx, qc, eventName, bucket, key, etag, size)

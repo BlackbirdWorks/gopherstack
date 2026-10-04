@@ -1686,3 +1686,7 @@ Gates: `gofmt -l`, `go build ./...`, `go vet ./services/ssm/...`,
 `go test -race -count=1 ./services/ssm/...`, `golangci-lint run
 ./services/ssm/...` (0 issues), `go run ./cmd/parityfmtcheck -dir services`
 all clean.
+
+## 2026-10-04 (gopherstack-9lr6d, policy notification region)
+
+The janitor passes the parameter's region on the context of `NotifyParameterPolicyAction`, so EventBridge receives the event in the parameter's region. Proof: `TestSSMJanitor_PolicyNotificationCarriesParameterRegion`.

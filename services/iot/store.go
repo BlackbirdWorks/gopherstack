@@ -20,7 +20,7 @@ import (
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
 type RuleDispatcher interface {
-	SendToSQS(queueURL, body string) error
+	SendToSQS(region, queueURL, body string) error
 	InvokeLambda(ctx context.Context, functionARN string, payload []byte) error
 }
 

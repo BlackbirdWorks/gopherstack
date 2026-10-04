@@ -63,7 +63,7 @@ func (h *ruleHook) runAction(
 			return "SqsAction", err
 		}
 
-		return "SqsAction", dispatcher.SendToSQS(action.SQS.QueueURL, string(msg.payload))
+		return "SqsAction", dispatcher.SendToSQS(msg.region, action.SQS.QueueURL, string(msg.payload))
 	case action.Lambda != nil:
 		if dispatcher == nil {
 			return "", nil
