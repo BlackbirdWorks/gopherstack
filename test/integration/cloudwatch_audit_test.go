@@ -102,10 +102,8 @@ func TestIntegration_CloudWatchAudit_GetInsightRuleReport(t *testing.T) {
 	})
 	require.NoError(t, err, "GetInsightRuleReport should not return 'unknown operation'")
 	require.NotNil(t, out)
-	// No log events were ingested so Contributors is empty.  The SDK deserialiser
-	// uses var-append which leaves an empty CBOR list as a nil Go slice; assert
-	// Empty (not NotNil) to accept both nil and [].
-	assert.Empty(t, out.Contributors)
+	// Contributors are approximated from dimensioned metrics, so other tests' metrics may appear;
+	// the report only has to deserialize.
 	assert.NotNil(t, out.AggregateValue, "AggregateValue must be present in response")
 	assert.NotNil(t, out.AggregationStatistic, "AggregationStatistic must be present in response")
 }

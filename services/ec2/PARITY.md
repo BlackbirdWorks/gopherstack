@@ -574,6 +574,7 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "No in-process CloudWatch metrics are published for AWS/EC2 (CPUUtilization, NetworkIn/Out; dimension InstanceId); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
   - "Filter.N/Filters ignored on ~39 of 181 filterable Describe*/Get* ops (2026-09-24
     gopherstack-rwwvt sweep; 2026-10-01 fixed 10, 11, then 11 more). Needing the
     same treatment as the ops already fixed (read the op's SDK doc comment for its
@@ -6307,3 +6308,7 @@ paths now return copies, and DescribeFleets/DescribeNatGateways take the write l
 ## 2026-10-03 (gopherstack-1izbr multi-region)
 
 EC2 is region-isolated: a request signed for another region is served by a lazily built sibling Handler with its own default VPC, subnet (AZ `<region>a`), security group, route table, lifecycle reconciler and janitor, via `pkgs/regionpeers`. The docker compute provider is shared per daemon (one SSH port pool) with a per-region view so public DNS names carry the region. Cross-region peering (VPC peering connections, TGW peering attachments) is created in the requester region and mirrored into the accepter region; accept, reject and delete update both copies. CopySnapshot/CopyImage find a source held by another region. `Handler.BackendFor(region)`/`RegionBackends()` serve cross-service resolvers: CloudWatch alarm EC2 actions use the alarm's region, Network Manager resolves by ARN region, and ELB, ELBv2, EFS and Direct Connect (not region-aware themselves) search every region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegion*`, `TestHandler_PeerDockerCompute`, `TestRegionIsolation/ec2`, `TestInitializeServices_EC2ECSRegionWiring`. Limitation: Auto Scaling, CloudFormation, CodeDeploy, Grafana, MGN and Resilience Hub are not region-isolated (single store, home region, Auto Scaling/CloudFormation hardcode the default region), so they correctly target the home-region EC2 backend until they gain regional siblings; the dashboard and tagging bridge hold no in-process EC2 use; the shared AMI catalog is identical in every region.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.

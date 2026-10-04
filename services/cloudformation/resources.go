@@ -255,6 +255,8 @@ func (rc *ResourceCreator) Create(
 		return logicalID + "-" + uuid.New().String()[:8], nil
 	}
 
+	ctx = rc.withStackRegion(ctx)
+
 	if rc.createHook != nil {
 		if err := rc.createHook(resourceType); err != nil {
 			return "", err
@@ -1339,6 +1341,8 @@ func (rc *ResourceCreator) Update(
 		return nil
 	}
 
+	ctx = rc.withStackRegion(ctx)
+
 	if !isCFNExtensibilityType(resourceType) {
 		return nil
 	}
@@ -1414,7 +1418,7 @@ func (rc *ResourceCreator) Delete(
 		return nil
 	}
 
-	err := rc.deleteResource(ctx, resourceType, physicalID, props, stackPhysicalIDs)
+	err := rc.deleteResource(rc.withStackRegion(ctx), resourceType, physicalID, props, stackPhysicalIDs)
 	if isResourceGoneError(err) {
 		return nil
 	}
@@ -2710,6 +2714,7 @@ func (rc *ResourceCreator) createSQSQueue(
 	out, err := rc.backends.SQS.Backend.CreateQueue(&sqsbackend.CreateQueueInput{
 		QueueName:  queueName,
 		Attributes: attrs,
+		Region:     rc.backends.Region,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create SQS queue %s: %w", queueName, err)
@@ -2743,7 +2748,7 @@ func (rc *ResourceCreator) createSNSTopic(
 	if isFIFO, _ := props["FifoTopic"].(bool); isFIFO {
 		attrs["FifoTopic"] = boolTrue
 	}
-	topic, err := rc.backends.SNS.Backend.CreateTopic(topicName, attrs)
+	topic, err := rc.backends.SNS.Backend.CreateTopicInRegion(topicName, rc.backends.Region, attrs)
 	if err != nil {
 		return "", fmt.Errorf("failed to create SNS topic %s: %w", topicName, err)
 	}

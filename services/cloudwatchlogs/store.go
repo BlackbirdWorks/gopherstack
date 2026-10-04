@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -115,7 +116,7 @@ const (
 type InMemoryBackend struct {
 	deliverer     SubscriptionDeliverer
 	roleAuth      roleauth.Authorizer
-	metricEmitter MetricEmitter
+	metricEmitter cwmetric.Emitter
 	ctx           context.Context
 	workerSem     chan struct{}
 
@@ -266,7 +267,7 @@ func (b *InMemoryBackend) SetSubscriptionDeliverer(d SubscriptionDeliverer) {
 }
 
 // SetMetricEmitter sets the emitter used to forward metric filter matches to CloudWatch.
-func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
+func (b *InMemoryBackend) SetMetricEmitter(e cwmetric.Emitter) {
 	b.mu.Lock("SetMetricEmitter")
 	defer b.mu.Unlock()
 	b.metricEmitter = e

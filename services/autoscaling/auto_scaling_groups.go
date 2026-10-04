@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -94,12 +93,14 @@ func buildInitialLifecycleHooks(input CreateAutoScalingGroupInput) ([]LifecycleH
 // CreateAutoScalingGroup request. input.HealthCheckType must already be resolved
 // (see healthCheckTypeEC2 default in CreateAutoScalingGroup). Pure function: no
 // backend state is touched.
-func buildNewAutoScalingGroup(input CreateAutoScalingGroupInput, azs []string, desired int32) *AutoScalingGroup {
+func (b *InMemoryBackend) buildNewAutoScalingGroup(
+	input CreateAutoScalingGroupInput, azs []string, desired int32,
+) *AutoScalingGroup {
 	return &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
 		AutoScalingGroupARN: fmt.Sprintf(
 			"arn:aws:autoscaling:%s:%s:autoScalingGroup:%s:autoScalingGroupName/%s",
-			config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), input.AutoScalingGroupName,
+			b.region, b.accountID, uuid.NewString(), input.AutoScalingGroupName,
 		),
 		ServiceLinkedRoleARN:             input.ServiceLinkedRoleARN,
 		LaunchConfigurationName:          input.LaunchConfigurationName,
@@ -157,10 +158,10 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 
 	azs := input.AvailabilityZones
 	if len(azs) == 0 {
-		azs = []string{defaultAvailabilityZone}
+		azs = []string{b.defaultAvailabilityZone()}
 	}
 
-	group := buildNewAutoScalingGroup(input, azs, desired)
+	group := b.buildNewAutoScalingGroup(input, azs, desired)
 
 	// Use the shared makeInstances helper (real EC2 instances when an
 	// EC2Launcher is wired, fabricated IDs otherwise) so all initial

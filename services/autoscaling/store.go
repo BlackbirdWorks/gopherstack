@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -63,9 +65,6 @@ const (
 	percentDivisor = 100.0
 )
 
-// defaultAvailabilityZone is the fallback AZ used when none is specified.
-const defaultAvailabilityZone = "us-east-1a"
-
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	// ec2Launcher, when set (see SetEC2Launcher), routes scale-out/scale-in
@@ -111,14 +110,23 @@ type InMemoryBackend struct {
 	// instanceIndex maps instanceID → groupName for O(1) lookup.
 	instanceIndex map[string]string
 	mu            *lockmetrics.RWMutex
+	accountID     string
+	region        string
 	// nextHookSeq assigns LifecycleHook.Sequence on first registration (see
 	// putLifecycleHookLocked); recomputed from restored data by Restore.
 	nextHookSeq int64
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend for the default account and region.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
+}
+
+// NewInMemoryBackendWithConfig creates an InMemoryBackend that builds ARNs for accountID and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
+		accountID:           accountID,
+		region:              region,
 		activities:          make(map[string][]ScalingActivity),
 		instanceRefreshes:   make(map[string][]*InstanceRefresh),
 		notificationConfigs: make(map[string][]*NotificationConfiguration),
@@ -190,4 +198,12 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			b.launchConfigurations.Delete(lc.LaunchConfigurationName)
 		}
 	}
+}
+
+// defaultAvailabilityZone is the fallback AZ used when none is specified.
+func (b *InMemoryBackend) defaultAvailabilityZone() string { return b.region + "a" }
+
+// crossServiceContext carries the group's region to the EC2 and ELB backends it calls.
+func (b *InMemoryBackend) crossServiceContext() context.Context {
+	return awsmeta.Set(context.Background(), &awsmeta.Metadata{Region: b.region, Account: b.accountID})
 }

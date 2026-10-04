@@ -1185,3 +1185,7 @@ clean. `go test -race -count=1 ./services/autoscaling/...` and
 (`Instance`/`Tag` shapes unchanged), no version bump,
 `pkgs/persistence/testdata/snapshot_inventory.json` unaffected for this
 service. `cmd/paritylint` re-verified 0 missing-items-still-open FAIL.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+Auto Scaling is region-isolated: each non-home region gets a lazily built sibling Handler (own groups, launch configurations, policies, hooks, scheduled actions and scheduler; region-correct ARNs and `<region>a` default AZ) via `pkgs/regionpeers`. Siblings inherit the EC2, ELB and ELBv2 wiring; the group passes its region on the context so launches and terminations hit that region's EC2 and target registration follows the target group ARN's region. CloudWatch alarm scaling actions run the policy in the policy ARN's region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/autoscaling`, `TestInitializeServices_AutoScalingLaunchesInGroupRegion`. Auto Scaling has no SNS publishing path (notification configurations and lifecycle hooks only store the ARN). Classic ELB is not region-isolated, so ELB registration stays home. Not bridged to the tagging API.

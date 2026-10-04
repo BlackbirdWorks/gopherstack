@@ -1693,3 +1693,7 @@ Cognito user pools are region-isolated: each non-home region gets a lazily built
 ## 2026-10-03 (gopherstack-uox6 value-semantics pass)
 
 ListUsers Filter: `=` is exact and `^=` is prefix for every attribute (api_op_ListUsers.go "For an exact match, use =" / "prefix match, use ^="); `username = "bo*"` no longer treats `*` as a wildcard, escaped quotes are unescaped, and a malformed filter returns InvalidParameterException. Not done: rejecting non-searchable attributes ("Custom attributes aren't searchable") -- the doc names no error code.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.

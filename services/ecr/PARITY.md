@@ -960,3 +960,7 @@ ECR is region-isolated: per-region sibling handlers: a request signed for anothe
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Audited clean: DescribeImages/ListImages tagStatus and imageStatus ("If not specified, only images with ACTIVE status are returned"), lifecycle preview filter. No change.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.

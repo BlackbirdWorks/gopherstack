@@ -70,13 +70,17 @@ credential scope, then `X-Amz-Region`, then the configured default, and stores i
 - **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic.
   S3 bucket names are globally unique, but each bucket has a region.
 - **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, and most others.
-- **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs and others build one sibling handler per extra
-  region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
+- **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs, autoscaling, cloudformation, elbv2, codedeploy and
+  others build one sibling handler per extra region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
 - **Cross-service calls follow the originating resource's region**: SQS and CloudWatch Logs publish metrics to the CloudWatch
   of the emitting queue or log group's region; Step Functions, Scheduler and the tagging bridge reach the ECS (and Glue)
-  backend of the ARN or execution region via `regionpeers.Backend`. Auto Scaling, CloudFormation, CodeDeploy, Grafana, MGN,
-  Resilience Hub and ELBv2 are not region-isolated, so their EC2/ECS use is the home region by construction; Firehose delivery
-  targets (S3, Lambda, OpenSearch) are single stores.
+  backend of the ARN or execution region via `regionpeers.Backend`. Auto Scaling launches and terminates instances in its own
+  region's EC2 (the group passes its region on the context), registers ELBv2 targets in the target group ARN's region (as does
+  ECS), and CloudWatch alarm scaling actions run the policy in the policy ARN's region. CloudFormation builds one resource
+  creator per region (`ServiceBackends.forRegion`) so every resource lands in the stack's region; CodeDeploy resolves EC2
+  targets in the deployment group's region. The tagging bridge lists the request region and resolves Tag/Untag by ARN region for
+  Athena, Glue, ECR, Backup, CodeCommit, Cloud Map, Lightsail, Cognito, SESv2 and CodeDeploy. Grafana, MGN and Resilience Hub
+  still use the home region's EC2; classic ELB, Lambda and Firehose delivery targets (S3, Lambda, OpenSearch) are single stores.
 - **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
   regions collide); a `knownCollision` case there fails once such a service is fixed.
 

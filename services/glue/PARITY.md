@@ -2711,3 +2711,7 @@ Glue is region-isolated: per-region sibling handlers: each non-home region gets 
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Fixed (partition_expression_types_test.go): GetPartitions Expression compares numeric partition key types numerically, accepts unquoted numeric literals and supports BETWEEN. Recorded: IS NULL (listed among the operators) is not supported; GetTables Expression ("only those tables whose names match the pattern") is matched unanchored, anchoring is unspecified; ListJobs/ListCrawlers Tags ("Specifies to return only these tagged resources") are ANDed, combining rule unspecified.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.

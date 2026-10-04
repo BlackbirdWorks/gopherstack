@@ -13,9 +13,15 @@ func (p *Provider) Name() string { return "Autoscaling" }
 // Init initializes the Autoscaling backend and handler.
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
-func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
-	backend := NewInMemoryBackend()
-	handler := NewHandler(backend)
+func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return NewHandler(NewInMemoryBackend()), nil
+	}
+
+	accountID, region := service.AccountRegionOrDefault(ctx)
+
+	handler := NewHandler(NewInMemoryBackendWithConfig(accountID, region))
+	handler.EnableRegions(ctx.JanitorCtx)
 
 	return handler, nil
 }

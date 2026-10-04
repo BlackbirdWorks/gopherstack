@@ -288,6 +288,7 @@ families:
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps: []
 items_still_open:
+  - "No in-process CloudWatch metrics are published for AWS/ApiGateway (Count, 4xx, 5xx, Latency; dimensions ApiId, Stage); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
   - "Quick-create route/stage immutability partially enforced (gopherstack-2tx, narrowed): UpdateRoute
     now rejects a route-key change on an apiGatewayManaged route (\"You can't modify the $default
     route key\") and UpdateStage now rejects any modification of an apiGatewayManaged stage (\"You
@@ -1133,3 +1134,7 @@ the census flagged as uncovered. Zero bugs found; confirms the existing
 ## 2026-10-03 (gopherstack-1izbr multi-region)
 
 API Gateway v2 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own APIs, routes, stages, domain names, portals, authorizer cache) via `pkgs/regionpeers`; siblings inherit the Lambda/JWKS/management-API/HTTP wiring. Data-plane invokes (`/v2proxy/...`, `_user_request_`) find the API by id across regions and run in its region, so authorizer route ARNs and event `domainName` name that region; portal ARNs and endpoints use the backend region. `Handler.Reset` now also resets the backend and siblings. Snapshots gain an additive `regions` key only when a sibling exists (no version bump). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_InvokeResolvesAPIInOwningRegion`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/apigatewayv2`. Limitation: WebSocket connections share one management-API backend across regions.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.

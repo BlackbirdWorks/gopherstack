@@ -1073,3 +1073,10 @@ a plain `slices.SortStableFunc`; switched, and preallocated the candidate
 slice to the unfiltered event count. Behaviour identical (golden +
 byte-equal against pre-change worktree). 10k-event benchmark median:
 30.1ms -> 27.2ms, ~18.5MB -> ~17.5MB/op.
+
+## 2026-10-04: metric filter dimensions (gopherstack-4m1qr)
+
+Metric filter data points now carry the transformation's `Dimensions` (CloudWatch Logs
+MetricTransformation.Dimensions: dimension name -> field reference such as `$.level`), resolved per
+matched event through the shared `pkgs/cwmetric` emitter. An event missing a referenced field emits
+no data point. Previously the dimensions were stored and echoed but never published.

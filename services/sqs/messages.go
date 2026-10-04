@@ -66,7 +66,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, err
 	}
 
-	b.emitMetric(q.Region, "NumberOfMessagesSent", 1)
+	b.emitSent(q, input.MessageBody, input.MessageAttributes)
 
 	return out, nil
 }
@@ -341,10 +341,12 @@ func (b *InMemoryBackend) ReceiveMessage(
 		}
 
 		if len(msgs) > 0 {
-			b.emitMetric(input.Region, "NumberOfMessagesReceived", float64(len(msgs)))
+			b.emitReceived(input.Region, name, float64(len(msgs)))
 
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
+
+		b.emitMetric(b.effectiveRegion(input.Region), name, sqsMetricEmptyRecv, sqsMetricUnitCount, 1)
 
 		return &ReceiveMessageOutput{}, nil
 	}
@@ -397,13 +399,15 @@ func (b *InMemoryBackend) pollReceive(
 
 		if len(msgs) > 0 {
 			count := float64(len(msgs))
-			b.emitMetric(input.Region, "NumberOfMessagesReceived", count)
+			b.emitReceived(input.Region, name, count)
 
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
 
 		remaining := deadline.Sub(b.now())
 		if remaining <= 0 {
+			b.emitMetric(b.effectiveRegion(input.Region), name, sqsMetricEmptyRecv, sqsMetricUnitCount, 1)
+
 			return &ReceiveMessageOutput{}, nil
 		}
 
@@ -576,7 +580,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 	delete(q.inFlightByHandle, input.ReceiptHandle)
 	removeInFlight(q, inf)
 
-	b.emitMetric(q.Region, "NumberOfMessagesDeleted", 1)
+	b.emitCount(q, "NumberOfMessagesDeleted", 1)
 
 	return nil
 }
@@ -783,7 +787,7 @@ func (b *InMemoryBackend) SendMessageBatch(
 	// Failed slices already match the original entry order without sorting.
 	out := processSendMessageBatchEntries(q, input, preps, throttled, now)
 
-	b.emitMetric(q.Region, "NumberOfMessagesSent", float64(len(out.Successful)))
+	b.emitSentBatch(q, input, out)
 
 	return out, nil
 }
@@ -849,7 +853,7 @@ func (b *InMemoryBackend) DeleteMessageBatch(
 
 		delete(q.inFlightByHandle, entry.ReceiptHandle)
 		removeInFlight(q, inf)
-		b.emitMetric(q.Region, "NumberOfMessagesDeleted", 1)
+		b.emitCount(q, "NumberOfMessagesDeleted", 1)
 
 		out.Successful = append(out.Successful, DeleteMessageBatchResultEntry{ID: entry.ID})
 	}
@@ -891,4 +895,42 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 	}
 
 	return nil
+}
+
+// emitReceived publishes NumberOfMessagesReceived for a queue in the request's region.
+func (b *InMemoryBackend) emitReceived(region, queue string, n float64) {
+	b.emitMetric(b.effectiveRegion(region), queue, "NumberOfMessagesReceived", sqsMetricUnitCount, n)
+}
+
+// messageSizeBytes is the body plus message-attribute payload size AWS reports as SentMessageSize.
+func messageSizeBytes(body string, attrs map[string]MessageAttributeValue) int {
+	n := len(body)
+	for name, a := range attrs {
+		n += len(name) + len(a.DataType) + len(a.StringValue) + len(a.BinaryValue)
+	}
+
+	return n
+}
+
+// emitSent publishes NumberOfMessagesSent and SentMessageSize for one accepted message.
+func (b *InMemoryBackend) emitSent(q *Queue, body string, attrs map[string]MessageAttributeValue) {
+	b.emitCount(q, "NumberOfMessagesSent", 1)
+	b.emitMetric(q.Region, q.Name, sqsMetricSentSize, sqsMetricUnitBytes, float64(messageSizeBytes(body, attrs)))
+}
+
+// emitSentBatch publishes the sent count and per-message sizes for the accepted entries of a batch.
+func (b *InMemoryBackend) emitSentBatch(q *Queue, input *SendMessageBatchInput, out *SendMessageBatchOutput) {
+	b.emitCount(q, "NumberOfMessagesSent", float64(len(out.Successful)))
+
+	ok := make(map[string]bool, len(out.Successful))
+	for _, r := range out.Successful {
+		ok[r.ID] = true
+	}
+
+	for _, e := range input.Entries {
+		if ok[e.ID] {
+			b.emitMetric(q.Region, q.Name, sqsMetricSentSize, sqsMetricUnitBytes,
+				float64(messageSizeBytes(e.MessageBody, e.MessageAttributes)))
+		}
+	}
 }

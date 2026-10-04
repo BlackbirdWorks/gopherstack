@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // DescribeAdjustmentTypes returns the supported scaling adjustment types.
@@ -116,7 +114,7 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
-	arn := "arn:aws:autoscaling:" + config.DefaultRegion + ":" + config.DefaultAccountID + ":scalingPolicy:" +
+	arn := "arn:aws:autoscaling:" + b.region + ":" + b.accountID + ":scalingPolicy:" +
 		uuid.NewString() + ":autoScalingGroupName/" + input.AutoScalingGroupName + ":policyName/" + input.PolicyName
 
 	// Preserve ARN if policy already exists

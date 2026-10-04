@@ -601,3 +601,7 @@ Athena is region-isolated: per-region sibling handlers: each non-home region get
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Fixed (list_default_workgroup_test.go): ListNamedQueries and ListQueryExecutions default to the primary workgroup ("If a workgroup is not specified, ... the primary workgroup"). Recorded: ListTableMetadata Expression ("A regex filter that pattern-matches table names") is matched unanchored; ListNotebookMetadata FilterDefinition.Name ("The name of the notebook to search for") is a prefix match, mode unspecified.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.

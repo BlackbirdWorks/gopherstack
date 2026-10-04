@@ -53,8 +53,8 @@ func (b *InMemoryBackend) registerELBTargets(instanceIDs, tgARNs []string) {
 	targets := elbTargetsFromInstanceIDs(instanceIDs)
 
 	for _, tgArn := range tgARNs {
-		if err := b.elbv2Registrar.RegisterTargets(context.Background(), tgArn, targets); err != nil {
-			logger.Load(context.Background()).Error(
+		if err := b.elbv2Registrar.RegisterTargets(b.crossServiceContext(), tgArn, targets); err != nil {
+			logger.Load(b.crossServiceContext()).Error(
 				"autoscaling: ELBv2 RegisterTargets failed",
 				"error", err, "targetGroupArn", tgArn, "instanceIDs", instanceIDs)
 		}
@@ -73,8 +73,8 @@ func (b *InMemoryBackend) deregisterELBTargets(instanceIDs, tgARNs []string) {
 	targets := elbTargetsFromInstanceIDs(instanceIDs)
 
 	for _, tgArn := range tgARNs {
-		if err := b.elbv2Registrar.DeregisterTargets(context.Background(), tgArn, targets); err != nil {
-			logger.Load(context.Background()).Error(
+		if err := b.elbv2Registrar.DeregisterTargets(b.crossServiceContext(), tgArn, targets); err != nil {
+			logger.Load(b.crossServiceContext()).Error(
 				"autoscaling: ELBv2 DeregisterTargets failed",
 				"error", err, "targetGroupArn", tgArn, "instanceIDs", instanceIDs)
 		}

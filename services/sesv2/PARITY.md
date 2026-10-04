@@ -896,3 +896,7 @@ SESv2 is region-isolated: each non-home region gets a lazily built sibling `Hand
 
 FIXED: UntagResource read `TagKeys` with `QueryParam` and split on commas, so only the first of several keys was removed and a key containing a comma was split. The SDK sends one `TagKeys` entry per key (`serializers.go`); all are now consumed. Proven by `untag_multiple_keys_test.go`.
 Recorded: ListContacts `Filter.FilteredStatus` alone is undocumented ("The status by which you are filtering") so the filter stays unapplied; ListSuppressedDestinations StartDate/EndDate inclusivity is not stated.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.

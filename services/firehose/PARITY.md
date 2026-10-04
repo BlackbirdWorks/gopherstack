@@ -71,6 +71,7 @@ families:
 gaps: []
 
 items_still_open:
+  - "No in-process CloudWatch metrics are published for AWS/Firehose (IncomingBytes, IncomingRecords, DeliveryTo*.Success; dimension DeliveryStreamName); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
   - "Redshift COPY (RedshiftDataExecutor), MSK source polling and database-source snapshot/CDC need cli.go wiring to other backends (redshiftdata, kafka, a DB endpoint); staging to S3 and wire-shape round-trips are real (gopherstack-ohdc)."
   - "Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to."
   - "Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed."
@@ -705,3 +706,7 @@ the per-shard Kinesis source poller goroutines (`pollKinesisStream`/
 `pollKinesisShard`), leaking them across the package's test run. Added
 `t.Cleanup(b.Reset)` (Reset already cancels all pollers); added
 `leak_main_test.go` (goleak TestMain), now clean.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.

@@ -305,6 +305,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	creator := NewResourceCreator(backends)
 	backend := NewInMemoryBackendWithConfig(accountID, region, creator)
 	handler := NewHandler(backend)
+	handler.EnableRegions()
 
 	return handler, nil
 }

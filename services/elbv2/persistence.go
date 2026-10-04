@@ -139,22 +139,30 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
 	b, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return nil
 	}
 
-	return b.Snapshot(ctx)
+	return h.peers.Snapshot(b.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	b, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return errBackendNotInMemory
 	}
 
-	return b.Restore(ctx, data)
+	if err := b.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+		func(p *Handler) { p.closeBackend() },
+	)
 }

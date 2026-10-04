@@ -312,6 +312,7 @@ families:
   patch_semantics: {status: ok, note: "REWRITTEN this sweep — see Notes; was the single biggest gap in the service"}
 gaps: []
 items_still_open:
+  - "No in-process CloudWatch metrics are published for AWS/ApiGateway (Count, 4XXError, 5XXError, Latency; dimensions ApiName, Stage, Method, Resource); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
   - "UpdateAuthorizer's PATCH table documents \"/authType\" (types.Authorizer.AuthType, distinct from the existing \"Type\"/authorizerType) and UpdateRestApi's documents \"/securityPolicy\" (only DomainName has SecurityPolicy today) -- both real, doc-documented PATCH paths with no backing model field anywhere in this backend. Unmodeled, not a casing or plumbing bug; not fabricated. (gopherstack-6q5h)"
   - "'AWS' (non-proxy) integration target: sqs path-style and sns action-style dispatch for real (gopherstack-is2a); every other target (DynamoDB, Step Functions, S3, ...) is still accepted at PutIntegration with no validation and unconditionally invoked as Lambda at request time. Fixing the rest needs per-service invoker interfaces or a real VTL + AWS query-protocol encoder -- out of a targeted pass's scope. (gopherstack-fum)"
 deferred:
@@ -1281,3 +1282,7 @@ version bump.
 ## 2026-10-03 (gopherstack-1izbr multi-region)
 
 API Gateway (REST) is region-isolated: each non-home region gets a lazily built sibling `Handler` (own REST APIs, keys, usage plans, domain names, authorizer cache and routing tries) via `pkgs/regionpeers`; siblings inherit the Lambda/SQS/SNS/JWKS/HTTP wiring. Data-plane invokes (`/restapis/<id>/<stage>/_user_request_/...` and `/proxy/<id>/...`) carry no usable region, so the handler finds the API by id across regions and runs it in its own region (execute-api method ARNs name that region). Backend domain-name ARNs and hosts now use the backend region instead of a hardcoded us-east-1. Snapshots gain an additive `regions` key only when a sibling exists (no version bump). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_InvokeResolvesAPIInOwningRegion`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/apigateway`. Limitations: `<id>.execute-api.<region>` hostname routing does not exist (local paths only); non-home regions are not visible to the tagging-API bridge.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.

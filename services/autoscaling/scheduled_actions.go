@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // BatchDeleteScheduledAction removes the named scheduled actions from the group.
@@ -214,7 +212,7 @@ func (b *InMemoryBackend) PutScheduledUpdateGroupAction(groupName string, action
 
 	scheduledARN := fmt.Sprintf(
 		"arn:aws:autoscaling:%s:%s:scheduledUpdateGroupAction:%s:autoScalingGroupName/%s:scheduledActionName/%s",
-		config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), groupName, action.ScheduledActionName,
+		b.region, b.accountID, uuid.NewString(), groupName, action.ScheduledActionName,
 	)
 
 	b.scheduledActions.Put(&ScheduledAction{

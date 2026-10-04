@@ -116,6 +116,7 @@ gaps: []
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
 items_still_open:
+  - "No in-process CloudWatch metrics are published for AWS/DynamoDB (ConsumedRead/WriteCapacityUnits, SuccessfulRequestLatency; dimensions TableName, Operation); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
   - "No vector-index model: SearchVectors always ResourceNotFoundException for the index; VectorIndexes on CreateTable/UpdateTable/GSI actions and VectorIndexOverride on both restore ops are absent (search_vectors.go validates the request shape)."
   - "Other unmodeled-subsystem fields, left nil rather than fabricated: WarmThroughput (AWS default values unverified), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime, BackupExpiryDateTime (SYSTEM backups only), DescribeContributorInsights FailureException (no failure model)."
 deferred:
@@ -719,3 +720,7 @@ Gates: `go build ./...` (whole module), `go vet ./...`, `go test -race
 removed/retyped (MultiRegionConsistency is a new `omitempty` string field on
 an existing exported struct); `pkgs/persistence` snapshot-inventory guard
 unaffected, no version bump.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.

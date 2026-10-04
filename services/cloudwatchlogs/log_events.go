@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 )
 
 // validatePutLogEventsBatch checks the batch size constraints for PutLogEvents.
@@ -237,7 +239,7 @@ func (b *InMemoryBackend) PutLogEvents(
 	var eventsForDelivery []InputLogEvent
 	var filtersForDelivery []*SubscriptionFilter
 	var metricMatches []metricFilterMatch
-	var emitter MetricEmitter
+	var emitter cwmetric.Emitter
 
 	func() {
 		b.mu.Lock("PutLogEvents")

@@ -11,14 +11,19 @@ import (
 	apigwv2types "github.com/aws/aws-sdk-go-v2/service/apigatewayv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/athena"
 	athenatypes "github.com/aws/aws-sdk-go-v2/service/athena/types"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	astypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/aws/aws-sdk-go-v2/service/backup"
 	backuptypes "github.com/aws/aws-sdk-go-v2/service/backup/types"
+	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cfntypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codecommittypes "github.com/aws/aws-sdk-go-v2/service/codecommit/types"
+	"github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	cognitotypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -32,6 +37,8 @@ import (
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elasticachetypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -125,6 +132,10 @@ func regionIsolationCases() []regionCase {
 		servicediscoveryCase(),
 		elasticacheCase(),
 		sesv2Case(),
+		autoscalingCase(),
+		cloudformationCase(),
+		elbv2Case(),
+		codedeployCase(),
 	}
 }
 
@@ -835,6 +846,99 @@ func sesv2Case() regionCase {
 				out.TemplatesMetadata,
 				func(m sesv2types.EmailTemplateMetadata) *string { return m.TemplateName },
 			), nil
+		},
+	}
+}
+
+func autoscalingCase() regionCase {
+	return regionCase{
+		name: "autoscaling",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := autoscaling.NewFromConfig(cfg).CreateLaunchConfiguration(
+				ctx, &autoscaling.CreateLaunchConfigurationInput{
+					LaunchConfigurationName: aws.String(name),
+					ImageId:                 aws.String("ami-1"),
+					InstanceType:            aws.String("t3.micro"),
+				})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := autoscaling.NewFromConfig(cfg).DescribeLaunchConfigurations(
+				ctx, &autoscaling.DescribeLaunchConfigurationsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.LaunchConfigurations, func(l astypes.LaunchConfiguration) *string {
+				return l.LaunchConfigurationName
+			}), nil
+		},
+	}
+}
+
+const cfnIsolationTemplate = `{"Resources":{"P":{"Type":"AWS::SSM::Parameter",` +
+	`"Properties":{"Type":"String","Value":"v"}}}}`
+
+func cloudformationCase() regionCase {
+	return regionCase{
+		name: "cloudformation",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := cloudformation.NewFromConfig(cfg).CreateStack(ctx, &cloudformation.CreateStackInput{
+				StackName:    aws.String(name),
+				TemplateBody: aws.String(cfnIsolationTemplate),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := cloudformation.NewFromConfig(cfg).DescribeStacks(ctx, &cloudformation.DescribeStacksInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.Stacks, func(s cfntypes.Stack) *string { return s.StackName }), nil
+		},
+	}
+}
+
+func elbv2Case() regionCase {
+	return regionCase{
+		name: "elbv2",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := elbv2.NewFromConfig(cfg).CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
+				Name:     aws.String(name),
+				Protocol: elbv2types.ProtocolEnumHttp,
+				Port:     aws.Int32(80),
+				VpcId:    aws.String("vpc-1"),
+			})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := elbv2.NewFromConfig(cfg).DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{})
+			if err != nil {
+				return nil, err
+			}
+
+			return strs(out.TargetGroups, func(g elbv2types.TargetGroup) *string { return g.TargetGroupName }), nil
+		},
+	}
+}
+
+func codedeployCase() regionCase {
+	return regionCase{
+		name: "codedeploy",
+		create: func(ctx context.Context, cfg aws.Config, name string) error {
+			_, err := codedeploy.NewFromConfig(cfg).CreateApplication(
+				ctx, &codedeploy.CreateApplicationInput{ApplicationName: aws.String(name)})
+
+			return err
+		},
+		list: func(ctx context.Context, cfg aws.Config) ([]string, error) {
+			out, err := codedeploy.NewFromConfig(cfg).ListApplications(ctx, &codedeploy.ListApplicationsInput{})
+
+			return out.Applications, err
 		},
 	}
 }

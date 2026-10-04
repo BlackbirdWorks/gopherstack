@@ -44,6 +44,7 @@ ops:
   ListDirectoryBuckets: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-09-26 (gopherstack-z2w1a): isListDirectoryBucketsRequest previously keyed on \"list-type=directory\", a query param the pinned SDK never sends (gopherstack-0bq8) -- every real ListDirectoryBuckets call silently fell through to listBuckets. Replaced with the \"x-id\" query param (\"x-id=ListDirectoryBuckets\" vs \"x-id=ListBuckets\"), confirmed via a real client against httptest to be present on every S3 restXml request regardless of Express status -- a real, always-present signal, not an invented one. Reaching ListDirectoryBuckets against gopherstack's single custom-BaseEndpoint architecture still requires the caller to set Options.DisableS3ExpressSessionAuth = true: without it, the pinned SDK's own ExpressIdentityResolver.GetIdentity requires a bucket name that this bucket-less operation structurally never has, and the request never reaches the wire (client-side error, not a gopherstack bug) -- this is an SDK-side limitation of driving S3Express-classified operations through a custom endpoint, not something a server-side fix can work around. terraform-provider-aws's aws_s3_directory_bucket resource does not call ListDirectoryBuckets, so this limitation does not affect it."}
 gaps: []
 items_still_open:
+  - "No in-process CloudWatch metrics are published for AWS/S3 request metrics (dimensions BucketName, FilterId); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
   - "GetBucketMetadataConfiguration echoes the CREATE body instead of a MetadataConfigurationResult with a server-computed DestinationResult; needs S3 Tables table-bucket ARN/namespace/status modeling (gopherstack-6flj)."
   - "Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS."
   - "ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size)."
@@ -1711,3 +1712,7 @@ clean. `git diff --stat go.mod go.sum` empty. No files outside
 `services/s3/` were touched for a signature change (`CopyObjectAnnotations`
 is a new method, not an edit to an existing one, and has no callers outside
 this package).
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.

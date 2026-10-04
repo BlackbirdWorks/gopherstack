@@ -29,7 +29,7 @@ func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string
 		existing[inst.InstanceID] = true
 	}
 
-	az := defaultAvailabilityZone
+	az := b.defaultAvailabilityZone()
 	if len(g.AvailabilityZones) > 0 {
 		az = g.AvailabilityZones[0]
 	}
