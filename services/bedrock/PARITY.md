@@ -1187,3 +1187,7 @@ applicationTypeEquals (`handler_evaluation_jobs_test.go:878`) and sortOrder
 body (`handler_marketplace_model_endpoints_test.go:100`), plus the stale
 ListInferenceProfiles/ListMarketplaceModelEndpoints filter note and the
 completed gopherstack-7znk path-model note.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+bedrock is region-isolated: guardrails, custom models, jobs, provisioned throughput and policies live per region. Each region runs its own status janitor, stopped on Reset, Shutdown or restore. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestSiblingJanitorStopsWithSibling`, `TestRegionIsolation/bedrock`. Limitation: the dashboard shows the home region only.

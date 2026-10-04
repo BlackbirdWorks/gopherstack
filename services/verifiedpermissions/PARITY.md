@@ -649,3 +649,7 @@ every write (lazy prune-on-write, no new goroutine). `clientTokens` is not
 persisted, so no snapshot change. Regression test:
 `TestClientTokens_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go), proves an
 entry is kept and replays inside the window and is swept/forgotten after it.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+verifiedpermissions is region-isolated: policy stores and everything under them live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/verifiedpermissions`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

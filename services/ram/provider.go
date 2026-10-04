@@ -29,5 +29,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend.SetAppConfig(ctx.Config)
 	handler := NewHandler(backend)
 
+	handler.EnableRegions()
+
 	return handler, nil
 }

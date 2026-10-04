@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -142,6 +143,7 @@ const (
 
 // Handler handles Macie2 HTTP requests.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 }
 
@@ -153,8 +155,8 @@ func NewHandler(b StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "Macie2" }
 
-// Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -334,8 +336,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string { return h.restRouter
 // ExtractResource extracts the resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string { return h.restRouter().ExtractResource(c) }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc { return h.restRouter().Handler() }
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc { return h.restRouter().Handler() }
 
 // opFamilyDispatcher tries to handle op against one op family. ok is false
 // when op doesn't belong to that family, signaling dispatch to try the next

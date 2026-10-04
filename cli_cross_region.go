@@ -14,7 +14,10 @@ import (
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 )
 
 var errOpenSearchRegionUnavailable = errors.New("opensearch backend unavailable for region")
@@ -264,4 +267,24 @@ func (r *mqRegionResolver) MQConsumerEndpoint(brokerARN string) (string, string,
 	}
 
 	return bk.MQConsumerEndpoint(brokerARN)
+}
+
+// rdsDataResolver finds the Aurora engine behind a cluster ARN in the region the ARN names.
+type rdsDataResolver struct{ handler *rdsbackend.Handler }
+
+func (r *rdsDataResolver) DataAPITarget(resourceARN string) (rdsdatabackend.RealTarget, error) {
+	return r.handler.BackendFor(arnRegion(resourceARN)).DataAPITarget(resourceARN)
+}
+
+// timestreamTagWriter mirrors scheduled-query tags into the Timestream Write backend of the ARN's region.
+type timestreamTagWriter struct {
+	handler *timestreamwritebackend.Handler
+}
+
+func (w *timestreamTagWriter) TagResource(arn string, tags map[string]string) error {
+	return w.handler.BackendFor(arnRegion(arn)).TagResource(arn, tags)
+}
+
+func (w *timestreamTagWriter) UntagResource(arn string, keys []string) error {
+	return w.handler.BackendFor(arnRegion(arn)).UntagResource(arn, keys)
 }

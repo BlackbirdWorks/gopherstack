@@ -709,3 +709,7 @@ Gates: `go build ./...`, `go vet ./services/cleanrooms/...`, `go test -race
 ## 2026-10-03 gopherstack-0tid
 
 FIXED: GetCollaboration/UpdateCollaboration returned ResourceNotFoundException, which neither op declares (cleanrooms@v1.49.4 deserializers.go:4695-4705). They now return the declared ValidationException (400) via `declaredCollaborationError`. Proven by `TestHandler_GetUpdateCollaboration_NonexistentIsDeclaredValidation` (errors.As to `*types.ValidationException`). Real AWS behaviour is unverified; DeleteCollaboration stays idempotent.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+cleanrooms is region-isolated: collaborations, memberships and configured tables live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/cleanrooms`. Limitation: the dashboard shows the home region only.

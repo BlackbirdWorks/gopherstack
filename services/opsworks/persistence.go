@@ -113,16 +113,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// Prior to Phase 3.3, Handler had no Snapshot/Restore of its own even though
-// InMemoryBackend implemented both (dead wiring: nothing ever called them).
-// This delegation is what actually wires OpsWorks into the persistence
-// Manager.
-func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-// See the Snapshot doc comment above for why this delegation is new.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }

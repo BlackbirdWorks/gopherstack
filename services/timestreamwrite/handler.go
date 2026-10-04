@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -45,6 +46,7 @@ type emptyOutput struct{}
 
 // Handler is the Echo HTTP handler for Amazon Timestream Write operations.
 type Handler struct {
+	peers        *regionpeers.Set[Handler]
 	Backend      *InMemoryBackend
 	ops          map[string]service.JSONOpFunc
 	supportedOps map[string]bool
@@ -64,8 +66,8 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return h
 }
 
-// Reset clears the backend state and rebuilds the dispatch table.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
@@ -177,8 +179,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource returns an empty string (no meaningful resource in request body for routing).
 func (h *Handler) ExtractResource(_ *echo.Context) string { return "" }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		c.SetRequest(c.Request().WithContext(requestHostKey.Set(c.Request().Context(), c.Request().Host)))
 

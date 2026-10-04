@@ -605,3 +605,7 @@ Gates: `go build ./...`, `go vet ./services/timestreamquery/...`,
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/timestreamquery/...` (0 issues). `go run ./cmd/paritylint`
 stays at 0 FAIL. No persisted-struct/snapshot changes.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+timestreamquery already isolates regions internally: scheduled queries are keyed per region; tag mirroring into Timestream Write now follows the ARN's region. Proof: `TestRegionIsolation/timestreamquery`; no sibling handlers needed.

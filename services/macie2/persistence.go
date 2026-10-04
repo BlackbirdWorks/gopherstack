@@ -174,20 +174,12 @@ func (b *InMemoryBackend) restorePlainFields(snap *backendSnapshot) {
 	b.region = snap.Region
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// Handler did not previously implement Snapshot/Restore at all, even though
-// InMemoryBackend already did: cli.go's generic setupPersistence
-// type-asserts the service.Registerable returned by Provider.Init (the
-// *Handler, not the backend) against a persistable interface, so without
-// this delegate Macie2 was never registered with the persistence manager and
-// its state was silently dropped across restarts/demo reloads. This is the
-// codecommit/codepipeline/emr dead-wiring fix, applied here.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	return h.Backend.Snapshot(ctx)
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }

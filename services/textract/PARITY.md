@@ -482,3 +482,7 @@ test ./pkgs/persistence/ -update` diff reviewed and applied). Regression test:
 `TestClientTokenMaps_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go),
 proves a replay is kept inside the window and a stale token creates a fresh job
 after it.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+textract already isolates regions internally: adapters and analysis jobs are keyed per region. Proof: `TestRegionIsolation/textract`; no sibling handlers needed.

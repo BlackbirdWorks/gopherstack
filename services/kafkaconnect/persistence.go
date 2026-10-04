@@ -82,8 +82,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence by delegating to the backend if it supports it.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	s, ok := h.Backend.(Snapshottable)
 	if !ok {
 		return nil
@@ -92,8 +92,8 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	return s.Snapshot(ctx)
 }
 
-// Restore implements persistence by delegating to the backend if it supports it.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	s, ok := h.Backend.(Snapshottable)
 	if !ok {
 		return ErrNoSnapshot

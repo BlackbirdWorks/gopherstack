@@ -63,7 +63,7 @@ func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, erro
 	v.VocabularyState = vocabStateReady
 	v.LastModifiedTime = now
 	b.vocabularies.Put(&v)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeVocabulary, v.VocabularyName), v.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeVocabulary, v.VocabularyName), v.Tags)
 
 	cp := v
 
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) DeleteVocabulary(vocabularyName string) error {
 		return fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeVocabulary, vocabularyName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeVocabulary, vocabularyName))
 
 	return nil
 }

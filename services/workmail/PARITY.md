@@ -687,3 +687,7 @@ issues, `go test -race -count=1 ./services/workmail/...` green,
 `go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct field
 changes; no version bump; no `items_still_open` changes (nothing new
 found to disclose).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+workmail already isolates regions internally: organizations record their region and listings filter by the request region; organization aliases stay unique across regions. Proof: `TestRegionIsolation/workmail`; no sibling handlers needed.

@@ -67,13 +67,20 @@ One process can serve several regions. The shared middleware resolves the reques
 credential scope, then `X-Amz-Region`, then the configured default, and stores it on the context
 (`awsmeta.Region(ctx)`).
 
-- **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic.
+- **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic, ECR Public (AWS serves it only from us-east-1), Network Manager (a global service homed in us-west-2; its ARNs carry no region).
   S3 bucket names are globally unique, but each bucket has a region.
 - **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, elb, firehose, acm, acmpca, batch,
-  codepipeline, dms, elasticbeanstalk, emr, kinesisanalyticsv2, sagemaker, route53resolver, elasticsearch, and most others.
+  codepipeline, dms, elasticbeanstalk, emr, kinesisanalyticsv2, sagemaker, route53resolver, elasticsearch, codeartifact, codeconnections,
+  codestarconnections, databrew, directoryservice, identitystore, dynamodbstreams, kinesisanalytics, mediastore, mediastoredata, mwaa, networkmonitor, resourcegroups, rolesanywhere,
+  textract, workmail, rdsdata, redshiftdata, timestreamquery, and most others.
 - **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs, autoscaling, cloudformation, elbv2, codedeploy, lambda,
   eks, mq, redshift (and Serverless), opensearch, appsync, ses, apprunner, codebuild, emrserverless, guardduty, securityhub, xray,
-  transfer, awsconfig, applicationautoscaling, dax, vpclattice, cloudtrail, fsx and others build one sibling handler per extra region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
+  transfer, awsconfig, applicationautoscaling, dax, vpclattice, cloudtrail, fsx, accessanalyzer, amplify, apigatewaymanagementapi, appconfig,
+  appconfigdata, appmesh, appstream, bedrock, bedrockagent, bedrockruntime, cleanrooms, comprehend, datasync, detective, directconnect, dlm,
+  glacier, grafana, inspector2, iotanalytics, iotdataplane, iotwireless, kafkaconnect, kinesisvideo, lakeformation, macie2, managedblockchain, mediaconvert, medialive,
+  mediapackage, mediatailor, mgn, omics, opsworks, outposts, personalize, pinpoint, polly, quicksight, ram, rekognition, resiliencehub,
+  s3tables, sagemakerruntime, serverlessrepo, ssoadmin (Identity Center instances are regional), swf, timestreamwrite, transcribe, translate,
+  verifiedpermissions, workspaces and others build one sibling handler per extra region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
 - **Cross-service calls follow the originating resource's region**: SQS and CloudWatch Logs publish metrics to the CloudWatch
   of the emitting queue or log group's region; Step Functions, Scheduler and the tagging bridge reach the ECS (and Glue)
   backend of the ARN or execution region via `regionpeers.Backend`. Auto Scaling launches and terminates instances in its own
@@ -97,6 +104,16 @@ credential scope, then `X-Amz-Region`, then the configured default, and stores i
   each captured management event in the region the call targeted, and Application Auto Scaling checks DynamoDB tables in its own
   region. The tagging bridge also follows the region for App Runner, EMR Serverless, GuardDuty, Security Hub, X-Ray, Transfer, Config,
   Application Auto Scaling, DAX and VPC Lattice.
+  AppConfig deployments publish into the AppConfig Data backend of the deployment's region, API Gateway v2 registers each WebSocket
+  connection with the Management API of the API's region, and IoT rule actions write to the IoT Analytics channel and read the IoT
+  Data Plane shadow of the rule's region (all regions share the one MQTT broker). Direct Connect gateways, associations and proposals are account-global and always served by the home backend. The tagging bridge also follows the region for Access
+  Analyzer, AppConfig, App Mesh, AppStream, Clean Rooms, Comprehend, DataSync, Detective, Direct Connect, DLM, Grafana and Inspector.
+  RDS Data finds the Aurora cluster in the region its ARN names, Timestream Query mirrors scheduled-query tags into the Timestream
+  Write backend of the ARN's region, Redshift Data runs Firehose COPY statements in the delivery stream's region, and SageMaker Runtime
+  validates endpoints through the SageMaker backend of the request region. CloudFormation provisions Kafka Connect, Kinesis Video, Macie,
+  SWF and Resilience Hub resources in the stack's region. The tagging bridge also follows the region for Macie, Managed Blockchain,
+  MediaConvert, MediaPackage, MediaTailor, OpsWorks, Personalize, Pinpoint, RAM, Rekognition, S3 Tables, Identity Center, SWF, Timestream
+  Write, Transcribe, Translate, Verified Permissions, MGN, Outposts and Resilience Hub. QLDB and QLDB Session are removed (AWS end of support).
 - **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
   regions collide); a `knownCollision` case there fails once such a service is fixed.
 

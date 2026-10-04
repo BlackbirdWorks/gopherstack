@@ -242,6 +242,7 @@ type InMemoryBackend struct {
 	batchLoadTasks *store.Table[BatchLoadTask]
 	registry       *store.Registry
 	mu             *lockmetrics.RWMutex
+	region         string
 	nextTaskID     int
 }
 

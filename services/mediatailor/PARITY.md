@@ -701,3 +701,7 @@ Gates: `go build ./...`, `go vet ./services/mediatailor/...`, `go test -race
 --new-from-rev=HEAD ./services/mediatailor/...` — all clean. No persisted
 (`backendSnapshot`) fields changed (`InsertionMode` rides in the existing
 opaque `Extra` map), no `snapshot_inventory.json` rows, no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+mediatailor is region-isolated: source locations, channels, playback configurations and live sources live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mediatailor`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

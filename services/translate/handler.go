@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -42,6 +43,7 @@ type opFunc func(map[string]any) (map[string]any, error)
 
 // Handler serves Amazon Translate JSON operations.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend *InMemoryBackend
 	ops     map[string]opFunc
 }
@@ -54,8 +56,8 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return h
 }
 
-// Reset clears backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // Name returns service name.
 func (h *Handler) Name() string { return "Translate" }
@@ -120,8 +122,8 @@ func (h *Handler) GetSupportedOperations() []string {
 	return ops
 }
 
-// Handler returns the Echo HTTP handler.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()), h.Name(), translateContentType,

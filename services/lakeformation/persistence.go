@@ -11,22 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// h.Backend is the StorageBackend interface, which does not declare
-// Snapshot/Restore, so InMemoryBackend.Snapshot/Restore (above) are not
-// promoted to Handler automatically. Without this delegation, cli.go's
-// setupPersistence type-asserts the registered service.Registerable (this
-// *Handler) against persistence.Persistable, fails silently, and never
-// registers lakeformation for snapshot/restore despite the backend being
-// fully capable. Mirrors services/securityhub's Handler-level delegation.
-//
-// InMemoryBackend.Snapshot has a different shape than persistence.Persistable
-// (no ctx parameter, and it returns an error instead of logging one itself),
-// so this adapts: it calls the backend's Snapshot() and logs+swallows any
-// marshal error, matching the Persistable contract (a nil snapshot is skipped
-// by the persistence Manager).
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	type snapshotter interface {
 		Snapshot() ([]byte, error)
 	}
@@ -46,8 +32,8 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	return data
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	type restorer interface {
 		Restore(context.Context, []byte) error
 	}

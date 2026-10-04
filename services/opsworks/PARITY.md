@@ -922,3 +922,7 @@ zero-valued on an old snapshot, or (this service's JSON tags already
 mostly lack `omitempty` on the affected structs, but `encoding/json`
 tolerates an absent key on decode regardless) additive; no existing field
 was retyped or removed.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+opsworks is region-isolated: stacks, layers, instances and apps live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/opsworks`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

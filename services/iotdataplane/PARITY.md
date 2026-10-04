@@ -409,3 +409,7 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   emulator's fire-and-forget broker interface can't provide (see gaps), and
   the latter has no IAM/permission model in this service to ever trigger it
   -- both are genuine impossibilities given current scope, not oversights.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+iotdataplane is region-isolated: shadows, retained messages and connections live per region, and an IoT rule shadow lookup reads the rule's region. All regions share the single embedded MQTT broker, so a publish is delivered to subscribers of any region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestIoTShadowTarget_ReadsRuleRegion`, `TestRegionIsolation/iotdataplane`. Limitation: the dashboard shows the home region only.

@@ -665,3 +665,7 @@ FAIL (missing-items-still-open). Typed-client census: lakeformation 27/61 ->
 cancelled — two tests each leaked a 5-minute-tick janitor goroutine for the
 rest of the process. Fixed by passing `t.Context()`; added
 `leak_main_test.go` (goleak TestMain), now clean.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+lakeformation is region-isolated: LF-tags, data cells filters, permissions and transactions live per region; each sibling runs its own transaction janitor. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/lakeformation`. Limitation: the dashboard shows the home region only. Sibling janitors stop on Reset, Shutdown and restore (`TestSiblingJanitorStopsWithSibling`). `TestHandler_MultiRegionReset` covers Reset.

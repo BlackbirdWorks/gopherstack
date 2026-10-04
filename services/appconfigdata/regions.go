@@ -1,0 +1,43 @@
+package appconfigdata
+
+import "github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
+
+// EnableRegions makes h, the home region's handler, serve every other region through per-region siblings.
+func (h *Handler) EnableRegions(home string) {
+	h.peers = regionpeers.New(home, func(_ string) *Handler {
+		p := NewHandler(NewInMemoryBackend())
+
+		if ctx := h.workerCtx.Load(); ctx != nil {
+			p.startJanitor(*ctx)
+		}
+
+		return p
+	})
+}
+
+// RegionHandler returns the handler serving region: h itself for the home region, else its sibling.
+func (h *Handler) RegionHandler(region string) *Handler {
+	if p := h.peers.Get(region); p != nil {
+		return p
+	}
+
+	return h
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling built on first use.
+func (h *Handler) BackendFor(region string) *InMemoryBackend {
+	return h.RegionHandler(region).Backend
+}
+
+// RegionBackends returns the home backend followed by every sibling built so far.
+func (h *Handler) RegionBackends() []*InMemoryBackend {
+	peers := h.peers.All()
+	out := make([]*InMemoryBackend, 0, 1+len(peers))
+	out = append(out, h.Backend)
+
+	for _, p := range peers {
+		out = append(out, p.Backend)
+	}
+
+	return out
+}

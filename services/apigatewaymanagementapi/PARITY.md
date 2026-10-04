@@ -221,3 +221,7 @@ Not bugs (verified, do not re-flag):
   `http.MaxBytesReader` at the same threshold before reaching the backend) —
   this is intentional defense-in-depth for direct backend callers/tests, not
   dead code to delete.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+apigatewaymanagementapi is region-isolated: a WebSocket connection is reachable only from the region of the API that accepted it, so PostToConnection from another region reports the connection gone. Each region runs its own idle-connection janitor, stopped on Reset, Shutdown or restore. apigatewayv2 registers each region's connections with that region's Management API (`SetManagementAPIResolver`). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPostToConnection`, `TestHandler_MultiRegionPersistence`, `TestSiblingJanitorStopsWithSibling`, apigatewayv2 `TestHandler_WebSocketConnectionsLandInAPIRegion`. The harness has no case: connections are not created through an SDK operation.

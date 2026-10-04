@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -59,6 +60,7 @@ const (
 
 // Handler handles MediaPackage HTTP requests.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 }
 
@@ -70,8 +72,8 @@ func NewHandler(b StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "MediaPackage" }
 
-// Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // GetSupportedOperations returns all supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -149,8 +151,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return resource
 }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return h.handleREST(c)
 	}

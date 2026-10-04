@@ -1390,3 +1390,7 @@ at 0 FAIL. No persisted-struct/snapshot changes.
 
 FIXED: GetNetworkResources and GetNetworkTelemetry ignored `accountId` / `awsRegion` (`api_op_GetNetworkResources.go`), returning this account's resources for any value. Proven by `network_resources_scope_filter_test.go`.
 Recorded: `registeredGatewayArn` is still unread (no registered-gateway model).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+networkmanager is a global service homed in US West (Oregon) (AWS docs, "Network Manager is a global service"; its ARNs carry no region), so it keeps a single backend and ignores the request region; `TestRegionIsolation/networkmanager` asserts creation works from any region.

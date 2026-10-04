@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -53,6 +54,7 @@ type opFunc func(c *echo.Context, resource string, body []byte) error
 
 // Handler is the HTTP handler for the MSK Connect REST API.
 type Handler struct {
+	peers         *regionpeers.Set[Handler]
 	Backend       StorageBackend
 	ops           map[string]opFunc
 	AccountID     string
@@ -78,8 +80,8 @@ func (h *Handler) buildOps() map[string]opFunc {
 	return ops
 }
 
-// Reset clears all backend state.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
@@ -180,8 +182,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return resource
 }
 
-// Handler returns the Echo handler function for MSK Connect requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)

@@ -343,3 +343,7 @@ Gates after the fix: `go build`, `go vet`, `gofmt -l` (empty),
 `go test -race -count=1` (all green, including the new regression test),
 `golangci-lint run` (0 issues, after `--fix` reordered the new test table's
 struct fields for `fieldalignment`).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+sagemakerruntime is region-isolated: async invocations and sessions live per region and each sibling validates endpoints through the SageMaker backend of the request region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`. Limitation: the dashboard shows the home region only.

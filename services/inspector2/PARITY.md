@@ -872,3 +872,6 @@ go.mod go.sum` empty. No persisted-field change.
 
 Fixed: DeleteFilter on a SUPPRESS filter returns matching SUPPRESSED findings to ACTIVE unless another SUPPRESS filter still matches (`filters_delete_unsuppress_test.go`); Vulnerability cvss2/cvss3/cvss4/epss/exploitObserved/cisaData/atigData are seedable and returned by SearchVulnerabilities (`vulnerability_detail_test.go`). Remaining items consolidated by reason (external flows, missing backing data).
 
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+inspector2 is region-isolated: filters, scans, CIS configurations and findings live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/inspector2`. Limitation: the dashboard shows the home region only.

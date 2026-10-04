@@ -756,3 +756,7 @@ rather than discovers here.
 Gates: `go build ./services/redshiftdata/...`, `go vet`, `go test -race
 -count=1` (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues).
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+redshiftdata already isolates regions internally: statements are keyed per region; Firehose COPY statements now run in the delivery stream's region. Proof: `TestRegionIsolation/redshiftdata`; no sibling handlers needed.

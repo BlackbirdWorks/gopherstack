@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -102,6 +103,7 @@ const (
 
 // Handler is the Echo HTTP handler for Amazon MediaConvert operations.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 }
 
@@ -110,26 +112,18 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
-// Reset clears all backend state. Implements service.Resettable.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// Without this delegation, cli.go's setupPersistence type-asserts the
-// service.Registerable value returned by Provider.Init (this Handler, not
-// InMemoryBackend) against a Snapshot/Restore interface -- since Handler
-// itself never exposed either method, InMemoryBackend.Snapshot/Restore
-// (persistence.go) were dead code and this service was never actually
-// persisted, despite StorageBackend already declaring the Persistable
-// contract.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	return h.Backend.Snapshot(ctx)
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }
 
@@ -208,8 +202,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return parseRoute(c.Request().Method, c.Request().URL.Path).resource
 }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
 		route := parseRoute(r.Method, r.URL.Path)

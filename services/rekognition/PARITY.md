@@ -835,3 +835,7 @@ threshold-related flakiness above is fully resolved), `golangci-lint run
 --new-from-rev=HEAD ./services/rekognition/...` — all clean. No persisted
 (`backendSnapshot`) fields changed (all new fields are request-only), no
 `snapshot_inventory.json` rows, no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+rekognition is region-isolated: collections, datasets and stream processors live per region; siblings share the wired S3 backend. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/rekognition`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

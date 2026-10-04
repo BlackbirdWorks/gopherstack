@@ -99,6 +99,7 @@ type Handler struct {
 	jwksProvider          JWKSProvider
 	lambdaInvoker         LambdaInvoker
 	managementAPI         apigatewaymanagementapi.StorageBackend
+	managementAPIFor      func(region string) apigatewaymanagementapi.StorageBackend
 	metrics               cwmetric.Sink
 	authCache             *authorizerCache
 	subCollectionDispatch map[subDispatchKey]func(*Handler, *echo.Context, string) error
@@ -125,6 +126,11 @@ func (h *Handler) EnableRegions() {
 		p.region = region
 		p.lambdaInvoker, p.jwksProvider = h.lambdaInvoker, h.jwksProvider
 		p.managementAPI, p.httpClient = h.managementAPI, h.httpClient
+		p.managementAPIFor = h.managementAPIFor
+
+		if h.managementAPIFor != nil {
+			p.managementAPI = h.managementAPIFor(region)
+		}
 		p.metrics.Set(h.metrics.Emitter())
 
 		return p
@@ -217,6 +223,12 @@ func (h *Handler) SetJWKSProvider(p JWKSProvider) {
 // SetManagementAPIBackend configures the Management API backend for WebSocket connections.
 func (h *Handler) SetManagementAPIBackend(managementAPI apigatewaymanagementapi.StorageBackend) {
 	h.managementAPI = managementAPI
+}
+
+// SetManagementAPIResolver registers every region's WebSocket connections with that region's Management API.
+func (h *Handler) SetManagementAPIResolver(resolve func(region string) apigatewaymanagementapi.StorageBackend) {
+	h.managementAPIFor = resolve
+	h.managementAPI = resolve(h.region)
 }
 
 // Name returns the service name.

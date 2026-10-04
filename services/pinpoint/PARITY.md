@@ -671,3 +671,7 @@ persisted-struct fields changed; no version bump.
 ## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
 
 Recorded: RemoveAttributes `Blacklist` says "a glob pattern that an attribute name must match" (`types.UpdateAttributesRequest`); only a trailing `*` is implemented because the SDK does not define the glob grammar (`?`, character classes, mid-string `*`).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+pinpoint is region-isolated: apps, campaigns, segments and journeys live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/pinpoint`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

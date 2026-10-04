@@ -604,3 +604,7 @@ projections for each). No new bug found; false-positive census hits.
 Locked in via list_summary_shapes_test.go (real SDK client round-trips).
 Gates: `go build`/`go vet`/`go test -race` clean, `golangci-lint run` 0
 issues.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+managedblockchain is region-isolated: networks, members, nodes and proposals live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/managedblockchain`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

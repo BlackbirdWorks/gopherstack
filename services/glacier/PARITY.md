@@ -988,3 +988,7 @@ pre-existing tests). `golangci-lint run --new-from-rev=HEAD` 0 issues.
 `go run ./cmd/paritylint` 0 FAIL throughout. No `snapshot_inventory.json`
 changes (the fix changes only the error path, not any persisted struct
 shape). No version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+glacier is region-isolated: vaults, archives, jobs and multipart uploads live per region; each region's Select jobs write to the shared S3. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/glacier`. Limitation: the dashboard shows the home region only.

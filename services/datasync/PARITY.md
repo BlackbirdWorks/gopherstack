@@ -295,3 +295,7 @@ version bump.
 
 FIXED: ListTasks `LocationId` with NotEquals/NotContains matched a task when EITHER location differed (source != x OR destination != x), so excluding a location still returned its own tasks; negative operators now require both locations to pass. Proven by `list_tasks_negated_filter_test.go`.
 Recorded: the SDK docs give no semantics for `LocationId` against a task's two locations or for CreationTime string comparison (`types.TaskFilter`); either-side matching and RFC3339 ordering are kept.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+datasync is region-isolated: agents, locations, tasks and executions live per region. The tagging bridge and CloudFormation (`forRegion`) follow the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/datasync`. Limitation: the dashboard shows the home region only.

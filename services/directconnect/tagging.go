@@ -44,6 +44,10 @@ func (b *InMemoryBackend) resolveTaggableLocked(resourceArn string) (*tags.Tags,
 	}
 
 	if id, ok := resourceIDFromARN(resourceArn, ":dx-gateway/"); ok {
+		if b.gatewayHome != nil {
+			return b.gatewayHome.gatewayTags(id)
+		}
+
 		if g, found := b.gateways.Get(id); found {
 			return g.Tags, true
 		}
@@ -153,7 +157,7 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 		out = appendIfTagged(out, b.VifARN(v.VirtualInterfaceID), v.Tags)
 	}
 
-	for _, g := range b.gateways.Snapshot() {
+	for _, g := range b.ownGateways() {
 		out = appendIfTagged(out, b.GatewayARN(g.DirectConnectGatewayID), g.Tags)
 	}
 

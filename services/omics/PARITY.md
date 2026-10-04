@@ -978,3 +978,7 @@ version bump.
 
 FIXED: the filter members listed above as missing are now declared and applied: `createdAfter`/`createdBefore` on ListReferenceStores/ListReferences/ListReferenceImportJobs/ListSequenceStores/ListReadSets, `updatedAfter`/`updatedBefore` and `status` on ListSequenceStores, `md5` on ListReferences, `referenceArn`/`sampleId`/`subjectId` on ListReadSets, and a `filter` (status + created window) on ListReadSet{Import,Export,Activation}Jobs. Proven by `list_filters_test.go`.
 Recorded: the SDK says only "The filter's start date"/"end date", so both bounds are inclusive. ReadSetFilter `creationType`/`generatedFrom` stay unread (not tracked on ReadSetMetadata).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+omics is region-isolated: stores, workflows, runs and read sets live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/omics`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.

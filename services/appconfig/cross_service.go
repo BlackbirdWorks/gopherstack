@@ -75,5 +75,5 @@ func (b *InMemoryBackend) appConfigDataBackend() (appconfigdatabackend.StorageBa
 		return nil, false
 	}
 
-	return h.Backend, true
+	return h.BackendFor(b.region), true
 }

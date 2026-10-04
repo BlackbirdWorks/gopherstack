@@ -11,7 +11,9 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -32,6 +34,7 @@ var (
 // Handler handles DataSync HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 	ops     map[string]service.JSONOpFunc
 }
 
@@ -49,6 +52,11 @@ func (h *Handler) Name() string { return "DataSync" }
 // Reset resets the backend and rebuilds the dispatch table.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+
 	h.ops = h.buildOps()
 }
 
@@ -134,6 +142,10 @@ func (h *Handler) ExtractResource(_ *echo.Context) string { return "" }
 // Handler returns the Echo handler function for DataSync requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"DataSync", contentType,

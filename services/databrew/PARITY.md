@@ -211,3 +211,7 @@ SUCCEEDED) follows this package's own established
 StartJobRun with no sleep, reliably landing in STARTING before the
 delayed transition fires. No `items_still_open` changes; no
 `snapshot_inventory.json` change; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+databrew already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/databrew`.

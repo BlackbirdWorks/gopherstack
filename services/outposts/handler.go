@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -23,6 +24,7 @@ var errUnknownPath = errors.New("unknown path")
 
 // Handler is the HTTP handler for the AWS Outposts API.
 type Handler struct {
+	peers     *regionpeers.Set[Handler]
 	Backend   *InMemoryBackend
 	AccountID string
 	Region    string
@@ -37,9 +39,8 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	}
 }
 
-// Shutdown stops the backend's scheduled state-transition timers so none
-// outlives the service. Invoked on server shutdown via service.Shutdowner.
-func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+// shutdownHome stops the home region only.
+func (h *Handler) shutdownHome(_ context.Context) { h.Backend.Close() }
 
 var _ service.Shutdowner = (*Handler)(nil)
 
@@ -97,8 +98,8 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// Reset clears all stored state in the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return outpostsService }
@@ -164,8 +165,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 type dispatchFunc func(ctx context.Context, r *http.Request, body []byte) ([]byte, error)
 
-// Handler returns the Echo handler function for Outposts requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)

@@ -479,3 +479,7 @@ reads for this protocol style).
 ## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
 
 FIXED: ListHostedConfigurationVersions `VersionLabel` was exact-match only; the SDK documents prefix filtering with a trailing `*` ("v2*") and exact match otherwise (`api_op_ListHostedConfigurationVersions.go`). Proven by `hosted_version_label_filter_test.go`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+appconfig is region-isolated: applications, environments, profiles, strategies and deployments live per region. A completed deployment publishes into the appconfigdata backend of its own region (`SetPublisherResolver`), and the deletion-protection check reads that region's data plane. The tagging bridge and CloudFormation (`forRegion`) follow the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestWireAppConfigDeployments_PublishesToDeploymentRegion`, `TestRegionIsolation/appconfig`. Limitation: the dashboard shows the home region only.

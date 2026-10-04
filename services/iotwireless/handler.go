@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -133,6 +134,7 @@ const (
 
 // Handler is the HTTP handler for the IoT Wireless REST API.
 type Handler struct {
+	peers         *regionpeers.Set[Handler]
 	Backend       StorageBackend
 	AccountID     string
 	DefaultRegion string
@@ -143,8 +145,8 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
-// Reset clears the handler's backend state, returning it to a pristine condition.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	if r, ok := h.Backend.(interface{ Reset() }); ok {
 		r.Reset()
 	}
@@ -440,8 +442,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return resource
 }
 
-// Handler returns the Echo handler function for IoT Wireless requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)

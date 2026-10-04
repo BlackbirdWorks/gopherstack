@@ -154,7 +154,12 @@ func isolationProblems(t *testing.T, tc regionCase) []string {
 func TestRegionIsolation(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range append(regionIsolationCases(), platformIsolationCases()...) {
+	cases := slices.Concat(
+		regionIsolationCases(), platformIsolationCases(),
+		servicesAIsolationCases(), servicesBIsolationCases(),
+	)
+
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

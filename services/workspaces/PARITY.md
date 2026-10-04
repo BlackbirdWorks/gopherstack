@@ -725,3 +725,7 @@ Gates: `go build ./...` (whole module, clean). `go vet
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Fixed (describe_filter_semantics_test.go): DescribeWorkspaceBundles Owner AMAZON lists AWS bundles and no Owner lists the account's own ("don't specify a value"), BundleIds cannot combine with Owner; DescribeWorkspaces rejects the documented filter combinations. Recorded: DescribeWorkspaces WorkspaceName and DescribeWorkspaceImages ImageType are not read (no shared-image or user-decoupled model).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+workspaces is region-isolated: directories, workspaces, IP groups and bundles live per region; the sibling inherits the home handler's cross-service config. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/workspaces`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.

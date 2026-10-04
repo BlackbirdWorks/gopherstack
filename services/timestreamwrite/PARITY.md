@@ -357,3 +357,7 @@ Gates: `go build ./...`, `go vet ./services/timestreamwrite/...`,
 `golangci-lint run --new-from-rev=HEAD ./services/timestreamwrite/...`
 (0 issues). No persisted struct fields changed, no version bump.
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+timestreamwrite is region-isolated: databases, tables and batch load tasks live per region; ARNs now name the serving region (the backend gained a region and a `NewInMemoryBackendForRegion` constructor, default unchanged). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/timestreamwrite`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

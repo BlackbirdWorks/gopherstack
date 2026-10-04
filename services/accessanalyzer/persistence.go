@@ -208,23 +208,20 @@ func (b *InMemoryBackend) restoreArchiveRules(tables map[string]json.RawMessage)
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// Before this Phase 3.3 conversion, InMemoryBackend already implemented
-// Snapshot/Restore, but Handler never delegated to them -- setupPersistence
-// in cli.go only registers a service.Registerable with the
-// persistence.Manager if the Handler itself (the value actually returned by
-// Provider.Init and passed to setupPersistence) satisfies the Snapshot/
-// Restore duck-typed interface, so Access Analyzer state was silently never
-// persisted at all. Adding this method (and Restore below) is the
-// dead-wiring fix that makes the backend's (now registry-backed) persistence
-// reachable.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-// See Snapshot's doc comment for why this delegation was previously missing.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.Backend.Reset() },
+	)
 }

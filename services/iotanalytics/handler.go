@@ -10,8 +10,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -87,7 +89,10 @@ type handlerFunc func(*echo.Context, string, []byte) error
 // Handler is the HTTP handler for the IoT Analytics REST API.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
+	wire    func(region string, b *InMemoryBackend)
 	ops     map[string]handlerFunc
+	home    string
 }
 
 // NewHandler creates a new IoT Analytics handler with a pre-built dispatch table.
@@ -101,6 +106,10 @@ func NewHandler(backend StorageBackend) *Handler {
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 // buildChannelOps returns the channel-related entries for the dispatch map.
@@ -361,6 +370,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for IoT Analytics requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 

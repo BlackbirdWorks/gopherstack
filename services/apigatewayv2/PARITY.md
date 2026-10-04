@@ -1138,3 +1138,7 @@ API Gateway v2 is region-isolated: each non-home region gets a lazily built sibl
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 Emits HTTP API Count, 4xx, 5xx, Latency, IntegrationLatency and WebSocket ConnectCount, MessageCount, Count, ClientError, ExecutionError, IntegrationLatency under AWS/ApiGateway with ApiId and ApiId+Stage dimensions (http-api-metrics.html, apigateway-websocket-api-logging.html). Points fold per second into statistic sets. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+WebSocket connections register with the Management API backend of the API's region (`SetManagementAPIResolver`), so `@connections` calls from another region report the connection gone. Proof: `TestHandler_WebSocketConnectionsLandInAPIRegion`.

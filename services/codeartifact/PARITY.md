@@ -377,3 +377,7 @@ field-for-field identical to PackageGroupSummary, assetSummaryToMap,
 packageVersionSummaryToMap, packageSummaryToMap, repositorySummaryToMap)
 per the gopherstack-tuh5/6flj work already recorded above. No leaks, no
 gaps, no code changed this pass.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+codeartifact already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/codeartifact`.

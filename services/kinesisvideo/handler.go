@@ -11,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -158,6 +159,7 @@ type handlerFunc func(c *echo.Context, body []byte) error
 
 // Handler is the HTTP handler for the Kinesis Video Streams control-plane REST API.
 type Handler struct {
+	peers         *regionpeers.Set[Handler]
 	Backend       StorageBackend
 	ops           map[string]handlerFunc
 	AccountID     string
@@ -172,8 +174,8 @@ func NewHandler(backend StorageBackend) *Handler {
 	return h
 }
 
-// Reset clears all backend state.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
@@ -262,8 +264,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
-// Handler returns the Echo handler function for Kinesis Video Streams requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)

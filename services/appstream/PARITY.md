@@ -1069,3 +1069,7 @@ now always defaults, matching what a real client experiences. See
 ## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
 
 FIXED: DescribeSessions accepted `UserId` without `AuthenticationType`; `api_op_DescribeSessions.go` says "If you specify a user ID, you must also specify the authentication type", and the op declares InvalidParameterCombinationException. Proven by `describe_sessions_user_auth_test.go`; one pre-existing real-client test now sends `AuthenticationTypeApi` with its UserId.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+appstream is region-isolated: fleets, stacks, image builders and entitlements live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/appstream`. Limitation: the dashboard shows the home region only.

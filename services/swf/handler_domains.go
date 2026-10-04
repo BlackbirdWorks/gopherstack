@@ -3,8 +3,6 @@ package swf
 import (
 	"context"
 	"sort"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // --- RegisterDomain ---
@@ -33,7 +31,7 @@ func (h *Handler) handleRegisterDomain(
 	}
 	// Apply tags via TagResource if provided.
 	if len(in.Tags) > 0 {
-		arn := domainARN(config.DefaultRegion, defaultAccountID, in.Name)
+		arn := domainARN(h.Backend.Region(), defaultAccountID, in.Name)
 		tagMap := make(map[string]string, len(in.Tags))
 		for _, t := range in.Tags {
 			tagMap[t.Key] = t.Value

@@ -575,6 +575,15 @@ linters:
       # Same reasoning as opsworks/sdk_roundtrip_test.go above.
       - path: 'opsworks/list_filter_params_test.go'
         linters: [ staticcheck ]
+      # Same reasoning: the multi-region test drives the deprecated typed client.
+      - path: 'opsworks/multi_region_test.go'
+        linters: [ staticcheck ]
+      - path: 'region_isolation_cases_services_b_test.go'
+        linters: [ staticcheck ]
+      - path: 'iotanalytics/multi_region_test.go'
+        linters: [ staticcheck ]
+      - path: 'region_isolation_cases_services_a_test.go'
+        linters: [ staticcheck ]
       # Same reasoning: the terraform fixture asserts OpsWorks state through the
       # deprecated typed client.
       - path: 'test/terraform/account_directconnect_opsworks_and_grafana_test.go'

@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -190,6 +191,7 @@ const (
 
 // Handler handles HealthOmics HTTP requests.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 }
 
@@ -201,8 +203,8 @@ func NewHandler(b StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "Omics" }
 
-// Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // GetSupportedOperations returns all supported operation names, derived from
 // the same opDispatch table handleREST dispatches through -- the two can
@@ -242,8 +244,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return c.Request().URL.Path
 }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return h.handleREST(c)
 	}

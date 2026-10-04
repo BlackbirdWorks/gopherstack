@@ -5,13 +5,16 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -82,9 +85,15 @@ const maxInvocationStringBytes = 10_000
 
 // Handler is the Echo HTTP handler for AWS Bedrock Runtime operations.
 type Handler struct {
-	Backend       *InMemoryBackend
-	janitorCancel context.CancelFunc
-	janitorDone   chan struct{}
+	Backend   *InMemoryBackend
+	peers     *regionpeers.Set[Handler]
+	workerCtx atomic.Pointer[context.Context]
+	janitor   atomic.Pointer[janitorRun]
+}
+
+type janitorRun struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 // NewHandler creates a new Bedrock Runtime handler backed by backend.
@@ -93,36 +102,55 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
-// StartWorker starts the background janitor for async invocations.
+// StartWorker starts the async-invocation janitor of h and every sibling.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	h.janitorCancel = cancel
-	h.janitorDone = done
+	h.workerCtx.Store(&ctx)
+	h.startJanitor(ctx)
 
-	go func() {
-		defer close(done)
-		// Interval matches defaultAsyncInvokeCompletionDelay (janitor.go) so
-		// InProgress invocations advance to Completed close to that delay,
-		// not up to a full tick late -- the sibling services/bedrock janitor
-		// follows the same interval-matches-completion-delay pattern.
-		h.Backend.RunJanitor(runCtx, defaultAsyncInvokeCompletionDelay)
-	}()
+	for _, p := range h.peers.All() {
+		p.startJanitor(ctx)
+	}
 
 	return nil
 }
 
-// Shutdown stops the background janitor.
-func (h *Handler) Shutdown(ctx context.Context) {
-	if h.janitorCancel != nil {
-		h.janitorCancel()
+// startJanitor runs h's janitor once, until ctx ends or stopJanitor.
+func (h *Handler) startJanitor(ctx context.Context) {
+	runCtx, cancel := context.WithCancel(ctx)
+	run := &janitorRun{cancel: cancel, done: make(chan struct{})}
+
+	if !h.janitor.CompareAndSwap(nil, run) {
+		cancel()
+
+		return
 	}
 
-	if h.janitorDone != nil {
-		select {
-		case <-h.janitorDone:
-		case <-ctx.Done():
-		}
+	go func() {
+		defer close(run.done)
+		h.Backend.RunJanitor(runCtx, defaultAsyncInvokeCompletionDelay)
+	}()
+}
+
+func (h *Handler) stopJanitor(ctx context.Context) {
+	run := h.janitor.Swap(nil)
+	if run == nil {
+		return
+	}
+
+	run.cancel()
+
+	select {
+	case <-run.done:
+	case <-ctx.Done():
+	}
+}
+
+// Shutdown stops the janitors of h and every sibling.
+func (h *Handler) Shutdown(ctx context.Context) {
+	h.stopJanitor(ctx)
+
+	for _, p := range h.peers.Drain() {
+		p.stopJanitor(ctx)
 	}
 }
 
@@ -225,11 +253,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Reset clears all backend state. Implements service.Resettable.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.stopJanitor(context.Background())
+	}
 }
 
 // Handler returns the Echo handler function for Bedrock Runtime requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		r := c.Request()
 		path := r.URL.Path
 		method := r.Method

@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -59,14 +60,15 @@ const (
 
 // Handler implements Amazon Polly REST JSON operations.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend *InMemoryBackend
 }
 
 // NewHandler creates handler for backend.
 func NewHandler(backend *InMemoryBackend) *Handler { return &Handler{Backend: backend} }
 
-// Reset clears backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // Name returns service name.
 func (h *Handler) Name() string { return "Polly" }
@@ -119,8 +121,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return parseRoute(c.Request().Method, c.Request().URL.Path).resource
 }
 
-// Handler returns request dispatcher.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		route := parseRoute(c.Request().Method, c.Request().URL.Path)
 		if route.operation == opUnknown {

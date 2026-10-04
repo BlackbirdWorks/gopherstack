@@ -1135,3 +1135,7 @@ updated with the one new field.
 ## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
 
 Clean for filters (ListIngestionJobs STATUS/EQ is the only SDK-defined attribute/operator). Hygiene: the descending ingestion-job sort used `!less`, which is not a strict weak ordering for ties; it now swaps operands and sorts stably.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+bedrockagent is region-isolated: agents, knowledge bases, flows and prompts live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/bedrockagent`. Limitation: the dashboard shows the home region only.

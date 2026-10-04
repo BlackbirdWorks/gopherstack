@@ -452,3 +452,7 @@ passed as ModelId's value. Removed the alias per the no-dead-paths rule; see
 ## 2026-10-03 (gopherstack-q2yu)
 
 FIXED: GetAsyncInvoke returned ResourceNotFoundException for an unknown ARN, which its op does not declare (deserializers.go:796-859). It now returns the declared ValidationException (400). Proven by `TestGetAsyncInvoke_UnknownArnIsDeclaredValidation_RealClient` (errors.As to `*types.ValidationException`). Real AWS behaviour remains unverified; this is the declared code that best fits a bad parameter.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+bedrockruntime is region-isolated: async invocations and the invocation history live per region. Each region runs its own async janitor, stopped on Reset, Shutdown or restore. CloudFormation (`forRegion`) follows the region. bedrockruntime does not call bedrock or bedrockagent, so there is no cross-service call to route. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestSiblingJanitorStopsWithSibling`, `TestRegionIsolation/bedrockruntime`. Limitation: the dashboard shows the home region only.

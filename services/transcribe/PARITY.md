@@ -549,3 +549,7 @@ findings collapse to 1 remaining after StartCallAnalyticsJob's OutputLocation
 fix removed that op's line, plus StartMedicalScribeJob and
 StartMedicalTranscriptionJob's OutputEncryptionKMSKeyId lines stay open --
 see items_still_open, not a code gap this pass can close).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+transcribe is region-isolated: jobs, vocabularies, vocabulary filters and language models live per region; resource ARNs now name the serving region (the backend gained a region and a `NewInMemoryBackendForRegion` constructor, default unchanged). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/transcribe`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

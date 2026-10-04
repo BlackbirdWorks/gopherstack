@@ -692,3 +692,7 @@ Fixed with typed-client tests in open_items_client_test.go: RadiusServersIpv6 ac
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Fixed (describe_empty_id_lists_test.go): DescribeDirectories DirectoryIds and DescribeTrusts TrustIds reject an empty list with InvalidParameterException ("An empty list results in an InvalidParameterException being thrown"); null still means all.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+directoryservice already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/directoryservice`.

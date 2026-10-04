@@ -416,3 +416,7 @@ all `ok`; `golangci-lint run ./services/detective/...` and
 `services/detective/invitation_routing_cross_service_test.go` (new),
 `services/detective/PARITY.md`, `services/guardduty/PARITY.md`,
 `services/_ROUTE_COLLISIONS.md`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+detective is region-isolated: each region has its own behavior graph (one per region, as in AWS) with its members, investigations and tags. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/detective`. Limitation: the dashboard shows the home region only.

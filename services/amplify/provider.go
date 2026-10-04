@@ -39,6 +39,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	handler.WithJanitor(backend, 0, janitorTimeout)
+	handler.EnableRegions()
 
 	return handler, nil
 }

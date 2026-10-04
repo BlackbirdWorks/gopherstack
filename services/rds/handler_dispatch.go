@@ -60,6 +60,15 @@ func (h *Handler) getHandlerForRegion(region string) *Handler {
 	return handler
 }
 
+// BackendFor returns the backend serving region, creating it on first use; "" is the home region.
+func (h *Handler) BackendFor(region string) *InMemoryBackend {
+	if region == "" {
+		return h.Backend
+	}
+
+	return h.getHandlerForRegion(region).Backend
+}
+
 // Reset clears all backend state. Useful for test isolation.
 func (h *Handler) Reset() {
 	h.mu.Lock()

@@ -116,18 +116,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-// Before this, Handler had no Snapshot/Restore of its own and InMemoryBackend
-// had no persistence at all -- Personalize was entirely excluded from
-// Gopherstack's persistence.Manager (it type-asserts each service's
-// Registerable to persistence.Persistable). This is the Phase 3.3
-// dead-wiring fix: Personalize now round-trips full state like every other
-// converted service.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	return h.Backend.Snapshot(ctx)
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }

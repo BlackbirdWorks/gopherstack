@@ -5,19 +5,24 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
+	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
+	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
+	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
@@ -26,11 +31,15 @@ import (
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
+	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -136,6 +145,23 @@ func (sb *ServiceBackends) forRegion(region string) *ServiceBackends {
 	out.CodeBuild = regionHandler(sb.CodeBuild, (*codebuildbackend.Handler).RegionHandler, region)
 	out.GuardDuty = regionHandler(sb.GuardDuty, (*guarddutybackend.Handler).RegionHandler, region)
 	out.Transfer = regionHandler(sb.Transfer, (*transferbackend.Handler).RegionHandler, region)
+
+	out.AccessAnalyzer = regionHandler(sb.AccessAnalyzer, (*accessanalyzerbackend.Handler).RegionHandler, region)
+	out.Amplify = regionHandler(sb.Amplify, (*amplifybackend.Handler).RegionHandler, region)
+	out.AppConfig = regionHandler(sb.AppConfig, (*appconfigbackend.Handler).RegionHandler, region)
+	out.BedrockRuntime = regionHandler(sb.BedrockRuntime, (*bedrockruntimebackend.Handler).RegionHandler, region)
+	out.DataSync = regionHandler(sb.DataSync, (*datasyncbackend.Handler).RegionHandler, region)
+
+	out.KafkaConnect = regionHandler(sb.KafkaConnect, (*kafkaconnectbackend.Handler).RegionHandler, region)
+	out.KinesisVideo = regionHandler(sb.KinesisVideo, (*kinesisvideobackend.Handler).RegionHandler, region)
+	out.Macie2 = regionHandler(sb.Macie2, (*macie2backend.Handler).RegionHandler, region)
+	out.SWF = regionHandler(sb.SWF, (*swfbackend.Handler).RegionHandler, region)
+
+	if rs, ok := sb.ResilienceHub.(interface {
+		RegionResilienceHub(region string) ResilienceHubBackend
+	}); ok {
+		out.ResilienceHub = rs.RegionResilienceHub(region)
+	}
 
 	return &out
 }

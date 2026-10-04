@@ -1825,3 +1825,7 @@ Proven by `engine_test.go` (fake runtime) and the Docker-gated `TestEngineDocker
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/rds`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+`Handler.BackendFor(region)` returns the per-region backend (home for ""), so the RDS Data API finds an Aurora cluster in the region its ARN names. Proof: `TestHandler_BackendFor`. No change to isolation or snapshots.

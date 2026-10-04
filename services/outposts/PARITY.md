@@ -906,3 +906,7 @@ either service existed), `services/ec2` had no such coupling and building it was
    presumably lives on `Outpost.LifeCycleStatus` (itself unconfirmed, see gap #2 above) rather
    than on the decommission response -- two unconfirmed-enum problems compounding on the same
    feature.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+outposts is region-isolated: sites, outposts and orders live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/outposts`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. Sibling workers stop on Reset, Shutdown and restore (`TestHandler_SiblingTimersStopWithSibling`). `TestHandler_MultiRegionReset` covers Reset.

@@ -422,3 +422,7 @@ workspace_service_account/workspace_service_account_token.
 ## 2026-10-04: EC2 lookups across regions (gopherstack-12q3n)
 
 VPC configuration validation now accepts subnets and security groups that exist in any region's EC2 backend instead of only the home region's.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+grafana is region-isolated: workspaces, API keys, service accounts and tags live per region. Each region runs its own transition timers, stopped on Reset, Shutdown or restore. The tagging bridge follows the region; EC2 validation already accepts resources of any region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/grafana`. Limitation: the dashboard shows the home region only.

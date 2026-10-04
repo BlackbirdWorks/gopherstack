@@ -410,3 +410,7 @@ translate is now 19/19 typed-covered.
 Gates: `go build ./services/translate/...`, `go vet`, `go test -race
 -count=1` (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues).
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+translate is region-isolated: terminologies and text translation jobs live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/translate`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

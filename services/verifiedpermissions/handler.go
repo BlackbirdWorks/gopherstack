@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -34,6 +35,7 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Verified Permissions operations.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
 }
@@ -46,8 +48,8 @@ func NewHandler(backend StorageBackend) *Handler {
 	return h
 }
 
-// Reset clears all Verified Permissions state.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
@@ -150,8 +152,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return req.PolicyStoreID
 }
 
-// Handler returns the Echo handler function for Verified Permissions requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),

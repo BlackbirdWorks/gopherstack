@@ -67,7 +67,7 @@ func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageMo
 	m.CreateTime = now
 	m.LastModifiedTime = now
 	b.languageModels.Put(&m)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeLanguageModel, m.ModelName), m.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeLanguageModel, m.ModelName), m.Tags)
 
 	cp := m
 
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) DeleteLanguageModel(modelName string) error {
 		return fmt.Errorf("%w: language model %s not found", ErrNotFound, modelName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeLanguageModel, modelName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeLanguageModel, modelName))
 
 	return nil
 }

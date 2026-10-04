@@ -480,3 +480,7 @@ both unconditionally-non-nil/present when unset, crashing the real
 terraform-provider-aws (nil-vs-empty portal_options block) and causing a
 permanent description diff. Both now stay nil/omitted when the request/state
 never set them; see `handler_applications.go`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+ssoadmin is region-isolated: IAM Identity Center instances are regional (an instance lives in its home Region), so each region serves its own instances, permission sets and assignments. Every region seeds its own default instance. Identity Center ARNs carry no region, so the tagging bridge resolves them by the request region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/ssoadmin`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

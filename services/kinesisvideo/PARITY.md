@@ -74,3 +74,7 @@ codes were verified against the pinned aws-sdk-go-v2/service/kinesisvideo
 v1.41.1 serializers.go/deserializers.go, including the real-AWS quirk that
 TagResource/UntagResource/ListTagsForResource use PascalCase URI paths
 (/TagResource) while every other operation uses camelCase (/createStream).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+kinesisvideo is region-isolated: streams, signaling channels and edge configurations live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/kinesisvideo`. Limitation: the dashboard shows the home region only. CloudFormation provisions it in the stack's region. `TestHandler_MultiRegionReset` covers Reset.

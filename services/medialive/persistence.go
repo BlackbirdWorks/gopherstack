@@ -9,24 +9,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// h.Backend is the StorageBackend interface, which already declares
-// Snapshot(ctx context.Context) []byte (see interfaces.go) with a shape
-// matching persistence.Persistable exactly, so this can call it directly --
-// no local type assertion needed. But interface membership alone does not
-// help: h.Backend is a named field, not an embedded one, so InMemoryBackend's
-// methods are never promoted onto *Handler. Without this delegation, cli.go's
-// setupPersistence type-asserts the registered service.Registerable (this
-// *Handler) against persistence.Persistable, fails silently, and never
-// registers medialive for snapshot/restore despite the backend being fully
-// capable. Mirrors services/securityhub's Handler-level delegation.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	return h.Backend.Snapshot(ctx)
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }
 

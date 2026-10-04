@@ -533,3 +533,7 @@ DescribeContainer.AccessLoggingEnabled. Zero bugs -- every op's backend
 method (containers.go, cors_policy.go, lifecycle_policy.go,
 metric_policy.go) was already real, validated state, matching the
 `ops:` table's existing `wire: ok` verdicts.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+mediastore already isolates regions internally: containers and their policies are keyed per region. Proof: `TestRegionIsolation/mediastore`; no sibling handlers needed.

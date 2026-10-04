@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -42,7 +45,10 @@ const (
 
 // Handler is the Echo HTTP handler for AppConfigData operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend     *InMemoryBackend
+	peers       *regionpeers.Set[Handler]
+	workerCtx   atomic.Pointer[context.Context]
+	stopJanitor atomic.Pointer[context.CancelFunc]
 }
 
 // NewHandler creates a new AppConfigData Handler.
@@ -53,12 +59,43 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "AppConfigData" }
 
-// StartWorker starts the background janitor for AppConfig Data retrieval sessions.
+// StartWorker starts the session janitor of h and every sibling.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	janitor := NewJanitor(h.Backend)
-	go janitor.Run(ctx)
+	h.workerCtx.Store(&ctx)
+	h.startJanitor(ctx)
+
+	for _, p := range h.peers.All() {
+		p.startJanitor(ctx)
+	}
 
 	return nil
+}
+
+// startJanitor runs h's session janitor once, until ctx ends or stopWorkers.
+func (h *Handler) startJanitor(ctx context.Context) {
+	jctx, cancel := context.WithCancel(ctx)
+	if !h.stopJanitor.CompareAndSwap(nil, &cancel) {
+		cancel()
+
+		return
+	}
+
+	go NewJanitor(h.Backend).Run(jctx)
+}
+
+func (h *Handler) stopWorkers() {
+	if c := h.stopJanitor.Swap(nil); c != nil {
+		(*c)()
+	}
+}
+
+// Shutdown stops the janitors of h and every sibling.
+func (h *Handler) Shutdown(_ context.Context) {
+	h.stopWorkers()
+
+	for _, p := range h.peers.Drain() {
+		p.stopWorkers()
+	}
 }
 
 // GetSupportedOperations returns the list of supported operations.
@@ -128,6 +165,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for AppConfigData operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		path := c.Request().URL.Path
 

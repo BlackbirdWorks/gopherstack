@@ -325,3 +325,7 @@ Gates: `go build ./...`, `go vet ./services/serverlessrepo/...`,
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/serverlessrepo/...` (0 issues). `go run ./cmd/paritylint` stays
 at 0 FAIL. No persisted-struct/snapshot changes.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+serverlessrepo is region-isolated: applications, versions and policies live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/serverlessrepo`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.

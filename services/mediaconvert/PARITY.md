@@ -646,3 +646,7 @@ version bump.
 ## 2026-10-03 (gopherstack-uox6 value-semantics pass)
 
 StartJobsQuery filter keys: queue matches name or ARN, fileInput is a partial-name substring, jobEngineVersionRequested/Used, audioCodec and videoCodec are honoured (types.JobsQueryFilter.Key list); previously only queue (exact as stored) and status filtered and every other key matched all jobs. ListJobs queue also accepts a bare queue name. Open: the doc says "MediaConvert queries jobs using OR logic" without saying whether that spans filters; filters are still AND-ed across keys and OR-ed across values.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+mediaconvert is region-isolated: queues, presets, job templates and jobs live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mediaconvert`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

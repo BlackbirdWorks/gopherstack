@@ -255,19 +255,20 @@ func (b *InMemoryBackend) restoreRawState(snap *backendSnapshot) {
 	b.resourcePolicyCounter = snap.ResourcePolicyCounter
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-// Handler previously had no Snapshot/Restore of its own -- and neither did
-// InMemoryBackend -- so cli.go's generic setupPersistence (which
-// type-asserts the registered service.Registerable, i.e. the Handler, for a
-// Snapshot/Restore pair) never picked BedrockAgent up at all: dead wiring,
-// with no persistence underneath it either. This delegation (matching the
-// codecommit/codepipeline/cleanrooms pattern) is what wires BedrockAgent
-// into persistence for the first time.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { resetBackend(p.Backend) },
+	)
 }

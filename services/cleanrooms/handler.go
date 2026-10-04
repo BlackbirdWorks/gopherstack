@@ -10,8 +10,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -181,6 +183,7 @@ var errUnknownAction = errors.New("unknown action")
 // Handler handles AWS Clean Rooms HTTP requests.
 type Handler struct {
 	Backend   StorageBackend
+	peers     *regionpeers.Set[Handler]
 	AccountID string
 	Region    string
 }
@@ -196,7 +199,13 @@ func NewHandler(backend StorageBackend) *Handler {
 
 func (h *Handler) Name() string { return "CleanRooms" }
 
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 func (h *Handler) StartWorker(_ context.Context) error { return nil }
 
@@ -352,6 +361,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 

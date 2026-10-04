@@ -806,3 +806,7 @@ Stub clusters and ExecuteSql keep the SQLite engine.
   mapping, transaction expiry under synctest) in real_*_test.go.
 - Not done: ColumnMetadata schemaName/tableName/isAutoIncrement are empty on real engines; the 1 MB response cap;
   multidimensional or NULL-containing arrays (UnsupportedResultException); continueAfterTimeout; `schema`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+rdsdata already isolates regions internally: transactions, statements and SQLite databases are keyed per region; the real-engine resolver now finds the Aurora cluster in the region its ARN names (`rds.Handler.BackendFor`). The harness has no list API to drive here, so isolation stays covered by the existing region-keyed unit tests; the regional resolver rests on `rds` `TestHandler_BackendFor`.

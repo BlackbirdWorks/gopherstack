@@ -440,3 +440,7 @@ Gates: `gofmt -l` clean. `go build ./...` clean.
 `golangci-lint run ./services/iotwireless/...` 0 issues (new and full-run).
 `go run ./cmd/parityfmtcheck -dir services` clean.
 `git diff --stat go.mod go.sum` empty.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+iotwireless is region-isolated: device profiles, gateways, destinations and the other wireless resources live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/iotwireless`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.

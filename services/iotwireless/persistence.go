@@ -26,9 +26,8 @@ type Resettable interface {
 	Reset()
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Returns nil for non-snapshottable backends.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	if s, ok := h.Backend.(Snapshottable); ok {
 		return s.Snapshot(ctx)
 	}
@@ -36,9 +35,8 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	return nil
 }
 
-// Restore implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Non-snapshottable backends are skipped.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	if s, ok := h.Backend.(Snapshottable); ok {
 		return s.Restore(ctx, data)
 	}

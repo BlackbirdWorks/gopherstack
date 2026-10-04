@@ -10,9 +10,11 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -108,7 +110,9 @@ const (
 
 // Handler is the Echo HTTP handler for AppConfig operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend      StorageBackend
+	peers        *regionpeers.Set[Handler]
+	publisherFor func(region string) DeployedConfigurationPublisher
 }
 
 // NewHandler creates a new AppConfig Handler.
@@ -983,6 +987,10 @@ var appConfigDispatch = map[string]appConfigDispatchFn{
 // Handler returns the Echo handler function for AppConfig operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		route := parseAppConfigPath(c.Request().Method, c.Request().URL.Path)
 

@@ -44,6 +44,7 @@ import (
 // run per workflowId at a time (createExecutionLocked's "already open" guard), so that lookup
 // is always unambiguous.
 type InMemoryBackend struct {
+	region               string
 	registry             *store.Registry
 	domains              *store.Table[Domain]
 	workflows            *store.Table[WorkflowType] // key: domain+":"+name+":"+version
@@ -65,7 +66,13 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendForRegion(defaultRegion)
+}
+
+// NewInMemoryBackendForRegion creates a backend whose domain ARNs name region.
+func NewInMemoryBackendForRegion(region string) *InMemoryBackend {
 	b := &InMemoryBackend{
+		region:         region,
 		registry:       store.NewRegistry(),
 		history:        make(map[string][]HistoryEvent),
 		activityQueues: make(map[string][]*ActivityTask),
@@ -185,6 +192,9 @@ func (b *InMemoryBackend) resolveExecutionLocked(domain, workflowID, runID strin
 
 // AccountID returns the account ID for this backend.
 func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
+
+// Region returns the region this backend serves.
+func (b *InMemoryBackend) Region() string { return b.region }
 
 // domainARN constructs the SWF ARN for a domain.
 func domainARN(region, account, name string) string {

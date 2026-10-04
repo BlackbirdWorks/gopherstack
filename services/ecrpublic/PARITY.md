@@ -91,3 +91,7 @@ window for unfinished layer uploads, so this follows services/ecr's own
 the next `InitiateLayerUpload` call (`pruneExpiredLayerUploadsLocked`, in
 layers.go). Covered by `layer_upload_ttl_test.go`
 (`testing/synctest`-driven: kept within the window, evicted just past it).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+ecrpublic stays global by design: AWS serves ECR Public only from us-east-1, so a repository created through any region lands in the one store. Proof: `TestRegionIsolation/ecrpublic` (global case).

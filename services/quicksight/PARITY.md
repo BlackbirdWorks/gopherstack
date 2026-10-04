@@ -2258,3 +2258,7 @@ Gates: `go build ./...`, `go vet ./services/quicksight/...`, `go test -race
 -count=1 ./services/quicksight/...` (pass, including the new suite),
 `golangci-lint run --new-from-rev=HEAD ./services/quicksight/...` (0
 issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+quicksight is region-isolated: groups, users, data sources, analyses and dashboards live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/quicksight`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.

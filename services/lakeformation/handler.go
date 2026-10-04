@@ -11,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -91,6 +92,8 @@ func isLakeFormationPath(path string) bool {
 
 // Handler is the HTTP handler for the Lake Formation REST API.
 type Handler struct {
+	peers         *regionpeers.Set[Handler]
+	stop          context.CancelFunc
 	Backend       StorageBackend
 	ops           map[string]func(context.Context, *echo.Context, []byte) error
 	AccountID     string
@@ -105,8 +108,8 @@ func NewHandler(backend StorageBackend) *Handler {
 	return h
 }
 
-// Reset resets the backend to a clean state.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
@@ -212,8 +215,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource returns an empty string (LakeFormation uses body-level resources).
 func (h *Handler) ExtractResource(_ *echo.Context) string { return "" }
 
-// Handler returns the Echo handler function for Lake Formation requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)

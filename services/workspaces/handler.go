@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -23,6 +24,7 @@ const (
 
 // Handler handles WorkSpaces HTTP requests.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
 }
@@ -38,8 +40,8 @@ func NewHandler(b StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "WorkSpaces" }
 
-// Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -71,8 +73,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return h.ExtractOperation(c)
 }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()), h.Name(), contentType,

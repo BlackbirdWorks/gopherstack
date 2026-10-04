@@ -9,8 +9,10 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -100,6 +102,7 @@ const (
 // Handler handles Detective HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 
 	// dispatch maps each supported operation to its handler method. Keeping
 	// this as a plain map (rather than a switch) avoids the funlen/cyclop
@@ -150,7 +153,13 @@ func NewHandler(b StorageBackend) *Handler {
 func (h *Handler) Name() string { return "Detective" }
 
 // Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -262,6 +271,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return h.handleREST(c)
 	}
 }

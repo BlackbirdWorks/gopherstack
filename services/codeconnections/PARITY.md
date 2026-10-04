@@ -447,3 +447,7 @@ service's deep prior audit history. Reused the existing
 test/internal backend method to seed a blocker for
 GetSyncBlockerSummary/UpdateSyncBlocker. No `items_still_open` changes; no
 `snapshot_inventory.json` change; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+codeconnections already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/codeconnections`.

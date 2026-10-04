@@ -197,3 +197,7 @@ Gates: `go build ./...`, `go vet ./services/dlm/...`, `go test -race
 -count=1 ./services/dlm/...` (pass), `golangci-lint run --new-from-rev=HEAD
 ./services/dlm/...` (0 issues). No persisted struct fields changed, no
 version bump. `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+dlm is region-isolated: lifecycle policies live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/dlm`. Limitation: the dashboard shows the home region only.

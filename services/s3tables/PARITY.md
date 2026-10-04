@@ -728,3 +728,7 @@ Gates: `go build ./...`, `go vet`, `go test -race -count=1`
 --new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
 missing-items-still-open FAIL. No persisted-struct fields changed; no
 version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+s3tables is region-isolated: table buckets, namespaces and tables live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/s3tables`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

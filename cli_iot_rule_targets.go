@@ -14,6 +14,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -74,9 +75,7 @@ func wireIoTStreamTargets(t *iotbackend.ActionTargets, byName map[string]service
 	}
 
 	if h, ok := byName["IoTAnalytics"].(*iotanalyticsbackend.Handler); ok {
-		if bk, bkOk := h.Backend.(*iotanalyticsbackend.InMemoryBackend); bkOk {
-			t.Analytics = &iotAnalyticsTarget{backend: bk}
-		}
+		t.Analytics = &iotAnalyticsTarget{handler: h}
 	}
 }
 
@@ -274,12 +273,19 @@ func (a *iotStepFunctionsTarget) StartExecution(
 	return err
 }
 
+var errIoTAnalyticsRegionUnavailable = errors.New("iotanalytics backend unavailable for region")
+
 type iotAnalyticsTarget struct {
-	backend *iotanalyticsbackend.InMemoryBackend
+	handler *iotanalyticsbackend.Handler
 }
 
-func (a *iotAnalyticsTarget) PutChannelMessages(_ context.Context, _, channel string, payloads [][]byte) error {
-	return a.backend.PutChannelMessages(channel, payloads)
+func (a *iotAnalyticsTarget) PutChannelMessages(_ context.Context, region, channel string, payloads [][]byte) error {
+	bk, ok := regionpeers.Backend[*iotanalyticsbackend.InMemoryBackend](a.handler.BackendFor, region)
+	if !ok {
+		return errIoTAnalyticsRegionUnavailable
+	}
+
+	return bk.PutChannelMessages(channel, payloads)
 }
 
 func wireIoTLookupTargets(t *iotbackend.ActionTargets, byName map[string]service.Registerable) {
@@ -296,9 +302,7 @@ func wireIoTLookupTargets(t *iotbackend.ActionTargets, byName map[string]service
 	}
 
 	if h, ok := byName["IoTDataPlane"].(*iotdataplanebackend.Handler); ok {
-		if bk, bkOk := h.Backend.(*iotdataplanebackend.InMemoryBackend); bkOk {
-			t.Shadows = &iotShadowTarget{backend: bk}
-		}
+		t.Shadows = &iotShadowTarget{handler: h}
 	}
 
 	if h, ok := byName["Lambda"].(*lambdabackend.Handler); ok {
@@ -350,11 +354,11 @@ func (a *iotSecretsTarget) GetSecretValue(
 }
 
 type iotShadowTarget struct {
-	backend *iotdataplanebackend.InMemoryBackend
+	handler *iotdataplanebackend.Handler
 }
 
-func (a *iotShadowTarget) GetThingShadow(_ context.Context, _, thingName, shadowName string) ([]byte, error) {
-	return a.backend.GetThingShadow(thingName, shadowName)
+func (a *iotShadowTarget) GetThingShadow(_ context.Context, region, thingName, shadowName string) ([]byte, error) {
+	return a.handler.BackendFor(region).GetThingShadow(thingName, shadowName)
 }
 
 var errIoTLambdaFunction = errors.New("lambda function returned an error")

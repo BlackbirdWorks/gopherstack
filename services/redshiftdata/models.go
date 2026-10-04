@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 const (
@@ -124,6 +126,10 @@ type regionContextKey struct{}
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
 		return r
+	}
+
+	if m, ok := awsmeta.Key.Get(ctx); ok && m != nil && m.Region != "" {
+		return m.Region
 	}
 
 	return defaultRegion

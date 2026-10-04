@@ -286,3 +286,7 @@ for-member including epoch-seconds `createdAt`/`modifiedAt`. One gap
 recorded (not fixed): `Probe.VpcId` is never populated (see
 `items_still_open`) -- deriving it needs a live ec2 subnet lookup this
 backend doesn't have, so it's left unset rather than fabricated.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+networkmonitor already isolates regions internally: monitors and probes are keyed per region. Proof: `TestRegionIsolation/networkmonitor`; no sibling handlers needed.

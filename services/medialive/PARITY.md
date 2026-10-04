@@ -1601,3 +1601,7 @@ keep the row (DeleteMultiplex previously did both: set State=DELETED, then
 immediately deleted the row anyway). Verified via
 TestTerraform_ElasticsearchGrafanaAndRam destroy (TF_LOG=trace): both resources destroy
 clean now, no more logged errors.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+medialive is region-isolated: channels, inputs, multiplexes and alarm templates live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/medialive`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.

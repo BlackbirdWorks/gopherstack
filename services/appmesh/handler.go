@@ -10,7 +10,9 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -67,6 +69,7 @@ const (
 // Handler handles App Mesh HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler constructs a new Handler.
@@ -78,7 +81,13 @@ func NewHandler(b StorageBackend) *Handler {
 func (h *Handler) Name() string { return "AppMesh" }
 
 // Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -152,6 +161,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		method := c.Request().Method
 		path := c.Request().URL.Path

@@ -65,3 +65,7 @@ claimed by services/kafka, batch, appsync, mq, codeartifact, pinpoint) is
 guarded by decoding the ARN's own service field, the same pattern
 services/kafka uses for its own /v1/tags/{arn} claim, per
 .claude/memories -- route-matcher-prefix-collision.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+kafkaconnect is region-isolated: connectors, custom plugins and worker configurations live per region. It does not call MSK, so there is no cluster lookup to route. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/kafkaconnect`. Limitation: the dashboard shows the home region only. CloudFormation provisions it in the stack's region. `TestHandler_MultiRegionReset` covers Reset.

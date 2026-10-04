@@ -546,3 +546,7 @@ into a Get/Stop/DeleteJob lifecycle, webhook CRUD, backend environment
 CRUD, a domain association update+GenerateAccessLogs+delete lifecycle, and
 UpdateApp/UpdateBranch. Zero bugs -- confirms the `ops:` table's existing
 verdicts.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+amplify is region-isolated: apps, branches, jobs, domains and webhooks live per region. Each region runs its own janitor, stopped on Shutdown or restore. CloudFormation (`forRegion`) follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestSiblingJanitorStopsWithSibling`, `TestRegionIsolation/amplify`. Limitation: the dashboard shows the home region only.

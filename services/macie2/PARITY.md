@@ -707,3 +707,7 @@ ListFindings/GetFindingStatistics criteria now apply gt/gte/lt/lte (types.Criter
 ## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
 
 FIXED: UntagResource and `extractQueryParam` hand-split the raw query string without percent-decoding, so encoded tag keys / query values never matched. Now `url.ParseQuery`. Proven by `untag_encoded_keys_test.go`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+macie2 is region-isolated: allow lists, custom data identifiers, jobs and findings filters live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/macie2`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. CloudFormation provisions it in the stack's region. `TestHandler_MultiRegionReset` covers Reset.
