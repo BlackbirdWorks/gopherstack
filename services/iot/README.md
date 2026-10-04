@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 88 (88 ok) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | found_and_fixed |
 
@@ -18,8 +18,7 @@
 - ClientRequestToken idempotency (CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask) is not honored: the pinned SDK docs contradict each other (CreateCustomMetric: a different token on an existing name errors; CreateDimension/AuditSuppression/Start*Task: the same token errors) and name no exception type, so any replay semantics would be invented. Duplicate names/taskIds already return ResourceAlreadyExists/TaskAlreadyExists.
 - DeleteOTAUpdate's ForceDeleteAWSJob/DeleteStream are not honored: CreateOTAUpdate fabricates the AWS job id and never creates a Job or an OTA-owned stream (needs a real OTA job/stream pipeline), and the SDK names no exception for the non-terminal-job case.
 - Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path).
-- Rule actions other than sqs/lambda/sns (s3, dynamoDB, kinesis, ...) and errorAction are stored and returned verbatim but never executed by the embedded broker; sns is also not dispatched there.
-- Only SQS and Lambda rule actions execute; SNS and other action types are not dispatched; errorAction envelope omits cloudwatchTraceId and clientId (2026-10-03).
+- Rule actions http, timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (http needs the destination confirmation workflow; the others have no data-plane backend). The rule SQL SELECT clause is not applied: actions and ${...} templates see the raw published payload. Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId.
 
 ## More
 
