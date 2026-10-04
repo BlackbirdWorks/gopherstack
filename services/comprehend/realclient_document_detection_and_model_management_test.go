@@ -47,6 +47,8 @@ func TestRealClient_DocumentDetectionAndModelManagement(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, piiOut.Entities, 1)
 			assert.Equal(t, types.PiiEntityTypeEmail, piiOut.Entities[0].Type)
+			assert.EqualValues(t, 14, aws.ToInt32(piiOut.Entities[0].BeginOffset))
+			assert.EqualValues(t, 30, aws.ToInt32(piiOut.Entities[0].EndOffset))
 
 			synOut, err := client.DetectSyntax(ctx, &comprehend.DetectSyntaxInput{
 				Text:         aws.String("The dog runs fast."),

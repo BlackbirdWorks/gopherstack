@@ -613,3 +613,7 @@ reachable `Message` field; every `Describe*`/Create-echo leaked a
 fabricated `Tags` member (no real output type has one); `DescribeAutoPredictor`
 leaked input-only `ExplainPredictor`/`ReferencePredictorArn`. All 3 proven
 failing pre-fix; see tests. Gates clean (0 lint, new and full-run).
+
+## 2026-10-04 (gopherstack-0kk8)
+
+ListMonitorEvaluations no longer emits CreationTime/MonitorName/Status, which PredictorMonitorEvaluation does not define (`TestListMonitorEvaluations_RealClient`).

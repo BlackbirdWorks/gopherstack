@@ -382,3 +382,5 @@ gaps, no code changed this pass.
 codeartifact already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/codeartifact`.
 
 - **2026-10-04**: CopyPackageVersions.includeFromUpstream implemented: a version absent from the source repository is looked up breadth-first through its upstreams and copied (`TestCopyPackageVersions_IncludeFromUpstream_RealClient`). Other ops still do not resolve through upstreams.
+
+- **2026-10-04** (gopherstack-cpztm): ExternalConnection.status now "Available" (types.ExternalConnectionStatusAvailable), was "AVAILABLE" (`TestAssociateExternalConnection_StatusIsSDKEnum`).

@@ -322,7 +322,7 @@ func mergeModuleGroundTruth(cache, mod, ver string, reg *enumRegistry, wireKeys 
 
 	mergeEnumRegistry(reg, modReg)
 
-	if fieldErr := mergeSDKFieldTypes(modPath, reg); fieldErr != nil {
+	if fieldErr := mergeSDKFieldTypes(modPath, reg.nativeModules[mod], reg); fieldErr != nil {
 		return fieldErr
 	}
 
@@ -355,7 +355,7 @@ func mergeModuleGroundTruth(cache, mod, ver string, reg *enumRegistry, wireKeys 
 // into reg.sdkFieldTypes -- gopherstack-cpztm's precise per-field
 // resolution. A module with neither file readable contributes nothing, same
 // "nothing to check" discipline as the enum/deserializer ground truth.
-func mergeSDKFieldTypes(modPath string, reg *enumRegistry) error {
+func mergeSDKFieldTypes(modPath string, native bool, reg *enumRegistry) error {
 	structs, _, err := sdkshape.LoadModuleStructs(modPath)
 	if err != nil {
 		return err
@@ -363,19 +363,42 @@ func mergeSDKFieldTypes(modPath string, reg *enumRegistry) error {
 
 	if reg.sdkFieldTypes == nil {
 		reg.sdkFieldTypes = map[string]map[string]string{}
+		reg.sdkNativeStructs = map[string]bool{}
 	}
 
 	for typeName, def := range structs {
-		if reg.sdkFieldTypes[typeName] == nil {
-			reg.sdkFieldTypes[typeName] = map[string]string{}
-		}
-
-		for _, f := range def.Fields {
-			reg.sdkFieldTypes[typeName][f.Name] = sdkshape.BareTypeName(f.Type)
-		}
+		mergeStructDef(reg, typeName, def, native)
 	}
 
 	return nil
+}
+
+// mergeStructDef keeps a native module's struct authoritative over a same-named
+// one from a second SDK, and marks a field the modules disagree on ambiguous.
+func mergeStructDef(reg *enumRegistry, typeName string, def sdkshape.StructDef, native bool) {
+	if reg.sdkNativeStructs[typeName] && !native {
+		return
+	}
+
+	if native && !reg.sdkNativeStructs[typeName] {
+		delete(reg.sdkFieldTypes, typeName)
+
+		reg.sdkNativeStructs[typeName] = true
+	}
+
+	if reg.sdkFieldTypes[typeName] == nil {
+		reg.sdkFieldTypes[typeName] = map[string]string{}
+	}
+
+	for _, f := range def.Fields {
+		bare := sdkshape.BareTypeName(f.Type)
+
+		if prev, seen := reg.sdkFieldTypes[typeName][f.Name]; seen && prev != bare {
+			bare = ambiguousFieldType
+		}
+
+		reg.sdkFieldTypes[typeName][f.Name] = bare
+	}
 }
 
 func mergeWireKeyFact(existing, add wireKeyFact) wireKeyFact {

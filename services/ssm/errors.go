@@ -55,7 +55,7 @@ var (
 var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")
 	ErrAutomationExecutionNotFound = errors.New("AutomationExecutionNotFoundException")
-	ErrExecutionPreviewNotFound    = errors.New("ExecutionPreviewNotFoundException")
+	ErrExecutionPreviewNotFound    = errors.New("ResourceNotFoundException")
 	// ErrResourcePolicyNotFound and ErrResourcePolicyConflict are the two real
 	// exceptions declared for PutResourcePolicy/DeleteResourcePolicy
 	// (ssm@v1.73.4 types/errors.go) around a PolicyId/PolicyHash mismatch.
@@ -102,3 +102,5 @@ var (
 	// (ssm@v1.73.4 deserializers.go:13880).
 	ErrInvalidAllowedPattern = errors.New("InvalidAllowedPatternException")
 )
+
+const errCodeResourceNotFound = "ResourceNotFoundException"

@@ -91,6 +91,8 @@ type enumRegistry struct {
 	keyEnumModules map[string]map[string]bool
 	nativeModules  map[string]bool
 	sdkFieldTypes  map[string]map[string]string
+
+	sdkNativeStructs map[string]bool
 }
 
 // resolveRealField resolves wireKey on structTypeName to the ONE real SDK
@@ -147,6 +149,10 @@ func exportedFieldName(wireKey string) string {
 }
 
 func (reg *enumRegistry) classifyFieldType(bareType string) (fieldResolution, string) {
+	if bareType == ambiguousFieldType {
+		return fieldUnknownType, ""
+	}
+
 	if _, isEnum := reg.membersByType[bareType]; isEnum {
 		return fieldIsEnum, bareType
 	}
@@ -340,3 +346,6 @@ func (reg *enumRegistry) sameMemberSet(typeA, typeB string) bool {
 
 	return true
 }
+
+// ambiguousFieldType marks a field two SDK modules declare with different types.
+const ambiguousFieldType = "\x00ambiguous"

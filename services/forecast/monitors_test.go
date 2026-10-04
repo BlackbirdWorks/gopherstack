@@ -55,7 +55,9 @@ func TestMonitors_Evaluations(t *testing.T) {
 	eval := evaluations[0].(map[string]any)
 	assert.Equal(t, "SUCCESS", eval["EvaluationState"])
 	assert.NotEmpty(t, eval["MonitorArn"])
-	assert.NotEmpty(t, eval["MonitorName"])
+	assert.NotContains(t, eval, "MonitorName")
+	assert.NotContains(t, eval, "CreationTime")
+	assert.NotContains(t, eval, "Status")
 	assert.NotNil(t, eval["MetricResults"])
 
 	// Not found

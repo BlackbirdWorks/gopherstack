@@ -395,6 +395,8 @@ func classifySSMMiscNotFoundError(reqErr error) (string, int, bool) {
 		return errCodeDoesNotExist, statusCode, true
 	case errors.Is(reqErr, ErrPatchBaselineNotFound):
 		return errCodeDoesNotExist, statusCode, true
+	case errors.Is(reqErr, ErrExecutionPreviewNotFound):
+		return errCodeResourceNotFound, statusCode, true
 	default:
 		return "", 0, false
 	}
@@ -470,9 +472,9 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 	case errors.Is(reqErr, ErrMaintenanceWindowTargetInUse):
 		return "TargetInUseException", statusCode
 	case errors.Is(reqErr, ErrCloudConnectorNotFound):
-		return "ResourceNotFoundException", statusCode
+		return errCodeResourceNotFound, statusCode
 	case errors.Is(reqErr, ErrAccessRequestNotFound):
-		return "ResourceNotFoundException", statusCode
+		return errCodeResourceNotFound, statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):
 		return "AssociationDoesNotExist", statusCode
 	case errors.Is(reqErr, ErrInvalidAssociationVersion):

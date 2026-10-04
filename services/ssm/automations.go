@@ -411,7 +411,7 @@ func (b *InMemoryBackend) StartExecutionPreview(
 	previewID := previewIDPrefix + uuid.NewString()
 	b.executionPreviewsStore(region).Put(&ExecutionPreview{
 		ExecutionPreviewID: previewID,
-		Status:             "Running",
+		Status:             executionPreviewStatusInProgress,
 		DocumentName:       input.DocumentName,
 	})
 
@@ -433,10 +433,7 @@ func (b *InMemoryBackend) GetExecutionPreview(
 
 	preview, exists := b.executionPreviewsStore(region).Get(input.ExecutionPreviewID)
 	if !exists {
-		return &GetExecutionPreviewOutputFull{
-			ExecutionPreviewID: input.ExecutionPreviewID,
-			Status:             "Running",
-		}, nil
+		return nil, fmt.Errorf("%w: %q", ErrExecutionPreviewNotFound, input.ExecutionPreviewID)
 	}
 
 	cp := *preview
@@ -487,3 +484,5 @@ func (b *InMemoryBackend) GetCalendarState(
 
 	return &GetCalendarStateOutputFull{State: calendarStateOpen, AtTime: atTime}, nil
 }
+
+const executionPreviewStatusInProgress = "InProgress"
