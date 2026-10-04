@@ -47,13 +47,21 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 			return h.handleBackendError(c, err)
 		}
 	case targetArn != "":
-		// TargetArn addresses a platform endpoint. In the mock, generate a message ID.
+		if err = validateStructuredMessage(message, messageStructure); err != nil {
+			return h.handleBackendError(c, err)
+		}
+
 		messageID, err = h.Backend.PublishToTargetArn(targetArn, message, subject, attrs)
 		if err != nil {
 			return h.handleBackendError(c, err)
 		}
 	default:
-		// PhoneNumber direct SMS publish — generate a message ID in the mock.
+		if err = validateStructuredMessage(message, messageStructure); err != nil {
+			return h.handleBackendError(c, err)
+		}
+
+		message = buildMessageResolver(message, parsePerProtocolMessages(message, messageStructure))(protocolSMS)
+
 		messageID, err = h.Backend.PublishSMS(phoneNumber, message)
 		if err != nil {
 			return h.handleBackendError(c, err)

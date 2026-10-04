@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,7 +58,7 @@ func (b *InMemoryBackend) collectPublishTargets(
 		// Resolve the per-protocol message body for this subscription.
 		// This must happen before filter evaluation when FilterPolicyScope=MessageBody,
 		// because the body itself is the subject of the filter.
-		msg := resolveMsg(sub.Protocol)
+		msg := resolveMsg(messageKey(sub))
 
 		// Apply filter policy. When FilterPolicyScope is "MessageBody", the filter
 		// is evaluated against the message body parsed as a JSON object. The default
@@ -110,10 +111,29 @@ func (b *InMemoryBackend) collectPublishTargets(
 			RawMessageDelivery: sub.RawMessageDelivery,
 			RedrivePolicy:      sub.RedrivePolicy,
 			SubscriptionRole:   sub.SubscriptionRoleArn,
+			Message:            msg,
+			HasMessage:         true,
 		})
 	}
 
 	return out
+}
+
+// messageKey is the MessageStructure=json key for sub: the platform name for
+// application endpoints (endpoint/<PLATFORM>/...), else the protocol.
+func messageKey(sub *Subscription) string {
+	if sub.Protocol != protocolApplication {
+		return sub.Protocol
+	}
+
+	_, after, ok := strings.Cut(sub.Endpoint, "endpoint/")
+	if !ok {
+		return sub.Protocol
+	}
+
+	platform, _, _ := strings.Cut(after, "/")
+
+	return platform
 }
 
 // Publish publishes a message to a topic and returns the message ID.
@@ -283,6 +303,8 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		}
 	}
 
+	b.signResolvedBodies(subs, topicArn, messageID, subject, message, ts, sigVersion, signed)
+
 	return &events.SNSPublishedEvent{
 		TopicARN:         topicArn,
 		MessageID:        messageID,
@@ -294,6 +316,36 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		Signature:        sn.signature,
 		SignatureVersion: sigVersion,
 		SigningCertURL:   sn.certURL,
+	}
+}
+
+// signResolvedBodies signs each subscription body that differs from the default
+// message so its envelope signature verifies against what it actually receives.
+func (b *InMemoryBackend) signResolvedBodies(
+	subs []events.SNSSubscriptionSnapshot,
+	topicArn, messageID, subject, message, ts, sigVersion string,
+	signed map[string]signedNotification,
+) {
+	for i := range subs {
+		sub := &subs[i]
+		if !sub.HasMessage || sub.Message == message || !eventNeedsSignature(subs[i:i+1]) {
+			continue
+		}
+
+		sn, ok := signed[sub.Message]
+		if !ok {
+			canonical := canonicalNotificationString(messageID, topicArn, subject, sub.Message, ts)
+			sn = signedNotification{
+				signature: b.signer.signWithVersion(canonical, sigVersion),
+				certURL:   b.signer.certURL(),
+			}
+
+			if signed != nil {
+				signed[sub.Message] = sn
+			}
+		}
+
+		sub.Signature = sn.signature
 	}
 }
 
@@ -427,7 +479,7 @@ func (b *InMemoryBackend) Publish(
 	// Archive the message when the topic has an ArchivePolicy (e.g. FIFO topics
 	// with message retention). Archived messages are used for subscription replay.
 	if archivePolicy != "" {
-		b.archivePublishedMessage(topicArn, messageID, message, subject, attrs)
+		b.archivePublishedMessage(topicArn, messageID, message, subject, messageStructure, attrs)
 	}
 
 	b.dispatchHTTPDeliveries(targets.httpDeliveries, client)

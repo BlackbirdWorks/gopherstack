@@ -610,6 +610,8 @@ type ArchivedMessage struct {
 	MessageID  string
 	Message    string
 	Subject    string
+	// Structure is the Publish MessageStructure ("json" when Message is per-protocol).
+	Structure string
 }
 
 // notificationSigner holds the RSA key pair and self-signed certificate used to

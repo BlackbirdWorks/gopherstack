@@ -76,10 +76,10 @@ func buildLambdaPayload(
 			MessageID:         ev.MessageID,
 			TopicArn:          ev.TopicARN,
 			Subject:           ev.Subject,
-			Message:           ev.Message,
+			Message:           sub.Body(ev.Message),
 			Timestamp:         ev.Timestamp,
 			SignatureVersion:  resolveSignatureVersion(ev.SignatureVersion),
-			Signature:         ev.Signature,
+			Signature:         sub.SignatureFor(ev.Signature),
 			SigningCertURL:    ev.SigningCertURL,
 			UnsubscribeURL:    subscriptionUnsubscribeURL(ev.TopicARN, sub.SubscriptionARN),
 			MessageAttributes: attrs,
@@ -103,10 +103,10 @@ func buildFirehoseEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscript
 		Type:             messageTypeNotification,
 		MessageID:        ev.MessageID,
 		TopicArn:         ev.TopicARN,
-		Message:          ev.Message,
+		Message:          sub.Body(ev.Message),
 		Timestamp:        ev.Timestamp,
 		SignatureVersion: resolveSignatureVersion(ev.SignatureVersion),
-		Signature:        ev.Signature,
+		Signature:        sub.SignatureFor(ev.Signature),
 		SigningCertURL:   ev.SigningCertURL,
 		UnsubscribeURL:   subscriptionUnsubscribeURL(ev.TopicARN, sub.SubscriptionARN),
 	}
@@ -116,7 +116,7 @@ func buildFirehoseEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscript
 
 	enc, err := json.Marshal(env)
 	if err != nil {
-		return []byte(ev.Message)
+		return []byte(sub.Body(ev.Message))
 	}
 
 	return enc
@@ -175,7 +175,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 		if err != nil {
 			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolLambda, sub.Endpoint, "FAILURE", err)
 			if sub.RedrivePolicy != "" && sqsSender != nil {
-				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, sub.Body(ev.Message))
 			}
 		}
 	}
@@ -237,7 +237,7 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 		return
 	}
 
-	record := []byte(ev.Message)
+	record := []byte(sub.Body(ev.Message))
 	if !sub.RawMessageDelivery {
 		record = buildFirehoseEnvelope(ev, sub)
 	}
@@ -289,7 +289,7 @@ func (b *InMemoryBackend) deliverToSMSSubscriptions(ev *events.SNSPublishedEvent
 		if sub.Protocol != protocolSMS {
 			continue
 		}
-		_, _ = b.PublishSMS(sub.Endpoint, ev.Message)
+		_, _ = b.PublishSMS(sub.Endpoint, sub.Body(ev.Message))
 	}
 }
 
@@ -325,7 +325,7 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 
 			b.applicationDeliveries = appendBounded(b.applicationDeliveries, ApplicationDelivery{
 				EndpointARN: sub.Endpoint,
-				Message:     ev.Message,
+				Message:     sub.Body(ev.Message),
 				MessageID:   msgID,
 			}, maxRecordedDeliveries)
 		}()

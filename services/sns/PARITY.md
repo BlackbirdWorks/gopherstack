@@ -793,3 +793,16 @@ that Timestamp/Signature across subscribers, matching real SNS.
 tests never call it), leaking one goroutine per test. Replaced with a lazy
 sweep triggered from `isDuplicate`/`record`; added `leak_main_test.go`
 (goleak TestMain), now clean.
+
+## 2026-10-03: MessageStructure=json resolved per delivery protocol (gopherstack-nu31d)
+
+Publish/PublishBatch with `MessageStructure=json` now deliver each subscription its own key's value, else `default`
+(sns@v1.46.0 `api_op_Publish.go` MessageStructure/Message; SNS dev guide "Publishing a message to a topic/message
+formatting for different protocols"). Only HTTP/S and email used the resolved body before; SQS (envelope and raw),
+Lambda, Firehose, SMS, application and archive replay delivered the whole JSON object.
+- The resolved body and its signature ride on `events.SNSSubscriptionSnapshot` (`Message`/`HasMessage`/`Signature`).
+- Application endpoints resolve by platform key (`GCM`, `APNS`, ...) from the endpoint ARN, then `default`.
+- Archived messages keep their MessageStructure (`ArchivedMessage.Structure`, additive) so replay resolves identically.
+- `PublishToTargetArn` and PhoneNumber publishes now validate the json structure (PhoneNumber resolves the `sms` key).
+- A literal `application` key is not modelled; the docs define platform names (APNS, GCM, ...) instead.
+- FilterPolicyScope=MessageBody evaluates the body the subscription actually receives (protocol key, else default).

@@ -76,7 +76,7 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 		return
 	}
 
-	body, msgAttrs := buildDeliveryBody(ev, sub, queueName)
+	body, msgAttrs := buildDeliveryBody(ev, sub)
 
 	if b.snsDeliveryDenied(ev.TopicARN, sub.Endpoint) {
 		if sub.RedrivePolicy != "" {
@@ -107,13 +107,12 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 func buildDeliveryBody(
 	ev *events.SNSPublishedEvent,
 	sub events.SNSSubscriptionSnapshot,
-	queueName string,
 ) (string, map[string]MessageAttributeValue) {
 	if sub.RawMessageDelivery {
-		return ev.Message, snsAttrsToSQSAttrs(ev.Attributes)
+		return sub.Body(ev.Message), snsAttrsToSQSAttrs(ev.Attributes)
 	}
 
-	return buildSNSEnvelope(ev, queueName), nil
+	return buildSNSEnvelope(ev, sub), nil
 }
 
 // deliverToDLQ sends the message body and attributes (exactly as attempted during the failed
@@ -198,7 +197,7 @@ func parseQueueARNOrURL(endpoint string) (string, string) {
 }
 
 // buildSNSEnvelope wraps the published message in the standard SNS notification JSON.
-func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
+func buildSNSEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscriptionSnapshot) string {
 	ts := ev.Timestamp
 	if ts == "" {
 		// Cosmetic payload fallback only, not compared against any internal
@@ -206,7 +205,7 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 		ts = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	sig := ev.Signature
+	sig := sub.SignatureFor(ev.Signature)
 	if sig == "" {
 		sig = uuid.NewString()
 	}
@@ -226,7 +225,7 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 		MessageID:        ev.MessageID,
 		TopicArn:         ev.TopicARN,
 		Subject:          ev.Subject,
-		Message:          ev.Message,
+		Message:          sub.Body(ev.Message),
 		Timestamp:        ts,
 		SignatureVersion: sigVersion,
 		Signature:        sig,
@@ -246,7 +245,7 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 
 	b, err := json.Marshal(env)
 	if err != nil {
-		return ev.Message
+		return sub.Body(ev.Message)
 	}
 
 	return string(b)
