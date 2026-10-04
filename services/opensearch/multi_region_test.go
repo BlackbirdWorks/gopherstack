@@ -158,3 +158,50 @@ func TestHandler_MultiRegionLegacyRestore(t *testing.T) {
 	assert.Equal(t, []string{"shared"}, regionDomainNames(t, dst, mrHome))
 	assert.Empty(t, regionDomainNames(t, dst, "eu-west-1"))
 }
+
+func TestHandler_DomainEndpointHostSelectsDomainRegion(t *testing.T) {
+	t.Parallel()
+
+	const (
+		euRegion = "eu-west-1"
+		docPath  = "/2021-01-01/opensearch/domain/shared/index/logs/_doc/1"
+		search   = "/2021-01-01/opensearch/domain/shared/index/logs/_search"
+	)
+
+	const euHost = "search-shared-000000000000.eu-west-1.es.amazonaws.com"
+
+	tests := []struct {
+		name       string
+		host       string
+		wantStatus int
+	}{
+		{name: "eu-endpoint-from-home-request", host: euHost, wantStatus: http.StatusOK},
+		{name: "eu-endpoint-with-port", host: euHost + ":443", wantStatus: http.StatusOK},
+		{
+			name:       "home-endpoint-has-no-domain",
+			host:       "search-shared-000000000000.us-east-1.es.amazonaws.com",
+			wantStatus: http.StatusNotFound,
+		},
+		{name: "plain-host-uses-request-region", host: "localhost:4566", wantStatus: http.StatusNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newMRHandler()
+			regionDo(t, h, euRegion, http.MethodPost, "/2021-01-01/opensearch/domain", domainBody)
+			regionDo(t, h, euRegion, http.MethodPost, "/2021-01-01/opensearch/domain/shared/index/logs", `{}`)
+			regionDo(t, h, euRegion, http.MethodPost, docPath, `{"k":"v"}`)
+
+			req := httptest.NewRequest(http.MethodPost, search, strings.NewReader(`{}`))
+			req.Host = tc.host
+			meta := &awsmeta.Metadata{Region: mrHome, Account: "000000000000"}
+			req = req.WithContext(awsmeta.Set(req.Context(), meta))
+
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(echo.New().NewContext(req, rec)))
+			assert.Equal(t, tc.wantStatus, rec.Code, rec.Body.String())
+		})
+	}
+}

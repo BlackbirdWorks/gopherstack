@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -39,6 +40,10 @@ type regionContextKey struct{}
 func getRegionFromContext(ctx context.Context, defaultRegion string) string {
 	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
 		return region
+	}
+
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
 	}
 
 	return defaultRegion

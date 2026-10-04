@@ -108,6 +108,18 @@ func Set(ctx context.Context, m *Metadata) context.Context {
 	return Key.Set(ctx, m)
 }
 
+// WithRegion returns ctx carrying a copy of its metadata with Region set; an empty region leaves ctx unchanged.
+func WithRegion(ctx context.Context, region string) context.Context {
+	if region == "" {
+		return ctx
+	}
+
+	m := *Get(ctx)
+	m.Region = region
+
+	return Set(ctx, &m)
+}
+
 // Get returns the metadata carried on ctx, or a *Metadata with default Account
 // and Partition fields when none was set. The return is never nil so callers
 // can dereference fields without a guard.

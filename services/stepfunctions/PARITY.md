@@ -1533,3 +1533,7 @@ Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 Emits AWS/States (StateMachineArn; procedure-cw-metrics.html): ExecutionsStarted, ExecutionsSucceeded, ExecutionsFailed, ExecutionsAborted, ExecutionsTimedOut (Express sync timeout) and ExecutionTime (Milliseconds, second-resolution start/stop). Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 integration regions
+
+The SQS service integration sends to the queue in the execution's region and the EventBridge integration puts events in it. Proof: `TestInitializeServices_SQSTargetsUseQueueARNRegion/stepfunctions-execution-region`, `TestInitializeServices_EventBridgePutEventsUseBusARNRegion/stepfunctions-execution-region`.

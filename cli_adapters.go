@@ -12,13 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
-// === Scheduler Runner Adapters ===
-//
-// These adapt service backends to the scheduler.Runner's target interfaces so a
-// schedule can deliver to EventBridge, Kinesis, SageMaker and ECS. Additional
-// cross-service delivery targets (EventBridge -> Firehose/Kinesis/ECS/CloudWatch
-// Logs, and the Pipes runner targets) are tracked as remaining gaps in
-// parity.md and wired in a later pass.
+// Scheduler target adapters; each resolves the target backend from the ARN's region.
 
 type schedEventBusAdapter struct {
 	backend *eventbridge.InMemoryBackend
@@ -30,6 +24,7 @@ func (a *schedEventBusAdapter) PutSchedulerEvent(
 ) error {
 	parts := strings.Split(busARN, "/")
 	busName := parts[len(parts)-1]
+	ctx = inRegion(ctx, arnRegion(busARN))
 
 	now := time.Now()
 	entries := []eventbridge.EventEntry{
@@ -55,8 +50,7 @@ func (a *schedKinesisAdapter) PutSchedulerRecord(
 	streamARN, partitionKey string,
 	data []byte,
 ) error {
-	parts := strings.Split(streamARN, "/")
-	streamName := parts[len(parts)-1]
+	ctx, streamName := kinesisRefContext(ctx, streamARN)
 	_, err := a.backend.PutRecord(ctx, &kinesis.PutRecordInput{
 		StreamName:   streamName,
 		PartitionKey: partitionKey,
@@ -77,6 +71,7 @@ func (a *schedSageMakerAdapter) StartPipelineExecution(
 ) error {
 	parts := strings.Split(pipelineARN, "/")
 	pipelineName := parts[len(parts)-1]
+	ctx = inRegion(ctx, arnRegion(pipelineARN))
 
 	pipelineParams := make([]sagemaker.PipelineParameter, 0, len(params))
 	for name, value := range params {

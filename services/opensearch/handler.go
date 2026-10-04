@@ -497,7 +497,8 @@ func domainNameFromRest(rest string) string {
 
 // Handle satisfies the Echo handler interface.
 func (h *Handler) Handle(c *echo.Context) error {
-	if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+	region := requestRegion(c.Request().Host, awsmeta.Region(c.Request().Context()))
+	if p := h.peers.Get(region); p != nil {
 		return p.Handle(c)
 	}
 

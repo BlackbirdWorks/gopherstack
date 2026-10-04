@@ -151,6 +151,7 @@ import (
 const (
 	keyError                 = "error"
 	keyMessage               = "message"
+	regionQueryParam         = "region"
 	errCognitoIdpUnavailable = "cognito idp backend unavailable"
 	usersResource            = "users"
 )
@@ -1425,6 +1426,16 @@ func (h *DashboardHandler) registerCognitoUserAdminRoutes() {
 	)
 }
 
+// appConfigDataBackend returns the backend of the request's ?region= query parameter (home when absent).
+func (h *DashboardHandler) appConfigDataBackend(c *echo.Context) *appconfigdatabackend.InMemoryBackend {
+	return h.config.AppConfigDataOps.BackendFor(c.QueryParam(regionQueryParam))
+}
+
+// apiGatewayManagementBackend returns the backend of the request's ?region= query parameter (home when absent).
+func (h *DashboardHandler) apiGatewayManagementBackend(c *echo.Context) apigwmgmtbackend.StorageBackend {
+	return h.config.APIGatewayManagementAPIOps.BackendFor(c.QueryParam(regionQueryParam))
+}
+
 // registerAppConfigDataSessionRoutes handles AppConfigData session
 // introspection: list active sessions and end a session.
 func (h *DashboardHandler) registerAppConfigDataSessionRoutes() {
@@ -1435,7 +1446,7 @@ func (h *DashboardHandler) registerAppConfigDataSessionRoutes() {
 
 		return c.JSON(
 			http.StatusOK,
-			map[string]any{"sessions": h.config.AppConfigDataOps.Backend.ListSessionsSafe()},
+			map[string]any{"sessions": h.appConfigDataBackend(c).ListSessionsSafe()},
 		)
 	})
 
@@ -1445,7 +1456,7 @@ func (h *DashboardHandler) registerAppConfigDataSessionRoutes() {
 		}
 
 		token := c.Param("token")
-		if !h.config.AppConfigDataOps.Backend.EndSession(token) {
+		if !h.appConfigDataBackend(c).EndSession(token) {
 			return c.JSON(http.StatusNotFound, map[string]string{keyMessage: "session not found"})
 		}
 
@@ -1463,7 +1474,7 @@ func (h *DashboardHandler) registerAppConfigDataProfileRoutes() {
 
 		return c.JSON(
 			http.StatusOK,
-			map[string]any{"profiles": h.config.AppConfigDataOps.Backend.ListProfiles()},
+			map[string]any{"profiles": h.appConfigDataBackend(c).ListProfiles()},
 		)
 	})
 
@@ -1499,7 +1510,7 @@ func (h *DashboardHandler) registerAppConfigDataProfileRoutes() {
 			req.ContentType = "application/json"
 		}
 
-		if err := h.config.AppConfigDataOps.Backend.SetConfiguration(
+		if err := h.appConfigDataBackend(c).SetConfiguration(
 			req.ApplicationIdentifier,
 			req.EnvironmentIdentifier,
 			req.ConfigurationProfileIdentifier,
@@ -1527,7 +1538,7 @@ func (h *DashboardHandler) registerAppConfigDataProfileRoutes() {
 			})
 		}
 
-		if !h.config.AppConfigDataOps.Backend.DeleteProfile(app, env, profile) {
+		if !h.appConfigDataBackend(c).DeleteProfile(app, env, profile) {
 			return c.JSON(http.StatusNotFound, map[string]string{keyMessage: "profile not found"})
 		}
 
@@ -1545,7 +1556,7 @@ func (h *DashboardHandler) registerAppConfigDataStatsRoute() {
 			})
 		}
 
-		stats := h.config.AppConfigDataOps.Backend.GetStats()
+		stats := h.appConfigDataBackend(c).GetStats()
 		stats.SessionTTL = appconfigdatabackend.DefaultSessionTTL.String()
 		stats.JanitorPeriod = appconfigdatabackend.DefaultJanitorInterval.String()
 
@@ -2196,7 +2207,7 @@ func (h *DashboardHandler) apiGatewayManagementAPICreateConnection(c *echo.Conte
 		userAgent = "test-client/1.0"
 	}
 
-	if _, err := h.config.APIGatewayManagementAPIOps.Backend.CreateConnection(
+	if _, err := h.apiGatewayManagementBackend(c).CreateConnection(
 		connectionID,
 		sourceIP,
 		userAgent,
@@ -2232,7 +2243,7 @@ func (h *DashboardHandler) appConfigDataSetConfiguration(c *echo.Context) error 
 		contentType = "application/json"
 	}
 
-	if err := h.config.AppConfigDataOps.Backend.SetConfiguration(app, env, profile, content, contentType); err != nil {
+	if err := h.appConfigDataBackend(c).SetConfiguration(app, env, profile, content, contentType); err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 

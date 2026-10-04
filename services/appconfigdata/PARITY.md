@@ -206,3 +206,7 @@ Audited the method-value goroutine launch site(s) here; added `leak_main_test.go
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 appconfigdata is region-isolated: deployed configuration and sessions live per region, and a configuration token is only valid in the region that issued it. Each region runs its own session janitor, stopped on Shutdown or restore. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionMissingConfiguration`, `TestHandler_MultiRegionPersistence`, `TestHandler_SiblingJanitorStops`, `TestWireAppConfigDeployments_PublishesToDeploymentRegion`. The harness has no case: the service creates nothing through its own API.
+
+## 2026-10-04 dashboard region
+
+The dashboard's AppConfig Data and API Gateway Management API endpoints take a `?region=` query parameter and use that region's backend (home when absent). Proof: `TestAppConfigDataProfiles_RegionQueryParam`. The SPA does not send the parameter yet.

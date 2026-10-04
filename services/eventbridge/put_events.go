@@ -3,6 +3,7 @@ package eventbridge
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,6 +67,73 @@ func validatePutEventsEntry(e EventEntry) (string, string, bool) {
 // and Detail on every entry (a per-entry InvalidArgument failure, or a
 // whole-request failure if no entry in the batch has all three).
 func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
+	if !hasEventBusARN(entries) || len(entries) > maxPutEventsEntries {
+		return b.putEventsInRegion(ctx, entries)
+	}
+
+	var (
+		regions []string
+		groups  = map[string][]int{}
+		named   = make([]EventEntry, len(entries))
+	)
+
+	for i, e := range entries {
+		region, _, name, ok := parseEventBusARN(e.EventBusName)
+		if ok {
+			e.EventBusName = name
+		} else {
+			region = ""
+		}
+
+		named[i] = e
+
+		if _, seen := groups[region]; !seen {
+			regions = append(regions, region)
+		}
+
+		groups[region] = append(groups[region], i)
+	}
+
+	results := make([]EventResultEntry, len(entries))
+
+	for _, region := range regions {
+		idx := groups[region]
+		sub := make([]EventEntry, len(idx))
+
+		for j, i := range idx {
+			sub[j] = named[i]
+		}
+
+		rctx := ctx
+		if region != "" {
+			rctx = context.WithValue(ctx, regionContextKey{}, region)
+		}
+
+		out, err := b.putEventsInRegion(rctx, sub)
+		if err != nil {
+			return nil, err
+		}
+
+		for j, i := range idx {
+			results[i] = out[j]
+		}
+	}
+
+	return results, nil
+}
+
+// hasEventBusARN reports whether any entry names its bus by ARN.
+func hasEventBusARN(entries []EventEntry) bool {
+	for _, e := range entries {
+		if strings.HasPrefix(e.EventBusName, "arn:") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) putEventsInRegion(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("%w: at least 1 entry is required", ErrInvalidParameter)
 	}

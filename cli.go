@@ -4559,6 +4559,7 @@ func (a *sqsSenderAdapter) SendMessageToQueue(
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:    queueURL,
+		Region:      arnRegion(queueARN),
 		MessageBody: messageBody,
 	})
 
@@ -4578,6 +4579,7 @@ func (a *sqsSenderAdapter) SendMessageWithAttributes(
 
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:          arnToSQSQueueURL(queueARN),
+		Region:            arnRegion(queueARN),
 		MessageBody:       messageBody,
 		MessageAttributes: msgAttrs,
 	})
@@ -4593,6 +4595,7 @@ func (a *sqsSenderAdapter) SendMessageToFIFOQueue(
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:       queueURL,
+		Region:         arnRegion(queueARN),
 		MessageBody:    messageBody,
 		MessageGroupID: messageGroupID,
 	})
@@ -4617,9 +4620,7 @@ type ebKinesisStreamAdapter struct {
 }
 
 func (a *ebKinesisStreamAdapter) PutRecord(ctx context.Context, streamARN, partitionKey, data string) error {
-	// Convert Kinesis stream ARN to stream name (last segment after '/').
-	parts := strings.Split(streamARN, "/")
-	streamName := parts[len(parts)-1]
+	ctx, streamName := kinesisRefContext(ctx, streamARN)
 
 	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 		StreamName:   streamName,
@@ -7212,9 +7213,8 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		if d.kinesis == nil {
 			return nil
 		}
-		// resource is "stream/<name>"
-		streamName := strings.TrimPrefix(resource, "stream/")
-		_, err := d.kinesis.PutRecord(ctx, &kinesisbackend.PutRecordInput{
+		kctx, streamName := kinesisRefContext(ctx, destinationArn)
+		_, err := d.kinesis.PutRecord(kctx, &kinesisbackend.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: "cwlogs",
 			Data:         payload,
@@ -12718,8 +12718,7 @@ type ddbKinesisEmitterAdapter struct {
 func (a *ddbKinesisEmitterAdapter) EmitDynamoDBStreamRecord(
 	streamARN, tableName string, record ddbmodels.StreamRecord,
 ) {
-	parts := strings.Split(streamARN, "/")
-	streamName := parts[len(parts)-1]
+	ctx, streamName := kinesisRefContext(context.Background(), streamARN)
 
 	partitionKey := tableName
 	if keys, err := json.Marshal(record.Keys); err == nil {
@@ -12747,7 +12746,7 @@ func (a *ddbKinesisEmitterAdapter) EmitDynamoDBStreamRecord(
 			return
 		}
 
-		_, _ = a.backend.PutRecord(context.Background(), &kinesisbackend.PutRecordInput{
+		_, _ = a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: partitionKey,
 			Data:         data,
@@ -12772,16 +12771,16 @@ type kinesisStreamReaderAdapter struct {
 const kinesisTrimHorizonIteratorType = "TRIM_HORIZON"
 
 // kinesisRefContext resolves a stream ARN to its region-scoped context and name; a bare name stays as is.
-func kinesisRefContext(ref string) (context.Context, string) {
+func kinesisRefContext(ctx context.Context, ref string) (context.Context, string) {
 	if arnRegion(ref) == "" {
-		return context.Background(), ref
+		return ctx, ref
 	}
 
-	return kinesisbackend.ContextAndNameFromStreamARN(context.Background(), ref)
+	return kinesisbackend.ContextAndNameFromStreamARN(ctx, ref)
 }
 
 func (a *kinesisStreamReaderAdapter) ListShards(streamRef string) ([]string, error) {
-	ctx, streamName := kinesisRefContext(streamRef)
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
 
 	out, err := a.backend.ListShards(ctx, &kinesisbackend.ListShardsInput{StreamName: streamName})
 	if err != nil {
@@ -12797,7 +12796,7 @@ func (a *kinesisStreamReaderAdapter) ListShards(streamRef string) ([]string, err
 }
 
 func (a *kinesisStreamReaderAdapter) GetShardIterator(streamRef, shardID string) (string, error) {
-	ctx, streamName := kinesisRefContext(streamRef)
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
 
 	out, err := a.backend.GetShardIterator(ctx, &kinesisbackend.GetShardIteratorInput{
 		StreamName:        streamName,
@@ -13714,15 +13713,18 @@ func (a *pipesSQSReaderAdapter) ReceivePipeMessages(
 	queueARN string,
 	maxMessages int,
 ) ([]*pipesbackend.SQSMessage, error) {
-	url := arnToSQSQueueURL(queueARN)
-
-	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
+	out, err := a.backend.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
+		QueueURL:            arnToSQSQueueURL(queueARN),
+		Region:              arnRegion(queueARN),
+		MaxNumberOfMessages: maxMessages,
+		VisibilityTimeout:   sqsbackend.NoVisibilityTimeout,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*pipesbackend.SQSMessage, len(msgs))
-	for i, m := range msgs {
+	result := make([]*pipesbackend.SQSMessage, len(out.Messages))
+	for i, m := range out.Messages {
 		result[i] = &pipesbackend.SQSMessage{
 			MessageID:     m.MessageID,
 			ReceiptHandle: m.ReceiptHandle,
@@ -13736,9 +13738,16 @@ func (a *pipesSQSReaderAdapter) ReceivePipeMessages(
 }
 
 func (a *pipesSQSReaderAdapter) DeletePipeMessages(queueARN string, receiptHandles []string) error {
-	url := arnToSQSQueueURL(queueARN)
+	for _, rh := range receiptHandles {
+		err := a.backend.DeleteMessage(&sqsbackend.DeleteMessageInput{
+			QueueURL: arnToSQSQueueURL(queueARN), Region: arnRegion(queueARN), ReceiptHandle: rh,
+		})
+		if err != nil {
+			return err
+		}
+	}
 
-	return a.backend.DeleteMessagesLocal(url, receiptHandles)
+	return nil
 }
 
 // pipesSFNStarterAdapter adapts the StepFunctions InMemoryBackend to the pipes.PipeStepFunctionsStarter interface.
@@ -13759,11 +13768,10 @@ type pipesKinesisReaderAdapter struct {
 	backend *kinesisbackend.InMemoryBackend
 }
 
-func (a *pipesKinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
-	out, err := a.backend.DescribeStream(
-		context.Background(),
-		&kinesisbackend.DescribeStreamInput{StreamName: streamName},
-	)
+func (a *pipesKinesisReaderAdapter) GetShardIDs(streamRef string) ([]string, error) {
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
+
+	out, err := a.backend.DescribeStream(ctx, &kinesisbackend.DescribeStreamInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -13777,9 +13785,11 @@ func (a *pipesKinesisReaderAdapter) GetShardIDs(streamName string) ([]string, er
 }
 
 func (a *pipesKinesisReaderAdapter) GetShardIterator(
-	streamName, shardID, iteratorType, startingSeqNum string,
+	streamRef, shardID, iteratorType, startingSeqNum string,
 ) (string, error) {
-	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
+
+	out, err := a.backend.GetShardIterator(ctx, &kinesisbackend.GetShardIteratorInput{
 		StreamName:             streamName,
 		ShardID:                shardID,
 		ShardIteratorType:      iteratorType,
@@ -13961,6 +13971,7 @@ func (a *pipesSQSSenderAdapter) SendMessage(
 	url := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:               url,
+		Region:                 arnRegion(queueARN),
 		MessageBody:            body,
 		MessageGroupID:         groupID,
 		MessageDeduplicationID: dedupID,
@@ -13976,9 +13987,7 @@ type pipesKinesisPutterAdapter struct {
 }
 
 func (a *pipesKinesisPutterAdapter) PutRecord(ctx context.Context, streamARN, partitionKey string, data []byte) error {
-	// Convert Kinesis stream ARN to stream name (last segment after '/').
-	parts := strings.Split(streamARN, "/")
-	streamName := parts[len(parts)-1]
+	ctx, streamName := kinesisRefContext(ctx, streamARN)
 
 	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 		StreamName:   streamName,
@@ -14003,6 +14012,7 @@ func (a *pipesEventBridgePutterAdapter) PutEvents(
 	// Convert event bus ARN to bus name (last segment after '/').
 	parts := strings.Split(eventBusARN, "/")
 	busName := parts[len(parts)-1]
+	ctx = inRegion(ctx, arnRegion(eventBusARN))
 
 	entries := make([]ebbackend.EventEntry, 0, len(events))
 
@@ -14038,6 +14048,7 @@ func (a *pipesCloudWatchLogsPutterAdapter) PutLogEvents(
 	messages []string,
 ) error {
 	groupName := logGroupNameFromLogsARN(logGroupARN)
+	ctx = inRegion(ctx, arnRegion(logGroupARN))
 	now := time.Now().UnixMilli()
 
 	events := make([]cwlogsbackend.InputLogEvent, len(messages))

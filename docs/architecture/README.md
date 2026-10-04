@@ -114,6 +114,10 @@ credential scope, then `X-Amz-Region`, then the configured default, and stores i
   SWF and Resilience Hub resources in the stack's region. The tagging bridge also follows the region for Macie, Managed Blockchain,
   MediaConvert, MediaPackage, MediaTailor, OpsWorks, Personalize, Pinpoint, RAM, Rekognition, S3 Tables, Identity Center, SWF, Timestream
   Write, Transcribe, Translate, Verified Permissions, MGN, Outposts and Resilience Hub. QLDB and QLDB Session are removed (AWS end of support).
+- **Targets and sources follow the ARN's region** (2026-10-04): Scheduler, Pipes, EventBridge, S3 notifications, SNS dead-letter queues and Step Functions
+  reach the SQS queue, Kinesis stream, event bus, log group or SageMaker pipeline of the ARN (Step Functions: the execution) region. EventBridge `PutEvents`
+  accepts a bus ARN, and a domain-endpoint Host selects the OpenSearch domain's region. The dashboard AppConfig Data and API Gateway Management API
+  endpoints take `?region=`.
 - **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
   regions collide); a `knownCollision` case there fails once such a service is fixed.
 

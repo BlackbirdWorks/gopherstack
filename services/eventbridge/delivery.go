@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
@@ -946,7 +947,7 @@ func deliverToCloudWatchLogs(ctx context.Context, svc CloudWatchLogsPublisher, a
 	}
 	logGroupName := parts[6]
 
-	err := svc.PutLogEvents(ctx, logGroupName, "EventBridge", []any{payload})
+	err := svc.PutLogEvents(awsmeta.WithRegion(ctx, parts[3]), logGroupName, "EventBridge", []any{payload})
 
 	return err != nil
 }

@@ -1630,3 +1630,7 @@ Fixed: the in-process _search match query is token based (lowercase alphanumeric
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 OpenSearch is region-isolated: each non-home region gets a lazily built sibling `Handler` (own domains, packages, applications, collections; region-correct ARNs) via `pkgs/regionpeers`, inheriting the DNS registrar, processing delay and clock. Firehose delivers to the domain named by the destination's domain ARN region (`firehose.RegionalOpenSearchIndexer`). Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestFirehoseOpenSearchAdapter_IndexesInDomainARNRegion`, `TestRegionIsolation/opensearch`. Limitation: data-plane document calls are routed by request region only.
+
+## 2026-10-04 domain endpoint region
+
+A request whose Host is a domain endpoint (`search-name-acct.region.es.amazonaws.com`) resolves the domain in the endpoint's region, not the signing region; this supersedes the 2026-10-04 multi-region limitation above. Proof: `TestHandler_DomainEndpointHostSelectsDomainRegion`.

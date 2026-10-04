@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -23,6 +24,10 @@ func contextWithRegion(ctx context.Context, region string) context.Context {
 // getRegion extracts the region from ctx, falling back to defaultRegion when unset.
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	if r := awsmeta.Region(ctx); r != "" {
 		return r
 	}
 

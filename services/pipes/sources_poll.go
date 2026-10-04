@@ -86,7 +86,7 @@ func (r *Runner) pollKinesisPipe(ctx context.Context, p *Pipe) {
 		return
 	}
 
-	shardIDs, err := r.kinesisReader.GetShardIDs(streamName)
+	shardIDs, err := r.kinesisReader.GetShardIDs(p.Source)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to get Kinesis shard IDs",
 			"pipe", p.Name, "source", p.Source, "error", err)
@@ -108,7 +108,7 @@ func (r *Runner) pollKinesisShard(ctx context.Context, p *Pipe, shardID, startin
 	it, exists := r.shardIterators.Get(iterKey)
 	if !exists {
 		newIt, err := r.kinesisReader.GetShardIterator(
-			kinesisStreamNameFromARN(p.Source), shardID, startingPosition, "",
+			p.Source, shardID, startingPosition, "",
 		)
 		if err != nil {
 			logger.Load(ctx).WarnContext(ctx, "pipes: failed to get Kinesis shard iterator",

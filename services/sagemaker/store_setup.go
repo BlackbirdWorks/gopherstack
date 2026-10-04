@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -15,6 +16,10 @@ type regionContextKey struct{}
 // getRegion extracts the region from ctx, falling back to defaultRegion when unset.
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	if r := awsmeta.Region(ctx); r != "" {
 		return r
 	}
 

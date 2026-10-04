@@ -33,12 +33,13 @@ func NewSQSIntegration(backend sqs.StorageBackend) asl.SQSIntegration {
 
 // SFNSendMessage implements asl.SQSIntegration.
 func (a *sqsAdapter) SFNSendMessage(
-	_ context.Context,
+	ctx context.Context,
 	queueURL, messageBody, groupID, deduplicationID string,
 	delaySeconds int,
 ) (string, string, error) {
 	out, err := a.backend.SendMessage(&sqs.SendMessageInput{
 		QueueURL:               queueURL,
+		Region:                 awsmeta.Region(ctx),
 		MessageBody:            messageBody,
 		MessageGroupID:         groupID,
 		MessageDeduplicationID: deduplicationID,

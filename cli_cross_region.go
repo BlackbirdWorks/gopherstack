@@ -35,14 +35,7 @@ func originRegion(ctx context.Context, arns ...string) string {
 
 // inRegion returns ctx carrying region; an empty region leaves ctx unchanged.
 func inRegion(ctx context.Context, region string) context.Context {
-	if region == "" {
-		return ctx
-	}
-
-	m := *awsmeta.Get(ctx)
-	m.Region = region
-
-	return awsmeta.Set(ctx, &m)
+	return awsmeta.WithRegion(ctx, region)
 }
 
 // regionalMetricEmitter publishes a metric to the CloudWatch backend of the emitting resource's region.

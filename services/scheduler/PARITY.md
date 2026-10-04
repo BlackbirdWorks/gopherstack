@@ -770,3 +770,7 @@ snapshot changes.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/scheduler`. Targets route Lambda and ECS by ARN region.
+
+## 2026-10-04 target regions
+
+SQS (incl. FIFO), Kinesis, EventBridge and SageMaker targets resolve their backend from the target ARN's region (else the caller's context region); no longer the home backend. Proof: `TestInitializeServices_SQSTargetsUseQueueARNRegion`, `TestInitializeServices_KinesisTargetsUseStreamARNRegion`, `TestInitializeServices_EventBridgePutEventsUseBusARNRegion`, `TestInitializeServices_SchedulerSageMakerPipelineUsesARNRegion`.

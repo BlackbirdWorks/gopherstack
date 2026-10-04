@@ -134,10 +134,10 @@ type KinesisRecord struct {
 
 // PipeKinesisReader reads records from a Kinesis stream for a pipe source.
 type PipeKinesisReader interface {
-	// GetShardIDs returns the shard IDs for the given stream.
-	GetShardIDs(streamName string) ([]string, error)
-	// GetShardIterator returns an iterator token for a shard.
-	GetShardIterator(streamName, shardID, iteratorType, startingSeqNum string) (string, error)
+	// GetShardIDs returns the shard IDs for the stream ARN.
+	GetShardIDs(streamARN string) ([]string, error)
+	// GetShardIterator returns an iterator token for a shard of the stream ARN.
+	GetShardIterator(streamARN, shardID, iteratorType, startingSeqNum string) (string, error)
 	// GetRecords reads up to limit records from the given iterator, returning
 	// records and the next iterator token.
 	GetRecords(iteratorToken string, limit int) ([]KinesisRecord, string, error)
