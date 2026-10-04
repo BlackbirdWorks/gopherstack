@@ -532,7 +532,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 5 gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 6 gaps |
+| [RDS](services/rds/README.md) | A | 52 | 7 gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 4 gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 3 gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 5 gaps; 1 deferred |
@@ -708,7 +708,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
-| [Database Migration Service](services/dms/README.md) | A | 97 | 4 gaps |
+| [Database Migration Service](services/dms/README.md) | A | 97 | 5 gaps |
 | [Transfer Family](services/transfer/README.md) | A | — | 20 families |
 
 ### Azure

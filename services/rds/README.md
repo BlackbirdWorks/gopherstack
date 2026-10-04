@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 52 (51 ok, 1 partial) |
 | Feature families | 28 (27 ok, 1 partial) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
+- "OPEN 2026-10-04 (gopherstack-1jkv): two different roles added to a cluster with FeatureName omitted on both coexist (placeholder); the pinned SDK documents no collision rule and real-AWS evidence is needed."
 - "OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record a MasterUserSecret (ARN, status, KMS key) on instances, clusters and tenant databases, but no secret is created in services/secretsmanager (rds has no sibling accessor), RotateMasterUserPassword is unread, and an unset MasterUserSecretKmsKeyId leaves KmsKeyId empty rather than the aws/secretsmanager key ARN."
 - "OPEN 2026-10-03: with --rds-engine=docker read replicas, restore-based instances, custom cluster endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only. Restore relaunches empty containers."
 - "OPEN: DescribeDBClusterSnapshots/DescribeDBSnapshots .IncludePublic/.IncludeShared are dropped; single-account backend has no cross-account snapshot data to reveal."
