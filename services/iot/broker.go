@@ -352,17 +352,19 @@ func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet,
 	received := time.Now()
 
 	for _, rule := range h.allRules() {
-		if !EvaluateRule(rule, pk.TopicName, pk.Payload) {
+		region, account := ruleRegionAccount(rule.ARN)
+		msg := &ruleMessage{
+			received: received, topic: pk.TopicName, clientID: publisherID(pk.Origin),
+			region: region, account: account, payload: pk.Payload, original: pk.Payload, hops: hops,
+		}
+
+		if !rule.fire(msg) {
 			continue
 		}
 
 		log.Info("iot rule matched", "rule", rule.RuleName, "topic", pk.TopicName)
 
-		region, account := ruleRegionAccount(rule.ARN)
-		h.dispatchActions(rule, dispatcher, &ruleMessage{
-			received: received, topic: pk.TopicName, clientID: publisherID(pk.Origin),
-			region: region, account: account, payload: pk.Payload, hops: hops,
-		})
+		h.dispatchActions(rule, dispatcher, msg)
 	}
 
 	return pk, nil

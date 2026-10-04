@@ -1,15 +1,10 @@
 package iot
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 var (
@@ -25,6 +20,7 @@ type ruleMessage struct {
 	region   string
 	account  string
 	payload  []byte
+	original []byte
 	hops     int
 }
 
@@ -57,133 +53,30 @@ func (m *ruleMessage) expand(tmpl string) (string, error) {
 	}
 }
 
+// eval evaluates one template expression with the full SQL expression grammar.
 func (m *ruleMessage) eval(expr string) (string, error) {
-	open := strings.Index(expr, "(")
-	if open > 0 && strings.HasSuffix(expr, ")") {
-		return m.call(strings.ToLower(expr[:open]), strings.TrimSpace(expr[open+1:len(expr)-1]))
+	p := newSQLParser(expr, true)
+	n := p.parseExpr()
+
+	if p.err == nil && p.tok.kind != tokEOF {
+		p.fail("unexpected " + p.tok.text)
 	}
 
-	return m.field(expr)
+	if p.err != nil {
+		return "", fmt.Errorf("%w: %w", errTemplate, p.err)
+	}
+
+	return renderTemplateValue(n.eval(newSQLCtx(m, sqlVersion2016, true)))
 }
 
-func (m *ruleMessage) call(name, arg string) (string, error) {
-	switch name {
-	case "topic":
-		return m.topicSegment(arg)
-	case "timestamp":
-		return strconv.FormatInt(m.received.UnixMilli(), 10), nil
-	case "clientid":
-		return m.clientID, nil
-	case "newuuid":
-		return uuid.NewString(), nil
-	case "accountid":
-		return m.account, nil
-	default:
-		return "", fmt.Errorf("%w: unsupported function %s()", errTemplate, name)
-	}
-}
-
-func (m *ruleMessage) topicSegment(arg string) (string, error) {
-	if arg == "" {
-		return m.topic, nil
-	}
-
-	n, err := strconv.Atoi(arg)
-	if err != nil || n < 1 {
-		return "", fmt.Errorf("%w: topic() takes a segment number from 1", errTemplate)
-	}
-
-	segments := strings.Split(m.topic, "/")
-	if n > len(segments) {
-		return "", fmt.Errorf("%w: topic(%d)", errTemplateUndefined, n)
-	}
-
-	return segments[n-1], nil
-}
-
-// field resolves a dotted payload path such as a.b[0].c.
-func (m *ruleMessage) field(path string) (string, error) {
-	cur, err := m.decoded()
-	if err != nil {
-		return "", err
-	}
-
-	for seg := range strings.SplitSeq(path, ".") {
-		name, idx, hasIdx, perr := splitIndex(seg)
-		if perr != nil {
-			return "", perr
-		}
-
-		if name != "" {
-			obj, ok := cur.(map[string]any)
-			if !ok {
-				return "", errTemplateUndefined
-			}
-
-			if cur, ok = obj[name]; !ok {
-				return "", errTemplateUndefined
-			}
-		}
-
-		if hasIdx {
-			arr, ok := cur.([]any)
-			if !ok || idx >= len(arr) {
-				return "", errTemplateUndefined
-			}
-
-			cur = arr[idx]
-		}
-	}
-
-	return renderValue(cur)
-}
-
-func (m *ruleMessage) decoded() (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(m.payload))
-	dec.UseNumber()
-
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, errTemplateUndefined
-	}
-
-	return v, nil
-}
-
-func splitIndex(seg string) (string, int, bool, error) {
-	open := strings.Index(seg, "[")
-	if open < 0 {
-		return seg, 0, false, nil
-	}
-
-	if !strings.HasSuffix(seg, "]") {
-		return "", 0, false, fmt.Errorf("%w: bad index in %q", errTemplate, seg)
-	}
-
-	idx, err := strconv.Atoi(seg[open+1 : len(seg)-1])
-	if err != nil || idx < 0 {
-		return "", 0, false, fmt.Errorf("%w: bad index in %q", errTemplate, seg)
-	}
-
-	return seg[:open], idx, true, nil
-}
-
-func renderValue(v any) (string, error) {
-	switch t := v.(type) {
-	case string:
-		return t, nil
-	case json.Number:
-		return t.String(), nil
-	case bool:
-		return strconv.FormatBool(t), nil
-	case nil:
+func renderTemplateValue(v any) (string, error) {
+	if v == nil || isUndef(v) {
 		return "", errTemplateUndefined
-	default:
-		b, err := json.Marshal(t)
-		if err != nil {
-			return "", fmt.Errorf("%w: %w", errTemplate, err)
-		}
-
-		return string(b), nil
 	}
+
+	if s, ok := toStringConv(v); ok {
+		return s, nil
+	}
+
+	return "", errTemplateUndefined
 }

@@ -233,12 +233,15 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 		// not sql -- a different shape from the full TopicRule GetTopicRule
 		// returns. Every real client's TopicPattern decoded empty before this
 		// fix.
-		parsed, _ := ParseRuleSQL(r.SQL)
+		topicPattern := ""
+		if parsed, perr := ParseRuleSQLVersion(r.SQL, r.AWSIoTSQLVersion); perr == nil {
+			topicPattern = parsed.TopicPattern
+		}
 
 		out = append(out, map[string]any{
 			keyRuleName:    r.RuleName,
 			"ruleArn":      r.ARN,
-			"topicPattern": parsed.TopicPattern,
+			"topicPattern": topicPattern,
 			"ruleDisabled": !r.Enabled,
 			keyCreatedAt:   awstime.Epoch(r.CreatedAt),
 		})

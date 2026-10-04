@@ -13,7 +13,7 @@ func TestRuleMessageExpand(t *testing.T) {
 
 	msg := &ruleMessage{
 		received: time.UnixMilli(1700000000123), topic: "a/b/c", clientID: "dev-1", account: "123456789012",
-		payload: []byte(`{"id":"x","n":7,"f":1.5,"ok":true,"o":{"k":"v"},"l":[{"z":"first"}],"nul":null}`),
+		original: []byte(`{"id":"x","n":7,"f":1.5,"ok":true,"o":{"k":"v"},"l":[{"z":"first"}],"nul":null}`),
 	}
 
 	tests := []struct {
@@ -36,7 +36,7 @@ func TestRuleMessageExpand(t *testing.T) {
 		{name: "null_field", tmpl: "${nul}", wantErr: errTemplateUndefined},
 		{name: "unsupported_function", tmpl: "${nope()}", wantErr: errTemplate},
 		{name: "unterminated", tmpl: "${id", wantErr: errTemplate},
-		{name: "bad_topic_arg", tmpl: "${topic(x)}", wantErr: errTemplate},
+		{name: "bad_topic_arg", tmpl: "${topic(x)}", wantErr: errTemplateUndefined},
 	}
 
 	for _, tt := range tests {
@@ -85,4 +85,35 @@ func TestRuleMessageBatchElements(t *testing.T) {
 			assert.Equal(t, tt.want, strs)
 		})
 	}
+}
+
+func TestRuleMessageExpandUsesOriginalPayload(t *testing.T) {
+	t.Parallel()
+
+	msg := &ruleMessage{
+		topic: "a/b", original: []byte(`{"id":"x","n":2}`), payload: []byte(`{"renamed":"x"}`),
+	}
+
+	tests := []struct {
+		name string
+		tmpl string
+		want string
+	}{
+		{name: "original_field", tmpl: "${id}", want: "x"},
+		{name: "expression", tmpl: "${n * 3}-${upper(id)}", want: "6-X"},
+		{name: "projected_alias_not_visible", tmpl: "${topic(1)}", want: "a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := msg.expand(tt.tmpl)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	_, err := msg.expand("${renamed}")
+	require.ErrorIs(t, err, errTemplateUndefined)
 }

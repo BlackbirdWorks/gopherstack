@@ -92,7 +92,11 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 
 	sqlVersion := payload.AWSIoTSQLVersion
 	if sqlVersion == "" {
-		sqlVersion = "2015-10-08"
+		sqlVersion = sqlVersion2015
+	}
+
+	if err := validateRuleSQL(payload.SQL, sqlVersion); err != nil {
+		return err
 	}
 
 	b.rules.Put(&TopicRule{
@@ -208,7 +212,11 @@ func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
 
 	sqlVersion := payload.AWSIoTSQLVersion
 	if sqlVersion == "" {
-		sqlVersion = "2015-10-08"
+		sqlVersion = sqlVersion2015
+	}
+
+	if err := validateRuleSQL(payload.SQL, sqlVersion); err != nil {
+		return err
 	}
 
 	r.SQL = payload.SQL
@@ -432,6 +440,18 @@ func validateInfluxDBConfiguration(c *InfluxDBDestinationProperties) error {
 	}
 	if c.SecretType != "" && c.SecretType != "SecretString" && c.SecretType != "SecretBinary" {
 		return fmt.Errorf("%w: invalid secretType %q", ErrValidation, c.SecretType)
+	}
+
+	return nil
+}
+
+func validateRuleSQL(sql, version string) error {
+	if !validSQLVersion(version) {
+		return fmt.Errorf("%w: unsupported awsIotSqlVersion %q", ErrValidation, version)
+	}
+
+	if _, err := ParseRuleSQLVersion(sql, version); err != nil {
+		return err
 	}
 
 	return nil

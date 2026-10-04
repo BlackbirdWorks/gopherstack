@@ -292,7 +292,8 @@ items_still_open:
   - "ClientRequestToken idempotency (CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask) is not honored: the pinned SDK docs contradict each other (CreateCustomMetric: a different token on an existing name errors; CreateDimension/AuditSuppression/Start*Task: the same token errors) and name no exception type, so any replay semantics would be invented. Duplicate names/taskIds already return ResourceAlreadyExists/TaskAlreadyExists."
   - "DeleteOTAUpdate's ForceDeleteAWSJob/DeleteStream are not honored: CreateOTAUpdate fabricates the AWS job id and never creates a Job or an OTA-owned stream (needs a real OTA job/stream pipeline), and the SDK names no exception for the non-terminal-job case."
   - "Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path)."
-  - "Rule actions http, timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (http needs the destination confirmation workflow; the others have no data-plane backend). The rule SQL SELECT clause is not applied: actions and ${...} templates see the raw published payload. Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId."
+  - "Rule actions http, timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (http needs the destination confirmation workflow; the others have no data-plane backend). Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId."
+  - "Rule SQL engine (sql_*.go) not modeled: SET variables, md2(), parse_time/time_to_epoch, transform(), aws_lambda/get_dynamodb/get_thing_shadow/get_registry_data/get_secret/get_mqtt_property/get_user_properties/principal/traceid/sourceip and decode(...,'proto') (unknown or unsupported functions fail CreateTopicRule/ReplaceTopicRule with SqlParseException); Int/Int division returns a Decimal when inexact; unaliased non-field SELECT items are keyed by their source text; Basic Ingest $aws/rules/ topics are not unwrapped."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -301,6 +302,41 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+## 2026-10-03: Rule SQL engine (gopherstack-o321h)
+
+The rules engine now implements the AWS IoT SQL reference
+(docs.aws.amazon.com/iot/latest/developerguide/iot-sql-reference.html) as a
+recursive-descent parser + evaluator (sql_lexer/parser/eval/ops/select/value.go,
+sql_funcs*.go). awsIotSqlVersion is honoured: 2015-10-08 (the API default) keeps
+whole decimals as Decimal, rejects nested SELECT, SELECT VALUE of an array and the
+2016-only functions; 2016-03-23 and beta fold whole decimals into Int
+(iot-sql-data-types, iot-rule-sql-version, iot-sql-nested-queries).
+
+- SELECT: `*`, field lists, AS (dotted aliases nest), a.b[0] paths, literals
+  (number/string/bool/NULL/UNDEFINED/array/object), SELECT VALUE, CASE
+  (iot-sql-case), nested `(SELECT ... FROM path [AS a] [WHERE])`, EXISTS and IN.
+  Undefined members are omitted (iot-sql-data-types). Lone `SELECT *` passes the
+  raw bytes through, so binary payloads survive; field access on non-JSON is Undefined.
+- Operators (iot-sql-operators): AND OR NOT, = <> != < <= > >=, + - * / %,
+  unary minus, with the documented string/number coercions and Undefined results.
+- Functions: abs acos asin atan atan2 bitand bitor bitxor bitnot ceil cos cosh exp
+  floor ln log mod power remainder round sign sin sinh sqrt tan tanh trunc rand nanvl;
+  chr concat endswith startswith indexof length numbytes lower upper lpad rpad ltrim
+  rtrim trim replace regexp_matches regexp_replace regexp_substr substring; cast
+  get get_or_default isNull isUndefined encode decode(base64) topic timestamp clientid
+  newuuid accountid sql_version md5 sha1 sha224 sha256 sha384 sha512
+  (iot-sql-functions).
+- FROM: quoted or bare topic filter with + and #; WHERE shares the expression
+  language and an Undefined/non-true result suppresses the actions.
+- The projected result is the payload for every action; ${...} templates are
+  evaluated against the original message, not the SELECT result
+  (iot-substitution-templates) and now accept the full expression grammar.
+- Invalid SQL at CreateTopicRule/ReplaceTopicRule returns SqlParseException (400),
+  declared by iot@v1.83.0 types.SqlParseException on both operations.
+
+Tests: sql_engine_whitebox_test.go, rules_test.go, rule_templates_whitebox_test.go,
+cli_iot_rule_sql_test.go (typed-SDK delivery to SQS and SqlParseException).
 
 ## 2026-10-03: Rule action roles under --enforce-iam
 

@@ -119,7 +119,7 @@ func (h *ruleHook) runErrorAction(
 	body, err := json.Marshal(map[string]string{
 		keyRuleName:             rule.RuleName,
 		"topic":                 msg.topic,
-		"base64OriginalPayload": base64.StdEncoding.EncodeToString(msg.payload),
+		"base64OriginalPayload": base64.StdEncoding.EncodeToString(msg.original),
 		"failedAction":          failedAction,
 		"failedActionReason":    "Failed to run action. Message: " + cause.Error(),
 	})

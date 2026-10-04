@@ -71,6 +71,9 @@ func writeIoTError(c *echo.Context, err error) error {
 	// ResourceNotFoundException case -- this family's real vocabulary has
 	// no not-found type at all; InvalidRequestException is the only
 	// declared client-fault type available.
+	case errors.Is(err, ErrSQLParse):
+
+		return c.JSON(http.StatusBadRequest, awsErrBody{"SqlParseException", err.Error()})
 	case errors.Is(err, ErrValidation),
 		errors.Is(err, ErrRuleNotFound),
 		errors.Is(err, ErrTopicRuleDestinationNotFound):

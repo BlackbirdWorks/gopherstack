@@ -67,7 +67,7 @@ func (a *RuleAction) UnmarshalJSON(data []byte) error {
 	}
 	*a = RuleAction{}
 	for k, v := range raw {
-		if string(v) == "null" {
+		if string(v) == jsonNull {
 			continue
 		}
 		var err error
