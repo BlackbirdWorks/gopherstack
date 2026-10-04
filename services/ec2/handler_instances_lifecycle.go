@@ -349,6 +349,11 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		ids[i] = inst.ID
 	}
 
+	// Render from locked copies: the lifecycle reconciler mutates stored instances concurrently.
+	if fresh := h.Backend.DescribeInstances(ids, ""); len(fresh) == len(instances) {
+		instances = fresh
+	}
+
 	tagsByID := h.Backend.TagsForResources(ids)
 	iamProfiles := h.iamProfilesByInstance()
 	sgNames := securityGroupNamesFor(h.Backend, instances)
