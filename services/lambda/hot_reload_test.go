@@ -84,13 +84,13 @@ func TestHotReload_RecyclesRuntimeOnChange(t *testing.T) {
 	}{
 		{
 			name:           "unchanged_reuses_container",
-			portStart:      19500,
+			portStart:      22000,
 			mutate:         func(*testing.T, string) {},
 			wantContainers: 1,
 		},
 		{
 			name:      "edited_file_recycles",
-			portStart: 19530,
+			portStart: 22030,
 			mutate: func(t *testing.T, dir string) {
 				t.Helper()
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "index.py"), []byte("v2 changed"), 0o600))
@@ -99,7 +99,7 @@ func TestHotReload_RecyclesRuntimeOnChange(t *testing.T) {
 		},
 		{
 			name:      "new_file_recycles",
-			portStart: 19560,
+			portStart: 22060,
 			mutate: func(t *testing.T, dir string) {
 				t.Helper()
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "helper.py"), []byte("x"), 0o600))
