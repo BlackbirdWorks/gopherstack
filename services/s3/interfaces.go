@@ -221,6 +221,10 @@ type StorageBackend interface {
 
 	// Session (S3 Express One Zone)
 	CreateSession(ctx context.Context, bucket string, sessionMode types.SessionMode) (SessionCredentials, error)
+	CreateSessionWithEncryption(
+		ctx context.Context, bucket string, sessionMode types.SessionMode, enc SessionEncryption,
+	) (SessionCredentials, error)
+	ExpressSessionEncryption(accessKeyID, sessionToken string) (SessionEncryption, bool)
 	ExpressSessionSecret(accessKeyID, sessionToken string) (bucket, secret string, ok bool)
 	IsDirectoryBucket(bucket string) bool
 

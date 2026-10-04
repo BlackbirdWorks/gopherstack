@@ -79,6 +79,8 @@ func (h *S3Handler) verifyHeaderAuth(
 		return true
 	}
 
+	h.applySessionEncryptionDefaults(r, scope.accessKeyID)
+
 	// "s3express" is the signing name every S3 Express One Zone request uses
 	// (CreateSession and any Zonal endpoint operation on a directory bucket --
 	// s3@v1.111.0 internal/customizations/express_signer.go,

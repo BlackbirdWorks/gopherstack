@@ -1720,3 +1720,7 @@ Emits AWS/S3 request metrics (BucketName+FilterId; metrics-dimensions.html) only
 ## 2026-10-04 (gopherstack-9lr6d, notification region)
 
 Notification payloads carry the bucket's region in `awsRegion` (was the dispatcher's default region) and the dispatch context carries it, so S3 to EventBridge files the event on the bucket region's default bus. Proof: `TestNotificationDispatch_UsesBucketRegion`.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+CreateSession now validates and echoes its SSE members (ServerSideEncryption AES256/aws:kms, SSEKMSKeyId required for aws:kms, SSEKMSEncryptionContext limited to the bucket-ARN default for directory buckets, BucketKeyEnabled), stores them on the session, and applies the algorithm/key/context as defaults to header-signed PUTs made with that session's token when the request names no SSE. SessionMode ReadOnly is still not enforced. Proof: `TestCreateSession_EncryptionHeaders`, `TestCreateSession_EncryptionAppliedToObjects`.

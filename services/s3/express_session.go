@@ -3,8 +3,13 @@ package s3
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -34,11 +39,20 @@ type SessionCredentials struct {
 	SessionToken    string
 }
 
+// SessionEncryption is the default server-side encryption a CreateSession applies to objects stored through it.
+type SessionEncryption struct {
+	BucketKeyEnabled *bool
+	Algorithm        string
+	KMSKeyID         string
+	KMSContext       string
+}
+
 // expressSession is the backend-side record for a live SessionCredentials,
 // keyed by AccessKeyID so verifyHeaderAuth can look it up from the
 // Authorization header's Credential without also parsing the session token.
 type expressSession struct {
 	expiresAt time.Time
+	enc       SessionEncryption
 	bucket    string
 	secret    string
 	token     string
@@ -74,7 +88,14 @@ func randomHex(n int) string {
 // actual operation (CreateBucket, PutObject, etc.), just not by this
 // bootstrapping step.
 func (b *InMemoryBackend) CreateSession(
-	_ context.Context, bucketName string, _ types.SessionMode,
+	ctx context.Context, bucketName string, mode types.SessionMode,
+) (SessionCredentials, error) {
+	return b.CreateSessionWithEncryption(ctx, bucketName, mode, SessionEncryption{})
+}
+
+// CreateSessionWithEncryption is CreateSession with a session-level default SSE configuration.
+func (b *InMemoryBackend) CreateSessionWithEncryption(
+	_ context.Context, bucketName string, _ types.SessionMode, enc SessionEncryption,
 ) (SessionCredentials, error) {
 	b.sweepExpiredSessions()
 
@@ -87,6 +108,7 @@ func (b *InMemoryBackend) CreateSession(
 	}
 
 	b.expressSessions.Set(creds.AccessKeyID, expressSession{
+		enc:       enc,
 		bucket:    bucketName,
 		secret:    creds.SecretAccessKey,
 		token:     creds.SessionToken,
@@ -136,6 +158,22 @@ func (b *InMemoryBackend) ExpressSessionSecret(accessKeyID, sessionToken string)
 	return sess.bucket, sess.secret, true
 }
 
+// ExpressSessionEncryption returns the SSE defaults of a live session.
+func (b *InMemoryBackend) ExpressSessionEncryption(accessKeyID, sessionToken string) (SessionEncryption, bool) {
+	sess, found := b.expressSessions.Get(accessKeyID)
+	if !found || sess.token != sessionToken || time.Now().After(sess.expiresAt) {
+		return SessionEncryption{}, false
+	}
+
+	enc := sess.enc
+	if enc.BucketKeyEnabled != nil {
+		v := *enc.BucketKeyEnabled
+		enc.BucketKeyEnabled = &v
+	}
+
+	return enc, true
+}
+
 // IsDirectoryBucket reports whether bucket is an S3 Express directory
 // bucket. Returns false for general-purpose buckets and for buckets that
 // don't exist (existence is the caller's own concern).
@@ -149,4 +187,119 @@ func (b *InMemoryBackend) IsDirectoryBucket(bucketName string) bool {
 	}
 
 	return bucket.IsDirectoryBucket
+}
+
+const (
+	headerSessionBucketKey = "X-Amz-Server-Side-Encryption-Bucket-Key-Enabled"
+	sseAlgorithmAES256     = "AES256"
+	sseAlgorithmKMS        = "aws:kms"
+	sseContextARNKey       = "aws:s3:arn"
+)
+
+// parseSessionEncryption reads and validates the CreateSession SSE headers (s3@v1.111.0 api_op_CreateSession.go).
+func parseSessionEncryption(r *http.Request, bucket string) (SessionEncryption, error) {
+	enc := SessionEncryption{
+		Algorithm:  r.Header.Get(headerSSEAlgorithm),
+		KMSKeyID:   r.Header.Get(headerSSEKMSKeyID),
+		KMSContext: r.Header.Get(headerSSEKMSEncryptionContext),
+	}
+
+	if v := r.Header.Get(headerSessionBucketKey); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return enc, fmt.Errorf("%w: invalid %s", ErrInvalidArgument, headerSessionBucketKey)
+		}
+
+		enc.BucketKeyEnabled = &parsed
+	}
+
+	switch enc.Algorithm {
+	case "", sseAlgorithmAES256:
+	case sseAlgorithmKMS:
+		if enc.KMSKeyID == "" {
+			return enc, fmt.Errorf(
+				"%w: x-amz-server-side-encryption-aws-kms-key-id is required with aws:kms",
+				ErrInvalidArgument,
+			)
+		}
+	default:
+		return enc, fmt.Errorf("%w: x-amz-server-side-encryption must be AES256 or aws:kms", ErrInvalidArgument)
+	}
+
+	if enc.KMSKeyID != "" && enc.Algorithm != sseAlgorithmKMS {
+		return enc, fmt.Errorf("%w: a KMS key id requires x-amz-server-side-encryption: aws:kms", ErrInvalidArgument)
+	}
+
+	if enc.KMSContext != "" {
+		if err := validateSessionEncryptionContext(enc.KMSContext, bucket); err != nil {
+			return enc, err
+		}
+	}
+
+	return enc, nil
+}
+
+// validateSessionEncryptionContext accepts only the default context (the bucket ARN) for directory buckets.
+func validateSessionEncryptionContext(encoded, bucket string) error {
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return fmt.Errorf("%w: encryption context must be base64-encoded JSON", ErrInvalidArgument)
+	}
+
+	var kv map[string]string
+	if err = json.Unmarshal(raw, &kv); err != nil {
+		return fmt.Errorf("%w: encryption context must be a JSON object of strings", ErrInvalidArgument)
+	}
+
+	for k, v := range kv {
+		if k != sseContextARNKey || !strings.HasSuffix(v, "bucket/"+bucket) {
+			return fmt.Errorf(
+				"%w: only the default encryption context (the bucket ARN) is supported for directory buckets",
+				ErrInvalidArgument,
+			)
+		}
+	}
+
+	return nil
+}
+
+func setSessionEncryptionHeaders(w http.ResponseWriter, enc SessionEncryption) {
+	if enc.Algorithm != "" {
+		w.Header().Set(headerSSEAlgorithm, enc.Algorithm)
+	}
+
+	if enc.KMSKeyID != "" {
+		w.Header().Set(headerSSEKMSKeyID, enc.KMSKeyID)
+	}
+
+	if enc.KMSContext != "" {
+		w.Header().Set(headerSSEKMSEncryptionContext, enc.KMSContext)
+	}
+
+	if enc.BucketKeyEnabled != nil {
+		w.Header().Set(headerSessionBucketKey, strconv.FormatBool(*enc.BucketKeyEnabled))
+	}
+}
+
+// applySessionEncryptionDefaults fills absent SSE request headers from the session's CreateSession settings.
+func (h *S3Handler) applySessionEncryptionDefaults(r *http.Request, accessKeyID string) {
+	token := r.Header.Get(headerAmzSessionToken)
+	if token == "" || r.Method != http.MethodPut || r.Header.Get(headerSSEAlgorithm) != "" {
+		return
+	}
+
+	enc, ok := h.Backend.ExpressSessionEncryption(accessKeyID, token)
+	if !ok || enc.Algorithm == "" {
+		return
+	}
+
+	r.Header.Set(headerSSEAlgorithm, enc.Algorithm)
+
+	if enc.KMSKeyID != "" {
+		r.Header.Set(headerSSEKMSKeyID, enc.KMSKeyID)
+	}
+
+	if enc.KMSContext != "" {
+		r.Header.Set(headerSSEKMSEncryptionContext, enc.KMSContext)
+	}
 }

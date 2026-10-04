@@ -730,12 +730,21 @@ func (h *S3Handler) createSession(
 
 	mode := types.SessionMode(r.Header.Get("X-Amz-Create-Session-Mode"))
 
-	creds, err := h.Backend.CreateSession(ctx, bucket, mode)
+	enc, err := parseSessionEncryption(r, bucket)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
+
+	creds, err := h.Backend.CreateSessionWithEncryption(ctx, bucket, mode, enc)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	setSessionEncryptionHeaders(w, enc)
 
 	httputils.WriteXML(ctx, w, http.StatusOK, createSessionResult{
 		Xmlns: xmlNamespaceS3,
