@@ -26752,6 +26752,7 @@
       "ArchivedMessage.Attributes map[string]MessageAttribute",
       "ArchivedMessage.Message string",
       "ArchivedMessage.MessageID string",
+      "ArchivedMessage.Structure string",
       "ArchivedMessage.Subject string",
       "ArchivedMessage.Timestamp time.Time",
       "MessageAttribute.DataType string",
