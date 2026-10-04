@@ -32,6 +32,9 @@ func allowedWeakHashFiles() map[string]string {
 		// header. Content-integrity checksum, never a credential.
 		"services/s3/checksum.go": "S3 ChecksumAlgorithm SHA1 verification, verified",
 
+		// Verified 2026-10-03: the IoT SQL reference defines md5() and sha1() as rule functions over payload data, never credentials.
+		"services/iot/sql_funcs_message.go": "IoT SQL md5()/sha1() functions, verified",
+
 		// Pre-existing at the time this guard was added, and NOT individually
 		// audited. Each is presumed an AWS-protocol requirement -- S3 ETags are
 		// MD5 by specification, TOTP is HMAC-SHA1 by RFC 6238, key-pair
