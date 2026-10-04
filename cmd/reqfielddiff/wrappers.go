@@ -1,6 +1,9 @@
 package main
 
-import "go/ast"
+import (
+	"go/ast"
+	"slices"
+)
 
 // goStringType is the Go builtin `string` identifier's own name, shared by
 // every scalar/map-key type check in this file and mapfields.go/
@@ -313,4 +316,85 @@ func callbackTargetsTypeParam(ft *ast.FuncType, typeParams map[string]bool) bool
 	}
 
 	return name != "" && typeParams[name]
+}
+
+// collectQueryKeyForwarders finds every package func or method that forwards
+// any of its string parameters, directly or via another forwarder, into a
+// query read (efs' describeListResponse passing maxKey to queryInt).
+func collectQueryKeyForwarders(files []*ast.File, base map[string]int) map[string][]int {
+	out := map[string][]int{}
+	for name, idx := range base {
+		out[name] = []int{idx}
+	}
+
+	for range maxForwarderRounds {
+		changed := false
+
+		for _, f := range files {
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Body == nil || fd.Type.Params == nil {
+					continue
+				}
+
+				if addForwardedParams(fd, out) {
+					changed = true
+				}
+			}
+		}
+
+		if !changed {
+			break
+		}
+	}
+
+	return out
+}
+
+const maxForwarderRounds = 4
+
+func addForwardedParams(fd *ast.FuncDecl, out map[string][]int) bool {
+	changed := false
+
+	for _, p := range namedParamsMatching(fd.Type.Params, isStringType) {
+		if slices.Contains(out[fd.Name.Name], p.idx) || !paramForwardedToQuery(fd, p.name, out) {
+			continue
+		}
+
+		out[fd.Name.Name] = append(out[fd.Name.Name], p.idx)
+		changed = true
+	}
+
+	return changed
+}
+
+func paramForwardedToQuery(fd *ast.FuncDecl, param string, known map[string][]int) bool {
+	found := false
+
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if found || !ok {
+			return !found
+		}
+
+		for i, arg := range call.Args {
+			if id, isIdent := arg.(*ast.Ident); !isIdent || id.Name != param {
+				continue
+			}
+
+			if isQueryReadCall(call) || slices.Contains(known[callName(call.Fun)], i) {
+				found = true
+			}
+		}
+
+		return !found
+	})
+
+	return found
+}
+
+func isQueryReadCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+
+	return ok && (queryParamSelectors[sel.Sel.Name] || isInlineQueryGet(sel))
 }

@@ -30,8 +30,11 @@ type handlerResolveCtx struct {
 	genericDecodeWrappers map[string]int
 	decodeDstWrappers     map[string]int
 	queryAccessorWrappers map[string]int
+	queryKeyForwarders    map[string][]int
 	subPackages           map[string]subPackageIndex
 	pkgConsts             map[string]string
+	dispatchAlts          map[string][]ast.Expr
+	opName                string
 }
 
 // subPackageIndex is the same structural index as handlerResolveCtx's own
@@ -264,15 +267,16 @@ func collectDispatchEntries(
 	files []*ast.File,
 	pkgConsts map[string]string,
 	funcTypeNames, namedMapTypes map[string]bool,
-) map[string]ast.Expr {
+) (map[string]ast.Expr, map[string][]ast.Expr) {
 	out := map[string]ast.Expr{}
+	alts := map[string][]ast.Expr{}
 
-	collectMapLiteralEntries(files, pkgConsts, funcTypeNames, namedMapTypes, out)
+	collectMapLiteralEntries(files, pkgConsts, funcTypeNames, namedMapTypes, out, alts)
 	collectBinderSliceEntries(files, pkgConsts, out)
 	collectSwitchDispatchEntries(files, pkgConsts, out)
 	collectIndexAssignEntries(files, pkgConsts, out)
 
-	return out
+	return out, alts
 }
 
 // collectIndexAssignEntries handles `ops["Op"] = h.handleX` statements (ec2's
@@ -339,11 +343,33 @@ func addSwitchCaseEntries(cc *ast.CaseClause, pkgConsts map[string]string, out m
 		return
 	}
 
+	if !isDispatchSwitchReturn(ret) {
+		return
+	}
+
 	for _, caseExpr := range cc.List {
-		if key, resolved := resolveStringExpr(caseExpr, pkgConsts); resolved {
+		key, resolved := resolveStringExpr(caseExpr, pkgConsts)
+		if _, exists := out[key]; resolved && !exists {
 			out[key] = ret
 		}
 	}
+}
+
+// isDispatchSwitchReturn accepts only a call without string-literal
+// arguments; extractField(c, "EndpointArn") style switches are not dispatch.
+func isDispatchSwitchReturn(ret ast.Expr) bool {
+	call, ok := ret.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+
+	for _, a := range call.Args {
+		if lit, isLit := a.(*ast.BasicLit); isLit && lit.Kind == token.STRING {
+			return false
+		}
+	}
+
+	return true
 }
 
 func collectMapLiteralEntries(
@@ -351,6 +377,7 @@ func collectMapLiteralEntries(
 	pkgConsts map[string]string,
 	funcTypeNames, namedMapTypes map[string]bool,
 	out map[string]ast.Expr,
+	alts map[string][]ast.Expr,
 ) {
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -365,9 +392,16 @@ func collectMapLiteralEntries(
 					continue
 				}
 
-				if key, resolved := resolveStringExpr(kv.Key, pkgConsts); resolved {
-					out[key] = kv.Value
+				key, resolved := resolveStringExpr(kv.Key, pkgConsts)
+				if !resolved {
+					continue
 				}
+
+				if prev, exists := out[key]; exists {
+					alts[key] = append(alts[key], prev)
+				}
+
+				out[key] = kv.Value
 			}
 
 			return true

@@ -58,6 +58,7 @@ type opResolution struct {
 	Found              bool
 	HasSignal          bool
 	FormLoopUnresolved bool
+	sdkInputDecoded    bool
 }
 
 // resolveOp finds the emulator's declared field set for op op. It tries
@@ -74,18 +75,58 @@ type opResolution struct {
 func resolveOp(op sdkOp, dispatch map[string]ast.Expr, ctx handlerResolveCtx) opResolution {
 	res := opResolution{Fields: map[string]emuField{}}
 	formKeys := formFieldKeys(op)
+	ctx.opName = op.Name
 
 	if expr, ok := dispatch[op.Name]; ok {
-		if dres, resolved := resolveDispatchValue(expr, ctx, formKeys); resolved {
+		if dres, resolved := resolveBestDispatchValue(op, expr, ctx, formKeys); resolved {
 			mergeResolution(&res, dres)
 		}
 	}
 
-	if fd, _ := findHandlerByName(op.Name, ctx); fd != nil {
+	if fd, _ := findHandlerByName(op.Name, ctx); fd != nil && !res.HasSignal {
 		mergeResolution(&res, scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd), formKeys))
 	}
 
+	if res.sdkInputDecoded {
+		for _, f := range op.Fields {
+			res.Fields[normalizeWireName(f.Name)] = emuField{WireName: f.Name, GoName: f.Name}
+		}
+	}
+
 	return res
+}
+
+// resolveBestDispatchValue resolves expr plus any same-keyed entry from a
+// second in-package table, keeping the candidate whose declared fields best
+// overlap op's own SDK fields (redshift classic vs serverless).
+func resolveBestDispatchValue(
+	op sdkOp,
+	expr ast.Expr,
+	ctx handlerResolveCtx,
+	formKeys map[string]string,
+) (opResolution, bool) {
+	best, ok := resolveDispatchValue(expr, ctx, formKeys)
+
+	for _, alt := range ctx.dispatchAlts[op.Name] {
+		cand, candOK := resolveDispatchValue(alt, ctx, formKeys)
+		if candOK && (!ok || sdkOverlap(op, cand) > sdkOverlap(op, best)) {
+			best, ok = cand, true
+		}
+	}
+
+	return best, ok
+}
+
+func sdkOverlap(op sdkOp, res opResolution) int {
+	n := 0
+
+	for _, f := range op.Fields {
+		if _, ok := res.Fields[normalizeWireName(f.Name)]; ok {
+			n++
+		}
+	}
+
+	return n
 }
 
 func mergeResolution(dst *opResolution, src opResolution) {
@@ -99,6 +140,10 @@ func mergeResolution(dst *opResolution, src opResolution) {
 
 	if src.FormLoopUnresolved {
 		dst.FormLoopUnresolved = true
+	}
+
+	if src.sdkInputDecoded {
+		dst.sdkInputDecoded = true
 	}
 
 	if dst.FromHandler == "" {
@@ -181,7 +226,16 @@ func resolveCalleeBody(fn ast.Expr, ctx handlerResolveCtx, formKeys map[string]s
 func lookupFuncDecl(fn ast.Expr, ctx handlerResolveCtx) *ast.FuncDecl {
 	switch v := fn.(type) {
 	case *ast.SelectorExpr:
-		if cands, ok := ctx.methods[v.Sel.Name]; ok && len(cands) > 0 {
+		cands := ctx.methods[v.Sel.Name]
+		if recvType := methodExprType(v.X); recvType != "" {
+			for _, c := range cands {
+				if receiverTypeName(c) == recvType {
+					return c
+				}
+			}
+		}
+
+		if len(cands) > 0 {
 			return cands[0]
 		}
 	case *ast.Ident:
@@ -191,6 +245,24 @@ func lookupFuncDecl(fn ast.Expr, ctx handlerResolveCtx) *ast.FuncDecl {
 	}
 
 	return nil
+}
+
+// methodExprType returns T for a method expression's receiver `(*T)` or `T`.
+func methodExprType(x ast.Expr) string {
+	p, ok := x.(*ast.ParenExpr)
+	if !ok {
+		return ""
+	}
+
+	return underlyingIdentType(unwrapParen(p))
+}
+
+func receiverTypeName(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return ""
+	}
+
+	return underlyingIdentType(fd.Recv.List[0].Type)
 }
 
 func funcKey(fd *ast.FuncDecl) string {
@@ -254,6 +326,7 @@ func scanBody(
 	formChainVisited := map[*ast.FuncDecl]bool{}
 
 	if hop == 0 {
+		matchSignatureReqStruct(fl, ctx, res)
 		matchOwnParamNames(fl, formKeys, res)
 		matchPathSegmentLocalNames(fl, ctx, formKeys, res)
 	}
@@ -290,6 +363,9 @@ func scanBody(
 		matchGenericCallbackCall(call, ctx, res)
 		matchFormReadCall(call, urlValuesNames, formKeys, ctx, res, localLits, formChainVisited)
 		matchHeaderReadCall(call, formKeys, ctx, res)
+		matchHeaderHelperCall(call, formKeys, ctx, res)
+		matchRequestFormCall(call, formKeys, res, localLits)
+		matchGenericInstantiationDecode(call, ctx, res)
 		matchMapFieldCall(call, mapNames, ctx, res)
 
 		if hop < maxHop {
@@ -321,6 +397,10 @@ func matchDecodeCall(call *ast.CallExpr, bindings map[string]string, ctx handler
 
 		typeName, ok := bindings[id.Name]
 		if !ok {
+			continue
+		}
+
+		if addSDKInputDecode(typeName, ctx, res) {
 			continue
 		}
 
@@ -448,22 +528,19 @@ func declareLiteralField(res *opResolution, name string) {
 // with a literal (or resolvable package const) argument at the wrapper's
 // own forwarded-name position.
 func matchQueryAccessorWrapperCall(call *ast.CallExpr, ctx handlerResolveCtx, res *opResolution) {
-	id, ok := call.Fun.(*ast.Ident)
-	if !ok {
+	if !isBareOrHandlerCall(call.Fun) {
 		return
 	}
 
-	idx, ok := ctx.queryAccessorWrappers[id.Name]
-	if !ok || idx >= len(call.Args) {
-		return
-	}
+	for _, idx := range ctx.queryKeyForwarders[callName(call.Fun)] {
+		if idx >= len(call.Args) {
+			continue
+		}
 
-	name, ok := resolveStringExpr(call.Args[idx], ctx.pkgConsts)
-	if !ok || name == "" {
-		return
+		if name, ok := resolveStringExpr(call.Args[idx], ctx.pkgConsts); ok && name != "" {
+			declareLiteralField(res, name)
+		}
 	}
-
-	declareLiteralField(res, name)
 }
 
 // matchReturnsStructCall recognises a call to a package func, or a method on
