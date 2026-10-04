@@ -2,7 +2,6 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
 	"hash/crc32"
 	"log/slog"
 	"net/http"
@@ -52,7 +51,9 @@ func (h *DynamoDBHandler) handleCBORRequest(
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	jsonPayload, err := json.Marshal(response)
+	jsonPayload, release, err := marshalResponse(response)
+	defer release()
+
 	if err != nil {
 		log.ErrorContext(ctx, "failed to marshal DynamoDB response", "error", err)
 

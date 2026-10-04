@@ -23,7 +23,7 @@ const (
 func (db *InMemoryDB) SetMetricEmitter(e cwmetric.Emitter) { db.metrics.Set(e) }
 
 func ddbTableDim(table string) cwmetric.Dimension {
-	return cwmetric.Dimension{Name: "TableName", Value: table}
+	return cwmetric.Dimension{Name: wireTableName, Value: table}
 }
 
 func (db *InMemoryDB) emitRCU(region, table string, units float64) {

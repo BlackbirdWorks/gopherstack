@@ -365,14 +365,16 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 				"InternalFailure", "internal server error")
 		}
 
-		log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
+		logRequestBody(ctx, log, action, body)
 
 		response, reqErr := h.dispatch(ctx, action, body)
 		if reqErr != nil {
 			return h.handleError(ctx, c, action, reqErr)
 		}
 
-		payload, err := json.Marshal(response)
+		payload, release, err := marshalResponse(response)
+		defer release()
+
 		if err != nil {
 			log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
 
@@ -385,6 +387,13 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 		return c.JSONBlob(http.StatusOK, payload)
+	}
+}
+
+// logRequestBody logs the body only when debug is on, avoiding a body-sized string copy per request.
+func logRequestBody(ctx context.Context, log *slog.Logger, action string, body []byte) {
+	if log.Enabled(ctx, slog.LevelDebug) {
+		log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
 	}
 }
 
@@ -434,22 +443,27 @@ func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	// Struct decode, not map[string]any: this runs on every request.
-	var data struct {
-		TableName string `json:"TableName"`
-		BackupArn string `json:"BackupArn"`
-	}
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
-		return ""
+	tableName, backupArn, ok := topLevelStrings(body)
+	if !ok {
+		// Struct decode, not map[string]any: this runs on every request.
+		var data struct {
+			TableName string `json:"TableName"`
+			BackupArn string `json:"BackupArn"`
+		}
+		if uerr := json.Unmarshal(body, &data); uerr != nil {
+			return ""
+		}
+
+		tableName, backupArn = data.TableName, data.BackupArn
 	}
 
-	if data.TableName != "" {
-		return data.TableName
+	if tableName != "" {
+		return tableName
 	}
 
 	// Backup operations carry BackupArn instead of TableName.
-	if data.BackupArn != "" {
-		return extractTableFromBackupARN(data.BackupArn)
+	if backupArn != "" {
+		return extractTableFromBackupARN(backupArn)
 	}
 
 	return ""
@@ -755,6 +769,10 @@ func (h *DynamoDBHandler) dispatchItemOps(
 	action string,
 	body []byte,
 ) (any, error) {
+	if resp, handled, err := h.dispatchItemFast(ctx, action, body); handled {
+		return resp, err
+	}
+
 	switch action {
 	case opPutItem:
 		return handleOpErr(

@@ -452,16 +452,38 @@ func (db *InMemoryDB) getItemOp(
 	ctx context.Context,
 	input *dynamodb.GetItemInput,
 ) (*dynamodb.GetItemOutput, error) {
+	result, cc, err := db.getItemCore(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if result == nil {
+		return &dynamodb.GetItemOutput{}, nil
+	}
+
+	sdkItem, err := models.ToSDKItem(result)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamodb.GetItemOutput{Item: sdkItem, ConsumedCapacity: cc}, nil
+}
+
+// getItemCore returns the (projected) wire item, or nil when the item is absent or expired.
+func (db *InMemoryDB) getItemCore(
+	ctx context.Context,
+	input *dynamodb.GetItemInput,
+) (map[string]any, *types.ConsumedCapacity, error) {
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Validate projection params before taking any lock.
 	projExpr := aws.ToString(input.ProjectionExpression)
 	if projErr := validateProjectionParams(projExpr, input.AttributesToGet); projErr != nil {
-		return nil, projErr
+		return nil, nil, projErr
 	}
 
 	consistentRead := aws.ToBool(input.ConsistentRead)
@@ -503,11 +525,11 @@ func (db *InMemoryDB) getItemOp(
 	}()
 
 	if tableErr != nil {
-		return nil, tableErr
+		return nil, nil, tableErr
 	}
 
 	if item == nil || isItemExpired(item, ttlAttr) {
-		return &dynamodb.GetItemOutput{}, nil
+		return nil, nil, nil
 	}
 
 	// Resolve effective projection (fallback to AttributesToGet).
@@ -517,22 +539,21 @@ func (db *InMemoryDB) getItemOp(
 	if effectiveProj != "" {
 		result, err = projectItem(item, effectiveProj, mergeAttrNames(input.ExpressionAttributeNames, atgNames))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	sdkItem, err := models.ToSDKItem(result)
-	if err != nil {
-		return nil, err
+	if result == nil {
+		result = map[string]any{}
 	}
 
-	out := &dynamodb.GetItemOutput{Item: sdkItem}
+	var cc *types.ConsumedCapacity
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
 		// RCU on a read is ceil(item-size / 4 KB) * 0.5 (eventually consistent)
 		// or doubled when ConsistentRead=true. Matches the real AWS formula.
 		readUnits := applyConsistentReadMultiplier(ReadCapacityUnits(item), consistentRead)
-		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
+		cc = buildConsumedCapacityWithIndexes(
 			aws.ToString(input.TableName),
 			input.ReturnConsumedCapacity,
 			readUnits, 0,
@@ -541,7 +562,7 @@ func (db *InMemoryDB) getItemOp(
 		)
 	}
 
-	return out, nil
+	return result, cc, nil
 }
 
 func (db *InMemoryDB) deleteItemOp(

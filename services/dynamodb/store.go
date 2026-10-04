@@ -615,6 +615,14 @@ func BuildKeyString(item map[string]any, attrName string) string {
 	}
 
 	if m, isMap := val.(map[string]any); isMap {
+		if v, found := onlyAttrValue(m); found {
+			if s, isStr := v.(string); isStr {
+				return s
+			}
+
+			return dynamoattr.ToString(val)
+		}
+
 		for _, v := range m {
 			if s, isStr := v.(string); isStr {
 				return s
@@ -625,6 +633,21 @@ func BuildKeyString(item map[string]any, attrName string) string {
 	}
 
 	return dynamoattr.ToString(val)
+}
+
+// onlyAttrValue returns the value of a one-entry wire attribute map without starting a map iteration.
+func onlyAttrValue(m map[string]any) (any, bool) {
+	if len(m) != 1 {
+		return nil, false
+	}
+
+	for _, t := range attrTypeKeys {
+		if v, ok := m[t]; ok {
+			return v, true
+		}
+	}
+
+	return nil, false
 }
 
 // BuildKeyStringFromSDK extracts the string key directly from an SDK AttributeValue map
