@@ -409,7 +409,7 @@ func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
 		app.ApplicationID,
 		"",
 		0,
-		emrserverlessbackend.JobRunStateCancelled,
+		emrserverlessbackend.JobRunFilter{States: []string{emrserverlessbackend.JobRunStateCancelled}},
 	)
 	require.NoError(t, err)
 	assert.Len(t, runs, 1)
@@ -420,14 +420,14 @@ func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
 		app.ApplicationID,
 		"",
 		0,
-		emrserverlessbackend.JobRunStateSubmitted,
+		emrserverlessbackend.JobRunFilter{States: []string{emrserverlessbackend.JobRunStateSubmitted}},
 	)
 	require.NoError(t, err)
 	assert.Len(t, runs, 1)
 	assert.Equal(t, emrserverlessbackend.JobRunStateSubmitted, runs[0].State)
 
 	// No filter: should return all 2.
-	runs, _, err = stack.EmrServerlessHandler.Backend.ListJobRuns(app.ApplicationID, "", 0)
+	runs, _, err = stack.EmrServerlessHandler.Backend.ListJobRuns(app.ApplicationID, "", 0, emrserverlessbackend.JobRunFilter{})
 	require.NoError(t, err)
 	assert.Len(t, runs, 2)
 }
