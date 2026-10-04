@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- No in-process CloudWatch metrics are published for AWS/Kinesis (IncomingBytes, IncomingRecords, GetRecords.*; dimensions StreamName, ShardId); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions.
+- AWS/Kinesis stream-level metrics are emitted; enhanced shard-level metrics (ShardId dimension), SubscribeToShard.* and the Read/WriteProvisionedThroughputExceeded counts outside the FIS throughput fault are not (no per-shard throughput model). (gopherstack-4m1qr)
 - Channel S3Tables (Iceberg) delivery is unmodeled (no services/s3tables data-file write path): such a channel accepts PutRecord but never buffers or flushes. Plain S3 delivery is real. (gopherstack-s781r)
 - Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format; OutputKeyTemplate's documented validation rules (length cap, no traversal) are unenforced at Create/UpdateChannel (rules live only in AWS docs, not the SDK). (gopherstack-s781r)
 - Buffered-but-unflushed channel records are not persisted (channelBuffers is in-memory by design); Shutdown/DeleteChannel/DeleteStream flush first, only a crash loses them. (gopherstack-s781r)

@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 50 (48 ok, 2 partial) |
+| PARITY entries audited | 50 (49 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
 | Known gaps | 3 |
 | Deferred items | 5 |
@@ -16,7 +16,7 @@
 ### Known gaps
 
 - ListMetrics.IncludeLinkedAccounts (cross-account observability) is not modeled: this backend is single-account/single-tenant with no linked-account concept at all, so there is no other account's metrics for this flag to include or exclude. See ListMetrics family note.
-- PutInsightRule.ApplyOnTransformedLogs is not modeled: this backend has no Contributor Insights evaluation engine (PutInsightRule only validates/stores RuleDefinition JSON, no real log-matching ever runs), so there is no evaluation for this flag to gate. See PutInsightRule family note.
+- PutInsightRule.ApplyOnTransformedLogs is not modeled: Contributor Insights evaluation reads original log events only (no transformer-applied view of CloudWatch Logs events exists to evaluate), so this flag has nothing to gate. See PutInsightRule family note.
 - PutMetricAlarm.EvaluationWindow (wall-clock-aligned evaluation window, vs. the default sliding window this backend always uses) is unimplemented -- one of the MetricAlarm fields the 'deferred' list below already flagged as out of scope for a same-pass retrofit onto the ~15-file MetricAlarm type. See PutMetricAlarm family note.
 
 ### Deferred

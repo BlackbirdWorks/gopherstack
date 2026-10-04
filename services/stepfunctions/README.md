@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- No in-process CloudWatch metrics are published for AWS/States (ExecutionsStarted/Succeeded/Failed; dimension StateMachineArn); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions.
+- AWS/States execution metrics are emitted for every terminal status the emulator produces; ServiceIntegration* metrics, ExecutionThrottled and ExecutionsTimedOut for STANDARD workflows (timeouts surface as FAILED) are not emitted. (gopherstack-4m1qr)
 - ItemReader: ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported; the docs do not specify the manifest format precisely enough to implement) and InputType=PARQUET (asl.ErrParquetUnsupported; no pure-Go Parquet reader in go.mod) fail with distinct sentinel errors rather than mis-decoding.
 - A closed STANDARD execution's name becomes reusable once ExecutionRetention (default 24h) prunes it, not AWS's fixed 90 days after close (bd: gopherstack-1sf).
 - No TaskSubmitted/TaskStarted history events are emitted for .sync/.waitForTaskToken Task states; this emulator models neither event kind (bd: gopherstack-996).

@@ -14,7 +14,7 @@
 
 ### Known gaps
 
-- No in-process CloudWatch metrics are published for AWS/DynamoDB (ConsumedRead/WriteCapacityUnits, SuccessfulRequestLatency; dimensions TableName, Operation); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions.
+- AWS/DynamoDB metrics are emitted for the item ops, Query/Scan and Batch ops; GlobalSecondaryIndexName-dimensioned capacity, SystemErrors, ReturnedBytes/ReturnedRecordsCount, and per-op latency/errors for TransactWriteItems/TransactGetItems/PartiQL are not (PartiQL and Transact ops still emit consumed capacity). (gopherstack-4m1qr)
 - No vector-index model: SearchVectors always ResourceNotFoundException for the index; VectorIndexes on CreateTable/UpdateTable/GSI actions and VectorIndexOverride on both restore ops are absent (search_vectors.go validates the request shape).
 - Other unmodeled-subsystem fields, left nil rather than fabricated: WarmThroughput (AWS default values unverified), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime, BackupExpiryDateTime (SYSTEM backups only), DescribeContributorInsights FailureException (no failure model).
 
