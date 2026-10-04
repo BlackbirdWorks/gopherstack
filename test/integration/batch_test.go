@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -496,6 +497,10 @@ func TestIntegration_Batch_ListJobsAllQueues(t *testing.T) {
 			JobQueue:  q.JobQueueName,
 			JobStatus: batchtypes.JobStatusSubmitted,
 		})
+		// Parallel tests may delete their queues between Describe and List.
+		if lerr != nil && strings.Contains(lerr.Error(), "not found") {
+			continue
+		}
 		require.NoError(t, lerr)
 		for _, s := range listOut.JobSummaryList {
 			if aws.ToString(s.JobId) == aws.ToString(submitOut.JobId) {

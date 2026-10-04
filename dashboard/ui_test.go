@@ -159,13 +159,13 @@ func TestSystemRegions(t *testing.T) {
 	}{
 		{
 			name:         "returns seeded regions sorted and deduped",
-			seed:         []string{"ui-test-region-b", "ui-test-region-a", "ui-test-region-a"},
-			wantContains: []string{"ui-test-region-a", "ui-test-region-b"},
+			seed:         []string{"zz-uitestb-1", "zz-uitesta-1", "zz-uitesta-1"},
+			wantContains: []string{"zz-uitesta-1", "zz-uitestb-1"},
 		},
 		{
 			name:         "single seeded region present",
-			seed:         []string{"ui-test-region-solo"},
-			wantContains: []string{"ui-test-region-solo"},
+			seed:         []string{"zz-uitestsolo-1"},
+			wantContains: []string{"zz-uitestsolo-1"},
 		},
 	}
 
